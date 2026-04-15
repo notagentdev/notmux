@@ -244,6 +244,21 @@ impl Render for SearchBar {
             .child(div().text_size(ui_text_md(cx)).text_color(rgb(t.text_secondary)).min_w(px(40.0)).child(match_text))
             .child(icon_button_sized("search-prev-btn", "icons/chevron-up.svg", 24.0, 14.0, &t).on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); }).on_click(cx.listener(|this, _, _window, cx| { this.prev_match(cx); })))
             .child(icon_button_sized("search-next-btn", "icons/chevron-down.svg", 24.0, 14.0, &t).on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); }).on_click(cx.listener(|this, _, _window, cx| { this.next_match(cx); })))
-            .child(icon_button_sized("search-close-btn", "icons/close.svg", 24.0, 14.0, &t).hover(|s| s.bg(rgba(0xf14c4c99))).on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); }).on_click(cx.listener(|this, _, _window, cx| { this.close(cx); })))
+            .child(
+                div()
+                    .id("search-close-btn")
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .w(px(24.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
+                    .hover(|s| s.bg(rgba(0xf14c4c99)))
+                    .child(svg().path("icons/close.svg").size(px(14.0)).text_color(rgb(t.text_secondary)))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+                    .on_click(cx.listener(|this, _, _window, cx| { this.close(cx); }))
+            )
     }
 }

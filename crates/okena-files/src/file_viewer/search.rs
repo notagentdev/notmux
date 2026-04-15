@@ -368,8 +368,18 @@ impl FileViewer {
                 })),
             )
             .child(
-                icon_button_sized("file-search-close-btn", "icons/close.svg", 24.0, 14.0, t)
+                div()
+                    .id("file-search-close-btn")
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .w(px(24.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(3.0))
                     .hover(|s| s.bg(gpui::rgba(0xf14c4c99)))
+                    .child(svg().path("icons/close.svg").size(px(14.0)).text_color(rgb(t.text_secondary)))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
