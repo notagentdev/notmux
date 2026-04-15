@@ -1,0 +1,222 @@
+//! Terminal-specific workspace actions
+//!
+//! Actions for managing individual terminals within projects.
+
+use okena_terminal::shell_config::ShellType;
+use crate::state::{LayoutNode, Workspace};
+use gpui::*;
+
+impl Workspace {
+    /// Set terminal ID at a layout path
+    pub fn set_terminal_id(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        terminal_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.with_project(project_id, cx, |project| {
+            if let Some(ref mut layout) = project.layout {
+                if let Some(node) = layout.get_at_path_mut(path) {
+                    if let LayoutNode::Terminal { terminal_id: id, .. } = node {
+                        *id = Some(terminal_id);
+                        return true;
+                    }
+                }
+            }
+            false
+        });
+    }
+
+    /// Set shell type for a terminal at a layout path
+    pub fn set_terminal_shell(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        shell_type: ShellType,
+        cx: &mut Context<Self>,
+    ) {
+        self.with_layout_node(project_id, path, cx, |node| {
+            if let LayoutNode::Terminal { shell_type: st, .. } = node {
+                *st = shell_type;
+                return true;
+            }
+            false
+        });
+    }
+
+    /// Get shell type for a terminal at a layout path
+    pub fn get_terminal_shell(&self, project_id: &str, path: &[usize]) -> Option<ShellType> {
+        let project = self.project(project_id)?;
+        if let Some(LayoutNode::Terminal { shell_type, .. }) = project.layout.as_ref().and_then(|l| l.get_at_path(path)) {
+            Some(shell_type.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Rename a terminal
+    pub fn rename_terminal(
+        &mut self,
+        project_id: &str,
+        terminal_id: &str,
+        new_name: String,
+        cx: &mut Context<Self>,
+    ) {
+        let terminal_id = terminal_id.to_string();
+        self.with_project(project_id, cx, |project| {
+            project.terminal_names.insert(terminal_id, new_name);
+            true
+        });
+    }
+
+    /// Set terminal hidden state
+    #[allow(dead_code)] // API for future terminal visibility control
+    pub fn set_terminal_hidden(
+        &mut self,
+        project_id: &str,
+        terminal_id: &str,
+        hidden: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let terminal_id = terminal_id.to_string();
+        self.with_project(project_id, cx, |project| {
+            project.hidden_terminals.insert(terminal_id, hidden);
+            true
+        });
+    }
+
+    /// Restore (un-minimize) a terminal at a path
+    pub fn restore_terminal(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) {
+        self.with_layout_node(project_id, path, cx, |node| {
+            if let LayoutNode::Terminal { minimized, .. } = node {
+                *minimized = false;
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+    /// Toggle terminal minimized state by terminal ID (finds path automatically)
+    pub fn toggle_terminal_minimized_by_id(
+        &mut self,
+        project_id: &str,
+        terminal_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(project) = self.project_mut(project_id) {
+            if let Some(ref mut layout) = project.layout {
+                if let Some(path) = layout.find_terminal_path(terminal_id) {
+                    if let Some(node) = layout.get_at_path_mut(&path) {
+                        if let LayoutNode::Terminal { minimized, .. } = node {
+                            *minimized = !*minimized;
+                            self.notify_data(cx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if a terminal is minimized by ID
+    pub fn is_terminal_minimized(&self, project_id: &str, terminal_id: &str) -> bool {
+        if let Some(project) = self.project(project_id) {
+            if let Some(ref layout) = project.layout {
+                if let Some(path) = layout.find_terminal_path(terminal_id) {
+                    if let Some(LayoutNode::Terminal { minimized, .. }) = layout.get_at_path(&path) {
+                        return *minimized;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Detach a terminal to a separate window.
+    /// Sets the detached flag on the layout node (single source of truth).
+    /// Returns true if the terminal was successfully detached.
+    pub fn detach_terminal(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.with_layout_node(project_id, path, cx, |node| {
+            if let LayoutNode::Terminal { terminal_id: Some(_), detached, .. } = node {
+                if !*detached {
+                    *detached = true;
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    /// Re-attach a detached terminal back to its original location.
+    /// Scans all project layouts to find the terminal and clear the detached flag.
+    pub fn attach_terminal(&mut self, terminal_id: &str, cx: &mut Context<Self>) {
+        for project in &mut self.data.projects {
+            if let Some(ref mut layout) = project.layout {
+                if let Some(path) = layout.find_terminal_path(terminal_id) {
+                    if let Some(node) = layout.get_at_path_mut(&path) {
+                        if let LayoutNode::Terminal { detached, .. } = node {
+                            *detached = false;
+                        }
+                    }
+                    self.notify_data(cx);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Check if a terminal is detached by scanning layout trees.
+    pub fn is_terminal_detached(&self, terminal_id: &str) -> bool {
+        for project in &self.data.projects {
+            if let Some(ref layout) = project.layout {
+                if let Some(path) = layout.find_terminal_path(terminal_id) {
+                    if let Some(LayoutNode::Terminal { detached, .. }) = layout.get_at_path(&path) {
+                        return *detached;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Get the zoom level for a terminal at the given path
+    pub fn get_terminal_zoom(&self, project_id: &str, path: &[usize]) -> f32 {
+        self.project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .and_then(|l| l.get_at_path(path))
+            .and_then(|node| {
+                if let LayoutNode::Terminal { zoom_level, .. } = node {
+                    Some(*zoom_level)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(1.0)
+    }
+
+    /// Set the zoom level for a terminal at the given path
+    pub fn set_terminal_zoom(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        zoom: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let clamped = zoom.clamp(0.5, 3.0);
+        self.with_layout_node(project_id, path, cx, |node| {
+            if let LayoutNode::Terminal { zoom_level, .. } = node {
+                *zoom_level = clamped;
+                true
+            } else {
+                false
+            }
+        });
+    }
+
+}

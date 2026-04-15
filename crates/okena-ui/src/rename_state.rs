@@ -1,0 +1,88 @@
+//! Reusable rename state management.
+//!
+//! Provides a generic helper for inline rename functionality with SimpleInput.
+
+use crate::simple_input::SimpleInputState;
+use gpui::*;
+
+/// State for an active rename operation.
+///
+/// Generic over the ID type that identifies what is being renamed.
+pub struct RenameState<Id> {
+    /// The ID of the item being renamed
+    pub target: Id,
+    /// The input entity for editing the name
+    pub input: Entity<SimpleInputState>,
+    /// Holds the blur subscription alive so the on_blur handler fires
+    _blur_subscription: Option<Subscription>,
+}
+
+impl<Id> RenameState<Id> {
+    /// Get the current input value.
+    pub fn value(&self, cx: &App) -> String {
+        self.input.read(cx).value().to_string()
+    }
+}
+
+/// Start a rename operation with a blur handler.
+///
+/// Creates a new `RenameState` with a configured `SimpleInputState`.
+/// Sets up a blur handler that will be called when the input loses focus.
+pub fn start_rename_with_blur<Id, V, F>(
+    target: Id,
+    current_name: &str,
+    placeholder: &str,
+    on_blur: F,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) -> RenameState<Id>
+where
+    Id: Clone + 'static,
+    V: 'static,
+    F: Fn(&mut V, &mut Window, &mut Context<V>) + 'static,
+{
+    let input = cx.new(|cx| {
+        SimpleInputState::new(cx)
+            .placeholder(placeholder)
+            .default_value(current_name)
+    });
+
+    let focus_handle = input.read(cx).focus_handle(cx);
+    let subscription = cx.on_blur(&focus_handle, window, on_blur);
+    window.focus(&focus_handle, cx);
+
+    RenameState { target, input, _blur_subscription: Some(subscription) }
+}
+
+/// Finish a rename operation and get the result.
+///
+/// Returns `Some((target, new_name))` if the rename was active and the name is not empty.
+/// Returns `None` if the state was `None` or the input was empty.
+pub fn finish_rename<Id>(
+    state: &mut Option<RenameState<Id>>,
+    cx: &App,
+) -> Option<(Id, String)> {
+    let rename_state = state.take()?;
+    let new_name = rename_state.value(cx);
+
+    if new_name.is_empty() {
+        None
+    } else {
+        Some((rename_state.target, new_name))
+    }
+}
+
+/// Cancel a rename operation without applying changes.
+pub fn cancel_rename<Id>(state: &mut Option<RenameState<Id>>) {
+    *state = None;
+}
+
+/// Check if a rename is active for a specific target.
+pub fn is_renaming<Id: PartialEq>(state: &Option<RenameState<Id>>, target: &Id) -> bool {
+    state.as_ref().map_or(false, |s| &s.target == target)
+}
+
+/// Get the input entity from an active rename state.
+pub fn rename_input<Id>(state: &Option<RenameState<Id>>) -> Option<&Entity<SimpleInputState>> {
+    state.as_ref().map(|s| &s.input)
+}

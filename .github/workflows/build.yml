@@ -1,0 +1,342 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+
+jobs:
+  # Runs on every push: Linux check + tests
+  check:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93"
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: x86_64-unknown-linux-gnu
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libegl1-mesa-dev \
+            libssl-dev \
+            libfontconfig-dev \
+            pkg-config \
+            cmake
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build web client
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - name: Check compilation
+        run: cargo check --release
+
+      - name: Run tests
+        run: cargo test
+
+  # Mobile builds: Android APK + iOS
+  build-mobile:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: android
+            artifact: okena-android
+          - os: macos-latest
+            platform: ios
+            artifact: okena-ios
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93"
+
+      - name: Add Android Rust targets
+        if: matrix.platform == 'android'
+        run: |
+          rustup target add armv7-linux-androideabi
+          rustup target add aarch64-linux-android
+          rustup target add x86_64-linux-android
+          rustup target add i686-linux-android
+
+      - name: Add iOS Rust targets
+        if: matrix.platform == 'ios'
+        run: |
+          rustup target add aarch64-apple-ios
+          rustup target add x86_64-apple-ios
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mobile-${{ matrix.platform }}
+          workspaces: mobile/native
+
+      - name: Setup Java (Android)
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter pub get
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build Android APKs
+        if: matrix.platform == 'android'
+        working-directory: mobile
+        run: |
+          flutter build apk --release --split-per-abi
+          flutter build apk --release
+
+      - name: Prepare Android artifact
+        if: matrix.platform == 'android'
+        run: |
+          mkdir -p dist
+          cp mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/okena-arm64-v8a.apk
+          cp mobile/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/okena-armeabi-v7a.apk
+          cp mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk dist/okena-x86_64.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/okena-universal.apk
+
+      - name: Build iOS (no codesign)
+        if: matrix.platform == 'ios'
+        working-directory: mobile
+        run: flutter build ios --release --no-codesign
+
+      - name: Prepare iOS artifact
+        if: matrix.platform == 'ios'
+        run: |
+          mkdir -p dist
+          cd mobile/build/ios/iphoneos
+          zip -r ../../../../dist/okena-ios.zip Runner.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          retention-days: 7
+
+  # Full multi-platform build: tags + manual trigger
+  build:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: okena-linux-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: okena-macos-arm64
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: okena-macos-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: okena-windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93"
+          targets: ${{ matrix.target }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.target }}
+          save-if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libegl1-mesa-dev \
+            libssl-dev \
+            libfontconfig-dev \
+            pkg-config \
+            cmake
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build web client
+        run: cd web && bun install --frozen-lockfile && bun run build
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/icons
+          cp target/${{ matrix.target }}/release/okena dist/
+          chmod +x dist/okena
+          # Bundle icons for Linux installation
+          cp assets/app-icon-16.png assets/app-icon-32.png assets/app-icon-48.png \
+             assets/app-icon-64.png assets/app-icon-128.png assets/app-icon-256.png \
+             assets/app-icon-512.png dist/icons/
+          cp okena.desktop dist/
+
+      - name: Create macOS app bundle
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x scripts/bundle-macos.sh
+          ./scripts/bundle-macos.sh --target ${{ matrix.target }} --skip-build --dmg
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          copy target\${{ matrix.target }}\release\okena.exe dist\
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          retention-days: 7
+
+  # Create release when a tag is pushed
+  release:
+    needs: [build, build-mobile]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            if [[ "$name" == *android* ]]; then
+              # Move APKs to release root
+              mv "$dir"/*.apk ../
+            elif [[ "$name" == *ios* ]]; then
+              # Move iOS zip to release root
+              mv "$dir"/*.zip ../
+            elif [[ "$name" == *windows* ]]; then
+              zip -r "../${name}.zip" "$dir"
+            elif [[ "$name" == *macos* ]]; then
+              # macOS: DMG is already created, just move it
+              mv "$dir"/*.dmg "../" 2>/dev/null || true
+              # Also create a zip of the .app for those who prefer it
+              cd "$dir" && zip -r "../../${name}.zip" "Okena.app" && cd ..
+            else
+              tar -czvf "../${name}.tar.gz" -C "$dir" .
+            fi
+          done
+
+      - name: Generate ContemberBot token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CONTEMBER_BOT_APP_ID }}
+          private-key: ${{ secrets.CONTEMBER_BOT_APP_PRIVATE_KEY }}
+          owner: contember
+          repositories: homebrew-okena
+
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          # Calculate SHA256 from local zip files
+          ARM64_SHA=$(sha256sum okena-macos-arm64.zip | cut -d' ' -f1)
+          X64_SHA=$(sha256sum okena-macos-x64.zip | cut -d' ' -f1)
+
+          # Clone the tap repo
+          git clone https://x-access-token:${GH_TOKEN}@github.com/contember/homebrew-okena.git /tmp/homebrew-okena
+
+          # Update cask
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/homebrew-okena/Casks/okena.rb
+          sed -i "s/sha256 arm:   \".*\",/sha256 arm:   \"${ARM64_SHA}\",/" /tmp/homebrew-okena/Casks/okena.rb
+          sed -i "s/         intel: \".*\"/         intel: \"${X64_SHA}\"/" /tmp/homebrew-okena/Casks/okena.rb
+
+          cat /tmp/homebrew-okena/Casks/okena.rb
+
+          # Commit and push
+          cd /tmp/homebrew-okena
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/okena.rb
+          git commit -m "chore: update cask to v${VERSION}"
+          git push origin main
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz
+            *.zip
+            *.dmg
+            *.apk
+          generate_release_notes: true

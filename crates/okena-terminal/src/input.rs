@@ -1,0 +1,172 @@
+/// Keyboard modifiers for terminal input conversion.
+#[derive(Clone, Debug, Default)]
+pub struct KeyModifiers {
+    pub control: bool,
+    pub shift: bool,
+    pub alt: bool,
+    /// Platform key (Cmd on macOS, Win on Windows/Linux)
+    pub platform: bool,
+}
+
+/// A key event for terminal input conversion.
+/// Framework-agnostic representation — convert from your UI framework's key events.
+#[derive(Clone, Debug)]
+pub struct KeyEvent {
+    /// Key name (e.g. "a", "enter", "left", "f1")
+    pub key: String,
+    /// The character produced by the key, if any
+    pub key_char: Option<String>,
+    pub modifiers: KeyModifiers,
+}
+
+/// Convert a key event to terminal input bytes.
+///
+/// `app_cursor_mode`: When true, arrow keys send SS3 sequences (\x1bOA) instead of CSI (\x1b[A).
+/// This should be true when the terminal is in application cursor keys mode (DECCKM),
+/// which is used by applications like less, vim, htop, etc.
+pub fn key_to_bytes(event: &KeyEvent, app_cursor_mode: bool) -> Option<Vec<u8>> {
+    let mods = &event.modifiers;
+
+    // Handle Ctrl+key combinations for letters (produces control characters)
+    if mods.control && !mods.shift && !mods.alt && !mods.platform {
+        let key = event.key.as_str();
+        if let Some(c) = key.chars().next() {
+            if key.len() == 1 && c.is_ascii_alphabetic() {
+                let ctrl_char = (c.to_ascii_lowercase() as u8) - b'a' + 1;
+                return Some(vec![ctrl_char]);
+            }
+        }
+    }
+
+    // Handle Tab with modifiers
+    if event.key.as_str() == "tab" {
+        if mods.shift {
+            // Shift+Tab (backtab)
+            return Some(b"\x1b[Z".to_vec());
+        }
+        return Some(b"\t".to_vec());
+    }
+
+    // Handle Enter/Return with modifiers
+    // Shift+Enter sends literal newline (for multi-line input in apps like Claude Code)
+    // Regular Enter sends carriage return (submit)
+    match event.key.as_str() {
+        "enter" | "return" | "kp_enter" => {
+            if mods.shift {
+                return Some(b"\n".to_vec());
+            }
+            return Some(b"\r".to_vec());
+        }
+        _ => {}
+    }
+
+    // macOS-specific: Cmd+Arrow for line navigation
+    // Cmd+Left = Ctrl+A (start of line), Cmd+Right = Ctrl+E (end of line)
+    #[cfg(target_os = "macos")]
+    if mods.platform && !mods.alt && !mods.control {
+        match event.key.as_str() {
+            "left" => return Some(vec![0x01]),
+            "right" => return Some(vec![0x05]),
+            "up" => return Some(b"\x1b[1;5A".to_vec()),
+            "down" => return Some(b"\x1b[1;5B".to_vec()),
+            "backspace" => return Some(vec![0x15]),
+            _ => {}
+        }
+    }
+
+    // macOS-specific: Option+Arrow for word navigation (readline sequences)
+    // Option+Left = ESC b (word back), Option+Right = ESC f (word forward)
+    #[cfg(target_os = "macos")]
+    if mods.alt && !mods.platform && !mods.control {
+        match event.key.as_str() {
+            "left" => return Some(b"\x1bb".to_vec()),
+            "right" => return Some(b"\x1bf".to_vec()),
+            "backspace" => return Some(vec![0x17]),
+            _ => {}
+        }
+    }
+
+    // Calculate modifier code for CSI sequences
+    // 1 = none, 2 = Shift, 3 = Alt, 4 = Shift+Alt, 5 = Ctrl, 6 = Shift+Ctrl, 7 = Alt+Ctrl, 8 = Shift+Alt+Ctrl
+    let modifier_code = 1
+        + (if mods.shift { 1 } else { 0 })
+        + (if mods.alt { 2 } else { 0 })
+        + (if mods.control { 4 } else { 0 });
+
+    // Handle arrow keys with modifiers
+    // In application cursor mode (DECCKM): use SS3 sequences (\x1bOA)
+    // In normal mode: use CSI sequences (\x1b[A)
+    // With modifiers: always use CSI 1;mod X format
+    match event.key.as_str() {
+        "up" | "down" | "right" | "left" => {
+            let arrow_char = match event.key.as_str() {
+                "up" => 'A',
+                "down" => 'B',
+                "right" => 'C',
+                "left" => 'D',
+                _ => unreachable!(),
+            };
+            if modifier_code > 1 {
+                // Modifiers always use CSI format
+                return Some(format!("\x1b[1;{}{}", modifier_code, arrow_char).into_bytes());
+            }
+            // No modifiers: use SS3 in app cursor mode, CSI otherwise
+            if app_cursor_mode {
+                return Some(format!("\x1bO{}", arrow_char).into_bytes());
+            }
+            return Some(format!("\x1b[{}", arrow_char).into_bytes());
+        }
+        _ => {}
+    }
+
+    // If the platform provides `key_char`, the UI framework will also deliver it via the
+    // text-input (InputHandler) path. To avoid double-sending characters, let the InputHandler
+    // handle all text-producing keystrokes.
+    if event.key_char.is_some() {
+        return None;
+    }
+
+    // Handle other special keys (with modifier support for some)
+    match event.key.as_str() {
+        "backspace" => return Some(b"\x7f".to_vec()),
+        "escape" => return Some(b"\x1b".to_vec()),
+        "home" => {
+            if modifier_code > 1 {
+                return Some(format!("\x1b[1;{}H", modifier_code).into_bytes());
+            }
+            return Some(b"\x1b[H".to_vec());
+        }
+        "end" => {
+            if modifier_code > 1 {
+                return Some(format!("\x1b[1;{}F", modifier_code).into_bytes());
+            }
+            return Some(b"\x1b[F".to_vec());
+        }
+        "pageup" => return Some(b"\x1b[5~".to_vec()),
+        "pagedown" => return Some(b"\x1b[6~".to_vec()),
+        "delete" => return Some(b"\x1b[3~".to_vec()),
+        "f1" => return Some(b"\x1bOP".to_vec()),
+        "f2" => return Some(b"\x1bOQ".to_vec()),
+        "f3" => return Some(b"\x1bOR".to_vec()),
+        "f4" => return Some(b"\x1bOS".to_vec()),
+        "f5" => return Some(b"\x1b[15~".to_vec()),
+        "f6" => return Some(b"\x1b[17~".to_vec()),
+        "f7" => return Some(b"\x1b[18~".to_vec()),
+        "f8" => return Some(b"\x1b[19~".to_vec()),
+        "f9" => return Some(b"\x1b[20~".to_vec()),
+        "f10" => return Some(b"\x1b[21~".to_vec()),
+        "f11" => return Some(b"\x1b[23~".to_vec()),
+        "f12" => return Some(b"\x1b[24~".to_vec()),
+        _ => {}
+    }
+
+    // Single character keys as fallback
+    let key = event.key.as_str();
+    if key.len() == 1 {
+        log::info!("Using key string: {:?}", key);
+        return Some(key.as_bytes().to_vec());
+    }
+
+    log::warn!("No input generated for key: {:?}", event.key);
+    None
+}

@@ -1,0 +1,108 @@
+[workspace]
+members = [".", "mobile/native", "crates/okena-core", "crates/okena-git", "crates/okena-views-git", "crates/okena-views-services", "crates/okena-views-sidebar", "crates/okena-views-terminal", "crates/okena-terminal", "crates/okena-layout", "crates/okena-state", "crates/okena-hooks", "crates/okena-workspace", "crates/okena-ui", "crates/okena-files", "crates/okena-markdown", "crates/okena-extensions", "crates/okena-ext-claude", "crates/okena-ext-codex", "crates/okena-ext-updater", "crates/okena-services", "crates/okena-remote-client", "crates/okena-views-remote", "crates/okena-theme"]
+resolver = "2"
+
+[package]
+name = "okena"
+version = "0.20.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+# Shared core types
+okena-core = { path = "crates/okena-core", features = ["client"] }
+okena-git = { path = "crates/okena-git" }
+okena-views-git = { path = "crates/okena-views-git" }
+okena-views-terminal = { path = "crates/okena-views-terminal" }
+okena-terminal = { path = "crates/okena-terminal" }
+okena-services = { path = "crates/okena-services" }
+okena-views-services = { path = "crates/okena-views-services" }
+okena-views-sidebar = { path = "crates/okena-views-sidebar" }
+okena-remote-client = { path = "crates/okena-remote-client" }
+okena-views-remote = { path = "crates/okena-views-remote" }
+okena-workspace = { path = "crates/okena-workspace" }
+okena-ui = { path = "crates/okena-ui" }
+okena-theme = { path = "crates/okena-theme" }
+okena-files = { path = "crates/okena-files" }
+okena-markdown = { path = "crates/okena-markdown" }
+
+# Extension system
+okena-extensions = { path = "crates/okena-extensions" }
+okena-ext-claude = { path = "crates/okena-ext-claude" }
+okena-ext-codex = { path = "crates/okena-ext-codex" }
+okena-ext-updater = { path = "crates/okena-ext-updater" }
+
+# UI Framework (from Zed repo)
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", package = "gpui_platform", features = ["wayland", "x11", "font-kit"] }
+
+# UI Components
+gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
+
+# Terminal Emulation
+alacritty_terminal = "0.25"
+
+# PTY Management
+portable-pty = "0.9"
+
+# Async Runtime
+smol = "2.0"
+async-channel = "2.3"
+parking_lot = "0.12"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# System info
+sysinfo = "0.33"
+libc = "0.2"
+
+# Utilities
+uuid = { version = "1.10", features = ["v4"] }
+dirs = "5.0"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1.0"
+thiserror = "2.0"
+regex = "1.10"
+
+# Asset embedding
+rust-embed = "8.5"
+
+# Time handling (cross-platform, thread-safe)
+time = { version = "0.3", features = ["local-offset"] }
+
+# Syntax highlighting
+syntect = { version = "5", features = ["default-fancy"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
+
+# Markdown parsing
+pulldown-cmark = "0.12"
+
+# Self-updater
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
+semver = "1"
+
+# Remote control server
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time"] }
+axum = { version = "0.8", features = ["ws"] }
+
+base64 = "0.22"
+rand = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2.5"
+data-encoding = "2.6"
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui", features = ["test-support"] }
+
+# Pin core-text to 21.0.x to avoid core-graphics 0.24/0.25 conflict in zed-font-kit
+[target.'cfg(target_os = "macos")'.dependencies]
+core-text = ">=21.0, <21.1"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"

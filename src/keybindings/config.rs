@@ -1,0 +1,534 @@
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use super::types::{KeybindingConflict, KeybindingEntry};
+
+/// Complete keybinding configuration
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KeybindingConfig {
+    /// Version for config migration
+    #[serde(default = "default_version")]
+    pub version: u32,
+    /// Map from action name to list of keybindings
+    pub bindings: HashMap<String, Vec<KeybindingEntry>>,
+}
+
+fn default_version() -> u32 {
+    1
+}
+
+impl Default for KeybindingConfig {
+    fn default() -> Self {
+        Self::defaults()
+    }
+}
+
+impl KeybindingConfig {
+    /// Create default keybinding configuration
+    pub fn defaults() -> Self {
+        let mut bindings = HashMap::new();
+
+        // Global keybindings
+        bindings.insert(
+            "ToggleSidebar".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-b", None),
+                KeybindingEntry::new("ctrl-b", None),
+            ],
+        );
+        bindings.insert(
+            "ToggleSidebarAutoHide".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-b", None),
+                KeybindingEntry::new("ctrl-shift-b", None),
+            ],
+        );
+        bindings.insert(
+            "FocusSidebar".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-1", None),
+                KeybindingEntry::new("ctrl-1", None),
+            ],
+        );
+        bindings.insert(
+            "ClearFocus".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-0", None),
+                KeybindingEntry::new("ctrl-0", None),
+            ],
+        );
+        bindings.insert(
+            "FocusActiveProject".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-0", None),
+                KeybindingEntry::new("ctrl-shift-0", None),
+            ],
+        );
+        bindings.insert(
+            "ShowKeybindings".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-k cmd-s", None),
+                KeybindingEntry::new("ctrl-k ctrl-s", None),
+            ],
+        );
+        bindings.insert(
+            "ShowSessionManager".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-k cmd-w", None),
+                KeybindingEntry::new("ctrl-k ctrl-w", None),
+            ],
+        );
+        bindings.insert(
+            "ShowThemeSelector".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-k cmd-t", None),
+                KeybindingEntry::new("ctrl-k ctrl-t", None),
+            ],
+        );
+        bindings.insert(
+            "ShowCommandPalette".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-p", None),
+                KeybindingEntry::new("ctrl-shift-p", None),
+            ],
+        );
+        bindings.insert(
+            "ShowSettings".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-,", None),
+                KeybindingEntry::new("ctrl-,", None),
+            ],
+        );
+        bindings.insert(
+            "OpenSettingsFile".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-alt-,", None),
+                KeybindingEntry::new("ctrl-alt-,", None),
+            ],
+        );
+        bindings.insert(
+            "ShowFileSearch".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-p", None),
+                KeybindingEntry::new("ctrl-p", None),
+            ],
+        );
+        bindings.insert(
+            "ShowContentSearch".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-f", None),
+                KeybindingEntry::new("ctrl-shift-f", None),
+            ],
+        );
+        bindings.insert(
+            "ShowProjectSwitcher".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-e", None),
+                KeybindingEntry::new("ctrl-e", None),
+            ],
+        );
+
+        // Fullscreen keybindings
+        bindings.insert(
+            "ToggleFullscreen".to_string(),
+            vec![
+                KeybindingEntry::new("shift-escape", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "FullscreenNextTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-]", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-]", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "FullscreenPrevTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-[", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-[", Some("TerminalPane")),
+            ],
+        );
+
+        // Terminal pane keybindings
+        bindings.insert(
+            "SplitVertical".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-d", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-d", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "SplitHorizontal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-d", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-d", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "AddTab".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-t", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-t", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "CloseTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-w", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-w", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "MinimizeTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-m", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-m", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "Copy".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-c", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-c", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "Paste".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-v", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-v", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "ScrollUp".to_string(),
+            vec![KeybindingEntry::new("shift-pageup", Some("TerminalPane"))],
+        );
+        bindings.insert(
+            "ScrollDown".to_string(),
+            vec![KeybindingEntry::new("shift-pagedown", Some("TerminalPane"))],
+        );
+        bindings.insert(
+            "Search".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-f", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-f", Some("TerminalPane")),
+            ],
+        );
+
+        // Zoom keybindings
+        bindings.insert(
+            "ZoomIn".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-=", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-=", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "ZoomOut".to_string(),
+            vec![
+                KeybindingEntry::new("cmd--", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl--", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "ResetZoom".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-0", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-0", Some("TerminalPane")),
+            ],
+        );
+
+        // Navigation keybindings
+        bindings.insert(
+            "FocusLeft".to_string(),
+            vec![KeybindingEntry::new("cmd-alt-left", None)],
+        );
+        bindings.insert(
+            "FocusRight".to_string(),
+            vec![KeybindingEntry::new("cmd-alt-right", None)],
+        );
+        bindings.insert(
+            "FocusUp".to_string(),
+            vec![KeybindingEntry::new("cmd-alt-up", None)],
+        );
+        bindings.insert(
+            "FocusDown".to_string(),
+            vec![KeybindingEntry::new("cmd-alt-down", None)],
+        );
+        bindings.insert(
+            "FocusNextTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-]", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-tab", Some("TerminalPane")),
+            ],
+        );
+        bindings.insert(
+            "FocusPrevTerminal".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-[", Some("TerminalPane")),
+                KeybindingEntry::new("ctrl-shift-tab", Some("TerminalPane")),
+            ],
+        );
+
+        bindings.insert(
+            "TogglePaneSwitcher".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-`", None),
+                KeybindingEntry::new("ctrl-`", None),
+            ],
+        );
+
+        bindings.insert(
+            "EqualizeLayout".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-e", None),
+                KeybindingEntry::new("ctrl-shift-e", None),
+            ],
+        );
+
+        Self {
+            version: 1,
+            bindings,
+        }
+    }
+
+    /// Check for keybinding conflicts
+    /// Returns a list of conflicts found
+    pub fn detect_conflicts(&self) -> Vec<KeybindingConflict> {
+        let mut conflicts = Vec::new();
+        let mut seen: HashMap<(String, Option<String>), String> = HashMap::new();
+
+        for (action, entries) in &self.bindings {
+            for entry in entries {
+                if !entry.enabled {
+                    continue;
+                }
+
+                let key = (entry.keystroke.clone(), entry.context.clone());
+
+                if let Some(existing_action) = seen.get(&key) {
+                    if existing_action != action {
+                        conflicts.push(KeybindingConflict {
+                            keystroke: entry.keystroke.clone(),
+                            context: entry.context.clone(),
+                            action1: existing_action.clone(),
+                            action2: action.clone(),
+                        });
+                    }
+                } else {
+                    seen.insert(key, action.clone());
+                }
+            }
+        }
+
+        conflicts
+    }
+
+    /// Update the keystroke for a specific binding entry
+    pub fn update_binding(&mut self, action: &str, entry_index: usize, new_keystroke: String) {
+        if let Some(entries) = self.bindings.get_mut(action) {
+            if let Some(entry) = entries.get_mut(entry_index) {
+                entry.keystroke = new_keystroke;
+            }
+        }
+    }
+
+    /// Reset a single action's bindings back to defaults
+    pub fn reset_single_action(&mut self, action: &str) {
+        let defaults = Self::defaults();
+        if let Some(default_entries) = defaults.bindings.get(action) {
+            self.bindings.insert(action.to_string(), default_entries.clone());
+        } else {
+            // Action doesn't exist in defaults — remove it
+            self.bindings.remove(action);
+        }
+    }
+
+    /// Add a new binding entry for an action
+    pub fn add_binding(&mut self, action: &str, entry: KeybindingEntry) {
+        self.bindings
+            .entry(action.to_string())
+            .or_insert_with(Vec::new)
+            .push(entry);
+    }
+
+    /// Remove a specific binding entry by index
+    /// Returns true if the entry was removed
+    pub fn remove_binding(&mut self, action: &str, entry_index: usize) -> bool {
+        if let Some(entries) = self.bindings.get_mut(action) {
+            if entry_index < entries.len() {
+                entries.remove(entry_index);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Toggle the enabled state of a specific binding entry
+    pub fn toggle_binding(&mut self, action: &str, entry_index: usize) {
+        if let Some(entries) = self.bindings.get_mut(action) {
+            if let Some(entry) = entries.get_mut(entry_index) {
+                entry.enabled = !entry.enabled;
+            }
+        }
+    }
+
+    /// Get all actions that have custom (non-default) bindings
+    pub fn get_customized_actions(&self) -> HashSet<String> {
+        let defaults = Self::defaults();
+        let mut customized = HashSet::new();
+
+        for (action, entries) in &self.bindings {
+            if let Some(default_entries) = defaults.bindings.get(action) {
+                if entries != default_entries {
+                    customized.insert(action.clone());
+                }
+            } else {
+                // Action exists in config but not in defaults
+                customized.insert(action.clone());
+            }
+        }
+
+        // Also check for actions in defaults that are missing from config
+        for action in defaults.bindings.keys() {
+            if !self.bindings.contains_key(action) {
+                customized.insert(action.clone());
+            }
+        }
+
+        customized
+    }
+
+}
+
+/// Get the keybindings configuration file path
+pub fn get_keybindings_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("okena")
+        .join("keybindings.json")
+}
+
+/// Load keybinding configuration from disk
+pub fn load_keybindings() -> KeybindingConfig {
+    let path = get_keybindings_path();
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            match serde_json::from_str::<KeybindingConfig>(&content) {
+                Ok(mut config) => {
+                    // Merge in any new default actions missing from the saved config
+                    let defaults = KeybindingConfig::defaults();
+                    for (action, entries) in &defaults.bindings {
+                        if !config.bindings.contains_key(action) {
+                            config.bindings.insert(action.clone(), entries.clone());
+                        }
+                    }
+
+                    // Check for conflicts and log warnings
+                    let conflicts = config.detect_conflicts();
+                    for conflict in &conflicts {
+                        log::warn!("Keybinding conflict: {}", conflict);
+                    }
+                    return config;
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse keybindings config: {}, using defaults", e);
+                }
+            }
+        }
+    }
+    KeybindingConfig::defaults()
+}
+
+/// Save keybinding configuration to disk
+pub fn save_keybindings(config: &KeybindingConfig) -> anyhow::Result<()> {
+    let path = get_keybindings_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(config)?;
+    std::fs::write(&path, content)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_has_no_conflicts() {
+        let config = KeybindingConfig::defaults();
+        let conflicts = config.detect_conflicts();
+        assert!(conflicts.is_empty(), "Default config should have no conflicts");
+    }
+
+    #[test]
+    fn test_duplicate_keybinding_detected() {
+        let mut config = KeybindingConfig::defaults();
+        // Add a binding that conflicts with an existing one
+        config.bindings.insert(
+            "CustomAction".to_string(),
+            vec![KeybindingEntry::new("cmd-b", None)], // conflicts with ToggleSidebar
+        );
+        let conflicts = config.detect_conflicts();
+        assert!(!conflicts.is_empty(), "Should detect conflict on cmd-b");
+        assert!(conflicts.iter().any(|c| c.keystroke == "cmd-b"));
+    }
+
+    #[test]
+    fn test_same_key_different_context_no_conflict() {
+        let mut bindings = HashMap::new();
+        bindings.insert(
+            "Action1".to_string(),
+            vec![KeybindingEntry::new("cmd-d", None)], // global
+        );
+        bindings.insert(
+            "Action2".to_string(),
+            vec![KeybindingEntry::new("cmd-d", Some("TerminalPane"))], // scoped
+        );
+        let config = KeybindingConfig { version: 1, bindings };
+        let conflicts = config.detect_conflicts();
+        assert!(conflicts.is_empty(), "Different contexts should not conflict");
+    }
+
+    #[test]
+    fn test_disabled_binding_no_conflict() {
+        let mut bindings = HashMap::new();
+        bindings.insert(
+            "Action1".to_string(),
+            vec![KeybindingEntry::new("cmd-x", None)],
+        );
+        let mut disabled = KeybindingEntry::new("cmd-x", None);
+        disabled.enabled = false;
+        bindings.insert(
+            "Action2".to_string(),
+            vec![disabled],
+        );
+        let config = KeybindingConfig { version: 1, bindings };
+        let conflicts = config.detect_conflicts();
+        assert!(conflicts.is_empty(), "Disabled binding should not conflict");
+    }
+
+    #[test]
+    fn test_customized_actions_detected() {
+        let mut config = KeybindingConfig::defaults();
+        // Modify an existing action's binding
+        config.bindings.insert(
+            "ToggleSidebar".to_string(),
+            vec![KeybindingEntry::new("ctrl-shift-b", None)], // changed from default
+        );
+        let customized = config.get_customized_actions();
+        assert!(customized.contains("ToggleSidebar"), "Modified action should be detected");
+    }
+
+    #[test]
+    fn test_serialization_round_trip() {
+        let config = KeybindingConfig::defaults();
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: KeybindingConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.version, config.version);
+        assert_eq!(deserialized.bindings.len(), config.bindings.len());
+    }
+}

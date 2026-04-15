@@ -1,0 +1,146 @@
+//! Data types for the diff viewer.
+
+use std::collections::HashMap;
+
+use okena_git::{DiffLineType, FileDiff};
+pub use okena_files::syntax::HighlightedSpan;
+pub use okena_core::types::DiffViewMode;
+
+pub use okena_files::file_tree::FileTreeNode;
+
+/// Which side of the side-by-side diff view a selection belongs to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SideBySideSide {
+    Left,
+    Right,
+}
+
+/// Lightweight file stats for sidebar display (no syntax highlighting).
+pub struct FileStats {
+    pub path: String,
+    pub added: usize,
+    pub removed: usize,
+    pub is_binary: bool,
+    pub is_new: bool,
+    pub is_deleted: bool,
+}
+
+impl From<&FileDiff> for FileStats {
+    fn from(file: &FileDiff) -> Self {
+        Self {
+            path: file.display_name().to_string(),
+            added: file.lines_added,
+            removed: file.lines_removed,
+            is_binary: file.is_binary,
+            is_new: file.old_path.is_none(),
+            is_deleted: file.new_path.is_none(),
+        }
+    }
+}
+
+/// A range of characters that changed within a line.
+#[derive(Clone, Debug)]
+pub struct ChangedRange {
+    /// Start column (character index).
+    pub start: usize,
+    /// End column (exclusive).
+    pub end: usize,
+}
+
+/// Content for one side of a side-by-side line.
+#[derive(Clone)]
+pub struct SideContent {
+    pub line_num: usize,
+    pub line_type: DiffLineType,
+    pub spans: Vec<HighlightedSpan>,
+    /// Plain text content (for selection/copy).
+    pub plain_text: String,
+    /// Ranges of characters that actually changed (for word-level highlighting).
+    pub changed_ranges: Vec<ChangedRange>,
+}
+
+/// A paired line for side-by-side view.
+#[derive(Clone)]
+pub struct SideBySideLine {
+    pub left: Option<SideContent>,
+    pub right: Option<SideContent>,
+    pub is_header: bool,
+    /// Header text content (used for context extraction in rendering).
+    pub header_text: String,
+    /// If set, this row is a context expander instead of a content line.
+    pub expander: Option<ExpanderRow>,
+}
+
+/// A processed line ready for display with syntax highlighting.
+#[derive(Clone)]
+pub struct DisplayLine {
+    /// Type of the line.
+    pub line_type: DiffLineType,
+    /// Old line number (for display).
+    pub old_line_num: Option<usize>,
+    /// New line number (for display).
+    pub new_line_num: Option<usize>,
+    /// Highlighted spans for display.
+    pub spans: Vec<HighlightedSpan>,
+    /// Plain text content (for selection/copy).
+    pub plain_text: String,
+}
+
+/// A clickable row that represents hidden context lines.
+#[derive(Clone, Debug)]
+pub struct ExpanderRow {
+    /// 1-based inclusive range of hidden old-file lines (start, end).
+    pub old_range: (usize, usize),
+    /// 1-based inclusive range of hidden new-file lines (start, end).
+    pub new_range: (usize, usize),
+}
+
+impl ExpanderRow {
+    /// Number of hidden lines (using the new-file range).
+    pub fn hidden_count(&self) -> usize {
+        if self.new_range.1 >= self.new_range.0 {
+            self.new_range.1 - self.new_range.0 + 1
+        } else {
+            0
+        }
+    }
+}
+
+/// A single item in the diff display list — either a real line or an expander.
+#[derive(Clone)]
+pub enum DisplayItem {
+    Line(DisplayLine),
+    Expander(ExpanderRow),
+}
+
+/// Processed file for display (items with syntax highlighting).
+pub struct DiffDisplayFile {
+    /// Display items (lines and expanders).
+    pub items: Vec<DisplayItem>,
+    /// Pre-highlighted old file spans (1-based line num -> spans).
+    pub old_highlighted: HashMap<usize, Vec<HighlightedSpan>>,
+    /// Pre-highlighted new file spans (1-based line num -> spans).
+    pub new_highlighted: HashMap<usize, Vec<HighlightedSpan>>,
+    /// Total lines in the old file.
+    pub old_line_count: usize,
+    /// Total lines in the new file.
+    pub new_line_count: usize,
+}
+
+/// State for scrollbar dragging.
+#[derive(Clone, Copy)]
+pub struct ScrollbarDrag {
+    /// Initial mouse Y position.
+    pub start_y: f32,
+    /// Initial scroll offset.
+    pub start_scroll_y: f32,
+}
+
+/// State for horizontal scrollbar dragging.
+#[derive(Clone, Copy)]
+pub struct HScrollbarDrag {
+    /// Initial mouse X position.
+    pub start_x: f32,
+    /// Initial scroll_x offset.
+    pub start_scroll_x: f32,
+}
