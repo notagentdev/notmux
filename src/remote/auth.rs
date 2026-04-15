@@ -148,11 +148,10 @@ impl AuthStore {
         let now = Instant::now();
 
         // Return existing code if still valid (60s TTL)
-        if let Some(ref code) = inner.current_code {
-            if now.duration_since(inner.code_created_at) < Duration::from_secs(60) {
+        if let Some(ref code) = inner.current_code
+            && now.duration_since(inner.code_created_at) < Duration::from_secs(60) {
                 return code.clone();
             }
-        }
 
         // Generate new code
         let code = generate_pairing_code();
@@ -222,7 +221,7 @@ impl AuthStore {
         rand::thread_rng().fill(&mut token_bytes);
         let token = base64::Engine::encode(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            &token_bytes,
+            token_bytes,
         );
 
         // Store HMAC of the token
@@ -360,7 +359,7 @@ impl AuthStore {
         rand::thread_rng().fill(&mut token_bytes);
         let new_token = base64::Engine::encode(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            &token_bytes,
+            token_bytes,
         );
 
         // Store HMAC of the new token (old token remains valid until its own expiry)

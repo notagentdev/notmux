@@ -385,12 +385,12 @@ impl RootView {
 
         // Collect old terminal IDs for projects pending focus, so we can detect new ones after sync.
         let old_terminal_ids: std::collections::HashMap<String, Vec<String>> = workspace.update(cx, |ws, _cx| {
-            ws.remote_sync.pending_focus().iter().filter_map(|pid| {
+            ws.remote_sync.pending_focus().iter().map(|pid| {
                 let ids = ws.project(pid)
                     .and_then(|p| p.layout.as_ref())
                     .map(|l| l.collect_terminal_ids())
                     .unwrap_or_default();
-                Some((pid.clone(), ids))
+                (pid.clone(), ids)
             }).collect()
         });
 
@@ -597,14 +597,13 @@ impl RootView {
                     // Find the first terminal ID that wasn't in the old set
                     let old_set: std::collections::HashSet<&str> =
                         old_ids.iter().map(|s| s.as_str()).collect();
-                    if let Some(new_tid) = new_ids.iter().find(|id| !old_set.contains(id.as_str())) {
-                        if let Some(path) = ws.project(&pid)
+                    if let Some(new_tid) = new_ids.iter().find(|id| !old_set.contains(id.as_str()))
+                        && let Some(path) = ws.project(&pid)
                             .and_then(|p| p.layout.as_ref())
                             .and_then(|l| l.find_terminal_path(new_tid))
                         {
                             ws.set_focused_terminal(pid.clone(), path, cx);
                         }
-                    }
                 }
             });
         }

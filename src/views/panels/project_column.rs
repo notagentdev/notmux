@@ -48,6 +48,7 @@ pub struct ProjectColumn {
 }
 
 impl ProjectColumn {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workspace: Entity<Workspace>,
         request_broker: Entity<RequestBroker>,

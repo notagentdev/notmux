@@ -12,11 +12,10 @@ use gpui::{ClipboardItem, Context};
 ///
 /// This is a convenience function to avoid duplicating clipboard logic.
 pub fn copy_to_clipboard<V: 'static>(cx: &mut Context<V>, text: Option<String>) {
-    if let Some(text) = text {
-        if !text.is_empty() {
+    if let Some(text) = text
+        && !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
-    }
 }
 
 /// Extension trait for SelectionState with 2D positions to check line selection.

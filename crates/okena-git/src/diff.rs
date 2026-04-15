@@ -470,13 +470,11 @@ pub fn is_git_repo(path: &Path) -> bool {
     // Check cache first
     {
         let guard = GIT_REPO_CACHE.lock();
-        if let Some(ref cache) = *guard {
-            if let Some(&(result, ts)) = cache.get(&path_buf) {
-                if ts.elapsed() < GIT_REPO_TTL {
+        if let Some(ref cache) = *guard
+            && let Some(&(result, ts)) = cache.get(&path_buf)
+                && ts.elapsed() < GIT_REPO_TTL {
                     return result;
                 }
-            }
-        }
     }
 
     let path_str = match path.to_str() {

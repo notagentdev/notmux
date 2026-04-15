@@ -118,11 +118,10 @@ fn build_process_tree_macos() -> HashMap<u32, Vec<u32>> {
     let mut tree: HashMap<u32, Vec<u32>> = HashMap::new();
     for line in stdout.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() >= 2 {
-            if let (Ok(pid), Ok(ppid)) = (fields[0].parse::<u32>(), fields[1].parse::<u32>()) {
+        if fields.len() >= 2
+            && let (Ok(pid), Ok(ppid)) = (fields[0].parse::<u32>(), fields[1].parse::<u32>()) {
                 tree.entry(ppid).or_default().push(pid);
             }
-        }
     }
     tree
 }
@@ -246,6 +245,7 @@ fn get_listening_port_pairs_windows() -> Vec<(u32, u16)> {
 // ---------------------------------------------------------------------------
 
 /// Parse `ss -tlnp` output into (pid, port) pairs.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn parse_ss_output(stdout: &str) -> Vec<(u32, u16)> {
     let mut pairs = Vec::new();
     for line in stdout.lines() {
@@ -259,6 +259,7 @@ pub(crate) fn parse_ss_output(stdout: &str) -> Vec<(u32, u16)> {
     pairs
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn extract_pids_from_ss_line(line: &str) -> Vec<u32> {
     let mut pids = Vec::new();
     let mut search = line;
@@ -273,6 +274,7 @@ fn extract_pids_from_ss_line(line: &str) -> Vec<u32> {
     pids
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn extract_port_from_ss_line(line: &str) -> Option<u16> {
     let fields: Vec<&str> = line.split_whitespace().collect();
     if fields.len() < 5 {
@@ -298,11 +300,10 @@ pub(crate) fn parse_lsof_output(stdout: &str) -> Vec<(u32, u16)> {
         };
         // NAME field like "*:5173" or "127.0.0.1:3000"
         let name = fields[8];
-        if let Some(port_str) = name.rsplit(':').next() {
-            if let Ok(port) = port_str.parse::<u16>() {
+        if let Some(port_str) = name.rsplit(':').next()
+            && let Ok(port) = port_str.parse::<u16>() {
                 pairs.push((pid, port));
             }
-        }
     }
     pairs
 }

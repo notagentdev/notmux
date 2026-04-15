@@ -466,14 +466,12 @@ impl Render for WorktreeDialog {
 
                 match event.keystroke.key.as_str() {
                     "up" => {
-                        if search_focused {
-                            if let Some(idx) = this.selected_branch_index {
-                                if idx > 0 {
+                        if search_focused
+                            && let Some(idx) = this.selected_branch_index
+                                && idx > 0 {
                                     this.selected_branch_index = Some(idx - 1);
                                     cx.notify();
                                 }
-                            }
-                        }
                     }
                     "down" => {
                         if search_focused {

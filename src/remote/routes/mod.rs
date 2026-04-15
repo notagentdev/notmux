@@ -43,6 +43,7 @@ pub struct AppState {
 }
 
 /// Build the complete axum router.
+#[allow(clippy::too_many_arguments)]
 pub fn build_router(
     bridge_tx: BridgeSender,
     auth_store: Arc<AuthStore>,

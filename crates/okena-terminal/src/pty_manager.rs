@@ -469,13 +469,7 @@ impl PtyManager {
         event_tx: Sender<PtyEvent>,
         terminal_id: String,
     ) {
-        loop {
-            // Wait for first message
-            let first = match rx.recv() {
-                Ok(data) => data,
-                Err(_) => break, // Channel closed
-            };
-
+        while let Ok(first) = rx.recv() {
             // Collect any additional pending messages (non-blocking)
             let mut batch = first;
             while let Ok(data) = rx.try_recv() {
@@ -506,8 +500,8 @@ impl PtyManager {
 
     /// Resize a terminal
     pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) {
-        if let Some(handle) = self.terminals.lock().get(terminal_id) {
-            if let Err(e) = handle.master.resize(PtySize {
+        if let Some(handle) = self.terminals.lock().get(terminal_id)
+            && let Err(e) = handle.master.resize(PtySize {
                 rows,
                 cols,
                 pixel_width: 0,
@@ -515,7 +509,6 @@ impl PtyManager {
             }) {
                 log::error!("Failed to resize PTY: {}", e);
             }
-        }
         // Notify remote clients about the resize so they can update their grids
         if let Some(sink) = self.output_sink.lock().as_ref() {
             sink.publish_resize(terminal_id.to_string(), cols, rows);
@@ -583,18 +576,16 @@ impl PtyManager {
         drop(handle.master);
 
         // 5. Join writer thread (should exit quickly after input_tx drop)
-        if let Some(h) = handle.writer_handle.take() {
-            if let Err(e) = h.join() {
+        if let Some(h) = handle.writer_handle.take()
+            && let Err(e) = h.join() {
                 log::warn!("PTY writer thread panicked on join: {}", format_panic(&*e));
             }
-        }
 
         // 6. Join reader thread (should exit after child kill + master drop)
-        if let Some(h) = handle.reader_handle.take() {
-            if let Err(e) = h.join() {
+        if let Some(h) = handle.reader_handle.take()
+            && let Err(e) = h.join() {
                 log::warn!("PTY reader thread panicked on join: {}", format_panic(&*e));
             }
-        }
     }
 
     /// Detach from all terminals without killing sessions
@@ -719,11 +710,8 @@ impl PtyManager {
     pub fn get_batch_service_pids(&self, terminal_ids: &[&str]) -> HashMap<String, Vec<u32>> {
         #[cfg(unix)]
         {
-            match self.session_backend {
-                ResolvedBackend::Dtach => {
-                    return self.get_batch_dtach_service_pids(terminal_ids);
-                }
-                _ => {}
+            if self.session_backend == ResolvedBackend::Dtach {
+                return self.get_batch_dtach_service_pids(terminal_ids);
             }
         }
         // Fallback: call per-terminal method
@@ -743,12 +731,11 @@ impl PtyManager {
 
         for &tid in terminal_ids {
             let session_name = self.session_backend.session_name(tid);
-            if let Some(p) = self.session_backend.socket_path(&session_name) {
-                if p.exists() {
+            if let Some(p) = self.session_backend.socket_path(&session_name)
+                && p.exists() {
                     socket_to_terminal.insert(p, tid);
                     attach_pids.insert(tid, self.get_shell_pid(tid));
                 }
-            }
         }
 
         // Resolve PIDs for all sockets at once
@@ -758,7 +745,7 @@ impl PtyManager {
 
         // Build result map
         let mut result: HashMap<String, Vec<u32>> = HashMap::new();
-        for (&tid, _) in &attach_pids {
+        for &tid in attach_pids.keys() {
             let session_name = self.session_backend.session_name(tid);
             let socket_path = match self.session_backend.socket_path(&session_name) {
                 Some(p) => p,
@@ -1143,14 +1130,13 @@ fn find_pids_for_unix_sockets_lsof(
     for line in stdout.lines() {
         if let Some(pid_str) = line.strip_prefix('p') {
             current_pid = pid_str.parse().ok();
-        } else if let Some(name) = line.strip_prefix('n') {
-            if let Some(pid) = current_pid {
+        } else if let Some(name) = line.strip_prefix('n')
+            && let Some(pid) = current_pid {
                 let path = std::path::PathBuf::from(name);
                 if socket_paths.contains(&path) {
                     result.entry(path).or_default().push(pid);
                 }
             }
-        }
     }
 
     result

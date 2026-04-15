@@ -62,6 +62,7 @@ pub struct TerminalPane<D: ActionDispatch> {
 }
 
 impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workspace: Entity<Workspace>,
         request_broker: Entity<RequestBroker>,

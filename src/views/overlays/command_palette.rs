@@ -123,13 +123,10 @@ impl CommandPalette {
             let pane_map = okena_views_terminal::layout::navigation::get_pane_map();
             if let Some(focused) = self.workspace.read(cx).focus_manager
                 .focused_terminal_state()
-            {
-                if let Some(pane) = pane_map.find_pane(&focused.project_id, &focused.layout_path) {
-                    if let Some(ref fh) = pane.focus_handle {
+                && let Some(pane) = pane_map.find_pane(&focused.project_id, &focused.layout_path)
+                    && let Some(ref fh) = pane.focus_handle {
                         window.focus(fh, cx);
                     }
-                }
-            }
 
             window.dispatch_action(action, cx);
             cx.emit(CommandPaletteEvent::Close);

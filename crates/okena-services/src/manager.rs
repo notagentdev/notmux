@@ -159,11 +159,10 @@ impl ServiceManager {
         // Auto-start services that weren't reconnected
         for name in auto_start_names {
             let key = (project_id.to_string(), name.clone());
-            if let Some(instance) = self.instances.get(&key) {
-                if instance.status == ServiceStatus::Stopped {
+            if let Some(instance) = self.instances.get(&key)
+                && instance.status == ServiceStatus::Stopped {
                     self.start_service(project_id, &name, project_path, cx);
                 }
-            }
         }
 
         // Load Docker Compose services
@@ -256,13 +255,12 @@ impl ServiceManager {
             .collect();
 
         for key in keys {
-            if let Some(instance) = self.instances.get(&key) {
-                if let Some(terminal_id) = &instance.terminal_id {
+            if let Some(instance) = self.instances.get(&key)
+                && let Some(terminal_id) = &instance.terminal_id {
                     self.backend.kill(terminal_id);
                     self.terminals.lock().remove(terminal_id);
                     self.terminal_to_service.remove(terminal_id);
                 }
-            }
             self.instances.remove(&key);
         }
 
@@ -315,13 +313,12 @@ impl ServiceManager {
             .collect();
 
         for key in removed_keys {
-            if let Some(instance) = self.instances.get(&key) {
-                if let Some(terminal_id) = &instance.terminal_id {
+            if let Some(instance) = self.instances.get(&key)
+                && let Some(terminal_id) = &instance.terminal_id {
                     self.backend.kill(terminal_id);
                     self.terminals.lock().remove(terminal_id);
                     self.terminal_to_service.remove(terminal_id);
                 }
-            }
             self.instances.remove(&key);
         }
 
@@ -400,12 +397,11 @@ impl ServiceManager {
                             okena_core::process::safe_output(&mut cmd)
                         })
                         .await;
-                    if let Ok(output) = result {
-                        if !output.status.success() {
+                    if let Ok(output) = result
+                        && !output.status.success() {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             log::error!("docker compose start failed for '{}': {}", log_name, stderr.trim());
                         }
-                    }
                     // Trigger an immediate status poll
                     let _ = this.update(cx, |_this, cx| cx.notify());
                 }).detach();
@@ -604,7 +600,7 @@ impl ServiceManager {
                             .spawn(async move {
                                 backend_ref.get_service_pids(&tid)
                                     .into_iter()
-                                    .flat_map(|p| port_detect::get_descendant_pids(p))
+                                    .flat_map(port_detect::get_descendant_pids)
                                     .collect()
                             })
                             .await
@@ -634,11 +630,10 @@ impl ServiceManager {
 
                     let _ = this.update(cx, |this, cx| {
                         let key = (pid.clone(), name.clone());
-                        if let Some(instance) = this.instances.get(&key) {
-                            if instance.status == ServiceStatus::Restarting {
+                        if let Some(instance) = this.instances.get(&key)
+                            && instance.status == ServiceStatus::Restarting {
                                 this.start_service(&pid, &name, &path, cx);
                             }
-                        }
                     });
                 })
                 .detach();
@@ -1055,10 +1050,7 @@ impl ServiceManager {
                     let is_extra = filter.as_ref().is_some_and(|f| !f.contains(name));
 
                     let key = (project_id.clone(), name.clone());
-                    if !this.instances.contains_key(&key) {
-                        this.instances.insert(
-                            key,
-                            ServiceInstance {
+                    this.instances.entry(key).or_insert_with(|| ServiceInstance {
                                 definition: ServiceDefinition {
                                     name: name.clone(),
                                     command: String::new(),
@@ -1074,9 +1066,7 @@ impl ServiceManager {
                                 restart_count: 0,
                                 detected_ports: Vec::new(),
                                 is_extra,
-                            },
-                        );
-                    }
+                            });
                 }
 
                 // Start status poller
@@ -1108,13 +1098,12 @@ impl ServiceManager {
             .collect();
 
         for key in docker_keys {
-            if let Some(instance) = self.instances.get(&key) {
-                if let Some(terminal_id) = &instance.terminal_id {
+            if let Some(instance) = self.instances.get(&key)
+                && let Some(terminal_id) = &instance.terminal_id {
                     self.backend.kill(terminal_id);
                     self.terminals.lock().remove(terminal_id);
                     self.terminal_to_service.remove(terminal_id);
                 }
-            }
             self.instances.remove(&key);
         }
 
@@ -1238,8 +1227,8 @@ impl ServiceManager {
                             let mut changed = false;
                             for ds in &statuses {
                                 let key = (pid.clone(), ds.name.clone());
-                                if let Some(inst) = this.instances.get_mut(&key) {
-                                    if matches!(inst.kind, ServiceKind::DockerCompose { .. }) {
+                                if let Some(inst) = this.instances.get_mut(&key)
+                                    && matches!(inst.kind, ServiceKind::DockerCompose { .. }) {
                                         any_docker = true;
                                         let new_status = docker_compose::map_docker_state(&ds.state, ds.exit_code);
                                         if inst.status != new_status {
@@ -1251,7 +1240,6 @@ impl ServiceManager {
                                             changed = true;
                                         }
                                     }
-                                }
                             }
                             if changed {
                                 cx.notify();

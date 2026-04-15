@@ -98,11 +98,9 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                 && !terminal.is_mouse_mode()
                 && !terminal.is_alt_screen()
                 && !terminal.has_running_child()
-            {
-                if terminal.delete_selection() {
+                && terminal.delete_selection() {
                     return;
                 }
-            }
 
             let app_cursor_mode = terminal.is_app_cursor_mode();
             let key_event = KeyEvent {

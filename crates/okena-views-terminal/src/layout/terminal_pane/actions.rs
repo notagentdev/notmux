@@ -57,21 +57,18 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
     }
 
     pub(super) fn handle_copy(&mut self, cx: &mut Context<Self>) {
-        if let Some(ref terminal) = self.terminal {
-            if let Some(text) = terminal.get_selected_text() {
+        if let Some(ref terminal) = self.terminal
+            && let Some(text) = terminal.get_selected_text() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
             }
-        }
     }
 
     pub(super) fn handle_paste(&mut self, cx: &mut Context<Self>) {
-        if let Some(ref terminal) = self.terminal {
-            if let Some(clipboard_item) = cx.read_from_clipboard() {
-                if let Some(text) = clipboard_item.text() {
+        if let Some(ref terminal) = self.terminal
+            && let Some(clipboard_item) = cx.read_from_clipboard()
+                && let Some(text) = clipboard_item.text() {
                     terminal.send_paste(&text);
                 }
-            }
-        }
     }
 
     pub(super) fn handle_file_drop(&mut self, paths: &ExternalPaths, _cx: &mut Context<Self>) {

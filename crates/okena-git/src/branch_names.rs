@@ -99,26 +99,23 @@ fn detect_github_username_inner(repo_path: &Path) -> String {
     // Tier 1: gh api user — returns the authenticated user's login,
     // which is correct even when the remote is owned by an org.
     // Result is cached so the network call only happens once.
-    if let Ok(output) = safe_output(command("gh").args(["api", "user", "--jq", ".login"])) {
-        if output.status.success() {
+    if let Ok(output) = safe_output(command("gh").args(["api", "user", "--jq", ".login"]))
+        && output.status.success() {
             let login = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !login.is_empty() {
                 return sanitize_username(&login);
             }
         }
-    }
 
     // Tier 2: git config user.name
-    if let Some(path_str) = repo_path.to_str() {
-        if let Ok(output) = safe_output(command("git").args(["-C", path_str, "config", "user.name"])) {
-            if output.status.success() {
+    if let Some(path_str) = repo_path.to_str()
+        && let Ok(output) = safe_output(command("git").args(["-C", path_str, "config", "user.name"]))
+            && output.status.success() {
                 let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !name.is_empty() {
                     return sanitize_username(&name);
                 }
             }
-        }
-    }
 
     // Tier 3: fallback
     "dev".to_string()

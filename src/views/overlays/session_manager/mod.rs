@@ -73,7 +73,7 @@ impl SessionManager {
 
 pub enum SessionManagerEvent {
     Close,
-    SwitchWorkspace(WorkspaceData),
+    SwitchWorkspace(Box<WorkspaceData>),
 }
 
 impl EventEmitter<SessionManagerEvent> for SessionManager {}

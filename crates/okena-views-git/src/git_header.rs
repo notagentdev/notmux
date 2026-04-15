@@ -356,7 +356,7 @@ impl GitHeader {
                             .child(
                                 canvas(
                                     move |bounds, _window, app| {
-                                        let _ = entity_for_bounds.update(app, |this: &mut GitHeader, _cx| {
+                                        entity_for_bounds.update(app, |this: &mut GitHeader, _cx| {
                                             this.commit_log_bounds = bounds;
                                         });
                                     },
@@ -435,7 +435,7 @@ impl GitHeader {
             move |file_path, _window, cx| {
                 let file_path = file_path.to_string();
                 let pid = project_id.clone();
-                let _ = entity_handle.update(cx, |this: &mut GitHeader, cx| {
+                entity_handle.update(cx, |this: &mut GitHeader, cx| {
                     this.hide_diff_popover(cx);
                 });
                 request_broker.update(cx, |broker, cx| {
@@ -499,6 +499,7 @@ impl GitHeader {
     /// Render the commit log popover (anchored below the commit log button).
     ///
     /// `current_branch` is the branch name from the git status watcher.
+    #[allow(clippy::type_complexity)]
     pub fn render_commit_log_popover(
         &self,
         current_branch: Option<String>,
@@ -533,7 +534,7 @@ impl GitHeader {
                         let commit_msg = msg.to_string();
                         let commits_vec = all_commits.clone();
                         let commit_idx = commits_vec.iter().position(|c| c.hash == commit_hash).unwrap_or(0);
-                        let _ = entity_handle.update(cx, |this: &mut GitHeader, cx| {
+                        entity_handle.update(cx, |this: &mut GitHeader, cx| {
                             this.hide_commit_log(cx);
                         });
                         request_broker.update(cx, |broker, cx| {

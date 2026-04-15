@@ -9,6 +9,7 @@ pub struct ResizeHandle {
     is_horizontal: bool,
     border_color: u32,
     border_active_color: u32,
+    #[allow(clippy::type_complexity)]
     on_drag_start: Rc<RefCell<Option<Box<dyn FnOnce(Point<Pixels>, &mut App)>>>>,
 }
 

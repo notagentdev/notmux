@@ -157,12 +157,12 @@ impl NavigationHistory {
     }
 
     /// Record a navigation from `current_file` to a new file.
-    fn push(&mut self, current_file: &PathBuf) {
+    fn push(&mut self, current_file: &Path) {
         if current_file.as_os_str().is_empty() {
             return;
         }
         self.back_stack.push(HistoryEntry {
-            file_path: current_file.clone(),
+            file_path: current_file.to_path_buf(),
         });
         self.forward_stack.clear();
         if self.back_stack.len() > MAX_HISTORY {
@@ -171,22 +171,22 @@ impl NavigationHistory {
     }
 
     /// Go back. Returns the file path to navigate to.
-    fn go_back(&mut self, current_file: &PathBuf) -> Option<PathBuf> {
+    fn go_back(&mut self, current_file: &Path) -> Option<PathBuf> {
         let entry = self.back_stack.pop()?;
         if !current_file.as_os_str().is_empty() {
             self.forward_stack.push(HistoryEntry {
-                file_path: current_file.clone(),
+                file_path: current_file.to_path_buf(),
             });
         }
         Some(entry.file_path)
     }
 
     /// Go forward. Returns the file path to navigate to.
-    fn go_forward(&mut self, current_file: &PathBuf) -> Option<PathBuf> {
+    fn go_forward(&mut self, current_file: &Path) -> Option<PathBuf> {
         let entry = self.forward_stack.pop()?;
         if !current_file.as_os_str().is_empty() {
             self.back_stack.push(HistoryEntry {
-                file_path: current_file.clone(),
+                file_path: current_file.to_path_buf(),
             });
         }
         Some(entry.file_path)
@@ -285,11 +285,10 @@ impl FileViewer {
                 .await;
             let _ = entity.update(cx, |this, cx| {
                 let file_index = files.iter().position(|f| f.path == file_path_clone);
-                if let Some(idx) = file_index {
-                    if let Some(tab) = this.tabs.first_mut() {
+                if let Some(idx) = file_index
+                    && let Some(tab) = this.tabs.first_mut() {
                         tab.selected_file_index = Some(idx);
                     }
-                }
                 // Recompute expanded folders using the actual relative path from the file list
                 if let Some(entry) = files.iter().find(|f| f.path == file_path_clone) {
                     let expanded = Self::compute_expanded_for_relative(&entry.relative_path);

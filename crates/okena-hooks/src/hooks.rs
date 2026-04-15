@@ -286,6 +286,7 @@ fn parse_hook_actions(command: &str) -> Vec<HookAction> {
 /// Process hook actions. Background commands fire immediately.
 /// Returns list of (command, env) pairs for terminal actions (caller handles spawning),
 /// and any HookTerminalResult values from PTY-backed background commands.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn run_hook_actions(
     command: &str,
     env_vars: HashMap<String, String>,
@@ -358,6 +359,7 @@ pub fn try_runner(cx: &App) -> Option<HookRunner> {
 /// When `keep_alive` is true, the terminal stays interactive after the command finishes.
 /// When false, the PTY exits when the command completes (needed for hooks that gate
 /// operations like worktree removal).
+#[allow(clippy::too_many_arguments)]
 fn run_hook(
     command: String,
     env_vars: HashMap<String, String>,
@@ -568,6 +570,7 @@ fn project_env(
 }
 
 /// Fire the `on_project_open` hook for a project.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_on_project_open(
     project_hooks: &HooksConfig,
     project_id: &str,
@@ -592,6 +595,7 @@ pub fn fire_on_project_open(
 
 /// Fire the `on_project_close` hook for a project.
 /// Runs headlessly (no PTY terminal) since the project is being deleted.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_on_project_close(
     project_hooks: &HooksConfig,
     project_id: &str,
@@ -611,6 +615,7 @@ pub fn fire_on_project_close(
 }
 
 /// Fire the `on_worktree_create` hook after a worktree is successfully created.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_on_worktree_create(
     project_hooks: &HooksConfig,
     project_id: &str,
@@ -637,6 +642,7 @@ pub fn fire_on_worktree_create(
 
 /// Fire the `on_worktree_close` hook after a worktree is successfully removed.
 /// Runs headlessly (no PTY terminal) since the worktree project is being deleted.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_on_worktree_close(
     project_hooks: &HooksConfig,
     project_id: &str,
@@ -664,6 +670,7 @@ fn run_hook_sync_bare(command: &str, env_vars: HashMap<String, String>) -> Resul
 }
 
 /// Build extended environment for merge/worktree-remove hooks.
+#[allow(clippy::too_many_arguments)]
 fn merge_env(
     project_id: &str,
     project_name: &str,
@@ -682,6 +689,7 @@ fn merge_env(
 }
 
 /// Fire the `pre_merge` hook synchronously. Returns Err if hook fails (caller should abort).
+#[allow(clippy::too_many_arguments)]
 pub fn fire_pre_merge(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -705,6 +713,7 @@ pub fn fire_pre_merge(
 }
 
 /// Fire the `post_merge` hook asynchronously.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_post_merge(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -730,6 +739,7 @@ pub fn fire_post_merge(
 }
 
 /// Fire the `before_worktree_remove` hook synchronously. Returns Err if hook fails.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_before_worktree_remove(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -756,6 +766,7 @@ pub fn fire_before_worktree_remove(
 /// Fire the `before_worktree_remove` hook asynchronously (non-blocking).
 /// Returns hook terminal results for the caller to register.
 /// The caller is responsible for checking the exit code and proceeding with removal.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_before_worktree_remove_async(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -784,6 +795,7 @@ pub fn fire_before_worktree_remove_async(
 /// Fire the `on_rebase_conflict` hook.
 /// Background actions fire immediately. Returns terminal actions for the caller to spawn,
 /// and any HookTerminalResult values from PTY-backed background commands.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn fire_on_rebase_conflict(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -811,6 +823,7 @@ pub fn fire_on_rebase_conflict(
 /// Fire the `on_dirty_worktree_close` hook.
 /// Background actions fire immediately. Returns terminal actions for the caller to spawn,
 /// and any HookTerminalResult values from PTY-backed background commands.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn fire_on_dirty_worktree_close(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -833,6 +846,7 @@ pub fn fire_on_dirty_worktree_close(
 }
 
 /// Fire the `worktree_removed` hook asynchronously.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_worktree_removed(
     project_hooks: &HooksConfig,
     global_hooks: &HooksConfig,
@@ -892,6 +906,7 @@ pub fn apply_on_create(shell: &ShellType, on_create_cmd: &str, env_vars: &HashMa
 
 /// Fire the `terminal.on_close` hook after a terminal PTY exits.
 /// Runs headlessly (no PTY runner) since the terminal just exited.
+#[allow(clippy::too_many_arguments)]
 pub fn fire_terminal_on_close(
     project_hooks: &HooksConfig,
     parent_hooks: Option<&HooksConfig>,

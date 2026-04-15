@@ -162,13 +162,11 @@ impl KeybindingsHelp {
                 // If we get here and still waiting, finalize with single keystroke
                 let _ = cx.update(|window, cx| {
                     let _ = this.update(cx, |this, cx| {
-                        if let Some(editing) = this.editing.as_mut() {
-                            if editing.waiting_for_chord {
-                                if let Some(single) = editing.first_chord.take() {
+                        if let Some(editing) = this.editing.as_mut()
+                            && editing.waiting_for_chord
+                                && let Some(single) = editing.first_chord.take() {
                                     this.finalize_recording(single, window, cx);
                                 }
-                            }
-                        }
                     });
                 });
             }).detach();
@@ -256,6 +254,7 @@ impl KeybindingsHelp {
         cx.notify();
     }
 
+    #[allow(clippy::type_complexity)]
     fn render_category(
         &self,
         category: &str,
@@ -403,10 +402,10 @@ impl KeybindingsHelp {
                                     let ks = keystroke.clone();
 
                                     // Check if this entry is currently being recorded
-                                    let is_recording = self.editing.as_ref().map_or(false, |e| {
+                                    let is_recording = self.editing.as_ref().is_some_and(|e| {
                                         e.action == action_name && e.entry_index == idx
                                     });
-                                    let is_waiting_chord = is_recording && self.editing.as_ref().map_or(false, |e| e.waiting_for_chord);
+                                    let is_waiting_chord = is_recording && self.editing.as_ref().is_some_and(|e| e.waiting_for_chord);
 
                                     h_flex()
                                         .justify_between()
@@ -452,7 +451,7 @@ impl KeybindingsHelp {
                                                 .on_mouse_down(MouseButton::Left, {
                                                     let action = action_name.clone();
                                                     cx.listener(move |this, _, _window, cx| {
-                                                        if this.editing.as_ref().map_or(false, |e| e.action == action && e.entry_index == idx) {
+                                                        if this.editing.as_ref().is_some_and(|e| e.action == action && e.entry_index == idx) {
                                                             this.cancel_recording(cx);
                                                         } else {
                                                             this.start_recording(action.clone(), idx, cx);
@@ -531,6 +530,7 @@ impl Render for KeybindingsHelp {
         // Group bindings by category, with per-action entry details
         let descriptions = get_action_descriptions();
         let query = self.search_query.to_lowercase();
+        #[allow(clippy::type_complexity)]
         let mut categories: std::collections::HashMap<&str, Vec<(String, Vec<(String, usize, bool, bool)>)>> =
             std::collections::HashMap::new();
 
@@ -572,7 +572,7 @@ impl Render for KeybindingsHelp {
             if !entry_details.is_empty() {
                 categories
                     .entry(category)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push((action.clone(), entry_details));
             }
         }

@@ -195,13 +195,11 @@ impl ActionDispatcher {
                         let pid = project_id.clone();
                         let tid = terminal_id.clone();
                         workspace.update(cx, |ws, cx| {
-                            if let Some(project) = ws.project(&pid) {
-                                if let Some(ref layout) = project.layout {
-                                    if let Some(path) = layout.find_terminal_path(&tid) {
+                            if let Some(project) = ws.project(&pid)
+                                && let Some(ref layout) = project.layout
+                                    && let Some(path) = layout.find_terminal_path(&tid) {
                                         ws.set_focused_terminal(pid, path, cx);
                                     }
-                                }
-                            }
                         });
                         return;
                     }

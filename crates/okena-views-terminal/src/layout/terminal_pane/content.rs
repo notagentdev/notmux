@@ -52,7 +52,7 @@ impl TerminalContent {
         workspace: Entity<Workspace>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let scrollbar = cx.new(|cx| Scrollbar::new(cx));
+        let scrollbar = cx.new(Scrollbar::new);
 
         Self {
             terminal: None,
@@ -210,12 +210,12 @@ impl TerminalContent {
     ) {
         window.focus(&self.focus_handle, cx);
 
-        if let Some(ref terminal) = self.terminal {
-            if let Some((col, row, side)) = self.pixel_to_cell(event.position) {
+        if let Some(ref terminal) = self.terminal
+            && let Some((col, row, side)) = self.pixel_to_cell(event.position) {
                 self.mouse_down_cell = Some((col, row));
 
-                if event.modifiers.platform || event.modifiers.control {
-                    if let Some(url_match) = self.url_detector.find_at(col, row) {
+                if (event.modifiers.platform || event.modifiers.control)
+                    && let Some(url_match) = self.url_detector.find_at(col, row) {
                         match &url_match.kind {
                             LinkKind::Url => {
                                 UrlDetector::open_url(&url_match.url);
@@ -228,7 +228,6 @@ impl TerminalContent {
                         self.mouse_down_cell = None;
                         return;
                     }
-                }
 
                 if terminal.is_mouse_mode() {
                     let mods = Self::mouse_modifier_bits(&event.modifiers);
@@ -276,7 +275,6 @@ impl TerminalContent {
                 }
                 cx.notify();
             }
-        }
     }
 
     fn handle_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
@@ -289,13 +287,11 @@ impl TerminalContent {
         }
 
         if let Some((button, mods)) = self.forwarded_button {
-            if let Some(ref terminal) = self.terminal {
-                if terminal.supports_mouse_drag() {
-                    if let Some((col, row, _side)) = self.pixel_to_cell(event.position) {
+            if let Some(ref terminal) = self.terminal
+                && terminal.supports_mouse_drag()
+                    && let Some((col, row, _side)) = self.pixel_to_cell(event.position) {
                         terminal.send_mouse_drag(button, col, row as usize, mods);
                     }
-                }
-            }
             return;
         }
 
@@ -314,12 +310,11 @@ impl TerminalContent {
                 return;
             }
 
-            if let Some(ref terminal) = self.terminal {
-                if let Some((col, row, side)) = self.pixel_to_cell(event.position) {
+            if let Some(ref terminal) = self.terminal
+                && let Some((col, row, side)) = self.pixel_to_cell(event.position) {
                     terminal.update_selection(col, row, side);
                     cx.notify();
                 }
-            }
         }
     }
 
@@ -335,8 +330,8 @@ impl TerminalContent {
             return;
         }
 
-        if self.is_selecting {
-            if let Some(ref terminal) = self.terminal {
+        if self.is_selecting
+            && let Some(ref terminal) = self.terminal {
                 terminal.end_selection();
                 self.is_selecting = false;
 
@@ -347,17 +342,14 @@ impl TerminalContent {
                     terminal.clear_selection();
 
                     // Click-to-cursor: on a clean single click (no drag), move cursor
-                    if self.click_count == 1 {
-                        if let Some((col, row)) = self.mouse_down_cell.take() {
-                            if !terminal.is_mouse_mode() && !terminal.is_alt_screen() && !terminal.has_running_child() {
+                    if self.click_count == 1
+                        && let Some((col, row)) = self.mouse_down_cell.take()
+                            && !terminal.is_mouse_mode() && !terminal.is_alt_screen() && !terminal.has_running_child() {
                                 terminal.move_cursor_to_click(col, row);
                             }
-                        }
-                    }
                 }
                 cx.notify();
             }
-        }
         self.mouse_down_cell = None;
     }
 }

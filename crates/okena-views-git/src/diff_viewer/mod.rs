@@ -221,11 +221,10 @@ impl DiffViewer {
                             this.build_file_tree();
 
                             // Select specific file if requested
-                            if let Some(ref file_path) = select_file {
-                                if let Some(index) = this.file_stats.iter().position(|f| f.path == *file_path) {
+                            if let Some(ref file_path) = select_file
+                                && let Some(index) = this.file_stats.iter().position(|f| f.path == *file_path) {
                                     this.selected_file_index = index;
                                 }
-                            }
 
                             this.process_current_file_async(cx);
                         }
@@ -662,7 +661,7 @@ impl Render for DiffViewer {
         let total_added: usize = self.file_stats.iter().map(|f| f.added).sum();
         let total_removed: usize = self.file_stats.iter().map(|f| f.removed).sum();
 
-        let theme_colors = Arc::new(t.clone());
+        let theme_colors = Arc::new(t);
 
         if !focus_handle.is_focused(window) {
             window.focus(&focus_handle, cx);

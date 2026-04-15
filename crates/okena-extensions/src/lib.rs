@@ -58,6 +58,12 @@ pub struct ExtensionRegistry {
 
 impl Global for ExtensionRegistry {}
 
+impl Default for ExtensionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtensionRegistry {
     pub fn new() -> Self {
         Self {
@@ -92,7 +98,9 @@ pub trait ExtensionSettings {
 /// Global bridge for extensions to read/write their persisted settings.
 /// The host app registers an implementation at startup via `cx.set_global()`.
 pub struct ExtensionSettingsStore {
+    #[allow(clippy::type_complexity)]
     getter: Arc<dyn Fn(&str, &App) -> Option<serde_json::Value>>,
+    #[allow(clippy::type_complexity)]
     setter: Arc<dyn Fn(&str, serde_json::Value, &mut App)>,
 }
 

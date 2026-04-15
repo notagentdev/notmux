@@ -45,6 +45,7 @@ pub struct LayoutContainer<D: ActionDispatch> {
 }
 
 impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workspace: Entity<Workspace>,
         request_broker: Entity<RequestBroker>,
@@ -165,11 +166,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         }
         let parent_path = &self.layout_path[..self.layout_path.len() - 1];
         let ws = self.workspace.read(cx);
-        if let Some(project) = ws.project(&self.project_id) {
-            if let Some(LayoutNode::Tabs { .. }) = project.layout.as_ref().and_then(|l| l.get_at_path(parent_path)) {
+        if let Some(project) = ws.project(&self.project_id)
+            && let Some(LayoutNode::Tabs { .. }) = project.layout.as_ref().and_then(|l| l.get_at_path(parent_path)) {
                 return true;
             }
-        }
         false
     }
 
@@ -195,8 +195,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
     }
 
     pub(super) fn finish_tab_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some((terminal_id, new_name)) = finish_rename(&mut self.tab_rename_state, cx) {
-            if let Some(ref dispatcher) = self.action_dispatcher {
+        if let Some((terminal_id, new_name)) = finish_rename(&mut self.tab_rename_state, cx)
+            && let Some(ref dispatcher) = self.action_dispatcher {
                 dispatcher.dispatch(
                     ActionRequest::RenameTerminal {
                         project_id: self.project_id.clone(),
@@ -206,7 +206,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     cx,
                 );
             }
-        }
         self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
@@ -228,7 +227,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         self.ensure_terminal_pane(terminal_id.clone(), minimized, detached, cx);
 
         let in_tab_group = self.is_in_tab_group(cx);
-        let is_zoomed = terminal_id.as_ref().map_or(false, |tid| {
+        let is_zoomed = terminal_id.as_ref().is_some_and(|tid| {
             let ws = self.workspace.read(cx);
             ws.focus_manager.is_terminal_fullscreened(&self.project_id, tid)
         });
@@ -304,8 +303,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         if Some(drag.terminal_id.as_str()) == this_tid.as_deref() {
                             return;
                         }
-                        if let Some(ref target_id) = this_tid {
-                            if let Some(ref dispatcher) = dispatcher {
+                        if let Some(ref target_id) = this_tid
+                            && let Some(ref dispatcher) = dispatcher {
                                 dispatcher.dispatch(ActionRequest::MovePaneTo {
                                     project_id: drag.project_id.clone(),
                                     terminal_id: drag.terminal_id.clone(),
@@ -314,7 +313,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                     zone: zone_str.to_string(),
                                 }, cx);
                             }
-                        }
                     }
                 }))
         };

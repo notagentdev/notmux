@@ -179,6 +179,7 @@ pub fn compute_resize(
 }
 
 /// Render an inline split divider handle element
+#[allow(clippy::too_many_arguments)]
 pub fn render_split_divider<D: ActionDispatch + Send + Sync>(
     workspace: Entity<Workspace>,
     project_id: String,

@@ -26,6 +26,7 @@ pub(super) const FONT_FAMILIES: &[&str] = &[
 ];
 
 /// Render a hook input row with label, description, and text input
+#[allow(clippy::too_many_arguments)]
 pub(super) fn hook_input_row(
     id: impl Into<SharedString>,
     label: &str,

@@ -51,6 +51,7 @@ pub struct ServicePanel<D: ActionDispatch + Send + Sync> {
 }
 
 impl<D: ActionDispatch + Send + Sync> ServicePanel<D> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         project_id: String,
         workspace: Entity<Workspace>,
@@ -371,7 +372,7 @@ impl<D: ActionDispatch + Send + Sync> ServicePanel<D> {
                 panel::render_service_panel_header(
                     &services,
                     active_name.as_deref(),
-                    &t,
+                    t,
                     cx,
                     // on_overview_click
                     {
@@ -538,7 +539,7 @@ impl<D: ActionDispatch + Send + Sync> ServicePanel<D> {
             services,
             &project_id,
             remote_host.as_deref(),
-            &t,
+            t,
             cx,
             // on_service_click
             {

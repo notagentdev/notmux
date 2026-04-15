@@ -627,14 +627,14 @@ impl ContentSearchDialog {
         let t = theme(cx);
 
         // Get the currently selected match info
-        let selected_match = self.rows.get(self.selected_index).and_then(|row| match row {
+        let selected_match = self.rows.get(self.selected_index).map(|row| match row {
             ResultRow::Match {
                 file_path,
                 line_number,
                 match_ranges,
                 ..
-            } => Some((file_path.clone(), *line_number, match_ranges.clone())),
-            ResultRow::FileHeader { file_path, .. } => Some((file_path.clone(), 1, vec![])),
+            } => (file_path.clone(), *line_number, match_ranges.clone()),
+            ResultRow::FileHeader { file_path, .. } => (file_path.clone(), 1, vec![]),
         });
 
         let Some((file_path, match_line, _match_ranges)) = selected_match else {
@@ -1276,8 +1276,8 @@ impl Render for ContentSearchDialog {
                 }
                 "escape" => this.close(cx),
                 "c" if event.keystroke.modifiers.platform => {
-                    if let Some(file_path) = &this.preview_file {
-                        if let Some(lines) = this.highlight_cache.get(file_path) {
+                    if let Some(file_path) = &this.preview_file
+                        && let Some(lines) = this.highlight_cache.get(file_path) {
                             let text = extract_selected_text(
                                 &this.preview_selection,
                                 lines.len(),
@@ -1285,7 +1285,6 @@ impl Render for ContentSearchDialog {
                             );
                             copy_to_clipboard(cx, text);
                         }
-                    }
                 }
                 _ => {}
             }

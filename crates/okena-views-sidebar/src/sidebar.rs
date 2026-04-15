@@ -373,14 +373,13 @@ impl Sidebar {
                 let target = std::path::PathBuf::from(&worktree_path_clone);
 
                 // Fetch and create worktree — fetch runs first if we have a default branch
-                if let Some(ref db) = default_branch {
-                    if let Some(repo_str) = git_root_clone.to_str() {
+                if let Some(ref db) = default_branch
+                    && let Some(repo_str) = git_root_clone.to_str() {
                         let _ = okena_core::process::safe_output(
                             okena_core::process::command("git")
                                 .args(["-C", repo_str, "fetch", "origin", db.as_str()]),
                         );
                     }
-                }
 
                 okena_git::repository::create_worktree_with_start_point(
                     &git_root_clone,
@@ -393,7 +392,7 @@ impl Sidebar {
             match create_result {
                 Ok(()) => {
                     // Worktree directory exists — clear creating state and fire hooks
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         workspace.update(cx, |ws, cx| {
                             ws.finish_creating_project(&project_id);
                             ws.fire_worktree_hooks(&project_id, &hooks_for_fire, cx);
@@ -404,7 +403,7 @@ impl Sidebar {
                 Err(e) => {
                     log::error!("Quick worktree git operation failed: {}", e);
                     // Remove the optimistically-added project since git worktree add failed
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         workspace.update(cx, |ws, cx| {
                             ws.finish_creating_project(&project_id);
                             ws.delete_project(&project_id, &hooks_for_error, cx);
@@ -436,6 +435,7 @@ impl Sidebar {
 
     /// Render expanded children (terminals group + services group) for a project.
     /// Returns elements and advances flat_idx.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_expanded_children(
         &self,
         project: &SidebarProjectInfo,
@@ -632,15 +632,13 @@ impl Sidebar {
         if let Some(conn_id) = self.workspace.read(cx).project(project_id)
             .filter(|p| p.is_remote)
             .and_then(|p| p.connection_id.clone())
-        {
-            if let Some(ref send_action) = self.send_remote_action {
+            && let Some(ref send_action) = self.send_remote_action {
                 let server_id = okena_core::client::strip_prefix(project_id, &conn_id);
                 (send_action)(&conn_id, ActionRequest::SetProjectColor {
                     project_id: server_id,
                     color,
                 }, cx);
             }
-        }
     }
 
     pub(crate) fn request_context_menu(&mut self, project_id: String, position: Point<Pixels>, cx: &mut Context<Self>) {
@@ -717,8 +715,8 @@ impl Sidebar {
         }
         // Try to place cursor on the focused project
         let focused_id = self.workspace.read(cx).focused_project_id().cloned();
-        if let Some(ref focused_id) = focused_id {
-            if let Some(pos) = items.iter().position(|item| match item {
+        if let Some(ref focused_id) = focused_id
+            && let Some(pos) = items.iter().position(|item| match item {
                 SidebarCursorItem::Project { project_id } |
                 SidebarCursorItem::WorktreeProject { project_id } => project_id == focused_id,
                 _ => false,
@@ -727,7 +725,6 @@ impl Sidebar {
                 cx.notify();
                 return;
             }
-        }
         self.cursor_index = Some(0);
         cx.notify();
     }
@@ -794,7 +791,7 @@ impl Sidebar {
                     for pid in &folder.project_ids {
                         if let Some(&project) = all_projects.get(pid.as_str()) {
                             // Skip worktree children that have a parent in the project list
-                            if project.worktree_info.as_ref().map_or(false, |w| {
+                            if project.worktree_info.as_ref().is_some_and(|w| {
                                 all_project_ids.contains(w.parent_project_id.as_str())
                             }) {
                                 continue;
@@ -808,7 +805,7 @@ impl Sidebar {
 
             // Top-level project (not a worktree child of another)
             if let Some(&project) = all_projects.get(id.as_str()) {
-                if project.worktree_info.as_ref().map_or(false, |w| {
+                if project.worktree_info.as_ref().is_some_and(|w| {
                     all_project_ids.contains(w.parent_project_id.as_str())
                 }) {
                     continue;
@@ -829,7 +826,7 @@ impl Sidebar {
         hook_terminal_ids: &HashMap<String, Vec<String>>,
         cursor_items: &mut Vec<SidebarCursorItem>,
     ) {
-        let has_worktrees = worktree_children_map.get(&project.id).map_or(false, |c| !c.is_empty());
+        let has_worktrees = worktree_children_map.get(&project.id).is_some_and(|c| !c.is_empty());
         let is_orphan = project.worktree_info.is_some();
 
         if has_worktrees && !is_orphan {
@@ -895,8 +892,8 @@ impl Sidebar {
         }
 
         // Services group
-        if let Some(names) = service_names.get(project_id) {
-            if !names.is_empty() {
+        if let Some(names) = service_names.get(project_id)
+            && !names.is_empty() {
                 cursor_items.push(SidebarCursorItem::GroupHeader {
                     project_id: project_id.to_string(),
                     group: GroupKind::Services,
@@ -911,11 +908,10 @@ impl Sidebar {
                     }
                 }
             }
-        }
 
         // Hooks group
-        if let Some(tids) = hook_terminal_ids.get(project_id) {
-            if !tids.is_empty() {
+        if let Some(tids) = hook_terminal_ids.get(project_id)
+            && !tids.is_empty() {
                 cursor_items.push(SidebarCursorItem::GroupHeader {
                     project_id: project_id.to_string(),
                     group: GroupKind::Hooks,
@@ -930,18 +926,16 @@ impl Sidebar {
                     }
                 }
             }
-        }
     }
 
     /// Clamp cursor to valid range
     fn validate_cursor(&mut self, item_count: usize) {
         if item_count == 0 {
             self.cursor_index = None;
-        } else if let Some(ref mut idx) = self.cursor_index {
-            if *idx >= item_count {
+        } else if let Some(ref mut idx) = self.cursor_index
+            && *idx >= item_count {
                 *idx = item_count - 1;
             }
-        }
     }
 
     /// Check if any rename is active (blocks keyboard nav)
@@ -1155,11 +1149,10 @@ impl Sidebar {
 
     /// Scroll the sidebar to keep the cursor item visible
     fn scroll_to_cursor(&self, item_count: usize) {
-        if let Some(idx) = self.cursor_index {
-            if item_count > 0 {
+        if let Some(idx) = self.cursor_index
+            && item_count > 0 {
                 self.scroll_handle.scroll_to_item(idx);
             }
-        }
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1242,7 +1235,7 @@ impl Sidebar {
     pub fn count_waiting_terminals(&self, terminal_ids: &[String]) -> usize {
         let terminals = self.terminals.lock();
         terminal_ids.iter()
-            .filter(|id| terminals.get(id.as_str()).map_or(false, |t| t.is_waiting_for_input()))
+            .filter(|id| terminals.get(id.as_str()).is_some_and(|t| t.is_waiting_for_input()))
             .count()
     }
 
@@ -1509,7 +1502,7 @@ impl Render for Sidebar {
                     ))
                     .map(|p| {
                         let mut info = SidebarProjectInfo::from_project(p);
-                        info.is_orphan = p.worktree_info.as_ref().map_or(false, |wt| {
+                        info.is_orphan = p.worktree_info.as_ref().is_some_and(|wt| {
                             !all_project_ids.contains(wt.parent_project_id.as_str())
                         });
                         info.is_closing = workspace.is_project_closing(&p.id);
@@ -1543,15 +1536,14 @@ impl Render for Sidebar {
 
             // Check if this is a top-level project (not a worktree child)
             if let Some(&project) = all_projects.get(id.as_str()) {
-                if let Some(ref wt_info) = project.worktree_info {
-                    if all_project_ids.contains(wt_info.parent_project_id.as_str()) {
+                if let Some(ref wt_info) = project.worktree_info
+                    && all_project_ids.contains(wt_info.parent_project_id.as_str()) {
                         // This is a worktree child shown under its parent, skip
                         continue;
                     }
-                }
                 let mut wt_children = worktree_children_map.remove(&project.id).unwrap_or_default();
                 let mut project_info = SidebarProjectInfo::from_project(project);
-                project_info.is_orphan = project.worktree_info.as_ref().map_or(false, |wt| {
+                project_info.is_orphan = project.worktree_info.as_ref().is_some_and(|wt| {
                     !all_project_ids.contains(wt.parent_project_id.as_str())
                 });
                 project_info.is_closing = workspace.is_project_closing(&project.id);
@@ -1690,7 +1682,7 @@ impl Render for Sidebar {
                         let terminals = self.terminals.lock();
                         projects.iter()
                             .flat_map(|p| p.terminal_ids.iter())
-                            .filter(|id| terminals.get(id.as_str()).map_or(false, |t| t.is_waiting_for_input()))
+                            .filter(|id| terminals.get(id.as_str()).is_some_and(|t| t.is_waiting_for_input()))
                             .count()
                     } else {
                         0
@@ -1705,7 +1697,7 @@ impl Render for Sidebar {
                     if !folder.collapsed {
                         for fp in &projects {
                             let fp_wt_children = worktree_children.get(&fp.id);
-                            let has_worktrees = fp_wt_children.map_or(false, |c| !c.is_empty());
+                            let has_worktrees = fp_wt_children.is_some_and(|c| !c.is_empty());
 
                             if has_worktrees && !fp.is_orphan {
                                 // Group header mode within folder
@@ -1713,7 +1705,7 @@ impl Render for Sidebar {
                                 let is_focused_group = focused_project_id.as_ref() == Some(&fp.id) && !focus_individual;
                                 flat_elements.push(
                                     {
-                                    let all_hidden = !fp.show_in_overview && fp_wt_children.map_or(true, |c| c.iter().all(|c| !c.show_in_overview));
+                                    let all_hidden = !fp.show_in_overview && fp_wt_children.is_none_or(|c| c.iter().all(|c| !c.show_in_overview));
                                     self.render_project_group_header(fp, 20.0, "fgh", "fgh-item", crate::project_list::GroupHeaderDragConfig::InFolder { folder_id: folder.id.clone() }, all_hidden, is_cursor, is_focused_group, window, cx).into_any_element()
                                     }
                                 );

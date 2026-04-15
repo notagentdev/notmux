@@ -33,7 +33,7 @@ pub enum SessionBackend {
 impl SessionBackend {
     /// Parse from string (for env variable override)
     #[allow(dead_code)]
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_backend(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "tmux" => Self::Tmux,
             "screen" => Self::Screen,
@@ -49,7 +49,7 @@ impl SessionBackend {
     #[allow(dead_code)]
     pub fn from_env() -> Self {
         std::env::var("OKENA_SESSION_BACKEND")
-            .map(|s| Self::from_str(&s))
+            .map(|s| Self::parse_backend(&s))
             .unwrap_or_default()
     }
 
@@ -289,8 +289,7 @@ impl ResolvedBackend {
                             .arg("-t")
                             .arg(&socket_path)
                             .output()
-                        {
-                            if let Ok(pid_str) = String::from_utf8(output.stdout) {
+                            && let Ok(pid_str) = String::from_utf8(output.stdout) {
                                 for line in pid_str.lines() {
                                     if let Ok(pid) = line.trim().parse::<i32>() {
                                         if pid == my_pid {
@@ -304,7 +303,6 @@ impl ResolvedBackend {
                                     }
                                 }
                             }
-                        }
                     }
                     let _ = std::fs::remove_file(&socket_path);
                     log::debug!("Removed dtach socket: {:?}", socket_path);
@@ -635,11 +633,10 @@ pub fn get_extended_path() -> String {
     };
 
     for dir in &candidates {
-        if dir.is_dir() {
-            if let Some(s) = dir.to_str() {
+        if dir.is_dir()
+            && let Some(s) = dir.to_str() {
                 push(s.to_string());
             }
-        }
     }
 
     // Also resolve fnm's current Node version if fnm is installed
@@ -648,13 +645,11 @@ pub fn get_extended_path() -> String {
     // Source .cargo/env if it exists — it may define CARGO_HOME in a non-default location
     if let Some(extra) = source_cargo_env(&home) {
         let cargo_bin = Path::new(&extra).join("bin");
-        if cargo_bin.is_dir() {
-            if let Some(s) = cargo_bin.to_str() {
-                if seen.insert(s.to_string()) {
+        if cargo_bin.is_dir()
+            && let Some(s) = cargo_bin.to_str()
+                && seen.insert(s.to_string()) {
                     result.push(s.to_string());
                 }
-            }
-        }
     }
 
     // Append inherited PATH entries (keeps system paths at the end)
@@ -698,11 +693,10 @@ fn resolve_fnm_path(home: &std::path::Path, result: &mut Vec<String>, seen: &mut
                 log::warn!("fnm alias points outside fnm directory, skipping: {:?}", node_bin);
                 return;
             }
-            if let Some(s) = canonical_bin.to_str() {
-                if seen.insert(s.to_string()) {
+            if let Some(s) = canonical_bin.to_str()
+                && seen.insert(s.to_string()) {
                     result.push(s.to_string());
                 }
-            }
         }
     }
 }
@@ -817,15 +811,15 @@ mod tests {
 
     #[test]
     fn test_parse_backend() {
-        assert_eq!(SessionBackend::from_str("tmux"), SessionBackend::Tmux);
-        assert_eq!(SessionBackend::from_str("TMUX"), SessionBackend::Tmux);
-        assert_eq!(SessionBackend::from_str("screen"), SessionBackend::Screen);
-        assert_eq!(SessionBackend::from_str("dtach"), SessionBackend::Dtach);
-        assert_eq!(SessionBackend::from_str("DTACH"), SessionBackend::Dtach);
-        assert_eq!(SessionBackend::from_str("none"), SessionBackend::None);
-        assert_eq!(SessionBackend::from_str("auto"), SessionBackend::Auto);
-        assert_eq!(SessionBackend::from_str("smart"), SessionBackend::Auto);
-        assert_eq!(SessionBackend::from_str("invalid"), SessionBackend::None);
+        assert_eq!(SessionBackend::parse_backend("tmux"), SessionBackend::Tmux);
+        assert_eq!(SessionBackend::parse_backend("TMUX"), SessionBackend::Tmux);
+        assert_eq!(SessionBackend::parse_backend("screen"), SessionBackend::Screen);
+        assert_eq!(SessionBackend::parse_backend("dtach"), SessionBackend::Dtach);
+        assert_eq!(SessionBackend::parse_backend("DTACH"), SessionBackend::Dtach);
+        assert_eq!(SessionBackend::parse_backend("none"), SessionBackend::None);
+        assert_eq!(SessionBackend::parse_backend("auto"), SessionBackend::Auto);
+        assert_eq!(SessionBackend::parse_backend("smart"), SessionBackend::Auto);
+        assert_eq!(SessionBackend::parse_backend("invalid"), SessionBackend::None);
     }
 
     #[test]

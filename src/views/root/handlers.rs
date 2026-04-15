@@ -218,11 +218,10 @@ impl RootView {
             }
             OverlayManagerEvent::TerminalCopy { terminal_id } => {
                 let terminals = self.terminals.lock();
-                if let Some(terminal) = terminals.get(terminal_id) {
-                    if let Some(text) = terminal.get_selected_text() {
+                if let Some(terminal) = terminals.get(terminal_id)
+                    && let Some(text) = terminal.get_selected_text() {
                         cx.write_to_clipboard(ClipboardItem::new_string(text));
                     }
-                }
             }
             OverlayManagerEvent::TerminalPaste { terminal_id } => {
                 let text = cx.read_from_clipboard()

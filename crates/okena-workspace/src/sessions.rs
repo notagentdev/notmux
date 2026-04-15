@@ -55,8 +55,8 @@ pub fn list_sessions() -> Result<Vec<SessionInfo>> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.extension().map_or(false, |ext| ext == "json") {
-            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+        if path.extension().is_some_and(|ext| ext == "json")
+            && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                 // Read file metadata for timestamps
                 let metadata = std::fs::metadata(&path)?;
                 let modified = metadata.modified().ok();
@@ -86,7 +86,6 @@ pub fn list_sessions() -> Result<Vec<SessionInfo>> {
                     project_count,
                 });
             }
-        }
     }
 
     // Sort by modification time (most recent first)

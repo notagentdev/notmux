@@ -3,12 +3,12 @@
 use super::{FileViewerTab, MAX_FILE_SIZE, MAX_LINES};
 use crate::syntax::highlight_content;
 use okena_markdown::MarkdownDocument;
-use std::path::PathBuf;
+use std::path::Path;
 use syntect::parsing::SyntaxSet;
 
 impl FileViewerTab {
     /// Check if a file is a markdown file based on extension.
-    pub(super) fn is_markdown_file(path: &PathBuf) -> bool {
+    pub(super) fn is_markdown_file(path: &Path) -> bool {
         path.extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| {
@@ -19,7 +19,7 @@ impl FileViewerTab {
     }
 
     /// Load file content and apply syntax highlighting.
-    pub(super) fn load_file(&mut self, path: &PathBuf, syntax_set: &SyntaxSet, is_dark: bool) {
+    pub(super) fn load_file(&mut self, path: &Path, syntax_set: &SyntaxSet, is_dark: bool) {
         // Check file size first
         match std::fs::metadata(path) {
             Ok(metadata) => {
@@ -120,7 +120,7 @@ impl FileViewerTab {
     /// Apply syntax highlighting to the content using shared utilities.
     pub(super) fn do_highlight_content(
         &mut self,
-        path: &PathBuf,
+        path: &Path,
         syntax_set: &SyntaxSet,
         is_dark: bool,
     ) {

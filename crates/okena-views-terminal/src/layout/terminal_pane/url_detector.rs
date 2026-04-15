@@ -45,9 +45,9 @@ impl UrlDetector {
         // Strip :line:col suffix for existence check
         let clean = strip_line_col_suffix(text);
 
-        if clean.starts_with("~/") {
+        if let Some(stripped) = clean.strip_prefix("~/") {
             if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-                return PathBuf::from(home).join(&clean[2..]);
+                return PathBuf::from(home).join(stripped);
             }
             PathBuf::from(clean)
         } else if clean.starts_with("./") || clean.starts_with("../") {

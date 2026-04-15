@@ -315,8 +315,8 @@ impl Render for StatusBar {
                 }
 
                 // Show remote server status if active
-                if let Some(remote_info) = cx.try_global::<crate::remote::GlobalRemoteInfo>() {
-                    if let Some(port) = remote_info.0.port() {
+                if let Some(remote_info) = cx.try_global::<crate::remote::GlobalRemoteInfo>()
+                    && let Some(port) = remote_info.0.port() {
                         right = right.child(
                             div()
                                 .id("remote-info")
@@ -349,7 +349,6 @@ impl Render for StatusBar {
                                 )
                         );
                     }
-                }
 
                 // Focused project indicator
                 let focused_project = {

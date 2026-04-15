@@ -153,12 +153,11 @@ impl Workspace {
     /// Update the saved service terminal IDs for a project.
     /// Called by the ServiceManager observer to persist terminal IDs across restarts.
     pub fn sync_service_terminals(&mut self, project_id: &str, terminals: HashMap<String, String>, cx: &mut Context<Self>) {
-        if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id) {
-            if project.service_terminals != terminals {
+        if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id)
+            && project.service_terminals != terminals {
                 project.service_terminals = terminals;
                 self.notify_data(cx);
             }
-        }
     }
 
     pub fn register_hook_terminal(
@@ -222,15 +221,14 @@ impl Workspace {
     ) {
         for project in &mut self.data.projects {
             if project.hook_terminals.remove(terminal_id).is_some() {
-                if let Some(ref layout) = project.layout {
-                    if let Some(path) = layout.find_terminal_path(terminal_id) {
+                if let Some(ref layout) = project.layout
+                    && let Some(path) = layout.find_terminal_path(terminal_id) {
                         if path.is_empty() {
                             project.layout = None;
                         } else if let Some(ref mut layout) = project.layout {
                             layout.remove_at_path(&path);
                         }
                     }
-                }
                 project.terminal_names.remove(terminal_id);
                 self.notify_data(cx);
                 return;
@@ -251,7 +249,7 @@ impl Workspace {
     /// Returns a reference to the `ProjectData` if found.
     pub fn find_project_for_terminal(&self, terminal_id: &str) -> Option<&ProjectData> {
         self.data.projects.iter().find(|p| {
-            p.layout.as_ref().map_or(false, |l| l.find_terminal_path(terminal_id).is_some())
+            p.layout.as_ref().is_some_and(|l| l.find_terminal_path(terminal_id).is_some())
         })
     }
 
@@ -336,7 +334,7 @@ impl Workspace {
     /// Get IDs of worktree children for a given parent project.
     pub fn worktree_child_ids(&self, parent_id: &str) -> Vec<String> {
         self.data.projects.iter()
-            .filter(|p| p.worktree_info.as_ref().map_or(false, |w| w.parent_project_id == parent_id))
+            .filter(|p| p.worktree_info.as_ref().is_some_and(|w| w.parent_project_id == parent_id))
             .map(|p| p.id.clone())
             .collect()
     }
@@ -438,11 +436,10 @@ impl Workspace {
 
         self.remote_sync.retain_not_starting_with(&prefix);
 
-        if let Some(focused) = self.focus_manager.focused_project_id() {
-            if focused.starts_with(&prefix) {
+        if let Some(focused) = self.focus_manager.focused_project_id()
+            && focused.starts_with(&prefix) {
                 self.focus_manager.set_focused_project_id(None);
             }
-        }
 
         cx.notify();
     }
@@ -458,16 +455,13 @@ impl Workspace {
     where
         F: FnOnce(&mut LayoutNode) -> bool,
     {
-        if let Some(project) = self.project_mut(project_id) {
-            if let Some(ref mut layout) = project.layout {
-                if let Some(node) = layout.get_at_path_mut(path) {
-                    if f(node) {
+        if let Some(project) = self.project_mut(project_id)
+            && let Some(ref mut layout) = project.layout
+                && let Some(node) = layout.get_at_path_mut(path)
+                    && f(node) {
                         self.notify_data(cx);
                         return true;
                     }
-                }
-            }
-        }
         false
     }
 
@@ -477,12 +471,11 @@ impl Workspace {
     where
         F: FnOnce(&mut ProjectData) -> bool,
     {
-        if let Some(project) = self.project_mut(project_id) {
-            if f(project) {
+        if let Some(project) = self.project_mut(project_id)
+            && f(project) {
                 self.notify_data(cx);
                 return true;
             }
-        }
         false
     }
 }

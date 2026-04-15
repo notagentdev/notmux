@@ -70,8 +70,8 @@ impl RootView {
 
         // Compute the left edge (x offset) of the focused column
         let mut col_left: f32 = 0.0;
-        for i in 0..focused_idx {
-            col_left += pixel_widths[i] + 1.0; // +1 for divider
+        for pw in pixel_widths.iter().take(focused_idx) {
+            col_left += pw + 1.0; // +1 for divider
         }
 
         let new_offset = if center {

@@ -30,58 +30,53 @@ pub struct ThemeSelector {
 impl ThemeSelector {
     pub fn new(cx: &mut Context<Self>) -> Self {
         // Build theme list: built-in + custom
-        let mut themes = Vec::new();
-
-        // Add built-in themes
-        themes.push(ThemeEntry {
-            info: ThemeInfo {
-                id: "auto".to_string(),
-                name: "Auto".to_string(),
-                description: "Follow system appearance".to_string(),
-                is_dark: true,
+        let mut themes = vec![
+            ThemeEntry {
+                info: ThemeInfo {
+                    id: "auto".to_string(),
+                    name: "Auto".to_string(),
+                    description: "Follow system appearance".to_string(),
+                    is_dark: true,
+                },
+                colors: DARK_THEME, // Preview with dark theme
             },
-            colors: DARK_THEME, // Preview with dark theme
-        });
-
-        themes.push(ThemeEntry {
-            info: ThemeInfo {
-                id: "dark".to_string(),
-                name: "Dark".to_string(),
-                description: "Default dark theme (VSCode-like)".to_string(),
-                is_dark: true,
+            ThemeEntry {
+                info: ThemeInfo {
+                    id: "dark".to_string(),
+                    name: "Dark".to_string(),
+                    description: "Default dark theme (VSCode-like)".to_string(),
+                    is_dark: true,
+                },
+                colors: DARK_THEME,
             },
-            colors: DARK_THEME,
-        });
-
-        themes.push(ThemeEntry {
-            info: ThemeInfo {
-                id: "light".to_string(),
-                name: "Light".to_string(),
-                description: "Clean light theme".to_string(),
-                is_dark: false,
+            ThemeEntry {
+                info: ThemeInfo {
+                    id: "light".to_string(),
+                    name: "Light".to_string(),
+                    description: "Clean light theme".to_string(),
+                    is_dark: false,
+                },
+                colors: LIGHT_THEME,
             },
-            colors: LIGHT_THEME,
-        });
-
-        themes.push(ThemeEntry {
-            info: ThemeInfo {
-                id: "pastel-dark".to_string(),
-                name: "Pastel Dark".to_string(),
-                description: "Soft pastel colors on dark background".to_string(),
-                is_dark: true,
+            ThemeEntry {
+                info: ThemeInfo {
+                    id: "pastel-dark".to_string(),
+                    name: "Pastel Dark".to_string(),
+                    description: "Soft pastel colors on dark background".to_string(),
+                    is_dark: true,
+                },
+                colors: PASTEL_DARK_THEME,
             },
-            colors: PASTEL_DARK_THEME,
-        });
-
-        themes.push(ThemeEntry {
-            info: ThemeInfo {
-                id: "high-contrast".to_string(),
-                name: "High Contrast".to_string(),
-                description: "High contrast for better visibility".to_string(),
-                is_dark: true,
+            ThemeEntry {
+                info: ThemeInfo {
+                    id: "high-contrast".to_string(),
+                    name: "High Contrast".to_string(),
+                    description: "High contrast for better visibility".to_string(),
+                    is_dark: true,
+                },
+                colors: HIGH_CONTRAST_THEME,
             },
-            colors: HIGH_CONTRAST_THEME,
-        });
+        ];
 
         // Add custom themes
         for (info, colors) in load_custom_themes() {

@@ -10,6 +10,7 @@ use super::components::*;
 use super::SettingsPanel;
 
 impl SettingsPanel {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_number_stepper(
         &self,
         id: &str,
@@ -51,6 +52,7 @@ impl SettingsPanel {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_integer_stepper(
         &self,
         id: &str,

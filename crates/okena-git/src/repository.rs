@@ -36,8 +36,8 @@ pub(crate) fn get_worktree_branches(path: &Path) -> Vec<String> {
 
     let mut branches = Vec::new();
 
-    if let Some(output) = output {
-        if output.status.success() {
+    if let Some(output) = output
+        && output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if line.starts_with("branch ") {
@@ -50,7 +50,6 @@ pub(crate) fn get_worktree_branches(path: &Path) -> Vec<String> {
                 }
             }
         }
-    }
 
     branches
 }
@@ -74,14 +73,13 @@ fn clean_stale_worktree_dir(repo_path: &Path, target_path: &Path) -> Result<(), 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let target_normalized = normalize_path(target_path);
         for line in stdout.lines() {
-            if let Some(wt_path) = line.strip_prefix("worktree ") {
-                if normalize_path(Path::new(wt_path)) == target_normalized {
+            if let Some(wt_path) = line.strip_prefix("worktree ")
+                && normalize_path(Path::new(wt_path)) == target_normalized {
                     return Err(format!(
                         "Directory '{}' is already an active worktree",
                         target_path.display()
                     ));
                 }
-            }
         }
     }
 
@@ -242,8 +240,8 @@ pub fn list_branches(path: &Path) -> Vec<String> {
 
     let mut branches = Vec::new();
 
-    if let Some(output) = output {
-        if output.status.success() {
+    if let Some(output) = output
+        && output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 let branch = line.trim();
@@ -260,7 +258,6 @@ pub fn list_branches(path: &Path) -> Vec<String> {
                 }
             }
         }
-    }
 
     branches
 }
@@ -369,8 +366,8 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
 
     let (mut added, mut removed) = (0usize, 0usize);
 
-    if let Some(output) = output {
-        if output.status.success() {
+    if let Some(output) = output
+        && output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 let parts: Vec<&str> = line.split('\t').collect();
@@ -385,7 +382,6 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
                 }
             }
         }
-    }
 
     // Also include untracked files (count lines)
     let output = safe_output(
@@ -393,8 +389,8 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
     )
     .ok();
 
-    if let Some(output) = output {
-        if output.status.success() {
+    if let Some(output) = output
+        && output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for file in stdout.lines() {
                 if !file.is_empty() {
@@ -406,7 +402,6 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
                 }
             }
         }
-    }
 
     (added, removed)
 }
@@ -426,11 +421,10 @@ pub fn get_default_branch(repo_path: &Path) -> Option<String> {
     if output.status.success() {
         let refname = String::from_utf8_lossy(&output.stdout).trim().to_string();
         // refs/remotes/origin/main -> main
-        if let Some(branch) = refname.strip_prefix("refs/remotes/origin/") {
-            if !branch.is_empty() {
+        if let Some(branch) = refname.strip_prefix("refs/remotes/origin/")
+            && !branch.is_empty() {
                 return Some(branch.to_string());
             }
-        }
     }
 
     // Fallback: check if main or master branch exists
@@ -439,11 +433,10 @@ pub fn get_default_branch(repo_path: &Path) -> Option<String> {
             .args(["-C", path_str, "rev-parse", "--verify", candidate])
             .output()
             .ok();
-        if let Some(output) = output {
-            if output.status.success() {
+        if let Some(output) = output
+            && output.status.success() {
                 return Some(candidate.to_string());
             }
-        }
     }
 
     None
@@ -635,21 +628,19 @@ pub fn list_git_worktrees(repo_path: &Path) -> Vec<(String, String)> {
         .output()
         .ok();
     let mut result = Vec::new();
-    if let Some(output) = output {
-        if output.status.success() {
+    if let Some(output) = output
+        && output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let mut current_path = String::new();
             for line in stdout.lines() {
                 if let Some(wt_path) = line.strip_prefix("worktree ") {
                     current_path = wt_path.to_string();
-                } else if let Some(branch_ref) = line.strip_prefix("branch refs/heads/") {
-                    if !current_path.is_empty() {
+                } else if let Some(branch_ref) = line.strip_prefix("branch refs/heads/")
+                    && !current_path.is_empty() {
                         result.push((current_path.clone(), branch_ref.to_string()));
                     }
-                }
             }
         }
-    }
     result
 }
 
@@ -886,7 +877,7 @@ pub(crate) fn parse_commit_graph_output(stdout: &str) -> Vec<super::GraphRow> {
             let message = parts[1].to_string();
             let author = parts[2].to_string();
             let timestamp = parts[3].parse::<i64>().unwrap_or(0);
-            let is_merge = parts.get(4).map_or(false, |p| p.contains(' '));
+            let is_merge = parts.get(4).is_some_and(|p| p.contains(' '));
             let refs: Vec<String> = parts.get(5)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.split(", ").map(|r| r.to_string()).collect())

@@ -12,6 +12,7 @@ use gpui_component::h_flex;
 use std::sync::Arc;
 
 impl DiffViewer {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_header(
         &self,
         t: &ThemeColors,
@@ -326,6 +327,7 @@ impl DiffViewer {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_content(
         &mut self,
         t: &ThemeColors,
@@ -427,6 +429,7 @@ impl DiffViewer {
             )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn render_diff_pane(
         &mut self,
         t: &ThemeColors,

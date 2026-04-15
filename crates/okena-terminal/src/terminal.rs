@@ -128,21 +128,13 @@ impl EventListener for ZedEventListener {
 
 /// Selection state for the terminal
 #[derive(Clone, Debug)]
+#[derive(Default)]
 pub struct SelectionState {
     pub start: Option<(usize, usize)>,
     pub end: Option<(usize, usize)>,
     pub is_selecting: bool,
 }
 
-impl Default for SelectionState {
-    fn default() -> Self {
-        Self {
-            start: None,
-            end: None,
-            is_selecting: false,
-        }
-    }
-}
 
 /// A detected link in terminal content (URL or file path)
 #[derive(Clone, Debug)]
@@ -585,18 +577,13 @@ impl Terminal {
     pub fn with_content<R>(&self, f: impl FnOnce(&Term<ZedEventListener>) -> R) -> R {
         self.drain_pending_output();
         let term = self.term.lock();
-        f(&*term)
+        f(&term)
     }
 
     /// Scroll the terminal
     pub fn scroll(&self, delta: i32) {
         let mut term = self.term.lock();
-        let scroll = if delta > 0 {
-            Scroll::Delta(delta)
-        } else {
-            Scroll::Delta(delta)
-        };
-        term.scroll_display(scroll);
+        term.scroll_display(Scroll::Delta(delta));
         *self.scroll_offset.lock() += delta;
         self.content_generation.fetch_add(1, Ordering::Relaxed);
     }
@@ -704,13 +691,12 @@ impl Terminal {
     /// Returns ((start_col, start_row), (end_col, end_row)) where rows are buffer coordinates (can be negative for history)
     pub fn selection_bounds(&self) -> Option<((usize, i32), (usize, i32))> {
         let term = self.term.lock();
-        if let Some(ref selection) = term.selection {
-            if let Some(range) = selection.to_range(&*term) {
+        if let Some(ref selection) = term.selection
+            && let Some(range) = selection.to_range(&*term) {
                 let start = (range.start.column.0, range.start.line.0);
                 let end = (range.end.column.0, range.end.line.0);
                 return Some((start, end));
             }
-        }
         None
     }
 
@@ -1316,7 +1302,7 @@ impl Terminal {
     /// Produces a byte stream that, when fed to another terminal emulator,
     /// reproduces the current screen state including colors and attributes.
     pub fn render_snapshot(&self) -> Vec<u8> {
-        self.with_content(|term| grid_to_ansi(term))
+        self.with_content(grid_to_ansi)
     }
 
     /// Scroll to a specific position (0 = bottom, positive = towards top)
@@ -1435,9 +1421,7 @@ impl Terminal {
         }
 
         // Send backspaces for each character in the selection
-        for _ in 0..char_count {
-            buf.push(0x7f); // DEL / Backspace
-        }
+        buf.extend(std::iter::repeat_n(0x7f, char_count)); // DEL / Backspace
 
         // Clear selection
         term.selection = None;
@@ -1487,8 +1471,8 @@ impl Terminal {
                 b'[',
                 b'M',
                 legacy_cb.saturating_add(32),
-                (col as u8).saturating_add(33).min(255),
-                (row as u8).saturating_add(33).min(255),
+                (col as u8).saturating_add(33),
+                (row as u8).saturating_add(33),
             ]
         };
         self.send_bytes(&buf);
@@ -1514,8 +1498,8 @@ impl Terminal {
                 b'[',
                 b'M',
                 cb.saturating_add(32),
-                (col as u8).saturating_add(33).min(255),
-                (row as u8).saturating_add(33).min(255),
+                (col as u8).saturating_add(33),
+                (row as u8).saturating_add(33),
             ]
         };
         self.send_bytes(&buf);
@@ -1549,8 +1533,8 @@ impl Terminal {
                     b'[',
                     b'M',
                     button.saturating_add(32),
-                    (col as u8).saturating_add(33).min(255),
-                    (row as u8).saturating_add(33).min(255),
+                    (col as u8).saturating_add(33),
+                    (row as u8).saturating_add(33),
                 ]);
             }
         }
@@ -1607,9 +1591,7 @@ impl Terminal {
 
         let arrow_seq: &[u8] = if going_right {
             if app_cursor { b"\x1bOC" } else { b"\x1b[C" }
-        } else {
-            if app_cursor { b"\x1bOD" } else { b"\x1b[D" }
-        };
+        } else if app_cursor { b"\x1bOD" } else { b"\x1b[D" };
 
         let mut buf = Vec::with_capacity(arrow_seq.len() * arrow_count);
         for _ in 0..arrow_count {
@@ -1725,8 +1707,8 @@ fn grid_to_ansi(term: &Term<ZedEventListener>) -> Vec<u8> {
                 underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
                 inverse: cell.flags.contains(Flags::INVERSE),
                 strikeout: cell.flags.contains(Flags::STRIKEOUT),
-                fg: if cell.fg == default_fg { None } else { Some(cell.fg.clone()) },
-                bg: if cell.bg == default_bg { None } else { Some(cell.bg.clone()) },
+                fg: if cell.fg == default_fg { None } else { Some(cell.fg) },
+                bg: if cell.bg == default_bg { None } else { Some(cell.bg) },
             };
 
             if desired != current {

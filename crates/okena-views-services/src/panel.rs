@@ -13,6 +13,7 @@ use okena_ui::tokens::{ui_text_xs, ui_text_sm, ui_text_ms, ui_text_md, ui_text};
 ///
 /// Contains the Overview tab, per-service tabs, contextual action buttons, and close button.
 /// Event handlers are passed as closures so the caller retains state control.
+#[allow(clippy::too_many_arguments)]
 pub fn render_service_panel_header(
     services: &[ServiceSnapshot],
     active_service_name: Option<&str>,
@@ -275,6 +276,7 @@ pub fn render_service_panel_header(
 ///
 /// Contains column headers and data rows. The caller passes closures for
 /// service name clicks, port clicks, and action button clicks.
+#[allow(clippy::too_many_arguments)]
 pub fn render_service_overview(
     services: &[ServiceSnapshot],
     project_id: &str,
@@ -395,6 +397,7 @@ pub fn render_service_overview(
 }
 
 /// Render a single service row in the overview table.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn render_overview_row(
     idx: usize,
     svc: &ServiceSnapshot,

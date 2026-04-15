@@ -44,7 +44,7 @@ impl Workspace {
         // which creates a clunky UI.
         let split_path = if let Some(project) = self.project(project_id) {
             if let Some(ref layout) = project.layout {
-                if path.len() >= 1 {
+                if !path.is_empty() {
                     let parent_path = &path[..path.len() - 1];
                     if let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path) {
                         parent_path.to_vec()
@@ -103,17 +103,15 @@ impl Workspace {
         log::info!("Workspace::add_tab called for project {} at path {:?}", project_id, path);
 
         // Check if parent is a Tabs container
-        if path.len() >= 1 {
+        if !path.is_empty() {
             let parent_path = &path[..path.len() - 1];
-            if let Some(project) = self.project(project_id) {
-                if let Some(ref layout) = project.layout {
-                    if let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path) {
+            if let Some(project) = self.project(project_id)
+                && let Some(ref layout) = project.layout
+                    && let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path) {
                         // Parent is Tabs - add new tab to the group
                         self.add_tab_to_group(project_id, parent_path, cx);
                         return;
                     }
-                }
-            }
         }
 
         // Parent is not Tabs - create new tab group
@@ -162,8 +160,8 @@ impl Workspace {
     /// Close a terminal at a path.
     /// Returns the terminal IDs that were removed from the layout.
     pub fn close_terminal(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) -> Vec<String> {
-        if let Some(project) = self.project_mut(project_id) {
-            if let Some(ref mut layout) = project.layout {
+        if let Some(project) = self.project_mut(project_id)
+            && let Some(ref mut layout) = project.layout {
                 if path.is_empty() {
                     // Closing root - remove layout entirely (project becomes bookmark)
                     project.layout = None;
@@ -213,7 +211,6 @@ impl Workspace {
                     }
                 }
             }
-        }
         vec![]
     }
 
@@ -319,16 +316,13 @@ impl Workspace {
         new_sizes: Vec<f32>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(project) = self.project_mut(project_id) {
-            if let Some(ref mut layout) = project.layout {
-                if let Some(node) = layout.get_at_path_mut(path) {
-                    if let LayoutNode::Split { sizes, .. } = node {
+        if let Some(project) = self.project_mut(project_id)
+            && let Some(ref mut layout) = project.layout
+                && let Some(node) = layout.get_at_path_mut(path)
+                    && let LayoutNode::Split { sizes, .. } = node {
                         *sizes = new_sizes;
                         self.notify_ui_only(cx);
                     }
-                }
-            }
-        }
     }
 
     /// Set active tab in a tabs container
@@ -1035,23 +1029,20 @@ impl Workspace {
 
     /// Equalize pane sizes in the focused terminal's parent split.
     pub fn equalize_focused_split(&mut self, cx: &mut Context<Self>) {
-        if let Some(target) = self.focus_manager.focused_terminal_state() {
-            if let Some(project) = self.project_mut(&target.project_id) {
-                if let Some(ref mut layout) = project.layout {
+        if let Some(target) = self.focus_manager.focused_terminal_state()
+            && let Some(project) = self.project_mut(&target.project_id)
+                && let Some(ref mut layout) = project.layout {
                     let parent_path = if target.layout_path.is_empty() {
                         &target.layout_path[..]
                     } else {
                         &target.layout_path[..target.layout_path.len() - 1]
                     };
-                    if let Some(node) = layout.get_at_path_mut(parent_path) {
-                        if let LayoutNode::Split { sizes, children, .. } = node {
+                    if let Some(node) = layout.get_at_path_mut(parent_path)
+                        && let LayoutNode::Split { sizes, children, .. } = node {
                             let n = children.len();
                             *sizes = vec![100.0 / n as f32; n];
                         }
-                    }
                 }
-            }
-        }
         self.notify_data(cx);
     }
 }

@@ -100,14 +100,14 @@ impl FileViewer {
     pub(super) fn is_context_menu_target_file(&self, file_path: &Path) -> bool {
         self.context_menu
             .as_ref()
-            .map_or(false, |m| m.target.matches_file(file_path))
+            .is_some_and(|m| m.target.matches_file(file_path))
     }
 
     /// Check if a folder row is the context menu target (for highlighting).
     pub(super) fn is_context_menu_target_folder(&self, folder_path: &str) -> bool {
         self.context_menu
             .as_ref()
-            .map_or(false, |m| m.target.matches_folder(folder_path))
+            .is_some_and(|m| m.target.matches_folder(folder_path))
     }
 
     // ========================================================================
@@ -184,14 +184,14 @@ impl FileViewer {
     pub(super) fn is_renaming_file(&self, file_path: &Path) -> bool {
         self.rename_state
             .as_ref()
-            .map_or(false, |s| s.target.matches_file(file_path))
+            .is_some_and(|s| s.target.matches_file(file_path))
     }
 
     /// Check if a folder is currently being renamed.
     pub(super) fn is_renaming_folder(&self, folder_path: &str) -> bool {
         self.rename_state
             .as_ref()
-            .map_or(false, |s| s.target.matches_folder(folder_path))
+            .is_some_and(|s| s.target.matches_folder(folder_path))
     }
 
     /// Render inline rename input for a tree row.
@@ -224,11 +224,10 @@ impl FileViewer {
         for tab in &mut self.tabs {
             if tab.file_path == *old_path {
                 tab.file_path = new_path.to_path_buf();
-            } else if tab.file_path.starts_with(old_path) {
-                if let Ok(relative) = tab.file_path.strip_prefix(old_path) {
+            } else if tab.file_path.starts_with(old_path)
+                && let Ok(relative) = tab.file_path.strip_prefix(old_path) {
                     tab.file_path = new_path.join(relative);
                 }
-            }
         }
     }
 

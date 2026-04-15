@@ -17,6 +17,7 @@ use super::Okena;
 ///
 /// Processes commands from the remote API bridge on the GPUI main thread.
 /// Callers are responsible for spawning this via `cx.spawn()`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn remote_command_loop(
     bridge_rx: BridgeReceiver,
     backend: Arc<dyn TerminalBackend>,
@@ -176,17 +177,15 @@ pub(crate) async fn remote_command_loop(
                     for id in &data.project_order {
                         if let Some(folder) = data.folders.iter().find(|f| &f.id == id) {
                             for pid in &folder.project_ids {
-                                if seen.insert(pid.clone()) {
-                                    if let Some(p) = project_map.get(pid.as_str()) {
+                                if seen.insert(pid.clone())
+                                    && let Some(p) = project_map.get(pid.as_str()) {
                                         projects.push(build_api_project(p));
                                     }
-                                }
                             }
-                        } else if seen.insert(id.clone()) {
-                            if let Some(p) = project_map.get(id.as_str()) {
+                        } else if seen.insert(id.clone())
+                            && let Some(p) = project_map.get(id.as_str()) {
                                 projects.push(build_api_project(p));
                             }
-                        }
                     }
 
                     // Append orphan projects not in any order

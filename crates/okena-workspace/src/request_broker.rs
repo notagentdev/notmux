@@ -12,6 +12,12 @@ pub struct RequestBroker {
     sidebar_requests: VecDeque<SidebarRequest>,
 }
 
+impl Default for RequestBroker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RequestBroker {
     pub fn new() -> Self {
         Self {

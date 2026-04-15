@@ -72,11 +72,10 @@ fn quit(_: &Quit, cx: &mut App) {
     }
 
     // Flush pending workspace save
-    if let Some(gw) = cx.try_global::<GlobalWorkspace>() {
-        if let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
+    if let Some(gw) = cx.try_global::<GlobalWorkspace>()
+        && let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
             log::error!("Failed to flush workspace on quit: {}", e);
         }
-    }
 
     cx.quit();
 }
@@ -84,14 +83,14 @@ fn quit(_: &Quit, cx: &mut App) {
 /// About action handler - shows native macOS about panel
 #[cfg(target_os = "macos")]
 fn about(_: &About, _cx: &mut App) {
-    use std::ffi::c_void;
+    use std::ffi::{c_char, c_void};
 
     // Non-variadic objc_msgSend trampolines — ARM64 requires the standard
     // (non-variadic) calling convention; declaring `...` misplaces arguments.
     #[allow(clashing_extern_declarations)]
     unsafe extern "C" {
-        fn objc_getClass(name: *const u8) -> *mut c_void;
-        fn sel_registerName(name: *const u8) -> *mut c_void;
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
 
         #[link_name = "objc_msgSend"]
         fn msg(obj: *mut c_void, sel: *mut c_void) -> *mut c_void;
@@ -110,9 +109,9 @@ fn about(_: &About, _cx: &mut App) {
     }
 
     unsafe {
-        let alloc = sel_registerName(b"alloc\0".as_ptr());
-        let init_utf8 = sel_registerName(b"initWithUTF8String:\0".as_ptr());
-        let ns_string = objc_getClass(b"NSString\0".as_ptr());
+        let alloc = sel_registerName(c"alloc".as_ptr());
+        let init_utf8 = sel_registerName(c"initWithUTF8String:".as_ptr());
+        let ns_string = objc_getClass(c"NSString".as_ptr());
 
         // Helper: create NSString from null-terminated bytes
         let nsstring = |s: &[u8]| -> *mut c_void {
@@ -121,10 +120,10 @@ fn about(_: &About, _cx: &mut App) {
 
         // Build options dictionary with version
         let dict = msg(
-            objc_getClass(b"NSMutableDictionary\0".as_ptr()),
-            sel_registerName(b"new\0".as_ptr()),
+            objc_getClass(c"NSMutableDictionary".as_ptr()),
+            sel_registerName(c"new".as_ptr()),
         );
-        let set_obj = sel_registerName(b"setObject:forKey:\0".as_ptr());
+        let set_obj = sel_registerName(c"setObject:forKey:".as_ptr());
         let version_cstr = concat!(env!("CARGO_PKG_VERSION"), "\0");
         msg_id2(
             dict,
@@ -145,14 +144,14 @@ fn about(_: &About, _cx: &mut App) {
         // Load embedded app icon as NSImage
         let icon_png = include_bytes!("../assets/logo.png");
         let ns_data = msg_bytes_len(
-            objc_getClass(b"NSData\0".as_ptr()),
-            sel_registerName(b"dataWithBytes:length:\0".as_ptr()),
+            objc_getClass(c"NSData".as_ptr()),
+            sel_registerName(c"dataWithBytes:length:".as_ptr()),
             icon_png.as_ptr(),
             icon_png.len(),
         );
         let ns_image = msg_id(
-            msg(objc_getClass(b"NSImage\0".as_ptr()), alloc),
-            sel_registerName(b"initWithData:\0".as_ptr()),
+            msg(objc_getClass(c"NSImage".as_ptr()), alloc),
+            sel_registerName(c"initWithData:".as_ptr()),
             ns_data,
         );
         if !ns_image.is_null() {
@@ -162,14 +161,14 @@ fn about(_: &About, _cx: &mut App) {
         // Credits as attributed string from HTML (supports clickable link)
         let html = b"<div style=\"text-align:center; font-family:-apple-system; font-size:11px;\">Created by Contember Ltd.<br><a href=\"https://contember.com\">contember.com</a></div>";
         let html_data = msg_bytes_len(
-            objc_getClass(b"NSData\0".as_ptr()),
-            sel_registerName(b"dataWithBytes:length:\0".as_ptr()),
+            objc_getClass(c"NSData".as_ptr()),
+            sel_registerName(c"dataWithBytes:length:".as_ptr()),
             html.as_ptr(),
             html.len(),
         );
         let credits = msg_id2(
-            msg(objc_getClass(b"NSAttributedString\0".as_ptr()), alloc),
-            sel_registerName(b"initWithHTML:documentAttributes:\0".as_ptr()),
+            msg(objc_getClass(c"NSAttributedString".as_ptr()), alloc),
+            sel_registerName(c"initWithHTML:documentAttributes:".as_ptr()),
             html_data,
             std::ptr::null_mut::<c_void>(),
         );
@@ -179,12 +178,12 @@ fn about(_: &About, _cx: &mut App) {
 
         // [[NSApplication sharedApplication] orderFrontStandardAboutPanelWithOptions:dict]
         let app = msg(
-            objc_getClass(b"NSApplication\0".as_ptr()),
-            sel_registerName(b"sharedApplication\0".as_ptr()),
+            objc_getClass(c"NSApplication".as_ptr()),
+            sel_registerName(c"sharedApplication".as_ptr()),
         );
         msg_id(
             app,
-            sel_registerName(b"orderFrontStandardAboutPanelWithOptions:\0".as_ptr()),
+            sel_registerName(c"orderFrontStandardAboutPanelWithOptions:".as_ptr()),
             dict,
         );
     }
@@ -517,8 +516,8 @@ fn main() {
         // Create theme entity from settings, restoring custom theme if applicable
         let theme_entity = cx.new(|_cx| {
             let mut theme = AppTheme::new(app_settings.theme_mode, true);
-            if app_settings.theme_mode == ThemeMode::Custom {
-                if let Some(ref custom_id) = app_settings.custom_theme_id {
+            if app_settings.theme_mode == ThemeMode::Custom
+                && let Some(ref custom_id) = app_settings.custom_theme_id {
                     for (info, colors) in crate::theme::load_custom_themes() {
                         if info.id == format!("custom:{}", custom_id) {
                             theme.set_custom_colors(colors);
@@ -526,7 +525,6 @@ fn main() {
                         }
                     }
                 }
-            }
             theme
         });
         cx.set_global(GlobalTheme(theme_entity.clone()));
@@ -637,11 +635,10 @@ fn main() {
             }
 
             // Flush pending workspace save
-            if let Some(gw) = cx.try_global::<GlobalWorkspace>() {
-                if let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
+            if let Some(gw) = cx.try_global::<GlobalWorkspace>()
+                && let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
                     log::error!("Failed to flush workspace on quit: {}", e);
                 }
-            }
             async {}
         });
     });

@@ -145,7 +145,7 @@ pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeCol
             }
             '\\' => {
                 // Fork: S-curve from left lane (top) to right lane (bottom)
-                let diag_color = lane_color((pos + 1) / 2, t);
+                let diag_color = lane_color(pos.div_ceil(2), t);
                 let lx = rail_x(pos.saturating_sub(1));
                 let rx = rail_x(pos + 1);
 
@@ -185,7 +185,7 @@ pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeCol
             }
             '/' => {
                 // Merge: S-curve from right lane (top) to left lane (bottom)
-                let diag_color = lane_color((pos + 1) / 2, t);
+                let diag_color = lane_color(pos.div_ceil(2), t);
                 let lx = rail_x(pos.saturating_sub(1));
                 let rx = rail_x(pos + 1);
 
@@ -277,6 +277,7 @@ pub fn render_ref_label(ref_name: &str, t: &ThemeColors, cx: &App) -> AnyElement
 ///
 /// `on_commit_click` is called with `(commit_hash, commit_message, commit_index)`
 /// when the user clicks a commit row.
+#[allow(clippy::type_complexity)]
 pub fn render_graph_row(
     row: &GraphRow,
     index: usize,
@@ -361,6 +362,7 @@ pub fn render_graph_row(
 ///
 /// `on_commit_click` is called with `(commit_hash, commit_message, commit_index)`
 /// when the user clicks on a commit row.
+#[allow(clippy::type_complexity)]
 pub fn render_commit_log_content(
     entries: &[GraphRow],
     loading: bool,
@@ -472,6 +474,7 @@ pub fn render_commit_log_header(t: &ThemeColors, cx: &App) -> Div {
 ///
 /// `on_file_click` is called with the file path when the user clicks a file row.
 /// All folders are rendered expanded (no toggle state in popovers).
+#[allow(clippy::type_complexity)]
 pub fn render_diff_file_list_interactive(
     summaries: &[FileDiffSummary],
     on_file_click: impl Fn(&str, &mut Window, &mut App) + 'static,
@@ -483,6 +486,7 @@ pub fn render_diff_file_list_interactive(
     render_diff_tree_node(&tree, 0, summaries, &on_file_click, t, cx)
 }
 
+#[allow(clippy::type_complexity)]
 fn render_diff_tree_node(
     node: &FileTreeNode,
     depth: usize,
