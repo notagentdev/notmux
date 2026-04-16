@@ -72,6 +72,17 @@ impl SidebarController {
         }
     }
 
+    /// Create a controller for a generic panel (e.g. git panel) with explicit open/width.
+    pub fn new_with_panel_settings(is_open: bool, width: f32) -> Self {
+        Self {
+            open: is_open,
+            animation: if is_open { 1.0 } else { 0.0 },
+            auto_hide: false,
+            hover_shown: false,
+            width: width.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
+        }
+    }
+
     /// Get the configured sidebar width.
     pub fn width(&self) -> f32 {
         self.width

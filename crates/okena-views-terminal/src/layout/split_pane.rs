@@ -46,6 +46,8 @@ pub enum DragState {
         initial_mouse_y: f32,
         initial_height: f32,
     },
+    /// Resizing git panel width
+    GitPanel,
 }
 
 /// Trait object wrapper for ActionDispatch in DragState (needs Clone).
@@ -172,7 +174,7 @@ pub fn compute_resize(
                 ws.update_project_widths(new_widths, cx);
             });
         }
-        DragState::Sidebar | DragState::ServicePanel { .. } | DragState::HookPanel { .. } => {
+        DragState::Sidebar | DragState::GitPanel | DragState::ServicePanel { .. } | DragState::HookPanel { .. } => {
             // Handled directly in RootView's on_mouse_move
         }
     }
@@ -274,6 +276,21 @@ pub fn render_project_divider(
                 initial_widths,
                 min_col_width,
             });
+        },
+    )
+}
+
+/// Render the git panel resize divider (left edge of git panel)
+pub fn render_git_panel_divider(active_drag: &ActiveDrag, cx: &App) -> impl IntoElement {
+    let t = theme(cx);
+    let active_drag = active_drag.clone();
+
+    ResizeHandle::new(
+        false,
+        t.border,
+        t.border_active,
+        move |_, _| {
+            *active_drag.borrow_mut() = Some(DragState::GitPanel);
         },
     )
 }

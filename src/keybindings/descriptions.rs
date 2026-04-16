@@ -9,7 +9,7 @@ use super::{
     Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette, ShowDiffViewer,
     ShowContentSearch, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowProjectSwitcher, ShowSessionManager,
     ShowSettings, ShowThemeSelector, SplitHorizontal, SplitVertical, StartAllServices,
-    StopAllServices, ToggleFullscreen, TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
+    StopAllServices, ToggleFullscreen, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
     ZoomIn, ZoomOut, EqualizeLayout,
 };
 
@@ -52,6 +52,15 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
             description: "Enable or disable sidebar auto-hide mode",
             category: "Global",
             factory: || Box::new(ToggleSidebarAutoHide),
+        },
+    );
+    map.insert(
+        "ToggleGitPanel",
+        ActionDescription {
+            name: "Toggle Git Panel",
+            description: "Show or hide the git commit log panel",
+            category: "Global",
+            factory: || Box::new(ToggleGitPanel),
         },
     );
     map.insert(

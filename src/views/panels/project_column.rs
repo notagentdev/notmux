@@ -122,6 +122,11 @@ impl ProjectColumn {
         }
     }
 
+    /// Get the git header entity (used by RootView for the git panel).
+    pub fn git_header(&self) -> Entity<GitHeader> {
+        self.git_header.clone()
+    }
+
     /// Set the action dispatcher (used for remote projects).
     ///
     /// NOTE: This only sets the dispatcher on ProjectColumn itself.
@@ -717,12 +722,6 @@ impl Render for ProjectColumn {
                     .child({
                         self.git_header.update(cx, |gh, cx| {
                             gh.render_diff_popover(&t, cx)
-                        })
-                    })
-                    // Commit log popover (delegated to GitHeader entity)
-                    .child({
-                        self.git_header.update(cx, |gh, cx| {
-                            gh.render_commit_log_popover(current_branch, &t, cx)
                         })
                     })
                     .into_any_element()

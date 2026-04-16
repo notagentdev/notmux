@@ -60,6 +60,7 @@ pub enum OverlayRequest {
     ColorPicker { project_id: String, position: gpui::Point<gpui::Pixels> },
     FolderColorPicker { folder_id: String, position: gpui::Point<gpui::Pixels> },
     WorktreeList { project_id: String, position: gpui::Point<gpui::Pixels> },
+    ToggleGitPanel { project_id: String },
 }
 
 /// Requests consumed by Sidebar::render()

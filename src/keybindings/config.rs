@@ -45,6 +45,13 @@ impl KeybindingConfig {
             ],
         );
         bindings.insert(
+            "ToggleGitPanel".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-g", None),
+                KeybindingEntry::new("ctrl-shift-g", None),
+            ],
+        );
+        bindings.insert(
             "FocusSidebar".to_string(),
             vec![
                 KeybindingEntry::new("cmd-1", None),

@@ -1,0 +1,152 @@
+use crate::settings::settings_entity;
+use crate::theme::theme;
+use crate::views::layout::split_pane::render_git_panel_divider;
+use crate::views::sidebar_controller::{AnimationTarget, SidebarController, FRAME_TIME_MS};
+use gpui::*;
+
+use super::RootView;
+
+impl RootView {
+    /// Toggle the git panel for the given project.
+    ///
+    /// - If the panel is open for this project, close it.
+    /// - If it's closed or showing a different project, open for this project.
+    pub(super) fn toggle_git_panel(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if self.git_panel_ctrl.is_open() && self.git_panel_project_id.as_deref() == Some(project_id) {
+            // Close the panel
+            let target = self.git_panel_ctrl.toggle();
+            settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(false, cx));
+            self.animate_git_panel_to(target, cx);
+
+            // Close the commit log in the git header
+            if let Some(col) = self.project_columns.get(project_id).cloned() {
+                let gh = col.read(cx).git_header();
+                gh.update(cx, |gh, cx| gh.hide_commit_log(cx));
+            }
+        } else {
+            // Close commit log on previously active project (if any)
+            if let Some(old_pid) = self.git_panel_project_id.take() {
+                if let Some(col) = self.project_columns.get(&old_pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    gh.update(cx, |gh, cx| gh.hide_commit_log(cx));
+                }
+            }
+
+            // Set the new project
+            self.git_panel_project_id = Some(project_id.to_string());
+
+            // Open commit log on the new project's git header
+            if let Some(col) = self.project_columns.get(project_id).cloned() {
+                let gh = col.read(cx).git_header();
+                gh.update(cx, |gh, cx| gh.open_commit_log(cx));
+            }
+
+            // Open the panel (if not already open)
+            if !self.git_panel_ctrl.is_open() {
+                let target = self.git_panel_ctrl.toggle();
+                settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(true, cx));
+                self.animate_git_panel_to(target, cx);
+            } else {
+                cx.notify();
+            }
+        }
+    }
+
+    /// Render the git panel content.
+    pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let git_panel_width = self.git_panel_ctrl.current_width();
+        let configured_width = self.git_panel_ctrl.width();
+        let show_panel = self.git_panel_ctrl.should_render();
+
+        let t = theme(cx);
+
+        let panel_content = if show_panel {
+            if let Some(ref pid) = self.git_panel_project_id {
+                if let Some(col) = self.project_columns.get(pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    Some(gh.update(cx, |gh, cx| {
+                        gh.render_commit_log_panel(&t, cx)
+                    }))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let panel_container = div()
+            .id("git-panel-container")
+            .h_full()
+            .w(px(git_panel_width))
+            .overflow_hidden()
+            .flex_shrink_0();
+
+        let panel_container = if let Some(content) = panel_content {
+            panel_container.child(
+                div()
+                    .w(px(configured_width))
+                    .h_full()
+                    .child(content)
+            ).into_any_element()
+        } else {
+            panel_container.into_any_element()
+        };
+
+        let mut wrapper = div()
+            .id("git-panel-wrapper")
+            .flex()
+            .h_full()
+            .flex_shrink_0();
+
+        if show_panel {
+            wrapper = wrapper.child(render_git_panel_divider(&self.active_drag, cx));
+        }
+
+        wrapper.child(panel_container)
+    }
+
+    /// Animate git panel to target if needed
+    pub(super) fn animate_git_panel_to(&mut self, target: AnimationTarget, cx: &mut Context<Self>) {
+        if let Some(target_value) = target.value() {
+            self.animate_git_panel(target_value, cx);
+        }
+    }
+
+    /// Animate git panel to target value (0.0 = collapsed, 1.0 = expanded)
+    pub(super) fn animate_git_panel(&mut self, target: f32, cx: &mut Context<Self>) {
+        let current = self.git_panel_ctrl.animation();
+
+        if (current - target).abs() < 0.01 {
+            self.git_panel_ctrl.set_animation(target);
+            cx.notify();
+            return;
+        }
+
+        let steps = SidebarController::animation_steps();
+        let step_duration = std::time::Duration::from_millis(FRAME_TIME_MS);
+
+        cx.spawn(async move |this: WeakEntity<RootView>, cx| {
+            for i in 1..=steps {
+                smol::Timer::after(step_duration).await;
+
+                let progress = SidebarController::ease_progress(current, target, i, steps);
+
+                let result = this.update(cx, |this, cx| {
+                    this.git_panel_ctrl.set_animation(progress);
+                    cx.notify();
+                });
+                if result.is_err() {
+                    break;
+                }
+            }
+
+            let _ = this.update(cx, |this, cx| {
+                this.git_panel_ctrl.set_animation(target);
+                cx.notify();
+            });
+        }).detach();
+    }
+}

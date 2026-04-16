@@ -471,6 +471,9 @@ impl RootView {
                         om.show_worktree_list(project_id, position, cx);
                     });
                 }
+                OverlayRequest::ToggleGitPanel { project_id } => {
+                    self.toggle_git_panel(&project_id, cx);
+                }
             }
         }
     }

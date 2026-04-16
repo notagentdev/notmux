@@ -1,3 +1,4 @@
+mod git_panel;
 mod handlers;
 mod pane_switcher;
 mod render;
@@ -88,6 +89,10 @@ pub struct RootView {
     was_project_focused: bool,
     /// Project ID to center-scroll to after the next layout pass
     pending_center_scroll: Option<String>,
+    /// Git panel state controller (right-side panel)
+    git_panel_ctrl: SidebarController,
+    /// Project ID whose git log is shown in the git panel
+    git_panel_project_id: Option<String>,
 }
 
 impl RootView {
@@ -102,6 +107,12 @@ impl RootView {
         // Create sidebar controller from current global settings
         let app_settings = settings(cx);
         let sidebar_ctrl = SidebarController::new(&app_settings);
+
+        // Create git panel controller from settings (reuse SidebarController)
+        let git_panel_ctrl = SidebarController::new_with_panel_settings(
+            app_settings.git_panel.is_open,
+            app_settings.git_panel.width,
+        );
 
         // Create sidebar entity once to preserve state
         let sidebar = cx.new(|cx| Sidebar::new(workspace.clone(), request_broker.clone(), terminals.clone(), cx));
@@ -205,6 +216,8 @@ impl RootView {
             last_scroll_project: None,
             was_project_focused: false,
             pending_center_scroll: None,
+            git_panel_ctrl,
+            git_panel_project_id: None,
         };
 
         // Observe workspace to scroll focused project into view

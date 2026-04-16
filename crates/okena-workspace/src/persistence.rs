@@ -17,8 +17,9 @@ static LOADED_FROM_DEFAULT: AtomicBool = AtomicBool::new(false);
 #[allow(unused_imports)]
 pub use super::settings::{
     load_settings, save_settings, get_settings_path,
-    AppSettings, CursorShape, DiffViewMode, HooksConfig, ProjectHooks, TerminalHooks, WorktreeHooks, SidebarSettings,
+    AppSettings, CursorShape, DiffViewMode, HooksConfig, ProjectHooks, TerminalHooks, WorktreeHooks, SidebarSettings, GitPanelSettings,
     DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH,
+    DEFAULT_GIT_PANEL_WIDTH, MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH,
     SETTINGS_VERSION,
 };
 

@@ -90,6 +90,13 @@ pub const MIN_SIDEBAR_WIDTH: f32 = 150.0;
 /// Maximum sidebar width in pixels.
 pub const MAX_SIDEBAR_WIDTH: f32 = 500.0;
 
+/// Default git panel width in pixels.
+pub const DEFAULT_GIT_PANEL_WIDTH: f32 = 400.0;
+/// Minimum git panel width in pixels.
+pub const MIN_GIT_PANEL_WIDTH: f32 = 250.0;
+/// Maximum git panel width in pixels.
+pub const MAX_GIT_PANEL_WIDTH: f32 = 700.0;
+
 fn default_sidebar_width() -> f32 {
     DEFAULT_SIDEBAR_WIDTH
 }
@@ -118,6 +125,30 @@ impl Default for SidebarSettings {
     }
 }
 
+fn default_git_panel_width() -> f32 {
+    DEFAULT_GIT_PANEL_WIDTH
+}
+
+/// Git panel settings
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GitPanelSettings {
+    /// Whether the git panel is open
+    #[serde(default)]
+    pub is_open: bool,
+    /// Git panel width in pixels
+    #[serde(default = "default_git_panel_width")]
+    pub width: f32,
+}
+
+impl Default for GitPanelSettings {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            width: DEFAULT_GIT_PANEL_WIDTH,
+        }
+    }
+}
+
 /// Current settings schema version - increment when making breaking changes
 pub const SETTINGS_VERSION: u32 = 3;
 
@@ -139,6 +170,9 @@ pub struct AppSettings {
     /// Sidebar settings
     #[serde(default)]
     pub sidebar: SidebarSettings,
+    /// Git panel settings
+    #[serde(default)]
+    pub git_panel: GitPanelSettings,
     /// Whether to show border around focused terminal
     #[serde(default = "default_show_focused_border")]
     pub show_focused_border: bool,
@@ -258,6 +292,7 @@ impl Default for AppSettings {
             theme_mode: ThemeMode::default(),
             active_session: None,
             sidebar: SidebarSettings::default(),
+            git_panel: GitPanelSettings::default(),
             show_focused_border: default_show_focused_border(),
             color_tinted_background: false,
             font_size: default_font_size(),
@@ -443,6 +478,14 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
             settings.sidebar = sidebar;
         } else {
             log::warn!("Could not parse sidebar settings, using default");
+        }
+    }
+
+    if let Some(v) = obj.get("git_panel") {
+        if let Ok(git_panel) = serde_json::from_value::<GitPanelSettings>(v.clone()) {
+            settings.git_panel = git_panel;
+        } else {
+            log::warn!("Could not parse git_panel settings, using default");
         }
     }
 

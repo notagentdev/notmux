@@ -1,4 +1,4 @@
-use crate::keybindings::{ShowKeybindings, ShowSessionManager, ShowThemeSelector, ShowCommandPalette, ShowSettings, OpenSettingsFile, ShowFileSearch, ShowContentSearch, ShowProjectSwitcher, ShowDiffViewer, ShowHookLog, NewProject, ToggleSidebar, ToggleSidebarAutoHide, TogglePaneSwitcher, CreateWorktree, CheckForUpdates, InstallUpdate, FocusSidebar, FocusActiveProject, ShowPairingDialog, StartAllServices, StopAllServices, ClearFocus, EqualizeLayout};
+use crate::keybindings::{ShowKeybindings, ShowSessionManager, ShowThemeSelector, ShowCommandPalette, ShowSettings, OpenSettingsFile, ShowFileSearch, ShowContentSearch, ShowProjectSwitcher, ShowDiffViewer, ShowHookLog, NewProject, ToggleSidebar, ToggleSidebarAutoHide, TogglePaneSwitcher, CreateWorktree, CheckForUpdates, InstallUpdate, FocusSidebar, FocusActiveProject, ShowPairingDialog, StartAllServices, StopAllServices, ClearFocus, EqualizeLayout, ToggleGitPanel};
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::theme;
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
@@ -455,6 +455,15 @@ impl Render for RootView {
                                     });
                                 }
                             }
+                            DragState::GitPanel => {
+                                // Dragging left increases width, dragging right decreases
+                                let window_width = f32::from(window.bounds().size.width);
+                                let new_width = window_width - f32::from(event.position.x);
+                                this.git_panel_ctrl.set_width(new_width);
+                                let width = this.git_panel_ctrl.width();
+                                settings_entity(cx).update(cx, |s, cx| s.set_git_panel_width(width, cx));
+                                cx.notify();
+                            }
                             _ => {
                                 // Handle split and project column resize
                                 compute_resize(event.position, state, &workspace, cx);
@@ -521,6 +530,23 @@ impl Render for RootView {
             // Handle toggle sidebar auto-hide action
             .on_action(cx.listener(|this, _: &ToggleSidebarAutoHide, _window, cx| {
                 this.toggle_sidebar_auto_hide(cx);
+            }))
+            // Handle toggle git panel action
+            .on_action(cx.listener({
+                let workspace = workspace.clone();
+                move |this, _: &ToggleGitPanel, _window, cx| {
+                    // Get focused or first visible project
+                    let project_id = workspace.read(cx).focus_manager.focused_terminal_state()
+                        .map(|f| f.project_id.clone())
+                        .or_else(|| {
+                            workspace.read(cx).visible_projects()
+                                .first()
+                                .map(|p| p.id.clone())
+                        });
+                    if let Some(pid) = project_id {
+                        this.toggle_git_panel(&pid, cx);
+                    }
+                }
             }))
             // Handle clear focus action (show all projects)
             .on_action(cx.listener(|this, _: &ClearFocus, _window, cx| {
@@ -957,7 +983,9 @@ impl Render for RootView {
                                     .min_w_0()
                                     .child(self.render_projects_grid(cx)),
                             ),
-                    ),
+                    )
+                    // Git panel (right side)
+                    .child(self.render_git_panel(cx)),
             )
             // Status bar at the bottom
             .child(self.status_bar.clone())

@@ -155,6 +155,19 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
+    /// Set git panel open state
+    pub fn set_git_panel_open(&mut self, value: bool, cx: &mut Context<Self>) {
+        self.settings.git_panel.is_open = value;
+        self.save_and_notify(cx);
+    }
+
+    /// Set git panel width (clamped to min/max bounds)
+    pub fn set_git_panel_width(&mut self, value: f32, cx: &mut Context<Self>) {
+        use crate::workspace::persistence::{MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH};
+        self.settings.git_panel.width = value.clamp(MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH);
+        self.save_and_notify(cx);
+    }
+
     /// Set the theme mode and optional custom theme ID.
     pub fn set_theme_mode(&mut self, value: ThemeMode, cx: &mut Context<Self>) {
         self.settings.theme_mode = value;
