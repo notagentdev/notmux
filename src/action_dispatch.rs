@@ -570,6 +570,46 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::GitListBranches { project_id } => ActionRequest::GitListBranches {
             project_id: s(&project_id),
         },
+        ActionRequest::GitWorkingTreeStatus { project_id } => ActionRequest::GitWorkingTreeStatus {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitStageFile { project_id, file_path } => ActionRequest::GitStageFile {
+            project_id: s(&project_id),
+            file_path,
+        },
+        ActionRequest::GitUnstageFile { project_id, file_path } => ActionRequest::GitUnstageFile {
+            project_id: s(&project_id),
+            file_path,
+        },
+        ActionRequest::GitStageAll { project_id } => ActionRequest::GitStageAll {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitUnstageAll { project_id } => ActionRequest::GitUnstageAll {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitDiscardFile { project_id, file_path, is_untracked } => ActionRequest::GitDiscardFile {
+            project_id: s(&project_id),
+            file_path,
+            is_untracked,
+        },
+        ActionRequest::GitCommit { project_id, message, amend, signoff } => ActionRequest::GitCommit {
+            project_id: s(&project_id),
+            message,
+            amend,
+            signoff,
+        },
+        ActionRequest::GitUncommit { project_id } => ActionRequest::GitUncommit {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitFetch { project_id } => ActionRequest::GitFetch {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitPull { project_id } => ActionRequest::GitPull {
+            project_id: s(&project_id),
+        },
+        ActionRequest::GitPush { project_id } => ActionRequest::GitPush {
+            project_id: s(&project_id),
+        },
         ActionRequest::ListFiles { project_id, show_ignored, show_hidden } => ActionRequest::ListFiles {
             project_id: s(&project_id),
             show_ignored,

@@ -13,6 +13,7 @@ use crate::views::overlays::keybindings_help::{KeybindingsHelp, KeybindingsHelpE
 use crate::views::overlays::add_project_dialog::{AddProjectDialog, AddProjectDialogEvent};
 use crate::views::overlays::context_menu::{ContextMenu, ContextMenuEvent};
 use crate::views::overlays::folder_context_menu::{FolderContextMenu, FolderContextMenuEvent};
+use crate::views::overlays::git_file_context_menu::{GitFileContextMenu, GitFileContextMenuEvent};
 use crate::views::overlays::content_search::{ContentSearchDialog, ContentSearchDialogEvent};
 use crate::views::overlays::file_search::{FileSearchDialog, FileSearchDialogEvent};
 use crate::views::overlays::diff_viewer::{DiffViewer, DiffViewerEvent};
@@ -163,6 +164,15 @@ pub enum OverlayManagerEvent {
     TabCloseOthers { project_id: String, layout_path: Vec<usize>, tab_index: usize },
     /// Tab context menu: close tabs to the right
     TabCloseToRight { project_id: String, layout_path: Vec<usize>, tab_index: usize },
+
+    /// Git file context menu: stage a file
+    GitFileStage { project_id: String, file_path: String },
+    /// Git file context menu: unstage a file
+    GitFileUnstage { project_id: String, file_path: String },
+    /// Git file context menu: discard changes / trash untracked
+    GitFileDiscard { project_id: String, file_path: String, is_untracked: bool },
+    /// Git file context menu: add to .gitignore
+    GitFileAddToGitignore { project_id: String, file_path: String },
 }
 
 /// Centralized overlay manager that handles all modal overlays.
@@ -183,6 +193,7 @@ pub struct OverlayManager {
     // Context menus remain separate (positioned popups, not full-screen modals)
     context_menu: OverlaySlot<ContextMenu>,
     folder_context_menu: OverlaySlot<FolderContextMenu>,
+    git_file_context_menu: OverlaySlot<GitFileContextMenu>,
     remote_context_menu: OverlaySlot<RemoteContextMenu>,
     terminal_context_menu: OverlaySlot<TerminalContextMenu>,
     tab_context_menu: OverlaySlot<TabContextMenu>,
@@ -206,6 +217,7 @@ impl OverlayManager {
             cached_file_viewers: std::collections::HashMap::new(),
             context_menu: OverlaySlot::new(),
             folder_context_menu: OverlaySlot::new(),
+            git_file_context_menu: OverlaySlot::new(),
             remote_context_menu: OverlaySlot::new(),
             terminal_context_menu: OverlaySlot::new(),
             tab_context_menu: OverlaySlot::new(),
@@ -267,6 +279,7 @@ impl OverlayManager {
     fn close_all_context_menus(&mut self) {
         self.context_menu.close();
         self.folder_context_menu.close();
+        self.git_file_context_menu.close();
         self.remote_context_menu.close();
         self.terminal_context_menu.close();
         self.tab_context_menu.close();
@@ -924,6 +937,125 @@ impl OverlayManager {
     /// Get terminal context menu entity for rendering.
     pub fn render_terminal_context_menu(&self) -> Option<Entity<TerminalContextMenu>> {
         self.terminal_context_menu.render()
+    }
+
+    // ========================================================================
+    // Git file context menu (positioned popup)
+    // ========================================================================
+
+    /// Check if git file context menu is open.
+    pub fn has_git_file_context_menu(&self) -> bool {
+        self.git_file_context_menu.is_open()
+    }
+
+    /// Show git file context menu.
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_git_file_context_menu(
+        &mut self,
+        project_id: String,
+        file_path: String,
+        is_staged: bool,
+        is_untracked: bool,
+        is_conflict: bool,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_modal(cx);
+        self.close_all_context_menus();
+
+        let menu = cx.new(|cx| {
+            GitFileContextMenu::new(
+                project_id,
+                file_path,
+                is_staged,
+                is_untracked,
+                is_conflict,
+                position,
+                cx,
+            )
+        });
+
+        cx.subscribe(&menu, |this, _, event: &GitFileContextMenuEvent, cx| match event {
+            GitFileContextMenuEvent::Close => {
+                this.hide_git_file_context_menu(cx);
+            }
+            GitFileContextMenuEvent::Stage { project_id, file_path } => {
+                this.hide_git_file_context_menu(cx);
+                cx.emit(OverlayManagerEvent::GitFileStage {
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
+                });
+            }
+            GitFileContextMenuEvent::Unstage { project_id, file_path } => {
+                this.hide_git_file_context_menu(cx);
+                cx.emit(OverlayManagerEvent::GitFileUnstage {
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
+                });
+            }
+            GitFileContextMenuEvent::Discard { project_id, file_path, is_untracked } => {
+                this.hide_git_file_context_menu(cx);
+                cx.emit(OverlayManagerEvent::GitFileDiscard {
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
+                    is_untracked: *is_untracked,
+                });
+            }
+            GitFileContextMenuEvent::OpenDiff { project_id, file_path } => {
+                this.hide_git_file_context_menu(cx);
+                this.request_broker.update(cx, |broker, cx| {
+                    broker.push_overlay_request(
+                        OverlayRequest::DiffViewer {
+                            project_id: project_id.clone(),
+                            file: Some(file_path.clone()),
+                            mode: None,
+                            commit_message: None,
+                            commits: None,
+                            commit_index: None,
+                        },
+                        cx,
+                    );
+                });
+            }
+            GitFileContextMenuEvent::OpenFile { project_id, file_path: _ } => {
+                this.hide_git_file_context_menu(cx);
+                // Route to file browser/viewer — uses the FileBrowser overlay
+                this.request_broker.update(cx, |broker, cx| {
+                    broker.push_overlay_request(
+                        OverlayRequest::FileBrowser {
+                            project_id: project_id.clone(),
+                        },
+                        cx,
+                    );
+                });
+            }
+            GitFileContextMenuEvent::AddToGitignore { project_id, file_path } => {
+                this.hide_git_file_context_menu(cx);
+                cx.emit(OverlayManagerEvent::GitFileAddToGitignore {
+                    project_id: project_id.clone(),
+                    file_path: file_path.clone(),
+                });
+            }
+            GitFileContextMenuEvent::CopyPath { path } => {
+                cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+                this.hide_git_file_context_menu(cx);
+            }
+        })
+        .detach();
+
+        self.git_file_context_menu.set(menu);
+        cx.notify();
+    }
+
+    /// Hide git file context menu.
+    pub fn hide_git_file_context_menu(&mut self, cx: &mut Context<Self>) {
+        self.git_file_context_menu.close();
+        cx.notify();
+    }
+
+    /// Get git file context menu entity for rendering.
+    pub fn render_git_file_context_menu(&self) -> Option<Entity<GitFileContextMenu>> {
+        self.git_file_context_menu.render()
     }
 
     // ========================================================================

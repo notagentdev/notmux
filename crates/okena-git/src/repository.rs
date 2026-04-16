@@ -904,6 +904,336 @@ pub(crate) fn parse_commit_graph_output(stdout: &str) -> Vec<super::GraphRow> {
     rows
 }
 
+// ── Working tree status (Commit tab) ─────────────────────────────────
+
+use crate::{FileStatus, WorkingFile, WorkingTreeStatus};
+use std::collections::HashMap;
+
+/// Parse `git status --porcelain=v2 --branch` output into a structured `WorkingTreeStatus`.
+///
+/// Porcelain v2 format reference: https://git-scm.com/docs/git-status#_porcelain_format_version_2
+fn parse_porcelain_v2(output: &str) -> WorkingTreeStatus {
+    let mut status = WorkingTreeStatus::default();
+
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix("# branch.head ") {
+            if rest != "(detached)" {
+                status.branch = Some(rest.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("# branch.ab ") {
+            // Format: "+<ahead> -<behind>"
+            status.has_upstream = true;
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() == 2 {
+                if let Some(ahead_str) = parts[0].strip_prefix('+') {
+                    status.ahead = ahead_str.parse().unwrap_or(0);
+                }
+                if let Some(behind_str) = parts[1].strip_prefix('-') {
+                    status.behind = behind_str.parse().unwrap_or(0);
+                }
+            }
+        } else if let Some(rest) = line.strip_prefix("1 ") {
+            // Ordinary changed entry: "1 XY ... path"
+            if let Some(file) = parse_porcelain_ordinary(rest, 1) {
+                status.tracked.push(file);
+            }
+        } else if let Some(rest) = line.strip_prefix("2 ") {
+            // Renamed/copied entry: "2 XY ... <sep> path<TAB>origPath"
+            if let Some(file) = parse_porcelain_ordinary(rest, 2) {
+                status.tracked.push(file);
+            }
+        } else if let Some(rest) = line.strip_prefix("u ") {
+            // Unmerged (conflict): "u XY ... path"
+            if let Some(file) = parse_porcelain_unmerged(rest) {
+                status.conflicts.push(file);
+            }
+        } else if let Some(rest) = line.strip_prefix("? ") {
+            // Untracked: "? path"
+            status.untracked.push(WorkingFile {
+                path: rest.to_string(),
+                index_status: None,
+                worktree_status: Some(FileStatus::Untracked),
+                added: 0,
+                removed: 0,
+            });
+        }
+    }
+
+    status
+}
+
+/// Parse a type-1 or type-2 porcelain v2 ordinary entry.
+/// Format: `XY sub mH mI mW hH hI [<score> ]path[\torigPath]`
+fn parse_porcelain_ordinary(rest: &str, entry_type: u8) -> Option<WorkingFile> {
+    let mut parts = rest.splitn(if entry_type == 2 { 9 } else { 8 }, ' ');
+    let xy = parts.next()?;
+    if xy.len() != 2 {
+        return None;
+    }
+    // Skip: sub, mH, mI, mW, hH, hI
+    for _ in 0..6 {
+        parts.next()?;
+    }
+    // Type 2 has an extra score field like "R100" before the path
+    if entry_type == 2 {
+        parts.next()?;
+    }
+    let path_part = parts.next()?;
+    // For renames, path is "newPath\toldPath"
+    let path = path_part.split('\t').next()?.to_string();
+
+    let mut chars = xy.chars();
+    let x = chars.next()?; // Index status
+    let y = chars.next()?; // Worktree status
+
+    Some(WorkingFile {
+        path,
+        index_status: porcelain_char_to_status(x),
+        worktree_status: porcelain_char_to_status(y),
+        added: 0,
+        removed: 0,
+    })
+}
+
+/// Parse an unmerged (conflict) entry.
+/// Format: `XY sub m1 m2 m3 mW h1 h2 h3 path`
+fn parse_porcelain_unmerged(rest: &str) -> Option<WorkingFile> {
+    let mut parts = rest.splitn(10, ' ');
+    let _xy = parts.next()?;
+    // Skip: sub, m1, m2, m3, mW, h1, h2, h3
+    for _ in 0..8 {
+        parts.next()?;
+    }
+    let path = parts.next()?.to_string();
+
+    Some(WorkingFile {
+        path,
+        index_status: Some(FileStatus::Conflict),
+        worktree_status: Some(FileStatus::Conflict),
+        added: 0,
+        removed: 0,
+    })
+}
+
+/// Map a single porcelain v2 status character to `FileStatus`.
+fn porcelain_char_to_status(c: char) -> Option<FileStatus> {
+    match c {
+        '.' | ' ' => None,
+        'M' => Some(FileStatus::Modified),
+        'A' => Some(FileStatus::Added),
+        'D' => Some(FileStatus::Deleted),
+        'R' => Some(FileStatus::Renamed),
+        'C' => Some(FileStatus::Copied),
+        'U' => Some(FileStatus::Conflict),
+        '?' => Some(FileStatus::Untracked),
+        _ => Some(FileStatus::Modified),
+    }
+}
+
+/// Augment a `WorkingTreeStatus` with per-file line counts from `git diff --numstat`.
+fn add_numstat_counts(status: &mut WorkingTreeStatus, path: &Path) {
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
+
+    // Staged changes
+    if let Ok(output) = safe_output(
+        command("git").args(["-C", path_str, "diff", "--cached", "--numstat"]),
+    ) && output.status.success()
+    {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.split('\t');
+            let added: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let removed: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            if let Some(file_path) = parts.next() {
+                let entry = counts.entry(file_path.to_string()).or_insert((0, 0));
+                entry.0 += added;
+                entry.1 += removed;
+            }
+        }
+    }
+
+    // Unstaged changes
+    if let Ok(output) = safe_output(
+        command("git").args(["-C", path_str, "diff", "--numstat"]),
+    ) && output.status.success()
+    {
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.split('\t');
+            let added: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let removed: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            if let Some(file_path) = parts.next() {
+                let entry = counts.entry(file_path.to_string()).or_insert((0, 0));
+                entry.0 += added;
+                entry.1 += removed;
+            }
+        }
+    }
+
+    for file in status.tracked.iter_mut().chain(status.conflicts.iter_mut()) {
+        if let Some(&(a, r)) = counts.get(&file.path) {
+            file.added = a;
+            file.removed = r;
+        }
+    }
+}
+
+/// Get the full working tree status (staged/unstaged/conflicts/untracked + ahead/behind).
+pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => return WorkingTreeStatus::default(),
+    };
+
+    let output = match safe_output(
+        command("git").args(["-C", path_str, "status", "--porcelain=v2", "--branch"]),
+    ) {
+        Ok(o) if o.status.success() => o,
+        _ => return WorkingTreeStatus::default(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut status = parse_porcelain_v2(&stdout);
+    add_numstat_counts(&mut status, path);
+    status
+}
+
+/// Stage a single file (`git add <path>`).
+pub fn stage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "add", "--", file_path]),
+    )
+    .map_err(|e| format!("Failed to stage file: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Stage all changes (`git add -A`).
+pub fn stage_all(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "add", "-A"]),
+    )
+    .map_err(|e| format!("Failed to stage all: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Unstage a single file (`git restore --staged <path>`).
+pub fn unstage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "restore", "--staged", "--", file_path]),
+    )
+    .map_err(|e| format!("Failed to unstage file: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Unstage all files (`git reset`).
+pub fn unstage_all(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "reset"]),
+    )
+    .map_err(|e| format!("Failed to unstage all: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Discard changes in a file (`git restore <path>` for tracked, delete for untracked).
+pub fn discard_file(repo_path: &Path, file_path: &str, is_untracked: bool) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+
+    if is_untracked {
+        // Untracked file — delete it from disk
+        let full_path = repo_path.join(file_path);
+        std::fs::remove_file(&full_path)
+            .map_err(|e| format!("Failed to delete untracked file: {}", e))?;
+        return Ok(());
+    }
+
+    // Restore both staged and unstaged changes
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "restore", "--staged", "--worktree", "--", file_path]),
+    )
+    .map_err(|e| format!("Failed to discard file: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Create a commit with the given message and options.
+pub fn commit(
+    repo_path: &Path,
+    message: &str,
+    amend: bool,
+    signoff: bool,
+) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let mut args = vec!["-C", repo_str, "commit", "-m", message];
+    if amend {
+        args.push("--amend");
+    }
+    if signoff {
+        args.push("--signoff");
+    }
+
+    let output = safe_output(command("git").args(&args))
+        .map_err(|e| format!("Failed to commit: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Undo the last commit but keep changes staged (`git reset --soft HEAD~1`).
+pub fn uncommit(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "reset", "--soft", "HEAD~1"]),
+    )
+    .map_err(|e| format!("Failed to uncommit: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Pull from the upstream remote (`git pull`).
+pub fn pull(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "pull", "--ff-only"]),
+    )
+    .map_err(|e| format!("Failed to pull: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

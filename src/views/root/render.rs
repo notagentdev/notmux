@@ -387,6 +387,7 @@ impl Render for RootView {
         let has_folder_context_menu = om.has_folder_context_menu();
         let has_remote_context_menu = om.has_remote_context_menu();
         let has_terminal_context_menu = om.has_terminal_context_menu();
+        let has_git_file_context_menu = om.has_git_file_context_menu();
         let has_tab_context_menu = om.has_tab_context_menu();
         let has_worktree_list = om.has_worktree_list();
         let has_color_picker = om.has_color_picker();
@@ -1016,6 +1017,10 @@ impl Render for RootView {
             // Terminal context menu overlay (positioned popup)
             .when(has_terminal_context_menu, |d| {
                 d.children(self.overlay_manager.read(cx).render_terminal_context_menu())
+            })
+            // Git file context menu overlay (positioned popup)
+            .when(has_git_file_context_menu, |d| {
+                d.children(self.overlay_manager.read(cx).render_git_file_context_menu())
             })
             // Tab context menu overlay (positioned popup)
             .when(has_tab_context_menu, |d| {

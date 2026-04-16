@@ -61,6 +61,14 @@ pub enum OverlayRequest {
     FolderColorPicker { folder_id: String, position: gpui::Point<gpui::Pixels> },
     WorktreeList { project_id: String, position: gpui::Point<gpui::Pixels> },
     ToggleGitPanel { project_id: String },
+    GitFileContextMenu {
+        project_id: String,
+        file_path: String,
+        is_staged: bool,
+        is_untracked: bool,
+        is_conflict: bool,
+        position: gpui::Point<gpui::Pixels>,
+    },
 }
 
 /// Requests consumed by Sidebar::render()

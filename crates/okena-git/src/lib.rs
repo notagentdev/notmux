@@ -26,6 +26,15 @@ pub use repository::{
     count_unpushed_commits,
     get_commit_graph,
     list_branches,
+    get_working_tree_status,
+    stage_file,
+    stage_all,
+    unstage_file,
+    unstage_all,
+    discard_file,
+    commit,
+    uncommit,
+    pull,
 };
 
 /// Validate that a git ref (branch name, commit hash, revision) doesn't look
@@ -128,6 +137,111 @@ pub struct GitStatus {
     /// Pull request info for the current branch (if any)
     #[serde(default)]
     pub pr_info: Option<PrInfo>,
+}
+
+/// Status of a file in the git index or working tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FileStatus {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Copied,
+    Untracked,
+    Conflict,
+}
+
+impl FileStatus {
+    /// Short single-character label for display (M/A/D/R/C/?/U)
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            FileStatus::Modified => "M",
+            FileStatus::Added => "A",
+            FileStatus::Deleted => "D",
+            FileStatus::Renamed => "R",
+            FileStatus::Copied => "C",
+            FileStatus::Untracked => "?",
+            FileStatus::Conflict => "U",
+        }
+    }
+}
+
+/// A file tracked by git in the working tree or index.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WorkingFile {
+    /// File path relative to repo root
+    pub path: String,
+    /// Status in the index (staged changes), None if no staged change
+    pub index_status: Option<FileStatus>,
+    /// Status in the working tree (unstaged changes), None if no unstaged change
+    pub worktree_status: Option<FileStatus>,
+    /// Lines added (staged + unstaged combined)
+    pub added: usize,
+    /// Lines removed (staged + unstaged combined)
+    pub removed: usize,
+}
+
+impl WorkingFile {
+    /// File is fully staged (no unstaged changes remaining)
+    pub fn is_fully_staged(&self) -> bool {
+        self.index_status.is_some() && self.worktree_status.is_none()
+    }
+    /// File is fully unstaged (no index changes)
+    pub fn is_unstaged(&self) -> bool {
+        self.index_status.is_none() && self.worktree_status.is_some()
+    }
+    /// File has both staged and unstaged changes
+    pub fn is_partially_staged(&self) -> bool {
+        self.index_status.is_some() && self.worktree_status.is_some()
+    }
+    /// File has a merge conflict
+    pub fn has_conflict(&self) -> bool {
+        matches!(self.index_status, Some(FileStatus::Conflict))
+            || matches!(self.worktree_status, Some(FileStatus::Conflict))
+    }
+    /// The effective display status for the file (index takes precedence).
+    pub fn effective_status(&self) -> FileStatus {
+        self.index_status
+            .or(self.worktree_status)
+            .unwrap_or(FileStatus::Modified)
+    }
+}
+
+/// Full working tree status: grouped files + upstream tracking info.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct WorkingTreeStatus {
+    /// Files with merge conflicts
+    pub conflicts: Vec<WorkingFile>,
+    /// Tracked files with changes (modified, added, deleted, renamed)
+    pub tracked: Vec<WorkingFile>,
+    /// Untracked files (new, not yet added)
+    pub untracked: Vec<WorkingFile>,
+    /// Current branch (None if detached HEAD)
+    pub branch: Option<String>,
+    /// Commits ahead of upstream
+    pub ahead: usize,
+    /// Commits behind upstream
+    pub behind: usize,
+    /// Whether upstream is configured
+    pub has_upstream: bool,
+}
+
+impl WorkingTreeStatus {
+    /// Total number of files with any kind of change
+    pub fn total_files(&self) -> usize {
+        self.conflicts.len() + self.tracked.len() + self.untracked.len()
+    }
+
+    /// Number of files with staged changes (excludes untracked)
+    pub fn staged_count(&self) -> usize {
+        self.tracked.iter().filter(|f| f.index_status.is_some()).count()
+    }
+
+    /// Whether all tracked files are fully staged (untracked are ignored).
+    pub fn all_staged(&self) -> bool {
+        !self.tracked.is_empty()
+            && self.tracked.iter().all(|f| f.is_fully_staged())
+    }
 }
 
 /// Per-file diff summary for popover display

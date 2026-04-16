@@ -6,7 +6,8 @@
 use okena_core::process::open_url;
 use okena_core::types::DiffMode;
 use okena_git::{
-    self as git, CommitLogEntry, FileDiffSummary, GitStatus, GraphRow,
+    self as git, CommitLogEntry, FileDiffSummary, FileStatus, GitStatus, GraphRow, WorkingFile,
+    WorkingTreeStatus,
 };
 use okena_workspace::request_broker::RequestBroker;
 use okena_workspace::requests::OverlayRequest;
@@ -41,11 +42,21 @@ enum BranchPickerTarget {
 /// Which tab is active in the git panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum GitPanelTab {
-    /// Changed files view
+    /// Commit tab — staging + commit message + remote operations
     #[default]
+    Commit,
+    /// Changed files view (read-only)
     Changes,
     /// Commit graph / history view
     History,
+}
+
+/// Running remote operation (for UI spinner).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RemoteOp {
+    Fetch,
+    Pull,
+    Push,
 }
 
 /// Self-contained GPUI entity managing git status display, diff summary
@@ -81,8 +92,29 @@ pub struct GitHeader {
     commit_log_compare_head: Option<String>,
     commit_log_picker_target: BranchPickerTarget,
 
-    /// Active tab in the git panel (Changes / History)
+    /// Active tab in the git panel (Commit / Changes / History)
     active_tab: GitPanelTab,
+
+    // ── Commit tab state ───────────────────────────────────────────
+    /// Working tree status (files + branch + ahead/behind)
+    working_tree_status: Option<WorkingTreeStatus>,
+    /// Loading flag for working tree status
+    working_tree_loading: bool,
+    /// Commit message input state
+    commit_message_input: Entity<okena_ui::simple_input::SimpleInputState>,
+    /// Commit options
+    commit_options_amend: bool,
+    commit_options_signoff: bool,
+    /// Running commit
+    committing: bool,
+    /// Running remote operation
+    remote_op_running: Option<RemoteOp>,
+    /// Section collapse state
+    conflicts_collapsed: bool,
+    tracked_collapsed: bool,
+    untracked_collapsed: bool,
+    /// Last operation error message (shown as toast/inline)
+    last_error: Option<String>,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -92,7 +124,7 @@ impl GitHeader {
         project_id: String,
         request_broker: Entity<RequestBroker>,
         git_provider: Arc<dyn GitProvider>,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Self {
         Self {
             project_id,
@@ -119,6 +151,23 @@ impl GitHeader {
             commit_log_compare_head: None,
             commit_log_picker_target: BranchPickerTarget::default(),
             active_tab: GitPanelTab::default(),
+            working_tree_status: None,
+            working_tree_loading: false,
+            commit_message_input: {
+                cx.new(|cx| {
+                    okena_ui::simple_input::SimpleInputState::new(cx)
+                        .placeholder("Commit message")
+                        .multiline()
+                })
+            },
+            commit_options_amend: false,
+            commit_options_signoff: false,
+            committing: false,
+            remote_op_running: None,
+            conflicts_collapsed: false,
+            tracked_collapsed: false,
+            untracked_collapsed: false,
+            last_error: None,
         }
     }
 
@@ -325,22 +374,49 @@ impl GitHeader {
 
         let page = COMMIT_PAGE_SIZE;
         let provider = self.git_provider.clone();
+        self.working_tree_loading = true;
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (entries, branches, diff_summaries) = smol::unblock(move || {
+            let (entries, branches, diff_summaries, wt_status) = smol::unblock(move || {
                 let entries = provider.get_commit_graph(page, None);
                 let branches = provider.list_branches();
                 let diff_summaries = provider.get_diff_file_summary();
-                (entries, branches, diff_summaries)
+                let wt_status = provider.get_working_tree_status();
+                (entries, branches, diff_summaries, wt_status)
             })
             .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
+                this.working_tree_loading = false;
                 let commit_count = entries.iter().filter(|r| matches!(r, git::GraphRow::Commit(_))).count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
                 this.commit_log_entries = entries;
                 this.commit_log_branches = branches;
+                this.diff_file_summaries = diff_summaries;
+                this.working_tree_status = Some(wt_status);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Refresh only the working tree status (after stage/unstage/commit).
+    pub fn refresh_working_tree_status(&mut self, cx: &mut Context<Self>) {
+        self.working_tree_loading = true;
+        let provider = self.git_provider.clone();
+        let provider2 = provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let (wt_status, diff_summaries) = smol::unblock(move || {
+                let wt_status = provider.get_working_tree_status();
+                let diff_summaries = provider2.get_diff_file_summary();
+                (wt_status, diff_summaries)
+            })
+            .await;
+
+            let _ = this.update(cx, |this, cx| {
+                this.working_tree_loading = false;
+                this.working_tree_status = Some(wt_status);
                 this.diff_file_summaries = diff_summaries;
                 cx.notify();
             });
@@ -591,88 +667,962 @@ impl GitHeader {
             .child(self.render_tab_switcher(t, cx))
             // Active tab content
             .child(match self.active_tab {
+                GitPanelTab::Commit => self.render_commit_tab(t, cx),
                 GitPanelTab::Changes => self.render_changes_tab(t, cx),
                 GitPanelTab::History => self.render_history_tab(t, cx),
             })
             .into_any_element()
     }
 
-    /// Render the tab switcher (Changes / History).
-    fn render_tab_switcher(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
-        let changes_active = self.active_tab == GitPanelTab::Changes;
-        let history_active = self.active_tab == GitPanelTab::History;
-        let changes_count = self.diff_file_summaries.len();
+    /// Render a single tab button.
+    fn render_tab_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        target: GitPanelTab,
+        badge: Option<usize>,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.active_tab == target;
+        div()
+            .id(id)
+            .flex_1()
+            .px(px(10.0))
+            .py(px(8.0))
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(6.0))
+            .border_b_2()
+            .border_color(rgb(if active { t.border_active } else { 0x00000000 }))
+            .when(!active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.active_tab = target;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .text_size(ui_text_ms(cx))
+                    .font_weight(if active { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
+                    .text_color(rgb(if active { t.text_primary } else { t.text_secondary }))
+                    .child(label),
+            )
+            .when_some(badge.filter(|n| *n > 0), |d, count| {
+                d.child(
+                    div()
+                        .px(px(5.0))
+                        .py(px(0.0))
+                        .rounded(px(8.0))
+                        .bg(rgb(t.bg_hover))
+                        .text_size(ui_text_sm(cx))
+                        .text_color(rgb(t.text_muted))
+                        .child(format!("{}", count)),
+                )
+            })
+    }
 
+    /// Render the tab switcher (Commit / Changes / History).
+    /// Zed-style: no count badges, compact tab labels.
+    fn render_tab_switcher(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .border_b_1()
             .border_color(rgb(t.border))
             .bg(rgb(t.bg_header))
+            .child(self.render_tab_button(
+                "git-tab-commit",
+                "Commit",
+                GitPanelTab::Commit,
+                None,
+                t,
+                cx,
+            ))
+            .child(self.render_tab_button(
+                "git-tab-changes",
+                "Changes",
+                GitPanelTab::Changes,
+                None,
+                t,
+                cx,
+            ))
+            .child(self.render_tab_button(
+                "git-tab-history",
+                "History",
+                GitPanelTab::History,
+                None,
+                t,
+                cx,
+            ))
+    }
+
+    // ── Commit tab ─────────────────────────────────────────────────
+
+    /// Render the Commit tab (staging + commit message + remote operations).
+    fn render_commit_tab(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
+        let status_ref = self.working_tree_status.as_ref();
+        let is_empty = status_ref.map(|s| s.total_files() == 0).unwrap_or(true);
+        let loading = self.working_tree_loading && status_ref.is_none();
+
+        if loading {
+            return v_flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .p(px(20.0))
+                .child(
+                    div()
+                        .text_size(ui_text_md(cx))
+                        .text_color(rgb(t.text_muted))
+                        .child("Loading..."),
+                )
+                .into_any_element();
+        }
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            // Header bar (N changes + Stage/Unstage All)
+            .child(self.render_commit_header_bar(t, cx))
+            // Error toast (if any)
+            .when_some(self.last_error.clone(), |d, err| {
+                d.child(
+                    div()
+                        .px(px(10.0))
+                        .py(px(6.0))
+                        .bg(rgb(t.error))
+                        .text_color(rgb(t.bg_primary))
+                        .text_size(ui_text_sm(cx))
+                        .child(err),
+                )
+            })
+            // File sections (or empty state)
+            .child(if is_empty {
+                self.render_empty_commit_state(t, cx).into_any_element()
+            } else {
+                self.render_file_sections(t, cx).into_any_element()
+            })
+            // Branch/remote footer bar
+            .child(self.render_branch_bar(t, cx))
+            // Commit message input + button
+            .child(self.render_commit_footer(t, cx))
+            .into_any_element()
+    }
+
+    /// Render the commit tab header — Zed-style: "N Changes" text on the left,
+    /// Stage/Unstage All button on the right.
+    fn render_commit_header_bar(
+        &self,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let status = self.working_tree_status.as_ref();
+        let total = status.map(|s| s.total_files()).unwrap_or(0);
+        let all_staged = status.map(|s| s.all_staged()).unwrap_or(false);
+        let has_any_changes = total > 0;
+
+        let label = match total {
+            0 => "No Changes".to_string(),
+            1 => "1 Change".to_string(),
+            n => format!("{} Changes", n),
+        };
+
+        h_flex()
+            .pl(px(12.0))
+            .pr(px(6.0))
+            .py(px(5.0))
+            .items_center()
+            .border_b_1()
+            .border_color(rgb(t.border))
             .child(
                 div()
-                    .id("git-tab-changes")
-                    .flex_1()
-                    .px(px(10.0))
-                    .py(px(8.0))
-                    .cursor_pointer()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child(label),
+            )
+            .child(div().flex_1())
+            .when(has_any_changes, |d| {
+                d.child(
+                    div()
+                        .id("stage-all-btn")
+                        .px(px(8.0))
+                        .py(px(2.0))
+                        .rounded(px(3.0))
+                        .text_size(ui_text_sm(cx))
+                        .text_color(rgb(t.text_secondary))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(t.bg_hover)))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            if all_staged {
+                                this.handle_unstage_all(cx);
+                            } else {
+                                this.handle_stage_all(cx);
+                            }
+                        }))
+                        .child(if all_staged { "Unstage All" } else { "Stage All" }),
+                )
+            })
+    }
+
+    /// Render empty state when working tree is clean.
+    fn render_empty_commit_state(
+        &self,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        v_flex()
+            .flex_1()
+            .items_center()
+            .justify_center()
+            .gap(px(8.0))
+            .p(px(20.0))
+            .child(
+                svg()
+                    .path("icons/git-commit.svg")
+                    .size(px(32.0))
+                    .text_color(rgb(t.text_muted)),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_md(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child("Working tree clean"),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child("No changes to commit"),
+            )
+    }
+
+    /// Render the three file sections (Conflicts / Tracked / Untracked) in a scroll view.
+    fn render_file_sections(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let status = self.working_tree_status.as_ref();
+        let conflicts: Vec<WorkingFile> = status.map(|s| s.conflicts.clone()).unwrap_or_default();
+        let tracked: Vec<WorkingFile> = status.map(|s| s.tracked.clone()).unwrap_or_default();
+        let untracked: Vec<WorkingFile> = status.map(|s| s.untracked.clone()).unwrap_or_default();
+
+        let mut list = v_flex()
+            .id("commit-file-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll();
+
+        if !conflicts.is_empty() {
+            list = list.child(self.render_section_header(
+                "Conflicts",
+                self.conflicts_collapsed,
+                |this| this.conflicts_collapsed = !this.conflicts_collapsed,
+                Some(t.error),
+                t,
+                cx,
+            ));
+            if !self.conflicts_collapsed {
+                for file in &conflicts {
+                    list = list.child(self.render_file_entry(file, false, t, cx));
+                }
+            }
+        }
+
+        if !tracked.is_empty() {
+            list = list.child(self.render_section_header(
+                "Tracked",
+                self.tracked_collapsed,
+                |this| this.tracked_collapsed = !this.tracked_collapsed,
+                None,
+                t,
+                cx,
+            ));
+            if !self.tracked_collapsed {
+                for file in &tracked {
+                    list = list.child(self.render_file_entry(file, false, t, cx));
+                }
+            }
+        }
+
+        if !untracked.is_empty() {
+            list = list.child(self.render_section_header(
+                "Untracked",
+                self.untracked_collapsed,
+                |this| this.untracked_collapsed = !this.untracked_collapsed,
+                None,
+                t,
+                cx,
+            ));
+            if !self.untracked_collapsed {
+                for file in &untracked {
+                    list = list.child(self.render_file_entry(file, true, t, cx));
+                }
+            }
+        }
+
+        list
+    }
+
+    /// Render a collapsible section header — Zed-style: just the label, muted,
+    /// no count, no chevron. Click area stays for toggling.
+    fn render_section_header(
+        &self,
+        title: &'static str,
+        collapsed: bool,
+        toggle: impl Fn(&mut Self) + 'static,
+        accent_color: Option<u32>,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let color = accent_color.unwrap_or(t.text_muted);
+
+        h_flex()
+            .id(ElementId::Name(format!("section-hdr-{}", title).into()))
+            .pl(px(12.0))
+            .pr(px(8.0))
+            .pt(px(6.0))
+            .pb(px(2.0))
+            .items_end()
+            .cursor_pointer()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                toggle(this);
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(color))
+                    .when(collapsed, |d| d.opacity(0.6))
+                    .child(title),
+            )
+    }
+
+    /// Render a single file entry — Zed-style: compact (~24px), filename with
+    /// muted parent path, status-color on the filename, checkbox on the right.
+    fn render_file_entry(
+        &self,
+        file: &WorkingFile,
+        is_untracked_section: bool,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let file_path = file.path.clone();
+        let file_path_click = file.path.clone();
+        let file_path_ctx = file.path.clone();
+        let is_fully_staged = file.is_fully_staged();
+        let is_partial = file.is_partially_staged();
+        let is_conflict = file.has_conflict();
+        let status = file.effective_status();
+        let added = file.added;
+        let removed = file.removed;
+
+        // Filename color reflects status (UI colors, not ANSI term_* colors)
+        let name_color = match status {
+            _ if is_conflict => t.error,
+            FileStatus::Added | FileStatus::Untracked => t.success,
+            FileStatus::Modified => t.warning,
+            FileStatus::Deleted => t.text_muted,
+            FileStatus::Renamed | FileStatus::Copied => t.border_active,
+            _ => t.text_primary,
+        };
+
+        // Status letter + its color (shown after filename) — VS Code convention.
+        let (status_letter, status_color) = match status {
+            _ if is_conflict => ("!", t.error),
+            FileStatus::Modified => ("M", t.warning),
+            FileStatus::Added => ("A", t.success),
+            FileStatus::Deleted => ("D", t.error),
+            FileStatus::Renamed => ("R", t.border_active),
+            FileStatus::Copied => ("C", t.border_active),
+            FileStatus::Untracked => ("U", t.success),
+            FileStatus::Conflict => ("!", t.error),
+        };
+
+        // Split path into directory and filename for two-tone display
+        let (dir_part, file_name) = match file.path.rfind('/') {
+            Some(i) => (&file.path[..=i], &file.path[i + 1..]),
+            None => ("", file.path.as_str()),
+        };
+        let dir_part = dir_part.to_string();
+        let file_name = file_name.to_string();
+
+        let request_broker = self.request_broker.clone();
+        let request_broker_ctx = self.request_broker.clone();
+        let project_id = self.project_id.clone();
+        let project_id_ctx = self.project_id.clone();
+
+        h_flex()
+            .id(ElementId::Name(format!("file-{}", file.path).into()))
+            .pl(px(8.0))
+            .pr(px(8.0))
+            .h(px(24.0))
+            .gap(px(6.0))
+            .items_center()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            // Right-click context menu
+            .on_mouse_down(MouseButton::Right, {
+                let pid = project_id_ctx.clone();
+                let fp = file_path_ctx.clone();
+                let broker = request_broker_ctx.clone();
+                move |event: &MouseDownEvent, _window, cx| {
+                    cx.stop_propagation();
+                    broker.update(cx, |broker, cx| {
+                        broker.push_overlay_request(
+                            OverlayRequest::GitFileContextMenu {
+                                project_id: pid.clone(),
+                                file_path: fp.clone(),
+                                is_staged: is_fully_staged || is_partial,
+                                is_untracked: is_untracked_section,
+                                is_conflict,
+                                position: event.position,
+                            },
+                            cx,
+                        );
+                    });
+                }
+            })
+            // Checkbox on the LEFT
+            .child({
+                let path = file_path.clone();
+                let (cb_bg, cb_border, cb_glyph, cb_fg) = if is_fully_staged {
+                    (t.border_active, t.border_active, "✓", t.bg_primary)
+                } else if is_partial {
+                    (t.bg_hover, t.warning, "–", t.warning)
+                } else {
+                    (0x00000000, t.border, " ", t.text_muted)
+                };
+                div()
+                    .id(ElementId::Name(format!("cb-{}", file.path).into()))
+                    .flex_shrink_0()
+                    .w(px(13.0))
+                    .h(px(13.0))
+                    .rounded(px(2.0))
+                    .border_1()
+                    .border_color(rgb(cb_border))
+                    .bg(rgb(cb_bg))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .gap(px(6.0))
-                    .border_b_2()
-                    .border_color(rgb(if changes_active { t.term_cyan } else { 0x00000000 }))
-                    .when(!changes_active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.active_tab = GitPanelTab::Changes;
-                        cx.notify();
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(0.85))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        if is_fully_staged {
+                            this.handle_unstage_file(&path, cx);
+                        } else {
+                            this.handle_stage_file(&path, cx);
+                        }
                     }))
                     .child(
                         div()
-                            .text_size(ui_text_ms(cx))
-                            .font_weight(if changes_active { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
-                            .text_color(rgb(if changes_active { t.text_primary } else { t.text_secondary }))
-                            .child("Changes"),
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgb(cb_fg))
+                            .child(cb_glyph),
                     )
-                    .when(changes_count > 0, |d| {
+            })
+            // Filename (status color) + parent dir (muted)
+            .child(
+                div()
+                    .id(ElementId::Name(format!("fn-{}", file.path).into()))
+                    .flex_1()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(4.0))
+                    .text_size(ui_text_sm(cx))
+                    .when(matches!(status, FileStatus::Deleted), |d| d.line_through())
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .cursor_pointer()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(cx.listener(move |_this, _, _window, cx| {
+                        let pid = project_id.clone();
+                        let fp = file_path_click.clone();
+                        request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(
+                                OverlayRequest::DiffViewer {
+                                    project_id: pid,
+                                    file: Some(fp),
+                                    mode: None,
+                                    commit_message: None,
+                                    commits: None,
+                                    commit_index: None,
+                                },
+                                cx,
+                            );
+                        });
+                    }))
+                    .child(
+                        div()
+                            .text_color(rgb(name_color))
+                            .child(file_name),
+                    )
+                    .when(!dir_part.is_empty(), |d| {
                         d.child(
                             div()
-                                .px(px(5.0))
-                                .py(px(0.0))
-                                .rounded(px(8.0))
-                                .bg(rgb(t.bg_hover))
-                                .text_size(ui_text_sm(cx))
                                 .text_color(rgb(t.text_muted))
-                                .child(format!("{}", changes_count)),
+                                .text_ellipsis()
+                                .overflow_hidden()
+                                .child(dir_part),
                         )
                     }),
             )
+            // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
+            .when(added > 0 || removed > 0, |d| {
+                d.child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap(px(4.0))
+                        .text_size(ui_text_sm(cx))
+                        .child(
+                            div()
+                                .text_color(rgb(t.success))
+                                .child(format!("+{}", added)),
+                        )
+                        .child(
+                            div()
+                                .text_color(rgb(t.error))
+                                .child(format!("-{}", removed)),
+                        ),
+                )
+            })
+            // Status letter (M/A/D/R/C/?/U) AFTER the diff stats
             .child(
                 div()
-                    .id("git-tab-history")
-                    .flex_1()
-                    .px(px(10.0))
-                    .py(px(8.0))
-                    .cursor_pointer()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .gap(px(6.0))
-                    .border_b_2()
-                    .border_color(rgb(if history_active { t.term_cyan } else { 0x00000000 }))
-                    .when(!history_active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.active_tab = GitPanelTab::History;
-                        cx.notify();
-                    }))
+                    .flex_shrink_0()
+                    .w(px(12.0))
+                    .text_size(ui_text_sm(cx))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(rgb(status_color))
+                    .child(status_letter),
+            )
+    }
+
+    /// Render the branch/remote bar (branch name + ahead/behind + fetch/pull/push).
+    fn render_branch_bar(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let status = self.working_tree_status.as_ref();
+        let branch = status
+            .and_then(|s| s.branch.clone())
+            .or_else(|| self.current_branch.clone())
+            .unwrap_or_else(|| "HEAD".to_string());
+        let ahead = status.map(|s| s.ahead).unwrap_or(0);
+        let behind = status.map(|s| s.behind).unwrap_or(0);
+        let has_upstream = status.map(|s| s.has_upstream).unwrap_or(false);
+
+        h_flex()
+            .px(px(10.0))
+            .py(px(6.0))
+            .gap(px(6.0))
+            .items_center()
+            .border_t_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(t.bg_header))
+            // Branch + ahead/behind
+            .child(
+                svg()
+                    .path("icons/git-branch.svg")
+                    .size(px(11.0))
+                    .text_color(rgb(t.text_secondary)),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_primary))
+                    .max_w(px(160.0))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .child(branch),
+            )
+            .when(has_upstream && ahead > 0, |d| {
+                d.child(
+                    div()
+                        .text_size(ui_text_sm(cx))
+                        .text_color(rgb(t.success))
+                        .child(format!("↑{}", ahead)),
+                )
+            })
+            .when(has_upstream && behind > 0, |d| {
+                d.child(
+                    div()
+                        .text_size(ui_text_sm(cx))
+                        .text_color(rgb(t.warning))
+                        .child(format!("↓{}", behind)),
+                )
+            })
+            // Spacer
+            .child(div().flex_1())
+            // Fetch / Pull / Push buttons
+            .child(self.render_remote_button(
+                "git-btn-fetch",
+                "Fetch",
+                RemoteOp::Fetch,
+                "icons/refresh.svg",
+                t,
+                cx,
+            ))
+            .child(self.render_remote_button(
+                "git-btn-pull",
+                "Pull",
+                RemoteOp::Pull,
+                "icons/chevron-down.svg",
+                t,
+                cx,
+            ))
+            .child(self.render_remote_button(
+                "git-btn-push",
+                "Push",
+                RemoteOp::Push,
+                "icons/chevron-up.svg",
+                t,
+                cx,
+            ))
+    }
+
+    /// Render a single remote operation button (Fetch/Pull/Push).
+    fn render_remote_button(
+        &self,
+        id: &'static str,
+        tooltip_text: &'static str,
+        op: RemoteOp,
+        icon_path: &'static str,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let running = self.remote_op_running == Some(op);
+        let disabled = self.remote_op_running.is_some();
+
+        div()
+            .id(id)
+            .w(px(24.0))
+            .h(px(20.0))
+            .rounded(px(3.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(!disabled, |d| {
+                d.cursor_pointer().hover(|s| s.bg(rgb(t.bg_hover)))
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .when(!disabled, |d| {
+                d.on_click(cx.listener(move |this, _, _window, cx| {
+                    match op {
+                        RemoteOp::Fetch => this.handle_fetch(cx),
+                        RemoteOp::Pull => this.handle_pull(cx),
+                        RemoteOp::Push => this.handle_push(cx),
+                    }
+                }))
+            })
+            .tooltip(move |_w, cx| Tooltip::new(tooltip_text).build(_w, cx))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(11.0))
+                    .text_color(rgb(if running {
+                        t.border_active
+                    } else if disabled {
+                        t.text_muted
+                    } else {
+                        t.text_secondary
+                    })),
+            )
+    }
+
+    /// Render the commit message footer (multi-line input + commit button + options).
+    fn render_commit_footer(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_staged = self
+            .working_tree_status
+            .as_ref()
+            .map(|s| s.staged_count() > 0)
+            .unwrap_or(false);
+        let message_empty = self.commit_message_input.read(cx).value().is_empty();
+        let can_commit = (has_staged || self.commit_options_amend) && !message_empty && !self.committing;
+
+        let button_label = if self.committing {
+            "Committing..."
+        } else if self.commit_options_amend {
+            "Amend"
+        } else {
+            "Commit"
+        };
+
+        v_flex()
+            .border_t_1()
+            .border_color(rgb(t.border))
+            // Message input
+            .child(
+                div()
+                    .p(px(8.0))
                     .child(
                         div()
-                            .text_size(ui_text_ms(cx))
-                            .font_weight(if history_active { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
-                            .text_color(rgb(if history_active { t.text_primary } else { t.text_secondary }))
-                            .child("History"),
+                            .min_h(px(60.0))
+                            .max_h(px(140.0))
+                            .border_1()
+                            .border_color(rgb(t.border))
+                            .rounded(px(4.0))
+                            .bg(rgb(t.bg_primary))
+                            .px(px(6.0))
+                            .py(px(4.0))
+                            .child(self.commit_message_input.clone()),
                     ),
             )
+            // Options row + commit button
+            .child(
+                h_flex()
+                    .px(px(8.0))
+                    .pb(px(8.0))
+                    .gap(px(6.0))
+                    .items_center()
+                    // Amend toggle
+                    .child(self.render_option_toggle(
+                        "opt-amend",
+                        "Amend",
+                        self.commit_options_amend,
+                        |this| this.commit_options_amend = !this.commit_options_amend,
+                        t,
+                        cx,
+                    ))
+                    // Signoff toggle
+                    .child(self.render_option_toggle(
+                        "opt-signoff",
+                        "Sign-off",
+                        self.commit_options_signoff,
+                        |this| this.commit_options_signoff = !this.commit_options_signoff,
+                        t,
+                        cx,
+                    ))
+                    // Spacer
+                    .child(div().flex_1())
+                    // Commit button
+                    .child(
+                        div()
+                            .id("commit-btn")
+                            .px(px(12.0))
+                            .py(px(5.0))
+                            .rounded(px(4.0))
+                            .text_size(ui_text_sm(cx))
+                            .font_weight(FontWeight::MEDIUM)
+                            .when(can_commit, |d| {
+                                d.bg(rgb(t.border_active))
+                                    .text_color(rgb(t.bg_primary))
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.9))
+                            })
+                            .when(!can_commit, |d| {
+                                d.bg(rgb(t.bg_hover)).text_color(rgb(t.text_muted))
+                            })
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .when(can_commit, |d| {
+                                d.on_click(cx.listener(|this, _, _window, cx| {
+                                    this.handle_commit(cx);
+                                }))
+                            })
+                            .child(button_label),
+                    ),
+            )
+    }
+
+    /// Render a toggleable option button (Amend / Sign-off).
+    fn render_option_toggle(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        active: bool,
+        toggle: impl Fn(&mut Self) + 'static,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .px(px(6.0))
+            .py(px(2.0))
+            .rounded(px(4.0))
+            .text_size(ui_text_sm(cx))
+            .cursor_pointer()
+            .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
+            .text_color(rgb(if active { t.border_active } else { t.text_muted }))
+            .hover(|s| s.bg(rgb(t.bg_selection)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                toggle(this);
+                cx.notify();
+            }))
+            .child(label)
+    }
+
+    // ── Commit tab action handlers ─────────────────────────────────
+
+    fn handle_stage_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        let path_str = path.to_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stage_file(&path_str)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_unstage_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        let path_str = path.to_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.unstage_file(&path_str)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_stage_all(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stage_all()).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_unstage_all(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.unstage_all()).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_commit(&mut self, cx: &mut Context<Self>) {
+        let message = self.commit_message_input.read(cx).value().to_string();
+        if message.is_empty() {
+            return;
+        }
+        let provider = self.git_provider.clone();
+        let amend = self.commit_options_amend;
+        let signoff = self.commit_options_signoff;
+        self.committing = true;
+        cx.notify();
+
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.commit(&message, amend, signoff)).await;
+            let _ = this.update(cx, |this, cx| {
+                this.committing = false;
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                    // Clear message input and amend flag after successful commit
+                    this.commit_message_input.update(cx, |input, cx| {
+                        input.set_value("", cx);
+                    });
+                    this.commit_options_amend = false;
+                    // Refresh commit log too since a new commit exists
+                    this.refresh_after_commit(cx);
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_fetch(&mut self, cx: &mut Context<Self>) {
+        self.run_remote_op(RemoteOp::Fetch, cx);
+    }
+
+    fn handle_pull(&mut self, cx: &mut Context<Self>) {
+        self.run_remote_op(RemoteOp::Pull, cx);
+    }
+
+    fn handle_push(&mut self, cx: &mut Context<Self>) {
+        self.run_remote_op(RemoteOp::Push, cx);
+    }
+
+    fn run_remote_op(&mut self, op: RemoteOp, cx: &mut Context<Self>) {
+        if self.remote_op_running.is_some() {
+            return;
+        }
+        self.remote_op_running = Some(op);
+        self.last_error = None;
+        cx.notify();
+
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || match op {
+                RemoteOp::Fetch => provider.fetch(),
+                RemoteOp::Pull => provider.pull(),
+                RemoteOp::Push => provider.push(),
+            })
+            .await;
+
+            let _ = this.update(cx, |this, cx| {
+                this.remote_op_running = None;
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Refresh both commit log and working tree status after a new commit.
+    fn refresh_after_commit(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        let page = COMMIT_PAGE_SIZE;
+        let branch = self.commit_log_branch.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let entries = smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
+            let _ = this.update(cx, |this, cx| {
+                let commit_count = entries
+                    .iter()
+                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
+                    .count();
+                this.commit_log_has_more = commit_count >= page;
+                this.commit_log_count = commit_count;
+                this.commit_log_entries = entries;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Render the Changes tab (diff file list).

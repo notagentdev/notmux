@@ -241,6 +241,49 @@ pub enum ActionRequest {
     GitListBranches {
         project_id: String,
     },
+    GitWorkingTreeStatus {
+        project_id: String,
+    },
+    GitStageFile {
+        project_id: String,
+        file_path: String,
+    },
+    GitUnstageFile {
+        project_id: String,
+        file_path: String,
+    },
+    GitStageAll {
+        project_id: String,
+    },
+    GitUnstageAll {
+        project_id: String,
+    },
+    GitDiscardFile {
+        project_id: String,
+        file_path: String,
+        #[serde(default)]
+        is_untracked: bool,
+    },
+    GitCommit {
+        project_id: String,
+        message: String,
+        #[serde(default)]
+        amend: bool,
+        #[serde(default)]
+        signoff: bool,
+    },
+    GitUncommit {
+        project_id: String,
+    },
+    GitFetch {
+        project_id: String,
+    },
+    GitPull {
+        project_id: String,
+    },
+    GitPush {
+        project_id: String,
+    },
     AddProject {
         name: String,
         path: String,

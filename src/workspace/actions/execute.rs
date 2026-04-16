@@ -334,6 +334,112 @@ pub fn execute_action(
                 None => ActionResult::Err(format!("project not found: {}", project_id)),
             }
         }
+        ActionRequest::GitWorkingTreeStatus { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => {
+                    let path = p.path.clone();
+                    let status = crate::git::get_working_tree_status(std::path::Path::new(&path));
+                    ActionResult::Ok(Some(serde_json::to_value(status).expect("BUG: WorkingTreeStatus must serialize")))
+                }
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitStageFile { project_id, file_path } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::stage_file(std::path::Path::new(&p.path), &file_path) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitUnstageFile { project_id, file_path } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::unstage_file(std::path::Path::new(&p.path), &file_path) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitStageAll { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::stage_all(std::path::Path::new(&p.path)) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitUnstageAll { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::unstage_all(std::path::Path::new(&p.path)) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitDiscardFile { project_id, file_path, is_untracked } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::discard_file(std::path::Path::new(&p.path), &file_path, is_untracked) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitCommit { project_id, message, amend, signoff } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::commit(std::path::Path::new(&p.path), &message, amend, signoff) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitUncommit { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::uncommit(std::path::Path::new(&p.path)) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitFetch { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::fetch_all(std::path::Path::new(&p.path)) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitPull { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => match crate::git::pull(std::path::Path::new(&p.path)) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                },
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
+        ActionRequest::GitPush { project_id } => {
+            match ws.project(&project_id) {
+                Some(p) => {
+                    let path = std::path::Path::new(&p.path);
+                    match crate::git::get_current_branch(path) {
+                        Some(branch) => match crate::git::push_branch(path, &branch) {
+                            Ok(()) => ActionResult::Ok(None),
+                            Err(e) => ActionResult::Err(e),
+                        },
+                        None => ActionResult::Err("No current branch (detached HEAD?)".to_string()),
+                    }
+                }
+                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            }
+        }
         ActionRequest::ListFiles { project_id, show_ignored, show_hidden } => {
             match ws.project(&project_id) {
                 Some(p) => {

@@ -314,6 +314,77 @@ impl RootView {
                     });
                 }
             }
+            OverlayManagerEvent::GitFileStage { project_id, file_path } => {
+                let dispatcher = self.dispatcher_for_project(project_id, cx);
+                dispatcher.dispatch(
+                    okena_core::api::ActionRequest::GitStageFile {
+                        project_id: project_id.clone(),
+                        file_path: file_path.clone(),
+                    },
+                    cx,
+                );
+                self.refresh_git_panel(project_id, cx);
+            }
+            OverlayManagerEvent::GitFileUnstage { project_id, file_path } => {
+                let dispatcher = self.dispatcher_for_project(project_id, cx);
+                dispatcher.dispatch(
+                    okena_core::api::ActionRequest::GitUnstageFile {
+                        project_id: project_id.clone(),
+                        file_path: file_path.clone(),
+                    },
+                    cx,
+                );
+                self.refresh_git_panel(project_id, cx);
+            }
+            OverlayManagerEvent::GitFileDiscard { project_id, file_path, is_untracked } => {
+                let dispatcher = self.dispatcher_for_project(project_id, cx);
+                dispatcher.dispatch(
+                    okena_core::api::ActionRequest::GitDiscardFile {
+                        project_id: project_id.clone(),
+                        file_path: file_path.clone(),
+                        is_untracked: *is_untracked,
+                    },
+                    cx,
+                );
+                self.refresh_git_panel(project_id, cx);
+            }
+            OverlayManagerEvent::GitFileAddToGitignore { project_id, file_path } => {
+                self.append_to_gitignore(project_id, file_path, cx);
+                self.refresh_git_panel(project_id, cx);
+            }
+        }
+    }
+
+    /// Refresh the git panel's working tree state for the given project.
+    fn refresh_git_panel(&self, project_id: &str, cx: &mut Context<Self>) {
+        if let Some(col) = self.project_columns.get(project_id).cloned() {
+            let gh = col.read(cx).git_header();
+            gh.update(cx, |gh, cx| gh.refresh_working_tree_status(cx));
+        }
+    }
+
+    /// Append a path to the project's .gitignore file (create if missing).
+    fn append_to_gitignore(&self, project_id: &str, file_path: &str, cx: &mut Context<Self>) {
+        let ws = self.workspace.read(cx);
+        let Some(project) = ws.project(project_id) else {
+            return;
+        };
+        let gitignore = std::path::Path::new(&project.path).join(".gitignore");
+
+        let existing = std::fs::read_to_string(&gitignore).unwrap_or_default();
+        let has_trailing_newline = existing.ends_with('\n') || existing.is_empty();
+        let mut content = existing;
+        if !has_trailing_newline {
+            content.push('\n');
+        }
+        content.push_str(file_path);
+        content.push('\n');
+
+        if let Err(e) = std::fs::write(&gitignore, content) {
+            crate::views::panels::toast::ToastManager::error(
+                format!("Failed to update .gitignore: {}", e),
+                cx,
+            );
         }
     }
 
@@ -473,6 +544,28 @@ impl RootView {
                 }
                 OverlayRequest::ToggleGitPanel { project_id } => {
                     self.toggle_git_panel(&project_id, cx);
+                }
+                OverlayRequest::GitFileContextMenu {
+                    project_id,
+                    file_path,
+                    is_staged,
+                    is_untracked,
+                    is_conflict,
+                    position,
+                } => {
+                    if !self.overlay_manager.read(cx).has_git_file_context_menu() {
+                        self.overlay_manager.update(cx, |om, cx| {
+                            om.show_git_file_context_menu(
+                                project_id,
+                                file_path,
+                                is_staged,
+                                is_untracked,
+                                is_conflict,
+                                position,
+                                cx,
+                            );
+                        });
+                    }
                 }
             }
         }
