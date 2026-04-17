@@ -2,9 +2,12 @@ use crate::keybindings::{Quit, ShowCommandPalette, ShowKeybindings, ShowSettings
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
 use crate::views::components::menu_item;
+use crate::workspace::state::Workspace;
 use gpui::*;
 use gpui_component::h_flex;
 use gpui::prelude::*;
+
+const MAX_PROJECT_NAME_LENGTH: usize = 40;
 
 /// Window control button types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +23,8 @@ pub struct TitleBar {
     title: SharedString,
     menu_open: bool,
     sidebar_open: bool,
+    workspace: Entity<Workspace>,
+    _workspace_subscription: Subscription,
     /// Flag for Linux compositor-driven window move (set on mouse-down, consumed on mouse-move)
     #[cfg(target_os = "linux")]
     should_move: bool,
@@ -28,14 +33,54 @@ pub struct TitleBar {
 impl TitleBar {
     pub fn new(
         title: impl Into<SharedString>,
+        workspace: Entity<Workspace>,
+        cx: &mut Context<Self>,
     ) -> Self {
+        let subscription = cx.observe(&workspace, |_, _, cx| cx.notify());
         Self {
             title: title.into(),
             menu_open: false,
             sidebar_open: true,
+            workspace,
+            _workspace_subscription: subscription,
             #[cfg(target_os = "linux")]
             should_move: false,
         }
+    }
+
+    fn focused_project_name(&self, cx: &App) -> Option<SharedString> {
+        let workspace = self.workspace.read(cx);
+        let id = workspace.focused_project_id()?;
+        let project = workspace.project(id)?;
+        let name = &project.name;
+        let display = if name.chars().count() > MAX_PROJECT_NAME_LENGTH {
+            let truncated: String = name.chars().take(MAX_PROJECT_NAME_LENGTH).collect();
+            format!("{truncated}…")
+        } else {
+            name.clone()
+        };
+        Some(SharedString::from(display))
+    }
+
+    fn render_project_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let name = self.focused_project_name(cx)?;
+        let t = theme(cx);
+        Some(
+            div()
+                .id("title-bar-project-name")
+                .flex()
+                .items_center()
+                .px(px(8.0))
+                .py(px(2.0))
+                .rounded(px(4.0))
+                .text_size(ui_text_sm(cx))
+                .text_color(rgb(t.text_primary))
+                .hover(|s| s.bg(rgb(t.bg_hover)))
+                .child(name)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation();
+                }),
+        )
     }
 
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
@@ -369,7 +414,8 @@ impl Render for TitleBar {
                                     this.toggle_menu(cx);
                                 }))
                         })
-                    }),
+                    })
+                    .children(self.render_project_chip(cx)),
             )
             .child(
                 // Center - spacer
