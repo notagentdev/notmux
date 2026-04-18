@@ -288,8 +288,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
-            custom_theme_id: None,
-            theme_mode: ThemeMode::default(),
+            // Poimandres Dark is the shipped default on first launch.
+            custom_theme_id: Some(okena_theme::DEFAULT_THEME_ID.to_string()),
+            theme_mode: ThemeMode::Custom,
             active_session: None,
             sidebar: SidebarSettings::default(),
             git_panel: GitPanelSettings::default(),

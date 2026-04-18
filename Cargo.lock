@@ -4912,6 +4912,7 @@ dependencies = [
  "okena-layout",
  "okena-state",
  "okena-terminal",
+ "okena-theme",
  "parking_lot",
  "serde",
  "serde_json",

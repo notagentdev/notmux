@@ -5,9 +5,12 @@ pub use okena_core::theme::{
 };
 
 pub mod custom;
+pub mod vscode;
+pub mod builtin_vscode;
 mod gpui_helpers;
 mod app_theme;
 
 pub use gpui_helpers::{with_alpha, ansi_to_hsla, GlobalThemeProvider, theme};
 pub use app_theme::{AppTheme, GlobalTheme, theme_entity};
 pub use custom::{CustomThemeConfig, CustomThemeColors, get_themes_dir, load_custom_themes};
+pub use builtin_vscode::DEFAULT_THEME_ID;

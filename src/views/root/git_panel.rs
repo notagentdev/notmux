@@ -25,11 +25,11 @@ impl RootView {
             }
         } else {
             // Close commit log on previously active project (if any)
-            if let Some(old_pid) = self.git_panel_project_id.take() {
-                if let Some(col) = self.project_columns.get(&old_pid).cloned() {
-                    let gh = col.read(cx).git_header();
-                    gh.update(cx, |gh, cx| gh.hide_commit_log(cx));
-                }
+            if let Some(old_pid) = self.git_panel_project_id.take()
+                && let Some(col) = self.project_columns.get(&old_pid).cloned()
+            {
+                let gh = col.read(cx).git_header();
+                gh.update(cx, |gh, cx| gh.hide_commit_log(cx));
             }
 
             // Set the new project

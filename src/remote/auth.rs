@@ -828,7 +828,7 @@ mod tests {
 
         // Simulate an external tool writing a new token directly to disk
         let external_token = "external-test-token-value";
-        let external_hmac = compute_hmac(&vec![42u8; 32], external_token.as_bytes());
+        let external_hmac = compute_hmac(&[42u8; 32], external_token.as_bytes());
         let now_unix = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()

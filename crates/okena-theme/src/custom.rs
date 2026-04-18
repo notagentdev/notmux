@@ -3,9 +3,11 @@
 //! Allows loading custom themes from JSON files in the themes directory.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use okena_core::theme::{ThemeColors, ThemeInfo};
+use okena_core::theme::{ThemeColors, ThemeInfo, DARK_THEME, LIGHT_THEME};
+
+use crate::{builtin_vscode, vscode};
 
 /// Custom theme configuration file format
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -334,10 +336,12 @@ pub fn get_themes_dir() -> PathBuf {
         .join("themes")
 }
 
-/// Load custom themes from the themes directory
+/// Load custom themes. Returns the bundled built-in VS Code themes first,
+/// followed by any themes the user has placed in the themes directory.
 pub fn load_custom_themes() -> Vec<(ThemeInfo, ThemeColors)> {
     let themes_dir = get_themes_dir();
-    let mut custom_themes = Vec::new();
+    let mut custom_themes: Vec<(ThemeInfo, ThemeColors)> =
+        builtin_vscode::builtin_themes().to_vec();
 
     if !themes_dir.exists() {
         // Create themes directory and example theme
@@ -427,30 +431,64 @@ pub fn load_custom_themes() -> Vec<(ThemeInfo, ThemeColors)> {
         }
     }
 
-    // Load all JSON files from themes directory
+    // Load all JSON files from themes directory (both Okena-native and VS Code schemas)
     if let Ok(entries) = std::fs::read_dir(&themes_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "json")
-                && let Ok(content) = std::fs::read_to_string(&path)
-                    && let Ok(config) = serde_json::from_str::<CustomThemeConfig>(&content) {
-                        let theme_id = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("custom")
-                            .to_string();
-
-                        let info = ThemeInfo {
-                            id: format!("custom:{}", theme_id),
-                            name: config.name.clone(),
-                            description: config.description.clone(),
-                            is_dark: config.is_dark,
-                        };
-                        let colors = config.colors.to_theme_colors();
-                        custom_themes.push((info, colors));
-                    }
+                && let Some(loaded) = load_theme_file(&path)
+            {
+                custom_themes.push(loaded);
+            }
         }
     }
 
     custom_themes
+}
+
+fn load_theme_file(path: &Path) -> Option<(ThemeInfo, ThemeColors)> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let stripped = vscode::strip_jsonc(&raw);
+    let value: serde_json::Value = match serde_json::from_str(&stripped) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("failed to parse theme {}: {}", path.display(), e);
+            return None;
+        }
+    };
+    let theme_id = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("custom")
+        .to_string();
+
+    if vscode::is_vscode_schema(&value) {
+        let vs = match vscode::load_with_includes(path) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("failed to load VS Code theme {}: {}", path.display(), e);
+                return None;
+            }
+        };
+        let fallback = if vs.is_dark() { DARK_THEME } else { LIGHT_THEME };
+        let colors = vscode::vscode_to_theme_colors(&vs, &fallback);
+        let name = vs.name.clone().unwrap_or_else(|| theme_id.clone());
+        let info = ThemeInfo {
+            id: format!("custom:{}", theme_id),
+            name,
+            description: "VS Code theme".to_string(),
+            is_dark: vs.is_dark(),
+        };
+        Some((info, colors))
+    } else {
+        let config: CustomThemeConfig = serde_json::from_value(value).ok()?;
+        let info = ThemeInfo {
+            id: format!("custom:{}", theme_id),
+            name: config.name.clone(),
+            description: config.description.clone(),
+            is_dark: config.is_dark,
+        };
+        let colors = config.colors.to_theme_colors();
+        Some((info, colors))
+    }
 }

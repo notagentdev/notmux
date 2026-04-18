@@ -28,6 +28,8 @@ use std::time::Duration;
 /// Delay before showing diff summary popover (ms)
 const HOVER_DELAY_MS: u64 = 400;
 
+type CommitClickHandler = Arc<dyn Fn(&str, &str, usize, &mut Window, &mut App)>;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum BranchPickerTarget {
     /// Picking branch to view graph for
@@ -1020,15 +1022,9 @@ impl GitHeader {
         let added = file.added;
         let removed = file.removed;
 
-        // Filename color reflects status (UI colors, not ANSI term_* colors)
-        let name_color = match status {
-            _ if is_conflict => t.error,
-            FileStatus::Added | FileStatus::Untracked => t.success,
-            FileStatus::Modified => t.warning,
-            FileStatus::Deleted => t.text_muted,
-            FileStatus::Renamed | FileStatus::Copied => t.border_active,
-            _ => t.text_primary,
-        };
+        // Filename always uses the primary text color; the status letter
+        // after the name carries the status signal.
+        let name_color = t.text_primary;
 
         // Status letter + its color (shown after filename) — VS Code convention.
         let (status_letter, status_color) = match status {
@@ -1358,17 +1354,14 @@ impl GitHeader {
         v_flex()
             .border_t_1()
             .border_color(rgb(t.border))
-            // Message input
+            // Message input — borderless, taller than the default SimpleInput height.
             .child(
                 div()
                     .p(px(8.0))
                     .child(
                         div()
-                            .min_h(px(60.0))
-                            .max_h(px(140.0))
-                            .border_1()
-                            .border_color(rgb(t.border))
-                            .rounded(px(4.0))
+                            .min_h(px(96.0))
+                            .max_h(px(180.0))
                             .bg(rgb(t.bg_primary))
                             .px(px(6.0))
                             .py(px(4.0))
@@ -1823,7 +1816,7 @@ impl GitHeader {
         let entity_handle = cx.entity().clone();
         let project_id = self.project_id.clone();
         let request_broker = self.request_broker.clone();
-        let on_commit_click: Option<Arc<dyn Fn(&str, &str, usize, &mut Window, &mut App)>> =
+        let on_commit_click: Option<CommitClickHandler> =
             if self.commit_log_entries.is_empty() {
                 None
             } else {

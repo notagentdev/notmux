@@ -994,6 +994,32 @@ fn validate_leaf_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Recursively collect paths to all Terminal nodes with `terminal_id: None`.
+/// Collect uninitialized terminals in a layout tree, returning their paths and shell types.
+fn collect_uninitialized_terminals_with_shell(
+    node: &LayoutNode,
+    current_path: Vec<usize>,
+    result: &mut Vec<(Vec<usize>, ShellType)>,
+) {
+    match node {
+        LayoutNode::Terminal {
+            terminal_id: None,
+            shell_type,
+            ..
+        } => {
+            result.push((current_path, shell_type.clone()));
+        }
+        LayoutNode::Terminal { .. } => {}
+        LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                let mut child_path = current_path.clone();
+                child_path.push(i);
+                collect_uninitialized_terminals_with_shell(child, child_path, result);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod path_guard_tests {
     use super::{resolve_new_project_file, resolve_project_file, validate_leaf_name};
@@ -1065,31 +1091,5 @@ mod path_guard_tests {
         assert!(validate_leaf_name("..").is_err());
         assert!(validate_leaf_name("a/b").is_err());
         assert!(validate_leaf_name("a\\b").is_err());
-    }
-}
-
-/// Recursively collect paths to all Terminal nodes with `terminal_id: None`.
-/// Collect uninitialized terminals in a layout tree, returning their paths and shell types.
-fn collect_uninitialized_terminals_with_shell(
-    node: &LayoutNode,
-    current_path: Vec<usize>,
-    result: &mut Vec<(Vec<usize>, ShellType)>,
-) {
-    match node {
-        LayoutNode::Terminal {
-            terminal_id: None,
-            shell_type,
-            ..
-        } => {
-            result.push((current_path, shell_type.clone()));
-        }
-        LayoutNode::Terminal { .. } => {}
-        LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
-            for (i, child) in children.iter().enumerate() {
-                let mut child_path = current_path.clone();
-                child_path.push(i);
-                collect_uninitialized_terminals_with_shell(child, child_path, result);
-            }
-        }
     }
 }
