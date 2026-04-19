@@ -264,7 +264,7 @@ impl Render for StatusBar {
 
         div()
             .id("status-bar")
-            .h(px(22.0))
+            .h(px(42.0))
             .px(px(12.0))
             .flex()
             .items_center()

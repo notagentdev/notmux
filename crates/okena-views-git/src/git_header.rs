@@ -1010,30 +1010,19 @@ impl GitHeader {
                     });
                 }
             })
-            // Checkbox on the LEFT
+            // Checkbox on the LEFT — Zed-style: 20x20 outer, 16x16 inner,
+            // neutral border, darker fill, accent-colored check/dash icon.
             .child({
                 let path = file_path.clone();
-                let (cb_bg, cb_border, cb_glyph, cb_fg) = if is_fully_staged {
-                    (t.border_active, t.border_active, "✓", t.bg_primary)
-                } else if is_partial {
-                    (t.bg_hover, t.warning, "–", t.warning)
-                } else {
-                    (0x00000000, t.border, " ", t.text_muted)
-                };
                 div()
                     .id(ElementId::Name(format!("cb-{}", file.path).into()))
                     .flex_shrink_0()
-                    .w(px(13.0))
-                    .h(px(13.0))
-                    .rounded(px(2.0))
-                    .border_1()
-                    .border_color(rgb(cb_border))
-                    .bg(rgb(cb_bg))
+                    .w(px(20.0))
+                    .h(px(20.0))
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .hover(|s| s.opacity(0.85))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
@@ -1046,10 +1035,33 @@ impl GitHeader {
                     }))
                     .child(
                         div()
-                            .text_size(px(10.0))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(rgb(cb_fg))
-                            .child(cb_glyph),
+                            .w(px(16.0))
+                            .h(px(16.0))
+                            .rounded(px(3.0))
+                            .border_1()
+                            .border_color(rgb(t.border))
+                            .bg(rgb(t.bg_hover))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .hover(|s| s.border_color(rgb(t.border_active)))
+                            .when(is_fully_staged, |d| {
+                                d.child(
+                                    svg()
+                                        .path("icons/check.svg")
+                                        .size(px(12.0))
+                                        .text_color(rgb(t.border_active)),
+                                )
+                            })
+                            .when(is_partial && !is_fully_staged, |d| {
+                                d.child(
+                                    div()
+                                        .w(px(8.0))
+                                        .h(px(2.0))
+                                        .rounded(px(1.0))
+                                        .bg(rgb(t.border_active)),
+                                )
+                            }),
                     )
             })
             // Filename (status color) + parent dir (muted)

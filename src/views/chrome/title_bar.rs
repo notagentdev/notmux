@@ -326,11 +326,7 @@ impl Render for TitleBar {
         };
 
         // On macOS, the title bar only provides space for traffic lights (no content)
-        let title_bar_height = if cfg!(target_os = "macos") {
-            px(38.0)
-        } else {
-            px(42.0)
-        };
+        let title_bar_height = px(42.0);
 
         div()
             .id("title-bar")
