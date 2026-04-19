@@ -85,8 +85,11 @@ pub struct DiffViewer {
     selection_side: Option<SideBySideSide>,
     /// Measured monospace character width (from font metrics).
     measured_char_width: f32,
-    /// Whether the current theme is dark (for syntax highlighting).
+    /// Whether the current theme is dark (retained for legacy header tinting).
     is_dark: bool,
+    /// Snapshot of the active theme palette; syntax highlighting is derived
+    /// from this so the diff view matches the rest of the UI.
+    theme_colors: okena_core::theme::ThemeColors,
     /// Cached old file content for re-highlighting on theme change.
     current_file_old_content: Option<String>,
     /// Cached new file content for re-highlighting on theme change.
@@ -116,6 +119,7 @@ impl DiffViewer {
         let view_mode = gs.diff_view_mode;
         let ignore_whitespace = gs.diff_ignore_whitespace;
         let is_dark = gs.is_dark;
+        let theme_colors = theme(cx);
 
         let mut viewer = Self {
             focus_handle,
@@ -146,6 +150,7 @@ impl DiffViewer {
             selection_side: None,
             measured_char_width: font_size * 0.6,
             is_dark,
+            theme_colors,
             current_file_old_content: None,
             current_file_new_content: None,
             commit_message,
@@ -169,10 +174,15 @@ impl DiffViewer {
     pub fn ignore_whitespace(&self) -> bool { self.ignore_whitespace }
 
     /// Update configuration (font size, theme) from outside.
-    pub fn update_config(&mut self, font_size: f32, is_dark: bool) {
+    pub fn update_config(&mut self, font_size: f32, is_dark: bool, cx: &mut Context<Self>) {
         self.file_font_size = font_size;
-        if is_dark != self.is_dark {
-            self.is_dark = is_dark;
+        let new_colors = theme(cx);
+        let theme_changed = is_dark != self.is_dark
+            || new_colors.bg_primary != self.theme_colors.bg_primary
+            || new_colors.text_primary != self.theme_colors.text_primary;
+        self.is_dark = is_dark;
+        self.theme_colors = new_colors;
+        if theme_changed {
             self.rehighlight_current_file();
             self.update_side_by_side_cache();
         }
@@ -259,7 +269,7 @@ impl DiffViewer {
         let file_path = raw_file.display_name().to_string();
         let diff_mode = self.diff_mode.clone();
         let syntax_set = self.syntax_set.clone();
-        let is_dark = self.is_dark;
+        let theme_colors = self.theme_colors;
 
         cx.spawn(async move |this, cx| {
             let (old_content, new_content, display_file, max_line_num) = smol::unblock(move || {
@@ -271,7 +281,7 @@ impl DiffViewer {
                     &syntax_set,
                     old_content.clone(),
                     new_content.clone(),
-                    is_dark,
+                    &theme_colors,
                 );
                 (old_content, new_content, display_file, max_line_num)
             }).await;
@@ -301,7 +311,7 @@ impl DiffViewer {
             &self.syntax_set,
             self.current_file_old_content.clone(),
             self.current_file_new_content.clone(),
-            self.is_dark,
+            &self.theme_colors,
         );
 
         self.line_num_width = max_line_num.to_string().len().max(3);

@@ -129,7 +129,7 @@ impl TitleBar {
                 // Menu panel
                 div()
                     .absolute()
-                    .top(px(32.0))
+                    .top(px(42.0))
                     .left(traffic_light_padding + px(40.0))
                     .bg(rgb(t.bg_primary))
                     .border_1()
@@ -226,7 +226,7 @@ impl TitleBar {
             .id(ElementId::Name(format!("window-control-{:?}", control_type).into()))
             .cursor_pointer()
             .w(px(46.0)) // Windows standard caption button width
-            .h(px(32.0)) // Match titlebar height
+            .h(px(42.0)) // Match titlebar height
             .flex()
             .items_center()
             .justify_center()
@@ -291,9 +291,9 @@ impl Render for TitleBar {
 
         // On macOS, the title bar only provides space for traffic lights (no content)
         let title_bar_height = if cfg!(target_os = "macos") {
-            px(28.0)
+            px(38.0)
         } else {
-            px(32.0)
+            px(42.0)
         };
 
         div()

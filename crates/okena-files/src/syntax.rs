@@ -4,10 +4,14 @@
 //! across different viewers (file viewer, diff viewer, etc.).
 
 use gpui::Rgba;
+use okena_core::theme::ThemeColors;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
-use syntect::highlighting::Theme;
+use syntect::highlighting::{
+    Color as SyntectColor, ScopeSelectors, StyleModifier, Theme, ThemeItem, ThemeSettings,
+};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
@@ -29,6 +33,10 @@ pub fn load_syntax_set() -> SyntaxSet {
 
 /// Load the syntax highlighting theme (cached).
 /// Returns Dracula for dark themes, GitHub for light themes.
+///
+/// Prefer [`build_syntax_theme`] when the active app theme is available —
+/// that flavor wires syntax colors to the current Okena theme instead of a
+/// hardcoded embedded theme.
 pub fn load_syntax_theme(is_dark: bool) -> &'static Theme {
     if is_dark {
         SYNTAX_THEME_DARK.get_or_init(|| {
@@ -44,6 +52,173 @@ pub fn load_syntax_theme(is_dark: bool) -> &'static Theme {
                 .get(two_face::theme::EmbeddedThemeName::Github)
                 .clone()
         })
+    }
+}
+
+fn rgb_to_syntect(rgb: u32) -> SyntectColor {
+    SyntectColor {
+        r: ((rgb >> 16) & 0xff) as u8,
+        g: ((rgb >> 8) & 0xff) as u8,
+        b: (rgb & 0xff) as u8,
+        a: 0xff,
+    }
+}
+
+fn rgb_to_rgba(rgb: u32) -> Rgba {
+    Rgba {
+        r: ((rgb >> 16) & 0xff) as f32 / 255.0,
+        g: ((rgb >> 8) & 0xff) as f32 / 255.0,
+        b: (rgb & 0xff) as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+/// Default text color derived from the current Okena theme.
+pub fn default_text_color_for(colors: &ThemeColors) -> Rgba {
+    rgb_to_rgba(colors.text_primary)
+}
+
+/// Build a syntect `Theme` whose syntax colors are sourced from Okena's
+/// `ThemeColors`. The mapping follows the ANSI-16 convention that most
+/// VS Code-style themes already align with:
+///
+/// - keywords / storage  → `term_magenta`
+/// - strings             → `term_green`
+/// - numbers / constants → `term_cyan`
+/// - types               → `term_yellow`
+/// - functions           → `term_blue`
+/// - comments            → `text_muted`
+/// - variables           → `text_primary` (global default)
+pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
+    let modifier = |rgb: u32| StyleModifier {
+        foreground: Some(rgb_to_syntect(rgb)),
+        background: None,
+        font_style: None,
+    };
+    let rule = |_name: &str, scope_str: &str, rgb: u32| -> Option<ThemeItem> {
+        let scope = ScopeSelectors::from_str(scope_str).ok()?;
+        Some(ThemeItem {
+            scope,
+            style: modifier(rgb),
+        })
+    };
+
+    // Scope → color. Order matters: earlier entries win when selectors overlap,
+    // but in practice these are disjoint TextMate scopes.
+    let scope_map: &[(&str, &str, u32)] = &[
+        // Comments
+        ("comment", "comment, punctuation.definition.comment", colors.text_muted),
+        // Strings
+        (
+            "string",
+            "string, string.quoted, string.regexp, string.template",
+            colors.term_green,
+        ),
+        (
+            "string.escape",
+            "constant.character.escape",
+            colors.term_bright_green,
+        ),
+        // Numbers, language constants (true/false/null/nil)
+        (
+            "constant.numeric",
+            "constant.numeric",
+            colors.term_cyan,
+        ),
+        (
+            "constant.language",
+            "constant.language, constant.character, support.constant",
+            colors.term_cyan,
+        ),
+        // Keywords, operators, storage modifiers (pub, async, const keyword)
+        (
+            "keyword",
+            "keyword, keyword.control, keyword.operator.new, keyword.other",
+            colors.term_magenta,
+        ),
+        (
+            "storage",
+            "storage, storage.type, storage.modifier",
+            colors.term_magenta,
+        ),
+        // Operators / punctuation — muted
+        (
+            "punctuation",
+            "punctuation, punctuation.separator, punctuation.terminator",
+            colors.text_secondary,
+        ),
+        // Types / classes / enums
+        (
+            "type",
+            "entity.name.type, entity.name.class, entity.name.enum, entity.name.struct, support.type, support.class",
+            colors.term_yellow,
+        ),
+        // Interface / trait names — tinted variant
+        (
+            "interface",
+            "entity.name.interface, entity.name.trait",
+            colors.term_bright_yellow,
+        ),
+        // Functions / macros
+        (
+            "function",
+            "entity.name.function, support.function, meta.function-call, entity.name.function.macro",
+            colors.term_blue,
+        ),
+        // Namespaces / modules
+        (
+            "namespace",
+            "entity.name.namespace, entity.name.module",
+            colors.term_bright_cyan,
+        ),
+        // Parameters — italic convention in many themes, use accent color
+        (
+            "variable.parameter",
+            "variable.parameter",
+            colors.term_bright_yellow,
+        ),
+        // Tag names (HTML/XML) and attributes
+        ("tag", "entity.name.tag", colors.term_red),
+        (
+            "attribute",
+            "entity.other.attribute-name",
+            colors.term_yellow,
+        ),
+        // Invalid / error
+        ("invalid", "invalid, invalid.illegal", colors.error),
+        // Diff markers (used inside markdown / diff syntax)
+        ("diff.added", "markup.inserted", colors.diff_added_fg),
+        ("diff.removed", "markup.deleted", colors.diff_removed_fg),
+        (
+            "diff.changed",
+            "markup.changed",
+            colors.term_yellow,
+        ),
+        // Markdown headings / emphasis
+        (
+            "heading",
+            "markup.heading, entity.name.section",
+            colors.term_blue,
+        ),
+    ];
+
+    let scopes: Vec<ThemeItem> = scope_map
+        .iter()
+        .filter_map(|(name, scope, rgb)| rule(name, scope, *rgb))
+        .collect();
+
+    Theme {
+        name: Some("Okena".to_string()),
+        author: None,
+        settings: ThemeSettings {
+            foreground: Some(rgb_to_syntect(colors.text_primary)),
+            background: Some(rgb_to_syntect(colors.bg_primary)),
+            caret: Some(rgb_to_syntect(colors.cursor)),
+            line_highlight: Some(rgb_to_syntect(colors.bg_hover)),
+            selection: Some(rgb_to_syntect(colors.selection_bg)),
+            ..Default::default()
+        },
+        scopes,
     }
 }
 
@@ -170,10 +345,8 @@ pub fn highlight_line(
     content: &str,
     highlighter: &mut HighlightLines,
     syntax_set: &SyntaxSet,
-    is_dark: bool,
+    default_color: Rgba,
 ) -> Vec<HighlightedSpan> {
-    let default_color = default_text_color(is_dark);
-
     match highlighter.highlight_line(content, syntax_set) {
         Ok(spans) => {
             let mut result = Vec::new();

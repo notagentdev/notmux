@@ -663,8 +663,6 @@ impl GitHeader {
             .id("git-panel-content")
             .size_full()
             .bg(rgb(t.bg_primary))
-            .border_l_1()
-            .border_color(rgb(t.border))
             // Tab switcher
             .child(self.render_tab_switcher(t, cx))
             // Active tab content

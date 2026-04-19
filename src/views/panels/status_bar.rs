@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::System;
+use sysinfo::{Disks, System};
 use time::OffsetDateTime;
 
 /// Refresh interval for system stats
@@ -23,11 +23,14 @@ struct SystemStats {
     cpu_usage: f32,
     memory_used_gb: f32,
     memory_total_gb: f32,
+    disk_free_gb: f32,
+    disk_total_gb: f32,
 }
 
 /// Global system info cache
 struct SystemInfoCache {
     system: System,
+    disks: Disks,
     stats: SystemStats,
 }
 
@@ -37,8 +40,11 @@ impl SystemInfoCache {
         system.refresh_cpu_usage();
         system.refresh_memory();
 
+        let disks = Disks::new_with_refreshed_list();
+
         Self {
             system,
+            disks,
             stats: SystemStats::default(),
         }
     }
@@ -46,6 +52,7 @@ impl SystemInfoCache {
     fn refresh(&mut self) {
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
+        self.disks.refresh(true);
 
         // Calculate average CPU usage across all cores
         let cpu_usage = self.system.cpus().iter()
@@ -55,10 +62,26 @@ impl SystemInfoCache {
         let memory_used = self.system.used_memory() as f64 / 1_073_741_824.0; // bytes to GB
         let memory_total = self.system.total_memory() as f64 / 1_073_741_824.0;
 
+        // Pick the primary disk: the one mounted at the shortest root path
+        // ("/" on Unix, "C:\" on Windows). This excludes tmpfs/overlay mounts
+        // whose paths tend to be deeper.
+        let primary = self.disks.list().iter()
+            .filter(|d| !d.is_removable())
+            .min_by_key(|d| d.mount_point().as_os_str().len());
+        let (disk_free, disk_total) = match primary {
+            Some(d) => (
+                d.available_space() as f64 / 1_073_741_824.0,
+                d.total_space() as f64 / 1_073_741_824.0,
+            ),
+            None => (0.0, 0.0),
+        };
+
         self.stats = SystemStats {
             cpu_usage,
             memory_used_gb: memory_used as f32,
             memory_total_gb: memory_total as f32,
+            disk_free_gb: disk_free as f32,
+            disk_total_gb: disk_total as f32,
         };
     }
 
@@ -69,7 +92,6 @@ impl SystemInfoCache {
 
 /// Status bar component showing system info and time
 pub struct StatusBar {
-    workspace: Entity<Workspace>,
     cache: Arc<Mutex<SystemInfoCache>>,
     /// Activate functions cloned from registry (keyed by extension ID).
     activate_fns: Vec<(String, okena_extensions::ActivateFn)>,
@@ -126,11 +148,11 @@ impl StatusBar {
             this.sync_extensions(&enabled, cx);
         }).detach();
 
-        // Re-render when workspace changes (for focused project updates)
+        // Re-render when workspace changes (for potential UI updates)
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
 
         Self {
-            workspace, cache, activate_fns, active_extensions, sidebar_open: true,
+            cache, activate_fns, active_extensions, sidebar_open: true,
         }
     }
 
@@ -214,6 +236,21 @@ impl Render for StatusBar {
             t.metric_normal
         };
 
+        // Disk: warn when usage climbs (free space shrinks)
+        let disk_used_percent = if stats.disk_total_gb > 0.0 {
+            ((stats.disk_total_gb - stats.disk_free_gb) / stats.disk_total_gb * 100.0) as u32
+        } else {
+            0
+        };
+        let disk_color = if disk_used_percent > 90 {
+            t.metric_critical
+        } else if disk_used_percent > 75 {
+            t.metric_warning
+        } else {
+            t.metric_normal
+        };
+        let disk_str = format!("{:.0}/{:.0} GB", stats.disk_free_gb, stats.disk_total_gb);
+
         // Collect widgets in stable registry order from active extensions
         let left_widgets: Vec<&Vec<AnyView>> = self.activate_fns.iter()
             .filter_map(|(id, _)| self.active_extensions.get(id))
@@ -291,6 +328,21 @@ impl Render for StatusBar {
                                     .text_color(rgb(mem_color))
                                     .child(memory_str)
                             )
+                    )
+                    // Free disk space (free / total)
+                    .child(
+                        h_flex()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .text_color(rgb(t.text_muted))
+                                    .child("DISK")
+                            )
+                            .child(
+                                div()
+                                    .text_color(rgb(disk_color))
+                                    .child(disk_str)
+                            )
                     );
 
                 // Left-side extension widgets
@@ -349,54 +401,6 @@ impl Render for StatusBar {
                                 )
                         );
                     }
-
-                // Focused project indicator
-                let focused_project = {
-                    let ws = self.workspace.read(cx);
-                    ws.focused_project_id()
-                        .and_then(|id| ws.project(id))
-                        .map(|p| p.name.clone())
-                };
-
-                if let Some(name) = focused_project {
-                    let workspace = self.workspace.clone();
-                    right = right.child(
-                        h_flex()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text_ms(cx))
-                                    .text_color(rgb(t.text_muted))
-                                    .child("Focused:"),
-                            )
-                            .child(
-                                div()
-                                    .px(px(6.0))
-                                    .py(px(1.0))
-                                    .rounded(px(4.0))
-                                    .border_1()
-                                    .border_color(rgb(t.border_focused))
-                                    .text_size(ui_text_ms(cx))
-                                    .text_color(rgb(t.text_primary))
-                                    .child(name),
-                            )
-                            .child(
-                                div()
-                                    .cursor_pointer()
-                                    .px(px(4.0))
-                                    .text_size(ui_text_sm(cx))
-                                    .text_color(rgb(t.text_muted))
-                                    .hover(|s| s.text_color(rgb(t.text_primary)))
-                                    .child("✕")
-                                    .id("clear-focus-btn")
-                                    .on_click(move |_, _window, cx| {
-                                        workspace.update(cx, |ws, cx| {
-                                            ws.set_focused_project(None, cx);
-                                        });
-                                    }),
-                            )
-                    );
-                }
 
                 // Zoom controls
                 let settings_for_minus = settings_entity(cx);

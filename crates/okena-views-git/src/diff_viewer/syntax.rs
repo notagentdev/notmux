@@ -4,8 +4,9 @@ use super::types::{DiffDisplayFile, DisplayItem, DisplayLine, ExpanderRow, Highl
 use okena_git::{DiffLineType, FileDiff};
 use okena_git::diff::DiffHunk;
 use okena_files::syntax::{
-    default_text_color, get_syntax_for_path, highlight_line, load_syntax_theme,
+    build_syntax_theme, default_text_color_for, get_syntax_for_path, highlight_line,
 };
+use okena_core::theme::ThemeColors;
 use gpui::Rgba;
 use std::collections::HashMap;
 use syntect::easy::HighlightLines;
@@ -19,7 +20,7 @@ fn highlight_full_file(
     syntax: &syntect::parsing::SyntaxReference,
     theme: &syntect::highlighting::Theme,
     syntax_set: &SyntaxSet,
-    is_dark: bool,
+    default_color: Rgba,
 ) -> HashMap<usize, Vec<HighlightedSpan>> {
     let mut highlighter = HighlightLines::new(syntax, theme);
     let mut result = HashMap::new();
@@ -27,7 +28,7 @@ fn highlight_full_file(
     // Use LinesWithEndings to preserve newlines - syntect needs them for proper state tracking
     for (idx, line) in LinesWithEndings::from(content).enumerate() {
         let line_num = idx + 1; // 1-based line numbers
-        let spans = highlight_line(line, &mut highlighter, syntax_set, is_dark);
+        let spans = highlight_line(line, &mut highlighter, syntax_set, default_color);
         result.insert(line_num, spans);
     }
 
@@ -35,9 +36,9 @@ fn highlight_full_file(
 }
 
 /// Create a fallback span for content without highlighting.
-fn fallback_spans(content: &str, is_dark: bool) -> Vec<HighlightedSpan> {
+fn fallback_spans(content: &str, default_color: Rgba) -> Vec<HighlightedSpan> {
     vec![HighlightedSpan {
-        color: default_text_color(is_dark),
+        color: default_color,
         text: content.replace('\t', "    "),
     }]
 }
@@ -53,25 +54,26 @@ pub fn process_file(
     syntax_set: &SyntaxSet,
     old_content: Option<String>,
     new_content: Option<String>,
-    is_dark: bool,
+    colors: &ThemeColors,
 ) -> DiffDisplayFile {
     let t_total = std::time::Instant::now();
     let path = file.display_name();
 
     // Get syntax highlighter for this file
     let syntax = get_syntax_for_path(std::path::Path::new(path), syntax_set);
-    let theme = load_syntax_theme(is_dark);
+    let theme = build_syntax_theme(colors);
+    let default_color = default_text_color_for(colors);
 
     let t1 = std::time::Instant::now();
     let old_highlighted = match old_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, is_dark),
+        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!("[process_file] highlight old: {:?}, lines: {}", t1.elapsed(), old_highlighted.len());
 
     let t2 = std::time::Instant::now();
     let new_highlighted = match new_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, is_dark),
+        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!("[process_file] highlight new: {:?}, lines: {}", t2.elapsed(), new_highlighted.len());
@@ -115,13 +117,13 @@ pub fn process_file(
                         // Removed lines come from the old version
                         line.old_line_num
                             .and_then(|num| old_highlighted.get(&num).cloned())
-                            .unwrap_or_else(|| fallback_spans(&line.content, is_dark))
+                            .unwrap_or_else(|| fallback_spans(&line.content, default_color))
                     }
                     DiffLineType::Added => {
                         // Added lines come from the new version
                         line.new_line_num
                             .and_then(|num| new_highlighted.get(&num).cloned())
-                            .unwrap_or_else(|| fallback_spans(&line.content, is_dark))
+                            .unwrap_or_else(|| fallback_spans(&line.content, default_color))
                     }
                     DiffLineType::Context => {
                         // Context lines exist in both - prefer new version
@@ -131,7 +133,7 @@ pub fn process_file(
                                 line.old_line_num
                                     .and_then(|num| old_highlighted.get(&num).cloned())
                             })
-                            .unwrap_or_else(|| fallback_spans(&line.content, is_dark))
+                            .unwrap_or_else(|| fallback_spans(&line.content, default_color))
                     }
                     DiffLineType::Header => unreachable!(), // Handled above
                 };
