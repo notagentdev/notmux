@@ -562,7 +562,7 @@ fn main() {
                 },
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: Point::default(),
-                    size: size(px(1200.0), px(800.0)),
+                    size: size(px(app_settings.window.width), px(app_settings.window.height)),
                 })),
                 is_resizable: true,
                 // On Windows, use client-side decorations for custom window controls

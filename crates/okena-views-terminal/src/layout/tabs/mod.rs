@@ -18,6 +18,23 @@ use gpui_component::{h_flex, v_flex};
 use gpui::prelude::*;
 use std::collections::HashSet;
 
+/// Alpha-blend `fg` over `bg` and return opaque RGB u32.
+fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
+    let a = alpha as u32;
+    let inv = 255 - a;
+    let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
+    let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
+    let b = (fg & 0xff) * a + (bg & 0xff) * inv;
+    (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
+}
+
+/// Derive a tab-bar bg that's always visibly distinct from the terminal
+/// content bg. Tints with text_primary at low alpha — lightens dark themes,
+/// darkens light ones.
+fn tab_bar_bg(term_bg: u32, text_primary: u32) -> u32 {
+    blend_u32(text_primary, 0x14, term_bg)
+}
+
 /// Context for tab action button closures.
 #[derive(Clone)]
 pub(super) struct TabActionContext<D: ActionDispatch> {
@@ -407,14 +424,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     d.bg(rgb(t.term_background_unfocused))
                         .text_color(rgb(t.text_primary))
                 })
-                .when(!is_active && is_pane_focused, |d| {
-                    d.bg(rgb(t.term_background_unfocused))
-                        .text_color(rgb(t.text_secondary))
-                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                })
-                .when(!is_active && !is_pane_focused, |d| {
-                    d.bg(rgb(t.bg_header))
-                        .text_color(rgb(t.text_secondary))
+                .when(!is_active, |d| {
+                    d.text_color(rgb(t.text_secondary))
                         .hover(|s| s.bg(rgb(t.bg_hover)))
                 })
                 .when(has_drop_animation, |d| {
@@ -729,12 +740,15 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
         div()
             .group("tab-bar-row")
-            .h(px(28.0))
+            .flex_shrink_0()
             .px(px(0.0))
             .flex()
-            .items_center()
+            .items_stretch()
             .gap(px(0.0))
-            .bg(rgb(if is_pane_focused { t.term_background_unfocused } else { t.bg_header }))
+            .border_t_1()
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(tab_bar_bg(t.term_background, t.text_primary)))
             .child(
                 div()
                     .id(ElementId::Name(format!("tab-scroll-{:?}", self.layout_path).into()))
@@ -750,6 +764,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .child(
                 h_flex()
                     .flex_shrink_0()
+                    .items_center()
                     .opacity(0.0)
                     .group_hover("tab-bar-row", |s| s.opacity(1.0))
                     .when(show_shell, |el| {

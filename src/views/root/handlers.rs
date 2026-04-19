@@ -176,14 +176,16 @@ impl RootView {
 
                 if let Some(parent_id) = parent_id {
                     self.workspace.update(cx, |ws, cx| {
-                        ws.set_focused_project(Some(parent_id), cx);
+                        ws.set_focused_project(Some(parent_id.clone()), cx);
                     });
+                    self.follow_git_panel_to_project(&parent_id, cx);
                 }
             }
             OverlayManagerEvent::FocusProject(project_id) => {
                 self.workspace.update(cx, |ws, cx| {
                     ws.set_focused_project(Some(project_id.clone()), cx);
                 });
+                self.follow_git_panel_to_project(project_id, cx);
             }
             OverlayManagerEvent::ToggleProjectVisibility(project_id) => {
                 self.workspace.update(cx, |ws, cx| {
@@ -361,6 +363,36 @@ impl RootView {
             let gh = col.read(cx).git_header();
             gh.update(cx, |gh, cx| gh.refresh_working_tree_status(cx));
         }
+    }
+
+    /// When the focused project changes, keep the git panel in sync:
+    /// if the panel is open and showing a different project, swap its
+    /// content (close old commit log, open new one) and refresh the working
+    /// tree. Always refreshes the new project's status so the header badge
+    /// is up to date.
+    pub(super) fn follow_git_panel_to_project(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        self.refresh_git_panel(project_id, cx);
+
+        let panel_open = self.git_panel_ctrl.is_open();
+        let same = self.git_panel_project_id.as_deref() == Some(project_id);
+        if !panel_open || same {
+            return;
+        }
+
+        if let Some(old_pid) = self.git_panel_project_id.take()
+            && let Some(old_col) = self.project_columns.get(&old_pid).cloned()
+        {
+            let gh = old_col.read(cx).git_header();
+            gh.update(cx, |gh, cx| gh.hide_commit_log(cx));
+        }
+
+        self.git_panel_project_id = Some(project_id.to_string());
+
+        if let Some(col) = self.project_columns.get(project_id).cloned() {
+            let gh = col.read(cx).git_header();
+            gh.update(cx, |gh, cx| gh.open_commit_log(cx));
+        }
+        cx.notify();
     }
 
     /// Append a path to the project's .gitignore file (create if missing).

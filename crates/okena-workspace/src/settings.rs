@@ -129,6 +129,31 @@ fn default_git_panel_width() -> f32 {
     DEFAULT_GIT_PANEL_WIDTH
 }
 
+/// Default window size on first launch
+pub const DEFAULT_WINDOW_WIDTH: f32 = 1200.0;
+pub const DEFAULT_WINDOW_HEIGHT: f32 = 800.0;
+
+fn default_window_width() -> f32 { DEFAULT_WINDOW_WIDTH }
+fn default_window_height() -> f32 { DEFAULT_WINDOW_HEIGHT }
+
+/// Persisted window bounds
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WindowSettings {
+    #[serde(default = "default_window_width")]
+    pub width: f32,
+    #[serde(default = "default_window_height")]
+    pub height: f32,
+}
+
+impl Default for WindowSettings {
+    fn default() -> Self {
+        Self {
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+        }
+    }
+}
+
 /// Git panel settings
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GitPanelSettings {
@@ -282,6 +307,10 @@ pub struct AppSettings {
     /// Saved remote connections for the client feature
     #[serde(default)]
     pub remote_connections: Vec<RemoteConnectionConfig>,
+
+    /// Persisted main window size
+    #[serde(default)]
+    pub window: WindowSettings,
 }
 
 impl Default for AppSettings {
@@ -322,6 +351,7 @@ impl Default for AppSettings {
             idle_timeout_secs: default_idle_timeout_secs(),
             worktree: WorktreeConfig::default(),
             remote_connections: Vec::new(),
+            window: WindowSettings::default(),
         }
     }
 }

@@ -87,6 +87,9 @@ pub struct RootView {
     last_scroll_project: Option<String>,
     /// Whether a project was zoomed/focused in the last observation (for detecting unfocus)
     was_project_focused: bool,
+    /// Effective project for git-panel following (focused || focused-terminal's project).
+    /// Used to detect project-context changes and refresh the git panel.
+    last_git_context_project: Option<String>,
     /// Project ID to center-scroll to after the next layout pass
     pending_center_scroll: Option<String>,
     /// Git panel state controller (right-side panel)
@@ -216,18 +219,25 @@ impl RootView {
             pane_switcher_entity: None,
             last_scroll_project: None,
             was_project_focused: false,
+            last_git_context_project: None,
             pending_center_scroll: None,
             git_panel_ctrl,
             git_panel_project_id: None,
         };
 
-        // Observe workspace to scroll focused project into view
+        // Observe workspace to scroll focused project into view AND keep
+        // the git panel in sync with the active project context.
         cx.observe(&view.workspace, |this, workspace, cx| {
-            let ws = workspace.read(cx);
-            let is_project_focused = ws.focus_manager.focused_project_id().is_some();
-            let focused_terminal_project = ws.focus_manager
-                .focused_terminal_state()
-                .map(|f| f.project_id.clone());
+            let (is_project_focused, focused_terminal_project, git_context) = {
+                let ws = workspace.read(cx);
+                let focused_project = ws.focus_manager.focused_project_id().cloned();
+                let focused_terminal_project = ws.focus_manager
+                    .focused_terminal_state()
+                    .map(|f| f.project_id.clone());
+                let git_context = focused_project.clone()
+                    .or_else(|| focused_terminal_project.clone());
+                (focused_project.is_some(), focused_terminal_project, git_context)
+            };
 
             // When project zoom is cleared, defer centering until after next layout pass
             if this.was_project_focused && !is_project_focused {
@@ -241,6 +251,13 @@ impl RootView {
             }
 
             this.was_project_focused = is_project_focused;
+
+            if git_context != this.last_git_context_project {
+                this.last_git_context_project = git_context.clone();
+                if let Some(pid) = git_context {
+                    this.follow_git_panel_to_project(&pid, cx);
+                }
+            }
         }).detach();
 
         // Initialize project columns

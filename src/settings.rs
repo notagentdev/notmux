@@ -168,6 +168,20 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
+    /// Set persisted window size (width/height in px).
+    pub fn set_window_size(&mut self, width: f32, height: f32, cx: &mut Context<Self>) {
+        let new_w = width.max(400.0);
+        let new_h = height.max(300.0);
+        if (self.settings.window.width - new_w).abs() < 0.5
+            && (self.settings.window.height - new_h).abs() < 0.5
+        {
+            return;
+        }
+        self.settings.window.width = new_w;
+        self.settings.window.height = new_h;
+        self.save_and_notify(cx);
+    }
+
     /// Set the theme mode and optional custom theme ID.
     pub fn set_theme_mode(&mut self, value: ThemeMode, cx: &mut Context<Self>) {
         self.settings.theme_mode = value;

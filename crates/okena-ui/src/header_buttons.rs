@@ -89,10 +89,10 @@ pub struct ButtonSize {
 }
 
 impl ButtonSize {
-    /// Compact size for tab group headers (20px button, 12px icon).
+    /// Compact size for tab group headers (24px button, 14px icon).
     pub const COMPACT: Self = Self {
-        button: 20.0,
-        icon: 12.0,
+        button: 24.0,
+        icon: 14.0,
     };
 }
 

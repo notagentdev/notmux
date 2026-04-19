@@ -229,8 +229,14 @@ impl Okena {
             rm.start_token_refresh_task(cx);
         });
 
-        // Observe window bounds changes to force re-render
-        cx.observe_window_bounds(window, |_this, _window, cx| {
+        // Observe window bounds changes: trigger re-render and persist size.
+        cx.observe_window_bounds(window, |_this, window, cx| {
+            let bounds = window.window_bounds().get_bounds();
+            let w: f32 = bounds.size.width.into();
+            let h: f32 = bounds.size.height.into();
+            cx.global::<GlobalSettings>().0.clone().update(cx, |s, cx| {
+                s.set_window_size(w, h, cx);
+            });
             cx.notify();
         })
         .detach();

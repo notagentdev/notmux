@@ -54,58 +54,71 @@ impl RootView {
 
     /// Render the git panel content.
     pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let git_panel_width = self.git_panel_ctrl.current_width();
-        let configured_width = self.git_panel_ctrl.width();
         let show_panel = self.git_panel_ctrl.should_render();
 
+        // If the panel was restored open from settings but no project is
+        // bound yet (fresh session), adopt the focused project, or fall back
+        // to the first visible one, so content actually appears.
+        if show_panel && self.git_panel_project_id.is_none() {
+            let workspace = self.workspace.read(cx);
+            let candidate = workspace
+                .focus_manager
+                .focused_project_id()
+                .cloned()
+                .or_else(|| workspace.visible_projects().first().map(|p| p.id.clone()));
+            if let Some(pid) = candidate
+                && self.project_columns.contains_key(&pid)
+            {
+                self.git_panel_project_id = Some(pid.clone());
+                if let Some(col) = self.project_columns.get(&pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    gh.update(cx, |gh, cx| {
+                        gh.open_commit_log(cx);
+                        gh.refresh_working_tree_status(cx);
+                    });
+                }
+            }
+        }
+
+        let has_content = self.git_panel_project_id.as_ref()
+            .and_then(|pid| self.project_columns.get(pid))
+            .is_some();
+
+        // No panel or no project to show for it -> take zero space, no divider.
+        if !show_panel || !has_content {
+            return div()
+                .id("git-panel-wrapper")
+                .w(px(0.0))
+                .h_full()
+                .flex_shrink_0()
+                .into_any_element();
+        }
+
+        let git_panel_width = self.git_panel_ctrl.current_width();
+        let configured_width = self.git_panel_ctrl.width();
         let t = theme(cx);
 
-        let panel_content = if show_panel {
-            if let Some(ref pid) = self.git_panel_project_id {
-                if let Some(col) = self.project_columns.get(pid).cloned() {
-                    let gh = col.read(cx).git_header();
-                    Some(gh.update(cx, |gh, cx| {
-                        gh.render_commit_log_panel(&t, cx)
-                    }))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let pid = self.git_panel_project_id.clone().unwrap();
+        let col = self.project_columns.get(&pid).cloned().unwrap();
+        let gh = col.read(cx).git_header();
+        let content = gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx));
 
         let panel_container = div()
             .id("git-panel-container")
             .h_full()
             .w(px(git_panel_width))
             .overflow_hidden()
-            .flex_shrink_0();
+            .flex_shrink_0()
+            .child(div().w(px(configured_width)).h_full().child(content));
 
-        let panel_container = if let Some(content) = panel_content {
-            panel_container.child(
-                div()
-                    .w(px(configured_width))
-                    .h_full()
-                    .child(content)
-            ).into_any_element()
-        } else {
-            panel_container.into_any_element()
-        };
-
-        let mut wrapper = div()
+        div()
             .id("git-panel-wrapper")
             .flex()
             .h_full()
-            .flex_shrink_0();
-
-        if show_panel {
-            wrapper = wrapper.child(render_git_panel_divider(&self.active_drag, cx));
-        }
-
-        wrapper.child(panel_container)
+            .flex_shrink_0()
+            .child(render_git_panel_divider(&self.active_drag, cx))
+            .child(panel_container)
+            .into_any_element()
     }
 
     /// Animate git panel to target if needed
