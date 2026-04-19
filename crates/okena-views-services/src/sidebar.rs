@@ -114,7 +114,7 @@ pub fn render_service_item(
             format!("svc-item-{}-{}", pid, service_name).into(),
         ))
         .group("service-item")
-        .h(px(22.0))
+        .h(px(32.0))
         .pl(px(left_padding))
         .pr(px(8.0))
         .flex()

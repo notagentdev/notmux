@@ -62,7 +62,7 @@ impl Sidebar {
         // Folder header row
         div()
             .id(ElementId::Name(format!("folder-row-{}", folder.id).into()))
-            .h(px(24.0))
+            .h(px(32.0))
             .pl(px(4.0))
             .pr(px(8.0))
             .flex()
@@ -257,7 +257,7 @@ impl Sidebar {
         div()
             .id(ElementId::Name(format!("folder-project-row-{}", project.id).into()))
             .group("folder-project-item")
-            .h(px(24.0))
+            .h(px(32.0))
             .pl(px(20.0))  // Indented for folder nesting
             .pr(px(8.0))
             .flex()

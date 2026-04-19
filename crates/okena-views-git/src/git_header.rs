@@ -374,11 +374,13 @@ impl GitHeader {
         }
     }
 
-    /// Open the commit log (loads data, sets visible). Called by the git panel.
+    /// Open the commit log (loads data, sets visible). Called by the git
+    /// panel. Idempotent for visibility — but ALWAYS reloads data, because
+    /// this is also the entry point used when switching between projects
+    /// (previously the early-return-on-visible check meant switching back
+    /// to a project whose log was still "visible" from a prior session
+    /// silently skipped the reload, requiring a second switch to see data).
     pub fn open_commit_log(&mut self, cx: &mut Context<Self>) {
-        if self.commit_log_visible {
-            return;
-        }
         self.diff_popover_visible = false;
         self.commit_log_visible = true;
         self.commit_log_loading = true;
@@ -1118,9 +1120,10 @@ impl GitHeader {
 
         h_flex()
             .id(ElementId::Name(format!("file-{}", file.path).into()))
+            .w_full()
             .pl(px(8.0))
             .pr(px(8.0))
-            .h(px(24.0))
+            .h(px(32.0))
             .gap(px(6.0))
             .items_center()
             .hover(|s| s.bg(rgb(t.bg_hover)))
@@ -1146,8 +1149,89 @@ impl GitHeader {
                     });
                 }
             })
-            // Checkbox on the LEFT — Zed-style: 20x20 outer, 16x16 inner,
-            // neutral border, darker fill, accent-colored check/dash icon.
+            // Filename (status color) + parent dir (muted) — Zed pattern:
+            // `min_w_0` lets the flex item shrink below content size,
+            // `flex_1` makes it grow to consume the available space so the
+            // diff stats + status letter sit on the right edge.
+            .child(
+                div()
+                    .id(ElementId::Name(format!("fn-{}", file.path).into()))
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(4.0))
+                    .text_size(ui_text_md(cx))
+                    .when(matches!(status, FileStatus::Deleted), |d| d.line_through())
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .cursor_pointer()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(cx.listener(move |_this, _, _window, cx| {
+                        let pid = project_id.clone();
+                        let fp = file_path_click.clone();
+                        request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(
+                                OverlayRequest::DiffViewer {
+                                    project_id: pid,
+                                    file: Some(fp),
+                                    mode: None,
+                                    commit_message: None,
+                                    commits: None,
+                                    commit_index: None,
+                                },
+                                cx,
+                            );
+                        });
+                    }))
+                    .child(
+                        div()
+                            .text_color(rgb(name_color))
+                            .child(file_name),
+                    )
+                    .when(!dir_part.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(rgb(t.text_muted))
+                                .text_ellipsis()
+                                .overflow_hidden()
+                                .child(dir_part),
+                        )
+                    }),
+            )
+            // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
+            .when(added > 0 || removed > 0, |d| {
+                d.child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap(px(4.0))
+                        .text_size(ui_text_sm(cx))
+                        .child(
+                            div()
+                                .text_color(rgb(t.success))
+                                .child(format!("+{}", added)),
+                        )
+                        .child(
+                            div()
+                                .text_color(rgb(t.error))
+                                .child(format!("-{}", removed)),
+                        ),
+                )
+            })
+            // Status letter (M/A/D/R/C/?/U) AFTER the diff stats
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(12.0))
+                    .text_size(ui_text_sm(cx))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(rgb(status_color))
+                    .child(status_letter),
+            )
+            // Checkbox on the RIGHT — after the status letter (Zed-style: 20x20
+            // outer, 16x16 inner, neutral border, darker fill, accent check).
             .child({
                 let path = file_path.clone();
                 div()
@@ -1200,86 +1284,6 @@ impl GitHeader {
                             }),
                     )
             })
-            // Filename (status color) + parent dir (muted)
-            .child(
-                div()
-                    .id(ElementId::Name(format!("fn-{}", file.path).into()))
-                    .flex_shrink()
-                    .min_w_0()
-                    .flex()
-                    .items_baseline()
-                    .gap(px(4.0))
-                    .text_size(ui_text_sm(cx))
-                    .when(matches!(status, FileStatus::Deleted), |d| d.line_through())
-                    .text_ellipsis()
-                    .overflow_hidden()
-                    .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .on_click(cx.listener(move |_this, _, _window, cx| {
-                        let pid = project_id.clone();
-                        let fp = file_path_click.clone();
-                        request_broker.update(cx, |broker, cx| {
-                            broker.push_overlay_request(
-                                OverlayRequest::DiffViewer {
-                                    project_id: pid,
-                                    file: Some(fp),
-                                    mode: None,
-                                    commit_message: None,
-                                    commits: None,
-                                    commit_index: None,
-                                },
-                                cx,
-                            );
-                        });
-                    }))
-                    .child(
-                        div()
-                            .text_color(rgb(name_color))
-                            .child(file_name),
-                    )
-                    .when(!dir_part.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_color(rgb(t.text_muted))
-                                .text_ellipsis()
-                                .overflow_hidden()
-                                .child(dir_part),
-                        )
-                    }),
-            )
-            // Spacer that pushes diff stats + status letter to the right edge.
-            .child(div().flex_1())
-            // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
-            .when(added > 0 || removed > 0, |d| {
-                d.child(
-                    h_flex()
-                        .flex_shrink_0()
-                        .gap(px(4.0))
-                        .text_size(ui_text_sm(cx))
-                        .child(
-                            div()
-                                .text_color(rgb(t.success))
-                                .child(format!("+{}", added)),
-                        )
-                        .child(
-                            div()
-                                .text_color(rgb(t.error))
-                                .child(format!("-{}", removed)),
-                        ),
-                )
-            })
-            // Status letter (M/A/D/R/C/?/U) AFTER the diff stats
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .w(px(12.0))
-                    .text_size(ui_text_sm(cx))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(rgb(status_color))
-                    .child(status_letter),
-            )
     }
 
     /// Render the branch/remote bar (branch name + ahead/behind + fetch/pull/push).
@@ -1874,7 +1878,7 @@ impl GitHeader {
                             return;
                         }
                         let row_count = this.commit_log_entries.len();
-                        let est_content_h = row_count as f32 * 20.0;
+                        let est_content_h = row_count as f32 * 32.0;
                         let scroll_y = -f32::from(this.commit_log_scroll.offset().y);
                         let viewport_h = 600.0;
                         if scroll_y + viewport_h > est_content_h - 200.0 {

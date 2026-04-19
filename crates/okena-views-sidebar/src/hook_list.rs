@@ -62,7 +62,7 @@ impl Sidebar {
         div()
             .id(ElementId::Name(format!("hook-item-{}-{}", project_id, terminal_id).into()))
             .group("hook-item")
-            .h(px(22.0))
+            .h(px(32.0))
             .pl(px(left_padding))
             .pr(px(8.0))
             .flex()

@@ -16,6 +16,9 @@ Thumbs.db
 .ralph-tui/
 settings.local.json
 
+# Vendored reference projects (zed-main, vryn-main, etc. — GPL / third-party)
+ref/
+
 dist
 
 # Mobile (Flutter)

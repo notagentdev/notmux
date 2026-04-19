@@ -41,52 +41,59 @@ pub const SPACE_LG: gpui::Pixels = px(12.0);
 pub const SPACE_XL: gpui::Pixels = px(16.0);
 
 // =============================================================================
-// Text sizes
+// Text sizes — aligned to Zed's `TextSize` scale (ref/zed-main/crates/ui/src/
+// styles/typography.rs). Zed uses XSmall=10, Small=12, Default=14, Large=16
+// at the base 1rem = 16px. We match those values so lists, trees, and panels
+// look visually consistent with Zed's UI density.
 // =============================================================================
 
-/// Extra small text (9px) - badges, tags
-pub const TEXT_XS: gpui::Pixels = px(9.0);
+/// Extra small text (10px) — badges, tags (matches Zed XSmall)
+pub const TEXT_XS: gpui::Pixels = px(10.0);
 
-/// Small text (10px) - secondary labels, hints
-pub const TEXT_SM: gpui::Pixels = px(10.0);
+/// Small text (12px) — secondary labels, hints (matches Zed Small)
+pub const TEXT_SM: gpui::Pixels = px(12.0);
 
-/// Medium-small text (11px) - compact UI, button labels
-pub const TEXT_MS: gpui::Pixels = px(11.0);
+/// Medium-small text (13px) — in-between step for tighter UI chrome
+pub const TEXT_MS: gpui::Pixels = px(13.0);
 
-/// Medium text (12px) - default body text, menu items
-pub const TEXT_MD: gpui::Pixels = px(12.0);
+/// Medium text (14px) — default UI label size (matches Zed Default)
+pub const TEXT_MD: gpui::Pixels = px(14.0);
 
-/// Extra large text (14px) - headings, modal titles
-pub const TEXT_XL: gpui::Pixels = px(14.0);
+/// Extra large text (16px) — panel headings (matches Zed Large)
+pub const TEXT_XL: gpui::Pixels = px(16.0);
 
 // =============================================================================
 // Scaled text sizes (relative to ui_font_size setting)
 // =============================================================================
 
-const DEFAULT_UI_FONT_SIZE: f32 = 13.0;
+const DEFAULT_UI_FONT_SIZE: f32 = 14.0;
 
 fn ui_scale(ui_font_size: f32) -> f32 {
     ui_font_size / DEFAULT_UI_FONT_SIZE
 }
 
 pub fn ui_text_xs(cx: &App) -> gpui::Pixels {
-    px(9.0 * ui_scale(get_ui_font_size(cx)))
-}
-
-pub fn ui_text_sm(cx: &App) -> gpui::Pixels {
     px(10.0 * ui_scale(get_ui_font_size(cx)))
 }
 
-pub fn ui_text_ms(cx: &App) -> gpui::Pixels {
-    px(11.0 * ui_scale(get_ui_font_size(cx)))
-}
-
-pub fn ui_text_md(cx: &App) -> gpui::Pixels {
+pub fn ui_text_sm(cx: &App) -> gpui::Pixels {
     px(12.0 * ui_scale(get_ui_font_size(cx)))
 }
 
-pub fn ui_text_xl(cx: &App) -> gpui::Pixels {
+pub fn ui_text_ms(cx: &App) -> gpui::Pixels {
+    px(13.0 * ui_scale(get_ui_font_size(cx)))
+}
+
+pub fn ui_text_md(cx: &App) -> gpui::Pixels {
     px(14.0 * ui_scale(get_ui_font_size(cx)))
+}
+
+pub fn ui_text_lg(cx: &App) -> gpui::Pixels {
+    px(16.0 * ui_scale(get_ui_font_size(cx)))
+}
+
+pub fn ui_text_xl(cx: &App) -> gpui::Pixels {
+    px(18.0 * ui_scale(get_ui_font_size(cx)))
 }
 
 pub fn ui_text(default_px: f32, cx: &App) -> gpui::Pixels {

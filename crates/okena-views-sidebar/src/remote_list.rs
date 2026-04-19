@@ -58,7 +58,7 @@ impl Sidebar {
     fn render_remote_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         div()
-            .h(px(28.0))
+            .h(px(32.0))
             .px(px(12.0))
             .mt(px(8.0))
             .flex()
@@ -112,7 +112,7 @@ impl Sidebar {
             .id(ElementId::Name(
                 format!("remote-conn-{}", config.id).into(),
             ))
-            .h(px(28.0))
+            .h(px(32.0))
             .px(px(12.0))
             .flex()
             .items_center()
@@ -161,7 +161,7 @@ impl Sidebar {
 
         div()
             .id("add-remote-connection-btn")
-            .h(px(26.0))
+            .h(px(32.0))
             .px(px(12.0))
             .flex()
             .items_center()

@@ -8,7 +8,7 @@ use gpui::*;
 use okena_files::dir_listing::{list_directory, DirEntry};
 use okena_files::theme::theme;
 use okena_git::{FileStatus, WorkingFile, WorkingTreeStatus};
-use okena_ui::tokens::ui_text_sm;
+use okena_ui::tokens::ui_text_md;
 use okena_workspace::request_broker::RequestBroker;
 use okena_workspace::requests::OverlayRequest;
 use std::collections::{HashMap, HashSet};
@@ -282,7 +282,8 @@ impl FileExplorer {
         t: &okena_core::theme::ThemeColors,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let indent_px = 8.0 + (row.level as f32) * 16.0;
+        // Indent per level matches Zed's default project_panel indent_size (20px).
+        let indent_px = 8.0 + (row.level as f32) * 20.0;
         let entry = row.entry.clone();
         let abs_path = entry.path.clone();
         let is_dir = entry.is_dir;
@@ -324,11 +325,13 @@ impl FileExplorer {
             None
         };
 
-        // Icon path (minimal mapping; folder vs file).
+        // Icon path: all files use the same generic file icon. Per-extension
+        // icons (markdown, rust, json, …) are not shipped yet — adding that
+        // is a separate, icon-asset-heavy task.
         let icon_path = if is_dir {
             "icons/folder.svg"
         } else {
-            icon_for_extension(&entry.name)
+            "icons/file.svg"
         };
 
         // Right-click context-menu payload.
@@ -347,10 +350,10 @@ impl FileExplorer {
             .flex_row()
             .items_center()
             .w_full()
-            .h(px(24.0))
+            .h(px(32.0))
             .pl(px(indent_px))
             .pr(px(8.0))
-            .gap(px(4.0))
+            .gap(px(8.0))
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
@@ -386,10 +389,10 @@ impl FileExplorer {
                     });
                 })
             })
-            // Chevron (dirs only)
+            // Chevron (dirs only) — 16px slot, 14px glyph
             .child(
                 div()
-                    .w(px(12.0))
+                    .w(px(16.0))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
@@ -403,26 +406,26 @@ impl FileExplorer {
                         d.child(
                             svg()
                                 .path(p)
-                                .size(px(10.0))
+                                .size(px(14.0))
                                 .text_color(rgb(t.text_muted)),
                         )
                     }),
             )
-            // Icon
+            // Icon — 18px (Zed-like prominence)
             .child(
-                div().flex_shrink_0().w(px(14.0)).h(px(14.0)).flex().items_center().justify_center().child(
+                div().flex_shrink_0().w(px(18.0)).h(px(18.0)).flex().items_center().justify_center().child(
                     svg()
                         .path(icon_path)
-                        .size(px(14.0))
+                        .size(px(18.0))
                         .text_color(rgb(name_color)),
                 ),
             )
-            // Name
+            // Name — matches Zed LabelSize::Default (14px, `text_ui`).
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(ui_text_sm(cx))
+                    .text_size(ui_text_md(cx))
                     .text_color(rgb(name_color))
                     .text_ellipsis()
                     .overflow_hidden()
@@ -432,14 +435,14 @@ impl FileExplorer {
             .child(
                 div()
                     .flex_shrink_0()
-                    .w(px(14.0))
+                    .w(px(18.0))
                     .flex()
                     .items_center()
                     .justify_end()
                     .when_some(badge, |d, (label, color)| {
                         d.child(
                             div()
-                                .text_size(px(10.0))
+                                .text_size(px(12.0))
                                 .text_color(rgb(color))
                                 .child(label),
                         )
@@ -457,14 +460,3 @@ impl FileExplorer {
     }
 }
 
-fn icon_for_extension(name: &str) -> &'static str {
-    let lower = name.to_lowercase();
-    let ext = lower.rsplit('.').next().unwrap_or("");
-    match ext {
-        "rs" => "icons/file.svg",
-        "toml" | "yaml" | "yml" | "json" | "lock" => "icons/file.svg",
-        "md" | "markdown" => "icons/file.svg",
-        "svg" | "png" | "jpg" | "jpeg" | "gif" | "webp" => "icons/file.svg",
-        _ => "icons/file.svg",
-    }
-}

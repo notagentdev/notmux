@@ -1082,6 +1082,9 @@ fn add_numstat_counts(status: &mut WorkingTreeStatus, path: &Path) {
 }
 
 /// Get the full working tree status (staged/unstaged/conflicts/untracked + ahead/behind).
+/// Uses `--untracked-files=all` so new files inside new directories are
+/// individually listed (git's default `normal` shows only the containing
+/// directory, hiding files).
 pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
     let path_str = match path.to_str() {
         Some(s) => s,
@@ -1089,7 +1092,14 @@ pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
     };
 
     let output = match safe_output(
-        command("git").args(["-C", path_str, "status", "--porcelain=v2", "--branch"]),
+        command("git").args([
+            "-C",
+            path_str,
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ]),
     ) {
         Ok(o) if o.status.success() => o,
         _ => return WorkingTreeStatus::default(),

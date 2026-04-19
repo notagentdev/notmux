@@ -371,6 +371,14 @@ impl RootView {
     /// tree. Always refreshes the new project's status so the header badge
     /// is up to date.
     pub(super) fn follow_git_panel_to_project(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        // Ensure the ProjectColumn (+ its GitHeader) exists before we try
+        // to bind the panel to it. Without this, switching into a project
+        // that was previously hidden (individual-mode focus change) silently
+        // no-ops the open_commit_log call because sync_project_columns
+        // hasn't run for the frame yet — `render_git_panel` then sees
+        // `commit_log_visible = false` and renders nothing.
+        self.sync_project_columns(cx);
+
         self.refresh_git_panel(project_id, cx);
 
         let panel_open = self.git_panel_ctrl.is_open();
@@ -393,6 +401,23 @@ impl RootView {
             gh.update(cx, |gh, cx| gh.open_commit_log(cx));
         }
         cx.notify();
+
+        // Belt-and-braces: the GitHeader's async load (commit graph +
+        // working tree + branches) can complete on a later frame. The
+        // per-project observer set up in `sync_project_columns` catches
+        // that, but in practice there's a timing window where the first
+        // render after a project switch still sees stale state. Schedule
+        // a few extra notifies so `render_git_panel` re-runs once data
+        // lands. Cheap, idempotent, no state drift.
+        cx.spawn(async move |this, cx| {
+            for delay_ms in [30u64, 120, 400, 900] {
+                smol::Timer::after(std::time::Duration::from_millis(delay_ms)).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     /// Append a path to the project's .gitignore file (create if missing).

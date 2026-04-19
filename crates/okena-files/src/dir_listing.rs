@@ -1,8 +1,10 @@
 //! Single-level directory listing for the workspace file explorer.
 //!
-//! Unlike `file_search::scan_files` (which recurses through the whole
-//! project respecting `.gitignore`), `list_directory` reads a single
-//! directory level so the explorer can lazy-load children on expand.
+//! Shows every filesystem entry (including `.gitignore`'d ones like
+//! `target/`, `node_modules/`). Gitignored files are rendered *without*
+//! color decoration — the color-coding path relies on `git status`,
+//! which already excludes gitignored entries. `.git` is always hidden
+//! to keep the tree readable.
 
 use std::path::{Path, PathBuf};
 
@@ -15,10 +17,9 @@ pub struct DirEntry {
     pub size: Option<u64>,
 }
 
-/// Read one level of `dir`. Returns entries sorted directories-first,
-/// then alphabetically (case-insensitive). Dotfiles are included when
-/// `show_hidden` is true; `.git` is always excluded regardless to avoid
-/// noise in the tree view.
+/// Read one level of `dir`. Returns entries sorted directories-first, then
+/// alphabetically (case-insensitive). `.git` is always excluded; other
+/// dot-files are excluded unless `show_hidden` is true.
 pub fn list_directory(dir: &Path, show_hidden: bool) -> Vec<DirEntry> {
     let Ok(read) = std::fs::read_dir(dir) else {
         return Vec::new();

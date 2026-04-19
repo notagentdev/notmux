@@ -735,7 +735,7 @@ impl RootView {
     }
 
     /// Ensure project columns exist for all visible projects
-    fn sync_project_columns(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_project_columns(&mut self, cx: &mut Context<Self>) {
         let visible_projects: Vec<(String, bool, Option<String>)> = {
             let ws = self.workspace.read(cx);
             ws.visible_projects().iter().map(|p| {
@@ -766,6 +766,14 @@ impl RootView {
                     Some(self.create_local_column(project_id, cx))
                 };
                 if let Some(entity) = entity {
+                    // Observe the column's GitHeader so RootView re-renders
+                    // when its state changes (commit log load, working-tree
+                    // refresh). Without this, render_git_panel reads stale
+                    // state on first project switch — ProjectColumn observes
+                    // its own GitHeader, but RootView's render_git_panel
+                    // lives outside the ProjectColumn's render subtree.
+                    let gh = entity.read(cx).git_header();
+                    cx.observe(&gh, |_, _, cx| cx.notify()).detach();
                     self.project_columns.insert(project_id.clone(), entity);
                 }
             }

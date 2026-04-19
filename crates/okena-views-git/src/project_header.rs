@@ -59,7 +59,7 @@ pub const RAIL_W: f32 = 2.0;
 /// Diameter of commit dots.
 pub const DOT_SIZE: f32 = 10.0;
 /// Commit row height.
-pub const COMMIT_ROW_H: f32 = 24.0;
+pub const COMMIT_ROW_H: f32 = 32.0;
 /// Connector row height.
 pub const CONNECTOR_ROW_H: f32 = 10.0;
 /// Diameter of each mini-dot making up the dotted vertical rail.
