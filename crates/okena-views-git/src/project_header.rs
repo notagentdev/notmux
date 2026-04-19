@@ -62,6 +62,10 @@ pub const DOT_SIZE: f32 = 8.0;
 pub const COMMIT_ROW_H: f32 = 24.0;
 /// Connector row height.
 pub const CONNECTOR_ROW_H: f32 = 10.0;
+/// Diameter of each mini-dot making up a dotted vertical rail.
+const RAIL_DOT_SIZE: f32 = 2.0;
+/// Vertical spacing between centers of rail dots.
+const RAIL_DOT_PITCH: f32 = 4.0;
 
 /// Lane color palette for graph railways.
 const LANE_COLORS: &[fn(&ThemeColors) -> u32] = &[
@@ -98,39 +102,58 @@ pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeCol
 
     let mut elements: Vec<AnyElement> = Vec::new();
 
+    // Build a dotted vertical rail for a single lane. Renders a column of
+    // small circles along `[y_start, y_end)` — mirrors VS Code's git graph
+    // which uses a dashed/dotted line between commit nodes instead of a
+    // solid line.
+    let push_dotted_rail = |elements: &mut Vec<AnyElement>,
+                            pos: usize,
+                            color: u32,
+                            y_start: f32,
+                            y_end: f32| {
+        let rail_center_x = pos as f32 * GRAPH_CELL_W
+            + (GRAPH_CELL_W - RAIL_DOT_SIZE) / 2.0;
+        let mut y = y_start;
+        while y + RAIL_DOT_SIZE <= y_end + 0.01 {
+            elements.push(
+                div()
+                    .absolute()
+                    .left(px(rail_center_x))
+                    .top(px(y))
+                    .w(px(RAIL_DOT_SIZE))
+                    .h(px(RAIL_DOT_SIZE))
+                    .rounded(px(RAIL_DOT_SIZE / 2.0))
+                    .bg(rgb(color))
+                    .into_any_element(),
+            );
+            y += RAIL_DOT_PITCH;
+        }
+    };
+
     for (pos, ch) in padded.chars().enumerate() {
         let lane_idx = pos / 2;
         let color = lane_color(lane_idx, t);
 
         match ch {
             '|' => {
-                // Vertical rail -- full height at lane center
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(rail_x(pos)))
-                        .top(px(0.0))
-                        .w(px(RAIL_W))
-                        .h(px(row_h))
-                        .bg(rgb(color))
-                        .into_any_element(),
-                );
+                // Dotted vertical rail across the whole row.
+                push_dotted_rail(&mut elements, pos, color, 0.0, row_h);
             }
             '*' => {
-                // Vertical rail through entire row
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(rail_x(pos)))
-                        .top(px(0.0))
-                        .w(px(RAIL_W))
-                        .h(px(row_h))
-                        .bg(rgb(color))
-                        .into_any_element(),
-                );
-                // Dot on top, centered
-                let dot_x = pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - DOT_SIZE) / 2.0;
+                // Dotted rail above and below the commit dot so the dashes
+                // appear to tuck into the node (leaves a small gap around it).
                 let dot_y = (row_h - DOT_SIZE) / 2.0;
+                let gap = 1.0;
+                push_dotted_rail(&mut elements, pos, color, 0.0, dot_y - gap);
+                push_dotted_rail(
+                    &mut elements,
+                    pos,
+                    color,
+                    dot_y + DOT_SIZE + gap,
+                    row_h,
+                );
+                // Filled commit node.
+                let dot_x = pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - DOT_SIZE) / 2.0;
                 elements.push(
                     div()
                         .absolute()
