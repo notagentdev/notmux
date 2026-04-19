@@ -341,6 +341,8 @@ impl Render for TitleBar {
             .items_center()
             .justify_between()
             .bg(rgb(t.bg_header))
+            .border_b_1()
+            .border_color(rgb(t.border))
             // Mark titlebar as drag region - GPUI maps this to HTCAPTION on Windows
             // (enabling native snap gestures, unmaximize-on-drag) and platform-native
             // drag on other platforms.

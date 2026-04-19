@@ -240,6 +240,7 @@ impl ProjectColumn {
         workspace.project(&self.project_id)
     }
 
+    #[allow(dead_code)]
     fn render_hidden_taskbar(&self, project: &ProjectData, t: ThemeColors, cx: &App) -> impl IntoElement {
         let minimized_terminals = project.layout.as_ref()
             .map(|l| l.collect_minimized_terminals())
@@ -327,6 +328,7 @@ impl ProjectColumn {
             .into_any_element()
     }
 
+    #[allow(dead_code)]
     fn render_header(&self, project: &ProjectData, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let workspace = self.workspace.clone();
@@ -696,7 +698,6 @@ impl Render for ProjectColumn {
                     .size_full()
                     .min_h_0()
                     .bg(bg_color)
-                    .child(self.render_header(&project, cx))
                     .child(content)
                     // Hook panel (delegated to HookPanel entity)
                     .child({
