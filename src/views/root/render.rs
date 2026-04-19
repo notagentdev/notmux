@@ -1,4 +1,4 @@
-use crate::keybindings::{ShowKeybindings, ShowSessionManager, ShowThemeSelector, ShowCommandPalette, ShowSettings, OpenSettingsFile, ShowFileSearch, ShowContentSearch, ShowProjectSwitcher, ShowDiffViewer, ShowHookLog, NewProject, ToggleSidebar, ToggleSidebarAutoHide, TogglePaneSwitcher, CreateWorktree, CheckForUpdates, InstallUpdate, FocusSidebar, FocusActiveProject, ShowPairingDialog, StartAllServices, StopAllServices, ClearFocus, EqualizeLayout, ToggleGitPanel};
+use crate::keybindings::{ShowKeybindings, ShowSessionManager, ShowThemeSelector, ShowCommandPalette, ShowSettings, OpenSettingsFile, ShowFileSearch, ShowContentSearch, ShowProjectSwitcher, ShowDiffViewer, ShowHookLog, NewProject, ToggleSidebar, ToggleSidebarAutoHide, TogglePaneSwitcher, CreateWorktree, CheckForUpdates, InstallUpdate, FocusSidebar, FocusActiveProject, ShowPairingDialog, StartAllServices, StopAllServices, ClearFocus, EqualizeLayout, ToggleGitPanel, ToggleFileExplorer};
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::theme;
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
@@ -457,7 +457,7 @@ impl Render for RootView {
                                 }
                             }
                             DragState::GitPanel => {
-                                // Dragging left increases width, dragging right decreases
+                                // Git panel sits on the far right.
                                 let window_width = f32::from(window.bounds().size.width);
                                 let new_width = window_width - f32::from(event.position.x);
                                 this.git_panel_ctrl.set_width(new_width);
@@ -548,6 +548,11 @@ impl Render for RootView {
                         this.toggle_git_panel(&pid, cx);
                     }
                 }
+            }))
+            // Handle toggle file-explorer action: swaps the sidebar between
+            // the Projects list and the file-tree view.
+            .on_action(cx.listener(|this, _: &ToggleFileExplorer, _window, cx| {
+                this.sidebar.update(cx, |sidebar, cx| sidebar.toggle_view(cx));
             }))
             // Handle clear focus action (show all projects)
             .on_action(cx.listener(|this, _: &ClearFocus, _window, cx| {

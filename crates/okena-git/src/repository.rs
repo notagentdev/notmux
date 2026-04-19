@@ -1101,6 +1101,87 @@ pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
     status
 }
 
+/// Per-file status result: for each requested rel-path, the current
+/// `WorkingFile` entry (if any). `None` means the file is clean (or missing
+/// from the index, which from the UI's perspective means "nothing to show").
+#[derive(Clone, Debug)]
+pub struct FileStatusRefresh {
+    pub rel_path: String,
+    pub file: Option<WorkingFile>,
+    pub section: Option<FileSection>,
+}
+
+/// Which bucket of the `WorkingTreeStatus` a file currently belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileSection {
+    Conflict,
+    Tracked,
+    Untracked,
+}
+
+/// Fast per-file status query for a set of rel-paths. Runs one
+/// `git status --porcelain=v2 -- <paths...>` and classifies each result.
+/// Paths absent from the output are reported as `file: None` so callers
+/// can remove stale entries from their caches.
+pub fn get_file_statuses(repo_root: &Path, rel_paths: &[String]) -> Vec<FileStatusRefresh> {
+    let Some(path_str) = repo_root.to_str() else {
+        return rel_paths
+            .iter()
+            .map(|p| FileStatusRefresh {
+                rel_path: p.clone(),
+                file: None,
+                section: None,
+            })
+            .collect();
+    };
+
+    if rel_paths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut args: Vec<&str> = vec![
+        "-C", path_str, "status", "--porcelain=v2", "--untracked-files=all", "--",
+    ];
+    for p in rel_paths {
+        args.push(p.as_str());
+    }
+
+    let status: WorkingTreeStatus = match safe_output(command("git").args(&args)) {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            parse_porcelain_v2(&stdout)
+        }
+        _ => WorkingTreeStatus::default(),
+    };
+
+    let mut by_path: HashMap<String, (WorkingFile, FileSection)> = HashMap::new();
+    for f in status.conflicts {
+        by_path.insert(f.path.clone(), (f, FileSection::Conflict));
+    }
+    for f in status.tracked {
+        by_path.insert(f.path.clone(), (f, FileSection::Tracked));
+    }
+    for f in status.untracked {
+        by_path.insert(f.path.clone(), (f, FileSection::Untracked));
+    }
+
+    rel_paths
+        .iter()
+        .map(|p| match by_path.remove(p) {
+            Some((file, section)) => FileStatusRefresh {
+                rel_path: p.clone(),
+                file: Some(file),
+                section: Some(section),
+            },
+            None => FileStatusRefresh {
+                rel_path: p.clone(),
+                file: None,
+                section: None,
+            },
+        })
+        .collect()
+}
+
 /// Stage a single file (`git add <path>`).
 pub fn stage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;

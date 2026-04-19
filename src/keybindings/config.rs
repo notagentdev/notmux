@@ -52,6 +52,13 @@ impl KeybindingConfig {
             ],
         );
         bindings.insert(
+            "ToggleFileExplorer".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-e", None),
+                KeybindingEntry::new("ctrl-shift-e", None),
+            ],
+        );
+        bindings.insert(
             "FocusSidebar".to_string(),
             vec![
                 KeybindingEntry::new("cmd-1", None),

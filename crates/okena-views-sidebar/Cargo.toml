@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 okena-core = { path = "../okena-core", features = ["client"] }
+okena-files = { path = "../okena-files" }
 okena-git = { path = "../okena-git" }
 okena-services = { path = "../okena-services" }
 okena-terminal = { path = "../okena-terminal" }

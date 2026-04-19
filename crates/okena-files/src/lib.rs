@@ -1,4 +1,5 @@
 pub mod code_view;
+pub mod dir_listing;
 pub mod project_fs;
 pub mod content_search;
 pub mod content_search_dialog;

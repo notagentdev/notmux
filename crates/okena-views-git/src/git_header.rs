@@ -40,6 +40,24 @@ enum BranchPickerTarget {
     CompareHead,
 }
 
+/// Section a row belongs to in the commit tab.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum FileSectionKind {
+    Conflicts,
+    Tracked,
+    Untracked,
+}
+
+/// Flattened row model for the virtualized commit-tab file list.
+#[derive(Clone)]
+enum FileRow {
+    Header(FileSectionKind, bool),
+    File {
+        file: WorkingFile,
+        is_untracked: bool,
+    },
+}
+
 /// Which tab is active in the git panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum GitPanelTab {
@@ -116,6 +134,8 @@ pub struct GitHeader {
     untracked_collapsed: bool,
     /// Last operation error message (shown as toast/inline)
     last_error: Option<String>,
+    /// Scroll handle for the virtualized commit-tab file list.
+    commit_file_scroll: UniformListScrollHandle,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -169,6 +189,7 @@ impl GitHeader {
             tracked_collapsed: false,
             untracked_collapsed: false,
             last_error: None,
+            commit_file_scroll: UniformListScrollHandle::new(),
         }
     }
 
@@ -400,6 +421,67 @@ impl GitHeader {
             });
         })
         .detach();
+    }
+
+    /// Local repo root, if this header's provider is a local one. Used by
+    /// the notify-driven FS watcher to translate absolute paths to rel-paths.
+    pub fn local_repo_root(&self) -> Option<std::path::PathBuf> {
+        self.git_provider.local_repo_root().map(|p| p.to_path_buf())
+    }
+
+    /// Incrementally patch the working tree status for a set of rel-paths.
+    /// Each path either gets updated in place, moved between sections, or
+    /// removed if it's now clean. Falls back to a full refresh if the
+    /// provider can't answer per-file queries (remote).
+    pub fn patch_files(&mut self, rel_paths: Vec<String>, cx: &mut Context<Self>) {
+        if rel_paths.is_empty() {
+            return;
+        }
+        let provider = self.git_provider.clone();
+        // Remote provider can't do per-file — fall back.
+        if provider.local_repo_root().is_none() {
+            self.refresh_working_tree_status(cx);
+            return;
+        }
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let results = smol::unblock(move || provider.get_file_statuses(&rel_paths)).await;
+            let _ = this.update(cx, |this, cx| {
+                this.apply_file_refresh(results);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn apply_file_refresh(&mut self, results: Vec<okena_git::FileStatusRefresh>) {
+        let Some(status) = self.working_tree_status.as_mut() else {
+            return;
+        };
+        let remove_by_path = |vec: &mut Vec<okena_git::WorkingFile>, path: &str| {
+            vec.retain(|f| f.path != path);
+        };
+        for r in results {
+            let p = r.rel_path.as_str();
+            remove_by_path(&mut status.conflicts, p);
+            remove_by_path(&mut status.tracked, p);
+            remove_by_path(&mut status.untracked, p);
+            if let (Some(file), Some(section)) = (r.file, r.section) {
+                match section {
+                    okena_git::FileSection::Conflict => status.conflicts.push(file),
+                    okena_git::FileSection::Tracked => status.tracked.push(file),
+                    okena_git::FileSection::Untracked => status.untracked.push(file),
+                }
+            }
+        }
+        status
+            .tracked
+            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+        status
+            .untracked
+            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+        status
+            .conflicts
+            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
     }
 
     /// Refresh only the working tree status (after stage/unstage/commit).
@@ -832,67 +914,121 @@ impl GitHeader {
     }
 
     /// Render the three file sections (Conflicts / Tracked / Untracked) in a scroll view.
-    fn render_file_sections(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Flatten conflicts/tracked/untracked sections into a single row vec
+    /// that `uniform_list` can drive. Each row is fixed-height.
+    fn build_file_rows(&self) -> Vec<FileRow> {
         let status = self.working_tree_status.as_ref();
         let conflicts: Vec<WorkingFile> = status.map(|s| s.conflicts.clone()).unwrap_or_default();
         let tracked: Vec<WorkingFile> = status.map(|s| s.tracked.clone()).unwrap_or_default();
         let untracked: Vec<WorkingFile> = status.map(|s| s.untracked.clone()).unwrap_or_default();
 
-        let mut list = v_flex()
-            .id("commit-file-scroll")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll();
-
+        let mut rows: Vec<FileRow> = Vec::new();
         if !conflicts.is_empty() {
-            list = list.child(self.render_section_header(
-                "Conflicts",
-                self.conflicts_collapsed,
-                |this| this.conflicts_collapsed = !this.conflicts_collapsed,
-                Some(t.error),
-                t,
-                cx,
-            ));
+            rows.push(FileRow::Header(FileSectionKind::Conflicts, self.conflicts_collapsed));
             if !self.conflicts_collapsed {
-                for file in &conflicts {
-                    list = list.child(self.render_file_entry(file, false, t, cx));
+                for f in conflicts {
+                    rows.push(FileRow::File {
+                        file: f,
+                        is_untracked: false,
+                    });
                 }
             }
         }
-
         if !tracked.is_empty() {
-            list = list.child(self.render_section_header(
-                "Tracked",
-                self.tracked_collapsed,
-                |this| this.tracked_collapsed = !this.tracked_collapsed,
-                None,
-                t,
-                cx,
-            ));
+            rows.push(FileRow::Header(FileSectionKind::Tracked, self.tracked_collapsed));
             if !self.tracked_collapsed {
-                for file in &tracked {
-                    list = list.child(self.render_file_entry(file, false, t, cx));
+                for f in tracked {
+                    rows.push(FileRow::File {
+                        file: f,
+                        is_untracked: false,
+                    });
                 }
             }
         }
-
         if !untracked.is_empty() {
-            list = list.child(self.render_section_header(
-                "Untracked",
-                self.untracked_collapsed,
-                |this| this.untracked_collapsed = !this.untracked_collapsed,
-                None,
-                t,
-                cx,
-            ));
+            rows.push(FileRow::Header(FileSectionKind::Untracked, self.untracked_collapsed));
             if !self.untracked_collapsed {
-                for file in &untracked {
-                    list = list.child(self.render_file_entry(file, true, t, cx));
+                for f in untracked {
+                    rows.push(FileRow::File {
+                        file: f,
+                        is_untracked: true,
+                    });
                 }
             }
         }
+        rows
+    }
 
-        list
+    fn render_file_sections(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = self.build_file_rows();
+        let t = *t;
+        let view = cx.entity().clone();
+        let scroll = self.commit_file_scroll.clone();
+
+        uniform_list(
+            "commit-file-list",
+            rows.len(),
+            move |range, _window, cx| {
+                let rows_ref = rows.clone();
+                let tc = t;
+                view.update(cx, |this, cx| {
+                    range
+                        .into_iter()
+                        .map(|i| match &rows_ref[i] {
+                            FileRow::Header(kind, collapsed) => {
+                                let (title, color) = match kind {
+                                    FileSectionKind::Conflicts => ("Conflicts", Some(tc.error)),
+                                    FileSectionKind::Tracked => ("Tracked", None),
+                                    FileSectionKind::Untracked => ("Untracked", None),
+                                };
+                                let kind = *kind;
+                                let collapsed = *collapsed;
+                                this.render_section_header_kind(
+                                    title, collapsed, kind, color, &tc, cx,
+                                )
+                                .into_any_element()
+                            }
+                            FileRow::File { file, is_untracked } => this
+                                .render_file_entry(file, *is_untracked, &tc, cx)
+                                .into_any_element(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+            },
+        )
+        .flex_1()
+        .min_h_0()
+        .h_full()
+        .track_scroll(&scroll)
+    }
+
+    fn render_section_header_kind(
+        &self,
+        title: &'static str,
+        collapsed: bool,
+        kind: FileSectionKind,
+        accent_color: Option<u32>,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        self.render_section_header(
+            title,
+            collapsed,
+            move |this| match kind {
+                FileSectionKind::Conflicts => {
+                    this.conflicts_collapsed = !this.conflicts_collapsed
+                }
+                FileSectionKind::Tracked => {
+                    this.tracked_collapsed = !this.tracked_collapsed
+                }
+                FileSectionKind::Untracked => {
+                    this.untracked_collapsed = !this.untracked_collapsed
+                }
+            },
+            accent_color,
+            t,
+            cx,
+        )
     }
 
     /// Render a collapsible section header — Zed-style: just the label, muted,
@@ -1068,7 +1204,8 @@ impl GitHeader {
             .child(
                 div()
                     .id(ElementId::Name(format!("fn-{}", file.path).into()))
-                    .flex_1()
+                    .flex_shrink()
+                    .min_w_0()
                     .flex()
                     .items_baseline()
                     .gap(px(4.0))
@@ -1112,6 +1249,8 @@ impl GitHeader {
                         )
                     }),
             )
+            // Spacer that pushes diff stats + status letter to the right edge.
+            .child(div().flex_1())
             // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
             .when(added > 0 || removed > 0, |d| {
                 d.child(

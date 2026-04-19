@@ -96,6 +96,9 @@ pub struct RootView {
     git_panel_ctrl: SidebarController,
     /// Project ID whose git log is shown in the git panel
     git_panel_project_id: Option<String>,
+    /// Pending debounced full-refresh tasks per project (for `.git/` event
+    /// storms during rebase/checkout). Dropping the task cancels it.
+    pending_git_internal_refresh: HashMap<String, Task<()>>,
 }
 
 impl RootView {
@@ -116,6 +119,7 @@ impl RootView {
             app_settings.git_panel.is_open,
             app_settings.git_panel.width,
         );
+
 
         // Create sidebar entity once to preserve state
         let sidebar = cx.new(|cx| Sidebar::new(workspace.clone(), request_broker.clone(), terminals.clone(), cx));
@@ -223,6 +227,7 @@ impl RootView {
             pending_center_scroll: None,
             git_panel_ctrl,
             git_panel_project_id: None,
+            pending_git_internal_refresh: HashMap::new(),
         };
 
         // Observe workspace to scroll focused project into view AND keep
@@ -256,6 +261,9 @@ impl RootView {
                 this.last_git_context_project = git_context.clone();
                 if let Some(pid) = git_context {
                     this.follow_git_panel_to_project(&pid, cx);
+                    // Nudge the sidebar's file explorer for this project.
+                    let sidebar = this.sidebar.clone();
+                    sidebar.update(cx, |sb, cx| sb.refresh_file_explorer(&pid, cx));
                 }
             }
         }).detach();
@@ -271,8 +279,89 @@ impl RootView {
         &self.terminals
     }
 
+    /// Schedule a debounced full git-status refresh for a project. Called
+    /// when `.git/` internal events fire; coalesces rebase/checkout storms
+    /// into one refresh 500ms after the last event.
+    fn schedule_git_internal_refresh(&mut self, project_id: String, cx: &mut Context<Self>) {
+        let pid = project_id.clone();
+        let task = cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            smol::Timer::after(std::time::Duration::from_millis(500)).await;
+            let _ = this.update(cx, |this, cx| {
+                let sidebar = this.sidebar.clone();
+                sidebar.update(cx, |sb, cx| sb.refresh_file_explorer(&pid, cx));
+                if let Some(col) = this.project_columns.get(&pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    gh.update(cx, |gh, cx| gh.refresh_working_tree_status(cx));
+                }
+                this.pending_git_internal_refresh.remove(&pid);
+            });
+        });
+        // Dropping the old task cancels it.
+        self.pending_git_internal_refresh.insert(project_id, task);
+    }
+
     /// Set the git watcher entity (called by Okena after creation).
     pub fn set_git_watcher(&mut self, watcher: Entity<GitStatusWatcher>, cx: &mut Context<Self>) {
+        // Observe the watcher so the sidebar's file explorer refreshes when
+        // git status changes from the slow status-poll loop. ProjectColumns
+        // re-read via their own observers on each render; the file explorer
+        // owns its own per-file status cache, so it must be nudged.
+        cx.observe(&watcher, |this, _watcher, cx| {
+            let sidebar = this.sidebar.clone();
+            sidebar.update(cx, |sb, cx| {
+                for pid in sb.file_explorer_project_ids() {
+                    sb.refresh_file_explorer(&pid, cx);
+                }
+            });
+        })
+        .detach();
+
+        // Subscribe to per-project FS change events (notify-driven) so the
+        // file explorer + git header can incrementally patch without a full
+        // rebuild. `.git/` events route to a 500ms-debounced full refresh so
+        // `git rebase` / `git checkout` storms coalesce into one refresh.
+        cx.subscribe(&watcher, |this, _watcher, event: &crate::git::watcher::FsChangeEvent, cx| {
+            let pid = event.project_id.clone();
+            let files = event.files.clone();
+            let is_git_internal = event.is_git_internal;
+
+            if is_git_internal {
+                this.schedule_git_internal_refresh(pid, cx);
+                return;
+            }
+
+            // File Explorer — incremental
+            {
+                let sidebar = this.sidebar.clone();
+                let files_for_fe = files.clone();
+                let pid_for_fe = pid.clone();
+                sidebar.update(cx, |sb, cx| {
+                    sb.patch_file_explorer_paths(&pid_for_fe, &files_for_fe, cx);
+                });
+            }
+
+            // Git Header — incremental
+            if let Some(col) = this.project_columns.get(&pid).cloned() {
+                let gh = col.read(cx).git_header();
+                let repo_root = gh.read(cx).local_repo_root();
+                let Some(root) = repo_root else {
+                    return;
+                };
+                let rel_paths: Vec<String> = files
+                    .iter()
+                    .filter_map(|p| p.strip_prefix(&root).ok())
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .collect();
+                if rel_paths.is_empty() {
+                    return;
+                }
+                gh.update(cx, |gh, cx| {
+                    gh.patch_files(rel_paths, cx);
+                });
+            }
+        })
+        .detach();
+
         self.git_watcher = Some(watcher);
         // Drop existing local columns so they get recreated with the watcher
         self.project_columns.retain(|id, _| id.starts_with("remote:"));

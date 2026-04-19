@@ -1,6 +1,7 @@
 //! GitProvider trait and implementations for local and remote git operations.
 
-use okena_git::{DiffMode, DiffResult, FileDiffSummary, GraphRow, WorkingTreeStatus};
+use okena_git::{DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, GraphRow, WorkingTreeStatus};
+use std::path::Path;
 
 /// Provides git data from either local git commands or a remote server.
 pub trait GitProvider: Send + Sync + 'static {
@@ -10,6 +11,20 @@ pub trait GitProvider: Send + Sync + 'static {
     fn get_diff_file_summary(&self) -> Vec<FileDiffSummary>;
     fn get_commit_graph(&self, count: usize, branch: Option<&str>) -> Vec<GraphRow>;
     fn list_branches(&self) -> Vec<String>;
+
+    /// Local filesystem root of this repo, if the provider is local.
+    /// Remote providers return `None` — callers should fall back to a full
+    /// refresh when no local root is available.
+    fn local_repo_root(&self) -> Option<&Path> {
+        None
+    }
+
+    /// Per-file status refresh. Default implementation returns an empty
+    /// vec (forces callers to treat as "no info" and fall back to full
+    /// refresh). Local provider overrides with `git status -- <paths>`.
+    fn get_file_statuses(&self, _rel_paths: &[String]) -> Vec<FileStatusRefresh> {
+        Vec::new()
+    }
 
     // ── Commit-tab operations ─────────────────────────────────────
 
@@ -75,6 +90,14 @@ impl GitProvider for LocalGitProvider {
 
     fn get_working_tree_status(&self) -> WorkingTreeStatus {
         okena_git::get_working_tree_status(std::path::Path::new(&self.path))
+    }
+
+    fn local_repo_root(&self) -> Option<&Path> {
+        Some(Path::new(&self.path))
+    }
+
+    fn get_file_statuses(&self, rel_paths: &[String]) -> Vec<FileStatusRefresh> {
+        okena_git::get_file_statuses(std::path::Path::new(&self.path), rel_paths)
     }
 
     fn stage_file(&self, file_path: &str) -> Result<(), String> {

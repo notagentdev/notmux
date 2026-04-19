@@ -48,6 +48,8 @@ pub enum DragState {
     },
     /// Resizing git panel width
     GitPanel,
+    /// Resizing file-explorer panel width
+    FileExplorerPanel,
 }
 
 /// Trait object wrapper for ActionDispatch in DragState (needs Clone).
@@ -174,7 +176,7 @@ pub fn compute_resize(
                 ws.update_project_widths(new_widths, cx);
             });
         }
-        DragState::Sidebar | DragState::GitPanel | DragState::ServicePanel { .. } | DragState::HookPanel { .. } => {
+        DragState::Sidebar | DragState::GitPanel | DragState::FileExplorerPanel | DragState::ServicePanel { .. } | DragState::HookPanel { .. } => {
             // Handled directly in RootView's on_mouse_move
         }
     }
@@ -291,6 +293,21 @@ pub fn render_git_panel_divider(active_drag: &ActiveDrag, cx: &App) -> impl Into
         t.border_active,
         move |_, _| {
             *active_drag.borrow_mut() = Some(DragState::GitPanel);
+        },
+    )
+}
+
+/// Render the file-explorer panel resize divider (left edge of file-explorer panel).
+pub fn render_file_explorer_panel_divider(active_drag: &ActiveDrag, cx: &App) -> impl IntoElement {
+    let t = theme(cx);
+    let active_drag = active_drag.clone();
+
+    ResizeHandle::new(
+        false,
+        t.border,
+        t.border_active,
+        move |_, _| {
+            *active_drag.borrow_mut() = Some(DragState::FileExplorerPanel);
         },
     )
 }

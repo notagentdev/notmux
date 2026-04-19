@@ -49,6 +49,7 @@ actions!(
         ShowHookLog,
         EqualizeLayout,
         ToggleGitPanel,
+        ToggleFileExplorer,
     ]
 );
 
@@ -261,6 +262,7 @@ fn create_keybinding(action: &str, keystroke: &str, context: Option<&str>) -> Op
         "ToggleSidebar" => Some(KeyBinding::new(keystroke, ToggleSidebar, context)),
         "ToggleSidebarAutoHide" => Some(KeyBinding::new(keystroke, ToggleSidebarAutoHide, context)),
         "ToggleGitPanel" => Some(KeyBinding::new(keystroke, ToggleGitPanel, context)),
+        "ToggleFileExplorer" => Some(KeyBinding::new(keystroke, ToggleFileExplorer, context)),
         "ToggleFullscreen" => Some(KeyBinding::new(keystroke, ToggleFullscreen, context)),
         "FullscreenNextTerminal" => Some(KeyBinding::new(keystroke, FullscreenNextTerminal, context)),
         "FullscreenPrevTerminal" => Some(KeyBinding::new(keystroke, FullscreenPrevTerminal, context)),

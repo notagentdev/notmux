@@ -26,10 +26,24 @@ use okena_workspace::request_broker::RequestBroker;
 use okena_workspace::requests::SidebarRequest;
 use okena_workspace::state::{FolderData, ProjectData, Workspace};
 use gpui::*;
+use gpui::prelude::FluentBuilder;
 use gpui_component::h_flex;
 use std::collections::{HashMap, HashSet};
 
 use crate::drag::{ProjectDrag, FolderDrag};
+use crate::file_explorer::FileExplorer;
+
+/// Which view the sidebar is showing. Toggled via a button in the
+/// sidebar header (same pattern as the git-panel's Commit/Changes/History
+/// tabs).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SidebarView {
+    /// Default: project + remote lists (the existing Explorer).
+    #[default]
+    Projects,
+    /// File-tree for the focused project.
+    Files,
+}
 
 /// Callback for dispatching actions for a given project.
 /// Arguments: (project_id, action, cx)
@@ -148,6 +162,11 @@ pub struct Sidebar {
     pub(crate) send_remote_action: Option<SendRemoteActionFn>,
     /// Callback to get remote folder ID for reordering
     pub(crate) get_remote_folder: Option<GetRemoteFolderFn>,
+    /// Which view is active (Projects / Files).
+    pub(crate) view: SidebarView,
+    /// File-explorer sub-entities, keyed by project_id. Created lazily when
+    /// the Files view first needs one.
+    pub(crate) file_explorers: HashMap<String, Entity<FileExplorer>>,
 }
 
 impl Sidebar {
@@ -195,6 +214,82 @@ impl Sidebar {
             get_remote_connections: None,
             send_remote_action: None,
             get_remote_folder: None,
+            view: SidebarView::default(),
+            file_explorers: HashMap::new(),
+        }
+    }
+
+    /// Current sidebar view.
+    pub fn view(&self) -> SidebarView {
+        self.view
+    }
+
+    /// Set the sidebar view.
+    pub fn set_view(&mut self, view: SidebarView, cx: &mut Context<Self>) {
+        if self.view == view {
+            return;
+        }
+        self.view = view;
+        cx.notify();
+    }
+
+    /// Toggle between Projects and Files views.
+    pub fn toggle_view(&mut self, cx: &mut Context<Self>) {
+        let next = match self.view {
+            SidebarView::Projects => SidebarView::Files,
+            SidebarView::Files => SidebarView::Projects,
+        };
+        self.set_view(next, cx);
+    }
+
+    /// Ensure a FileExplorer entity exists for the given project. Returns
+    /// the entity if the project is local, `None` for remote/missing.
+    pub(crate) fn ensure_file_explorer(
+        &mut self,
+        project_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<FileExplorer>> {
+        let path = {
+            let ws = self.workspace.read(cx);
+            let project = ws.project(project_id)?;
+            if project.is_remote {
+                return None;
+            }
+            std::path::PathBuf::from(&project.path)
+        };
+
+        if let Some(existing) = self.file_explorers.get(project_id).cloned() {
+            return Some(existing);
+        }
+
+        let broker = self.request_broker.clone();
+        let pid = project_id.to_string();
+        let entity = cx.new(|cx| FileExplorer::new(pid.clone(), path, broker, cx));
+        self.file_explorers.insert(pid, entity.clone());
+        Some(entity)
+    }
+
+    /// IDs of projects that have a live file-explorer entity.
+    pub fn file_explorer_project_ids(&self) -> Vec<String> {
+        self.file_explorers.keys().cloned().collect()
+    }
+
+    /// Propagate FS-watcher / git-status events down to the file explorers.
+    pub fn refresh_file_explorer(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if let Some(fe) = self.file_explorers.get(project_id).cloned() {
+            fe.update(cx, |fe, cx| fe.refresh(cx));
+        }
+    }
+
+    /// Incremental FS patch for a project's file explorer.
+    pub fn patch_file_explorer_paths(
+        &mut self,
+        project_id: &str,
+        paths: &[std::path::PathBuf],
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(fe) = self.file_explorers.get(project_id).cloned() {
+            fe.update(cx, |fe, cx| fe.patch_paths(paths, cx));
         }
     }
 
@@ -1157,6 +1252,9 @@ impl Sidebar {
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+        let is_files = self.view == SidebarView::Files;
+        let title = if is_files { "FILES" } else { "EXPLORER" };
+
         div()
             .h(px(35.0))
             .px(px(12.0))
@@ -1171,63 +1269,112 @@ impl Sidebar {
                     .text_size(ui_text_ms(cx))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(t.text_secondary))
-                    .child("EXPLORER"),
+                    .child(title),
             )
             .child(
                 h_flex()
                     .gap(px(2.0))
+                    // View toggle: Projects
                     .child(
-                        // New folder button
                         div()
-                            .id("new-folder-btn")
+                            .id("sidebar-view-projects")
                             .cursor_pointer()
                             .px(px(4.0))
                             .py(px(2.0))
                             .rounded(px(4.0))
                             .hover(|s| s.bg(rgb(t.bg_hover)))
+                            .when(!is_files, |d| d.bg(rgb(t.bg_hover)))
+                            .child(
+                                svg()
+                                    .path("icons/terminal.svg")
+                                    .size(px(14.0))
+                                    .text_color(rgb(if !is_files {
+                                        t.term_blue
+                                    } else {
+                                        t.text_secondary
+                                    })),
+                            )
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.set_view(SidebarView::Projects, cx);
+                            })),
+                    )
+                    // View toggle: Files
+                    .child(
+                        div()
+                            .id("sidebar-view-files")
+                            .cursor_pointer()
+                            .px(px(4.0))
+                            .py(px(2.0))
+                            .rounded(px(4.0))
+                            .hover(|s| s.bg(rgb(t.bg_hover)))
+                            .when(is_files, |d| d.bg(rgb(t.bg_hover)))
                             .child(
                                 svg()
                                     .path("icons/folder.svg")
                                     .size(px(14.0))
-                                    .text_color(rgb(t.text_secondary))
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.create_folder(window, cx);
-                            })),
-                    )
-                    .child(
-                        // Add project button
-                        div()
-                            .id("add-project-btn")
-                            .cursor_pointer()
-                            .px(px(4.0))
-                            .py(px(2.0))
-                            .rounded(px(4.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .flex()
-                            .items_center()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text_xl(cx))
-                                    .text_color(rgb(t.text_secondary))
-                                    .child("+"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(ui_text_ms(cx))
-                                    .text_color(rgb(t.text_secondary))
-                                    .child("Add Project"),
+                                    .text_color(rgb(if is_files {
+                                        t.term_blue
+                                    } else {
+                                        t.text_secondary
+                                    })),
                             )
                             .on_click(cx.listener(|this, _, _window, cx| {
-                                this.request_broker.update(cx, |broker, cx| {
-                                    broker.push_overlay_request(
-                                        okena_workspace::requests::OverlayRequest::AddProjectDialog,
-                                        cx,
-                                    );
-                                });
+                                this.set_view(SidebarView::Files, cx);
                             })),
-                    ),
+                    )
+                    // Projects view has "New folder" + "+ Add Project" on the right.
+                    .when(!is_files, |d| {
+                        d.child(
+                            div()
+                                .id("new-folder-btn")
+                                .cursor_pointer()
+                                .px(px(4.0))
+                                .py(px(2.0))
+                                .rounded(px(4.0))
+                                .hover(|s| s.bg(rgb(t.bg_hover)))
+                                .child(
+                                    svg()
+                                        .path("icons/plus.svg")
+                                        .size(px(14.0))
+                                        .text_color(rgb(t.text_secondary)),
+                                )
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.create_folder(window, cx);
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("add-project-btn")
+                                .cursor_pointer()
+                                .px(px(4.0))
+                                .py(px(2.0))
+                                .rounded(px(4.0))
+                                .hover(|s| s.bg(rgb(t.bg_hover)))
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_size(ui_text_xl(cx))
+                                        .text_color(rgb(t.text_secondary))
+                                        .child("+"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(ui_text_ms(cx))
+                                        .text_color(rgb(t.text_secondary))
+                                        .child("Add Project"),
+                                )
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.request_broker.update(cx, |broker, cx| {
+                                        broker.push_overlay_request(
+                                            okena_workspace::requests::OverlayRequest::AddProjectDialog,
+                                            cx,
+                                        );
+                                    });
+                                })),
+                        )
+                    }),
             )
     }
 
@@ -1793,7 +1940,7 @@ impl Render for Sidebar {
                 .into_any_element()
         );
 
-        div()
+        let root = div()
             .relative()
             .w_full()
             .h_full()
@@ -1807,16 +1954,77 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::handle_sidebar_confirm))
             .on_action(cx.listener(Self::handle_sidebar_toggle_expand))
             .on_action(cx.listener(Self::handle_sidebar_escape))
-            .child(self.render_header(cx))
-            .child(self.render_projects_header(cx))
-            .child(
-                div()
-                    .id("sidebar-scroll")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll_handle)
-                    .children(flat_elements)
-                    .child(self.render_remote_section(cx)),
-            )
+            .child(self.render_header(cx));
+
+        match self.view {
+            SidebarView::Projects => root
+                .child(self.render_projects_header(cx))
+                .child(
+                    div()
+                        .id("sidebar-scroll")
+                        .flex_1()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll_handle)
+                        .children(flat_elements)
+                        .child(self.render_remote_section(cx)),
+                )
+                .into_any_element(),
+            SidebarView::Files => root
+                .child(self.render_files_view(cx))
+                .into_any_element(),
+        }
+    }
+}
+
+impl Sidebar {
+    /// Render the Files view: delegates to the focused project's
+    /// FileExplorer entity. Falls back to an empty state if no project.
+    fn render_files_view(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let focused_pid: Option<String> = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager
+                .focused_project_id()
+                .cloned()
+                .or_else(|| {
+                    ws.focus_manager
+                        .focused_terminal_state()
+                        .map(|f| f.project_id.clone())
+                })
+                .or_else(|| ws.visible_projects().first().map(|p| p.id.clone()))
+        };
+
+        let Some(pid) = focused_pid else {
+            return div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(t.text_muted))
+                .text_size(ui_text_ms(cx))
+                .child("No project")
+                .into_any_element();
+        };
+
+        let Some(fe) = self.ensure_file_explorer(&pid, cx) else {
+            return div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(t.text_muted))
+                .text_size(ui_text_ms(cx))
+                .child("File tree not available for remote projects")
+                .into_any_element();
+        };
+
+        div()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .child(AnyView::from(fe))
+            .into_any_element()
     }
 }

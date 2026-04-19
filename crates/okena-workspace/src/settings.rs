@@ -85,17 +85,24 @@ fn default_true() -> bool {
 
 /// Default sidebar width in pixels.
 pub const DEFAULT_SIDEBAR_WIDTH: f32 = 250.0;
-/// Minimum sidebar width in pixels.
-pub const MIN_SIDEBAR_WIDTH: f32 = 150.0;
-/// Maximum sidebar width in pixels.
-pub const MAX_SIDEBAR_WIDTH: f32 = 500.0;
+/// Minimum sidebar width in pixels (drag sanity cap).
+pub const MIN_SIDEBAR_WIDTH: f32 = 120.0;
+/// Maximum sidebar width in pixels (effectively unlimited — drag as wide as you want).
+pub const MAX_SIDEBAR_WIDTH: f32 = 4000.0;
 
 /// Default git panel width in pixels.
 pub const DEFAULT_GIT_PANEL_WIDTH: f32 = 400.0;
-/// Minimum git panel width in pixels.
-pub const MIN_GIT_PANEL_WIDTH: f32 = 250.0;
-/// Maximum git panel width in pixels.
-pub const MAX_GIT_PANEL_WIDTH: f32 = 700.0;
+/// Minimum git panel width in pixels (sanity cap — prevents drag-to-zero).
+pub const MIN_GIT_PANEL_WIDTH: f32 = 120.0;
+/// Maximum git panel width in pixels (effectively unlimited).
+pub const MAX_GIT_PANEL_WIDTH: f32 = 4000.0;
+
+/// Default file-explorer panel width in pixels.
+pub const DEFAULT_FILE_EXPLORER_WIDTH: f32 = 280.0;
+/// Minimum file-explorer panel width in pixels.
+pub const MIN_FILE_EXPLORER_WIDTH: f32 = 120.0;
+/// Maximum file-explorer panel width in pixels (effectively unlimited).
+pub const MAX_FILE_EXPLORER_WIDTH: f32 = 4000.0;
 
 fn default_sidebar_width() -> f32 {
     DEFAULT_SIDEBAR_WIDTH
@@ -174,6 +181,30 @@ impl Default for GitPanelSettings {
     }
 }
 
+fn default_file_explorer_width() -> f32 {
+    DEFAULT_FILE_EXPLORER_WIDTH
+}
+
+/// File-explorer panel settings
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileExplorerSettings {
+    /// Whether the panel is open
+    #[serde(default)]
+    pub is_open: bool,
+    /// Panel width in pixels
+    #[serde(default = "default_file_explorer_width")]
+    pub width: f32,
+}
+
+impl Default for FileExplorerSettings {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            width: DEFAULT_FILE_EXPLORER_WIDTH,
+        }
+    }
+}
+
 /// Current settings schema version - increment when making breaking changes
 pub const SETTINGS_VERSION: u32 = 3;
 
@@ -198,6 +229,9 @@ pub struct AppSettings {
     /// Git panel settings
     #[serde(default)]
     pub git_panel: GitPanelSettings,
+    /// File-explorer panel settings
+    #[serde(default)]
+    pub file_explorer: FileExplorerSettings,
     /// Whether to show border around focused terminal
     #[serde(default = "default_show_focused_border")]
     pub show_focused_border: bool,
@@ -323,6 +357,7 @@ impl Default for AppSettings {
             active_session: None,
             sidebar: SidebarSettings::default(),
             git_panel: GitPanelSettings::default(),
+            file_explorer: FileExplorerSettings::default(),
             show_focused_border: default_show_focused_border(),
             color_tinted_background: false,
             font_size: default_font_size(),

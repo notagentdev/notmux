@@ -9,7 +9,7 @@ use super::{
     Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette, ShowDiffViewer,
     ShowContentSearch, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowProjectSwitcher, ShowSessionManager,
     ShowSettings, ShowThemeSelector, SplitHorizontal, SplitVertical, StartAllServices,
-    StopAllServices, ToggleFullscreen, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
+    StopAllServices, ToggleFileExplorer, ToggleFullscreen, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
     ZoomIn, ZoomOut, EqualizeLayout,
 };
 
@@ -61,6 +61,15 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
             description: "Show or hide the git commit log panel",
             category: "Global",
             factory: || Box::new(ToggleGitPanel),
+        },
+    );
+    map.insert(
+        "ToggleFileExplorer",
+        ActionDescription {
+            name: "Toggle File Explorer",
+            description: "Show or hide the workspace file explorer",
+            category: "Global",
+            factory: || Box::new(ToggleFileExplorer),
         },
     );
     map.insert(

@@ -12,6 +12,9 @@ pub mod folder_context_menu;
 pub mod rename_directory_dialog;
 pub mod hook_log;
 pub mod drag;
+pub mod file_explorer;
+
+pub use file_explorer::FileExplorer;
 
 pub use sidebar::Sidebar;
 
