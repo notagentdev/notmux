@@ -1,4 +1,4 @@
-use crate::keybindings::{Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleSidebar};
+use crate::keybindings::{Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel, ToggleSidebar};
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
 use crate::views::components::menu_item;
@@ -264,6 +264,42 @@ impl TitleBar {
                     })
             })
     }
+
+    /// Render a titlebar icon button that dispatches an action on click.
+    fn render_action_button(
+        &self,
+        id: &'static str,
+        icon_path: &'static str,
+        active: bool,
+        action: Box<dyn gpui::Action>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme(cx);
+        let color = if active { t.term_blue } else { t.text_secondary };
+        div()
+            .id(id)
+            .cursor_pointer()
+            .w(px(28.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(16.0))
+                    .text_color(rgb(color)),
+            )
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                window.dispatch_action(action.boxed_clone(), cx);
+            })
+    }
 }
 
 impl Render for TitleBar {
@@ -305,8 +341,6 @@ impl Render for TitleBar {
             .items_center()
             .justify_between()
             .bg(rgb(t.bg_header))
-            .border_b_1()
-            .border_color(rgb(t.border))
             // Mark titlebar as drag region - GPUI maps this to HTCAPTION on Windows
             // (enabling native snap gestures, unmaximize-on-drag) and platform-native
             // drag on other platforms.
@@ -422,13 +456,39 @@ impl Render for TitleBar {
                 div().flex_1()
             )
             .child(
-                // Right side - window controls
+                // Right side — panel toggles + settings + native window controls
                 h_flex()
-                    .gap(px(8.0))
+                    .gap(px(4.0))
                     .pr(px(4.0))
+                    .items_center()
+                    // Left sidebar toggle
+                    .child(self.render_action_button(
+                        "tb-toggle-sidebar",
+                        "icons/layout-sidebar-left.svg",
+                        self.sidebar_open,
+                        Box::new(ToggleSidebar),
+                        cx,
+                    ))
+                    // Right git panel toggle
+                    .child(self.render_action_button(
+                        "tb-toggle-git-panel",
+                        "icons/layout-sidebar-right.svg",
+                        false,
+                        Box::new(ToggleGitPanel),
+                        cx,
+                    ))
+                    // Settings (far right, before window controls)
+                    .child(self.render_action_button(
+                        "tb-settings",
+                        "icons/settings-gear.svg",
+                        false,
+                        Box::new(ShowSettings),
+                        cx,
+                    ))
                     .when(needs_controls, |d| {
                         d.child(
                             h_flex()
+                                .ml(px(4.0))
                                 .gap(px(2.0))
                                 .child(self.render_window_control(WindowControlType::Minimize, window, cx))
                                 .child(if is_maximized {

@@ -351,14 +351,6 @@ impl ProjectColumn {
             });
 
         v_flex()
-            // Colored accent bar
-            .child(
-                div()
-                    .h(px(1.0))
-                    .w_full()
-                    .flex_shrink_0()
-                    .bg(rgb(folder_color))
-            )
             .child(div()
             .id("project-header")
             .group("project-header")

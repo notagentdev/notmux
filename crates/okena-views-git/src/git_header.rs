@@ -3,7 +3,6 @@
 //!
 //! Extracted from `ProjectColumn` to keep that view thin.
 
-use okena_core::process::open_url;
 use okena_core::types::DiffMode;
 use okena_git::{
     self as git, CommitLogEntry, FileDiffSummary, FileStatus, GitStatus, GraphRow, WorkingFile,
@@ -457,67 +456,6 @@ impl GitHeader {
                     .gap(px(6.0))
                     .text_size(ui_text_sm(cx))
                     .line_height(px(12.0))
-                    // Branch name + PR badge + CI status
-                    .child({
-                        let pr_url = status.pr_info.as_ref().map(|p| p.url.clone());
-                        project_header::render_branch_status(
-                            &status,
-                            pr_url.map(|url| {
-                                move |_: &mut Window, _: &mut App| {
-                                    open_url(&url);
-                                }
-                            }),
-                            t,
-                        )
-                    })
-                    // Commit log button
-                    .child({
-                        let entity_for_bounds = entity_handle.clone();
-                        div()
-                            .id(ElementId::Name(format!("commit-log-btn-{}", project_id).into()))
-                            .relative()
-                            .cursor_pointer()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .w(px(18.0))
-                            .h(px(16.0))
-                            .rounded(px(3.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_click(cx.listener(move |this, _, _window, cx| {
-                                cx.stop_propagation();
-                                this.request_broker.update(cx, |broker, cx| {
-                                    broker.push_overlay_request(
-                                        OverlayRequest::ToggleGitPanel {
-                                            project_id: this.project_id.clone(),
-                                        },
-                                        cx,
-                                    );
-                                });
-                            }))
-                            .child(
-                                svg()
-                                    .path("icons/git-commit.svg")
-                                    .size(px(10.0))
-                                    .text_color(rgb(t.text_muted)),
-                            )
-                            .child(
-                                canvas(
-                                    move |bounds, _window, app| {
-                                        entity_for_bounds.update(app, |this: &mut GitHeader, _cx| {
-                                            this.commit_log_bounds = bounds;
-                                        });
-                                    },
-                                    |_, _, _, _| {},
-                                )
-                                .absolute()
-                                .size_full(),
-                            )
-                            .tooltip(move |_window, cx| Tooltip::new("Commit Log").build(_window, cx))
-                    })
                     // Diff stats (clickable, only if there are changes)
                     .when(has_changes, |d: Div| {
                         let request_broker = self.request_broker.clone();
@@ -663,8 +601,8 @@ impl GitHeader {
             .id("git-panel-content")
             .size_full()
             .bg(rgb(t.bg_primary))
-            // Tab switcher
-            .child(self.render_tab_switcher(t, cx))
+            // Header row with tab-switch buttons
+            .child(self.render_panel_header(t, cx))
             // Active tab content
             .child(match self.active_tab {
                 GitPanelTab::Commit => self.render_commit_tab(t, cx),
@@ -674,84 +612,77 @@ impl GitHeader {
             .into_any_element()
     }
 
-    /// Render a single tab button.
-    fn render_tab_button(
+    /// Render a single header icon-button for switching tabs.
+    fn render_panel_header_button(
         &self,
         id: &'static str,
-        label: &'static str,
+        icon_path: &'static str,
+        tooltip: &'static str,
         target: GitPanelTab,
-        badge: Option<usize>,
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let active = self.active_tab == target;
+        let color = if active { t.term_blue } else { t.text_secondary };
         div()
             .id(id)
-            .flex_1()
-            .px(px(10.0))
-            .py(px(8.0))
-            .cursor_pointer()
+            .w(px(28.0))
+            .h(px(28.0))
             .flex()
             .items_center()
             .justify_center()
-            .gap(px(6.0))
-            .border_b_2()
-            .border_color(rgb(if active { t.border_active } else { 0x00000000 }))
-            .when(!active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+            .rounded(px(4.0))
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .when(active, |d| d.bg(rgb(t.bg_hover)))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(16.0))
+                    .text_color(rgb(color)),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.active_tab = target;
                 cx.notify();
             }))
-            .child(
-                div()
-                    .text_size(ui_text_ms(cx))
-                    .font_weight(if active { FontWeight::SEMIBOLD } else { FontWeight::MEDIUM })
-                    .text_color(rgb(if active { t.text_primary } else { t.text_secondary }))
-                    .child(label),
-            )
-            .when_some(badge.filter(|n| *n > 0), |d, count| {
-                d.child(
-                    div()
-                        .px(px(5.0))
-                        .py(px(0.0))
-                        .rounded(px(8.0))
-                        .bg(rgb(t.bg_hover))
-                        .text_size(ui_text_sm(cx))
-                        .text_color(rgb(t.text_muted))
-                        .child(format!("{}", count)),
-                )
+            .tooltip({
+                let label = tooltip;
+                move |_window, cx| Tooltip::new(label).build(_window, cx)
             })
     }
 
-    /// Render the tab switcher (Commit / Changes / History).
-    /// Zed-style: no count badges, compact tab labels.
-    fn render_tab_switcher(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Panel header — three compact icon-buttons in place of the old tab strip.
+    fn render_panel_header(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
+            .h(px(34.0))
+            .px(px(6.0))
+            .gap(px(2.0))
+            .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
             .bg(rgb(t.bg_header))
-            .child(self.render_tab_button(
-                "git-tab-commit",
+            .child(self.render_panel_header_button(
+                "git-btn-commit",
+                "icons/git-commit.svg",
                 "Commit",
                 GitPanelTab::Commit,
-                None,
                 t,
                 cx,
             ))
-            .child(self.render_tab_button(
-                "git-tab-changes",
+            .child(self.render_panel_header_button(
+                "git-btn-changes",
+                "icons/diff-multiple.svg",
                 "Changes",
                 GitPanelTab::Changes,
-                None,
                 t,
                 cx,
             ))
-            .child(self.render_tab_button(
-                "git-tab-history",
+            .child(self.render_panel_header_button(
+                "git-btn-history",
+                "icons/history.svg",
                 "History",
                 GitPanelTab::History,
-                None,
                 t,
                 cx,
             ))

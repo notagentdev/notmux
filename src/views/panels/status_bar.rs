@@ -1,8 +1,7 @@
-use crate::keybindings::ToggleSidebar;
 use crate::settings::settings_entity;
 use crate::theme::theme;
 use crate::workspace::state::Workspace;
-use crate::ui::tokens::{ui_text_ms, ui_text_sm, ui_text_xl};
+use crate::ui::tokens::{ui_text_ms, ui_text_sm};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
@@ -274,31 +273,9 @@ impl Render for StatusBar {
             .border_t_1()
             .border_color(rgb(t.border))
             .text_size(ui_text_ms(cx))
-            // Left side - sidebar toggle (macOS only) + system stats
+            // Left side — system stats (sidebar toggle now lives in the titlebar)
             .child({
                 let mut left = h_flex().gap(px(16.0))
-                    // On macOS, sidebar toggle lives in the status bar footer
-                    .when(cfg!(target_os = "macos"), |d| {
-                        d.child(
-                            div()
-                                .id("sidebar-toggle")
-                                .cursor_pointer()
-                                .px(px(4.0))
-                                .py(px(2.0))
-                                .rounded(px(4.0))
-                                .hover(|s| s.bg(rgb(t.bg_hover)))
-                                .text_size(ui_text_xl(cx))
-                                .text_color(if self.sidebar_open {
-                                    rgb(t.term_blue)
-                                } else {
-                                    rgb(t.text_secondary)
-                                })
-                                .child("☰")
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(Box::new(ToggleSidebar), cx);
-                                }),
-                        )
-                    })
                     // CPU
                     .child(
                         h_flex()

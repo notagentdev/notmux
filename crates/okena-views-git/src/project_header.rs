@@ -53,19 +53,37 @@ impl CiStatusColor for CiStatus {
 // ── Graph rendering constants ───────────────────────────────────────────────
 
 /// Width of each graph character column in pixels.
-pub const GRAPH_CELL_W: f32 = 10.0;
+pub const GRAPH_CELL_W: f32 = 14.0;
 /// Thickness of railway lines.
 pub const RAIL_W: f32 = 2.0;
 /// Diameter of commit dots.
-pub const DOT_SIZE: f32 = 8.0;
+pub const DOT_SIZE: f32 = 10.0;
 /// Commit row height.
 pub const COMMIT_ROW_H: f32 = 24.0;
 /// Connector row height.
 pub const CONNECTOR_ROW_H: f32 = 10.0;
-/// Diameter of each mini-dot making up a dotted vertical rail.
+/// Diameter of each mini-dot making up the dotted vertical rail.
 const RAIL_DOT_SIZE: f32 = 2.0;
-/// Vertical spacing between centers of rail dots.
+/// Vertical spacing between rail-dot centers (dot + gap).
 const RAIL_DOT_PITCH: f32 = 4.0;
+/// Gap between the commit node and the rail on each side.
+const NODE_RAIL_GAP: f32 = 1.0;
+/// Stroke width of the hollow HEAD ring.
+const HEAD_RING_STROKE: f32 = 2.0;
+
+/// Per-row render flags for the graph column.
+#[derive(Default, Clone, Copy)]
+pub struct GraphRowOpts {
+    /// Suppress rail above the row's vertical center. Set for the first
+    /// visible row so no rail pokes out above the top commit.
+    pub skip_above_center: bool,
+    /// Suppress rail below the vertical center. Set for the last visible
+    /// row so no rail hangs off the bottom commit.
+    pub skip_below_center: bool,
+    /// Render the commit node as a hollow ring instead of a filled circle
+    /// (VS Code's convention for HEAD).
+    pub is_head: bool,
+}
 
 /// Lane color palette for graph railways.
 const LANE_COLORS: &[fn(&ThemeColors) -> u32] = &[
@@ -86,7 +104,13 @@ fn lane_color(lane_idx: usize, t: &ThemeColors) -> u32 {
 /// Render graph prefix as a single relatively-positioned container with
 /// absolutely-positioned railway elements. This ensures lines connect
 /// across lane centers regardless of character cell boundaries.
-pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeColors) -> Div {
+pub fn render_graph_column(
+    graph: &str,
+    max_len: usize,
+    row_h: f32,
+    opts: GraphRowOpts,
+    t: &ThemeColors,
+) -> Div {
     let padded: String = if graph.len() < max_len {
         format!("{:<width$}", graph, width = max_len)
     } else {
@@ -99,21 +123,28 @@ pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeCol
     };
 
     let mid_y = (row_h - RAIL_W) / 2.0;
+    let row_center_y = row_h / 2.0;
 
     let mut elements: Vec<AnyElement> = Vec::new();
 
     // Build a dotted vertical rail for a single lane. Renders a column of
-    // small circles along `[y_start, y_end)` — mirrors VS Code's git graph
-    // which uses a dashed/dotted line between commit nodes instead of a
-    // solid line.
+    // small dots along `[y_start, y_end)` using the full lane color so the
+    // trail stays visible against the background but doesn't drown out the
+    // more prominent commit circles.
     let push_dotted_rail = |elements: &mut Vec<AnyElement>,
                             pos: usize,
                             color: u32,
                             y_start: f32,
                             y_end: f32| {
-        let rail_center_x = pos as f32 * GRAPH_CELL_W
-            + (GRAPH_CELL_W - RAIL_DOT_SIZE) / 2.0;
-        let mut y = y_start;
+        if y_end <= y_start + 0.01 {
+            return;
+        }
+        let rail_center_x =
+            pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - RAIL_DOT_SIZE) / 2.0;
+        // Align dots to a stable grid so consecutive rows render a
+        // continuous dashed line instead of shifting per row.
+        let first_y = (y_start / RAIL_DOT_PITCH).ceil() * RAIL_DOT_PITCH;
+        let mut y = first_y;
         while y + RAIL_DOT_SIZE <= y_end + 0.01 {
             elements.push(
                 div()
@@ -130,41 +161,76 @@ pub fn render_graph_column(graph: &str, max_len: usize, row_h: f32, t: &ThemeCol
         }
     };
 
+    // Clip the full-row range `[0, row_h]` to the visible portion based on
+    // the current row's top/bottom clipping flags (first/last row in view).
+    let clip_range = |y_start: f32, y_end: f32| -> Option<(f32, f32)> {
+        let mut s = y_start;
+        let mut e = y_end;
+        if opts.skip_above_center {
+            s = s.max(row_center_y);
+        }
+        if opts.skip_below_center {
+            e = e.min(row_center_y);
+        }
+        if e > s { Some((s, e)) } else { None }
+    };
+
     for (pos, ch) in padded.chars().enumerate() {
         let lane_idx = pos / 2;
         let color = lane_color(lane_idx, t);
 
         match ch {
             '|' => {
-                // Dotted vertical rail across the whole row.
-                push_dotted_rail(&mut elements, pos, color, 0.0, row_h);
+                // Passing-through rail — clipped if this is the first/last row.
+                if let Some((s, e)) = clip_range(0.0, row_h) {
+                    push_dotted_rail(&mut elements, pos, color, s, e);
+                }
             }
             '*' => {
-                // Dotted rail above and below the commit dot so the dashes
-                // appear to tuck into the node (leaves a small gap around it).
                 let dot_y = (row_h - DOT_SIZE) / 2.0;
-                let gap = 1.0;
-                push_dotted_rail(&mut elements, pos, color, 0.0, dot_y - gap);
-                push_dotted_rail(
-                    &mut elements,
-                    pos,
-                    color,
-                    dot_y + DOT_SIZE + gap,
-                    row_h,
-                );
-                // Filled commit node.
+                // Rail above the commit node (suppressed on the top row).
+                if !opts.skip_above_center {
+                    push_dotted_rail(&mut elements, pos, color, 0.0, dot_y - NODE_RAIL_GAP);
+                }
+                // Rail below (suppressed on the bottom row).
+                if !opts.skip_below_center {
+                    push_dotted_rail(
+                        &mut elements,
+                        pos,
+                        color,
+                        dot_y + DOT_SIZE + NODE_RAIL_GAP,
+                        row_h,
+                    );
+                }
+                // Commit node: hollow ring for HEAD, filled circle otherwise.
                 let dot_x = pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - DOT_SIZE) / 2.0;
-                elements.push(
-                    div()
-                        .absolute()
-                        .left(px(dot_x))
-                        .top(px(dot_y))
-                        .w(px(DOT_SIZE))
-                        .h(px(DOT_SIZE))
-                        .rounded(px(DOT_SIZE / 2.0))
-                        .bg(rgb(color))
-                        .into_any_element(),
-                );
+                if opts.is_head {
+                    elements.push(
+                        div()
+                            .absolute()
+                            .left(px(dot_x))
+                            .top(px(dot_y))
+                            .w(px(DOT_SIZE))
+                            .h(px(DOT_SIZE))
+                            .rounded(px(DOT_SIZE / 2.0))
+                            .border(px(HEAD_RING_STROKE))
+                            .border_color(rgb(color))
+                            .bg(rgb(t.bg_primary))
+                            .into_any_element(),
+                    );
+                } else {
+                    elements.push(
+                        div()
+                            .absolute()
+                            .left(px(dot_x))
+                            .top(px(dot_y))
+                            .w(px(DOT_SIZE))
+                            .h(px(DOT_SIZE))
+                            .rounded(px(DOT_SIZE / 2.0))
+                            .bg(rgb(color))
+                            .into_any_element(),
+                    );
+                }
             }
             '\\' => {
                 // Fork: S-curve from left lane (top) to right lane (bottom)
@@ -301,12 +367,14 @@ pub fn render_ref_label(ref_name: &str, t: &ThemeColors, cx: &App) -> AnyElement
 /// `on_commit_click` is called with `(commit_hash, commit_message, commit_index)`
 /// when the user clicks a commit row.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 pub fn render_graph_row(
     row: &GraphRow,
     index: usize,
     max_graph_len: usize,
     all_commits: &[CommitLogEntry],
     on_commit_click: Option<Arc<dyn Fn(&str, &str, usize, &mut Window, &mut App)>>,
+    opts: GraphRowOpts,
     t: &ThemeColors,
     cx: &App,
 ) -> AnyElement {
@@ -322,7 +390,7 @@ pub fn render_graph_row(
                 .cursor_pointer()
                 .hover(|s| s.bg(rgb(t.bg_hover)))
                 .child(
-                    render_graph_column(&entry.graph, max_graph_len, COMMIT_ROW_H, t)
+                    render_graph_column(&entry.graph, max_graph_len, COMMIT_ROW_H, opts, t)
                         .w(px(graph_width))
                         .h(px(COMMIT_ROW_H)),
                 )
@@ -373,7 +441,7 @@ pub fn render_graph_row(
             .pl(px(4.0))
             .h(px(CONNECTOR_ROW_H))
             .child(
-                render_graph_column(graph, max_graph_len, CONNECTOR_ROW_H, t)
+                render_graph_column(graph, max_graph_len, CONNECTOR_ROW_H, opts, t)
                     .w(px(graph_width))
                     .h(px(CONNECTOR_ROW_H)),
             )
@@ -385,7 +453,7 @@ pub fn render_graph_row(
 ///
 /// `on_commit_click` is called with `(commit_hash, commit_message, commit_index)`
 /// when the user clicks on a commit row.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn render_commit_log_content(
     entries: &[GraphRow],
     loading: bool,
@@ -442,13 +510,38 @@ pub fn render_commit_log_content(
         })
         .collect();
 
+    // Locate the first and last commit rows so rail drawing can be clipped
+    // above the first and below the last — otherwise dashes extend off the
+    // top/bottom of the visible log like a headless/tailless line.
+    let first_commit_idx = entries
+        .iter()
+        .position(|r| matches!(r, GraphRow::Commit(_)));
+    let last_commit_idx = entries
+        .iter()
+        .rposition(|r| matches!(r, GraphRow::Commit(_)));
+
     div()
-        .children(
-            entries
-                .iter()
-                .enumerate()
-                .map(|(i, row)| render_graph_row(row, i, max_graph_len, &all_commits, on_commit_click.clone(), t, cx)),
-        )
+        .children(entries.iter().enumerate().map(|(i, row)| {
+            let before_first = first_commit_idx.is_none_or(|f| i < f);
+            let after_last = last_commit_idx.is_none_or(|l| i > l);
+            let is_first_commit_row = Some(i) == first_commit_idx;
+            let is_last_commit_row = Some(i) == last_commit_idx;
+            let opts = GraphRowOpts {
+                skip_above_center: is_first_commit_row || before_first,
+                skip_below_center: is_last_commit_row || after_last,
+                is_head: is_first_commit_row,
+            };
+            render_graph_row(
+                row,
+                i,
+                max_graph_len,
+                &all_commits,
+                on_commit_click.clone(),
+                opts,
+                t,
+                cx,
+            )
+        }))
         .when(loading, |d| {
             d.child(
                 div()
