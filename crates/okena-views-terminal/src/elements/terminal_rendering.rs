@@ -123,17 +123,6 @@ impl LayoutRect {
 }
 
 /// Check if a color is the default background (should be transparent)
-pub(crate) fn is_default_bg(color: &Color, t: &ThemeColors) -> bool {
-    match color {
-        Color::Named(NamedColor::Background) => true,
-        Color::Indexed(idx) if *idx == 0 => false, // Black is not default bg
-        Color::Spec(rgb_color) => {
-            // Check if it matches the theme's terminal background
-            let bg_r = ((t.term_background >> 16) & 0xFF) as u8;
-            let bg_g = ((t.term_background >> 8) & 0xFF) as u8;
-            let bg_b = (t.term_background & 0xFF) as u8;
-            rgb_color.r == bg_r && rgb_color.g == bg_g && rgb_color.b == bg_b
-        }
-        _ => false,
-    }
+pub(crate) fn is_default_bg(color: &Color, _t: &ThemeColors) -> bool {
+    matches!(color, Color::Named(NamedColor::Background))
 }

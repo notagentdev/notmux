@@ -22,7 +22,7 @@
     "terminal.ansiWhite": "#F8F8F2",
     "contrastBorder": null,
     "contrastActiveBorder": null,
-    "focusBorder": "#6272A4",
+    "focusBorder": "#FF79C6",
     "foreground": "#F8F8F2",
     "widget.shadow": null,
     "selection.background": "#BD93F9",

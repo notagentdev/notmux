@@ -51,6 +51,29 @@ pub fn is_resize_authority_local() -> bool {
     LAST_LOCAL_SEQ.load(Ordering::Relaxed) >= LAST_REMOTE_SEQ.load(Ordering::Relaxed)
 }
 
+/// Resolver for OSC color queries (OSC 4/10/11/12). Returns packed 0xRRGGBB.
+/// Index meaning matches alacritty: 0..=255 ANSI palette, 256 fg, 257 bg, 258 cursor.
+/// Registered by the host app so the terminal can answer queries like `OSC 11 ; ? ST`
+/// from apps that theme themselves to the terminal background.
+static COLOR_RESOLVER: OnceLock<Arc<dyn Fn(usize) -> u32 + Send + Sync>> = OnceLock::new();
+
+pub fn register_color_resolver(resolver: Arc<dyn Fn(usize) -> u32 + Send + Sync>) {
+    let _ = COLOR_RESOLVER.set(resolver);
+}
+
+fn resolve_osc_color(index: usize) -> u32 {
+    if let Some(resolver) = COLOR_RESOLVER.get() {
+        return resolver(index);
+    }
+    // Fallback to xterm defaults if no resolver registered.
+    match index {
+        256 => 0xcccccc, // foreground
+        257 => 0x1e1e1e, // background
+        258 => 0xaeafad, // cursor
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 fn reset_resize_authority() {
     RESIZE_AUTH_SEQ.store(0, Ordering::Relaxed);
@@ -118,6 +141,16 @@ impl EventListener for ZedEventListener {
                 // Write response back to PTY (e.g., cursor position report)
                 log::debug!("PtyWrite event: {:?}", data);
                 self.transport.send_input(&self.terminal_id, data.as_bytes());
+            }
+            TermEvent::ColorRequest(index, format) => {
+                let hex = resolve_osc_color(index);
+                let rgb = alacritty_terminal::vte::ansi::Rgb {
+                    r: ((hex >> 16) & 0xFF) as u8,
+                    g: ((hex >> 8) & 0xFF) as u8,
+                    b: (hex & 0xFF) as u8,
+                };
+                let response = format(rgb);
+                self.transport.send_input(&self.terminal_id, response.as_bytes());
             }
             _ => {
                 // Ignore other events

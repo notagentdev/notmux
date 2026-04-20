@@ -439,6 +439,8 @@ impl Render for TitleBar {
             .child(
                 // Left side - sidebar toggle + title
                 h_flex()
+                    .h_full()
+                    .items_center()
                     .gap(px(8.0))
                     .pl(traffic_light_padding)
                     // On macOS, sidebar toggle lives in the sidebar footer instead
@@ -514,6 +516,7 @@ impl Render for TitleBar {
                 // search field. Two flex_1 spacers around the field keep it
                 // centred even when the left/right halves grow asymmetrically.
                 h_flex()
+                    .h_full()
                     .flex_1()
                     .px(px(8.0))
                     .items_center()
@@ -524,6 +527,7 @@ impl Render for TitleBar {
             .child(
                 // Right side — panel toggles + settings + native window controls
                 h_flex()
+                    .h_full()
                     .gap(px(4.0))
                     .pr(px(4.0))
                     .items_center()

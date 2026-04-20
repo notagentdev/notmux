@@ -100,8 +100,28 @@ pub struct CustomThemeColors {
     pub term_bright_cyan: String,
     #[serde(default = "default_term_bright_white")]
     pub term_bright_white: String,
+    #[serde(default = "default_term_dim_black")]
+    pub term_dim_black: String,
+    #[serde(default = "default_term_dim_red")]
+    pub term_dim_red: String,
+    #[serde(default = "default_term_dim_green")]
+    pub term_dim_green: String,
+    #[serde(default = "default_term_dim_yellow")]
+    pub term_dim_yellow: String,
+    #[serde(default = "default_term_dim_blue")]
+    pub term_dim_blue: String,
+    #[serde(default = "default_term_dim_magenta")]
+    pub term_dim_magenta: String,
+    #[serde(default = "default_term_dim_cyan")]
+    pub term_dim_cyan: String,
+    #[serde(default = "default_term_dim_white")]
+    pub term_dim_white: String,
     #[serde(default = "default_term_foreground")]
     pub term_foreground: String,
+    #[serde(default = "default_term_bright_foreground")]
+    pub term_bright_foreground: String,
+    #[serde(default = "default_term_dim_foreground")]
+    pub term_dim_foreground: String,
     #[serde(default = "default_term_background")]
     pub term_background: String,
     #[serde(default = "default_term_background_unfocused")]
@@ -214,7 +234,17 @@ fn default_term_bright_blue() -> String { "#3b8eea".to_string() }
 fn default_term_bright_magenta() -> String { "#d670d6".to_string() }
 fn default_term_bright_cyan() -> String { "#29b8db".to_string() }
 fn default_term_bright_white() -> String { "#ffffff".to_string() }
+fn default_term_dim_black() -> String { "#333333".to_string() }
+fn default_term_dim_red() -> String { "#8b2525".to_string() }
+fn default_term_dim_green() -> String { "#0b8c5a".to_string() }
+fn default_term_dim_yellow() -> String { "#aba90a".to_string() }
+fn default_term_dim_blue() -> String { "#1c5a9e".to_string() }
+fn default_term_dim_magenta() -> String { "#8b2e8b".to_string() }
+fn default_term_dim_cyan() -> String { "#0c84a2".to_string() }
+fn default_term_dim_white() -> String { "#999999".to_string() }
 fn default_term_foreground() -> String { "#cccccc".to_string() }
+fn default_term_bright_foreground() -> String { "#ffffff".to_string() }
+fn default_term_dim_foreground() -> String { "#808080".to_string() }
 fn default_term_background() -> String { "#1e1e1e".to_string() }
 fn default_term_background_unfocused() -> String { "#252526".to_string() }
 fn default_cursor() -> String { "#aeafad".to_string() }
@@ -291,7 +321,17 @@ impl CustomThemeColors {
             term_bright_magenta: Self::parse_hex(&self.term_bright_magenta),
             term_bright_cyan: Self::parse_hex(&self.term_bright_cyan),
             term_bright_white: Self::parse_hex(&self.term_bright_white),
+            term_dim_black: Self::parse_hex(&self.term_dim_black),
+            term_dim_red: Self::parse_hex(&self.term_dim_red),
+            term_dim_green: Self::parse_hex(&self.term_dim_green),
+            term_dim_yellow: Self::parse_hex(&self.term_dim_yellow),
+            term_dim_blue: Self::parse_hex(&self.term_dim_blue),
+            term_dim_magenta: Self::parse_hex(&self.term_dim_magenta),
+            term_dim_cyan: Self::parse_hex(&self.term_dim_cyan),
+            term_dim_white: Self::parse_hex(&self.term_dim_white),
             term_foreground: Self::parse_hex(&self.term_foreground),
+            term_bright_foreground: Self::parse_hex(&self.term_bright_foreground),
+            term_dim_foreground: Self::parse_hex(&self.term_dim_foreground),
             term_background: Self::parse_hex(&self.term_background),
             term_background_unfocused: Self::parse_hex(&self.term_background_unfocused),
             cursor: Self::parse_hex(&self.cursor),
@@ -389,7 +429,17 @@ pub fn load_custom_themes() -> Vec<(ThemeInfo, ThemeColors)> {
                 term_bright_magenta: "#ff9cfe".to_string(),
                 term_bright_cyan: "#dfdffe".to_string(),
                 term_bright_white: "#ffffff".to_string(),
+                term_dim_black: "#2a2a2a".to_string(),
+                term_dim_red: "#b8564a".to_string(),
+                term_dim_green: "#84c84c".to_string(),
+                term_dim_yellow: "#cccc8c".to_string(),
+                term_dim_blue: "#6da3cc".to_string(),
+                term_dim_magenta: "#cc5ccc".to_string(),
+                term_dim_cyan: "#9e9dcc".to_string(),
+                term_dim_white: "#bbbbbb".to_string(),
                 term_foreground: "#bbbbbb".to_string(),
+                term_bright_foreground: "#eeeeee".to_string(),
+                term_dim_foreground: "#888888".to_string(),
                 term_background: "#000000".to_string(),
                 term_background_unfocused: "#111111".to_string(),
                 cursor: "#ffa560".to_string(),

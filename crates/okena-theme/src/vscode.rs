@@ -175,6 +175,25 @@ fn ensure_visible_border(candidate: u32, bg: u32, text: u32) -> u32 {
     blend_over(text, 0x26, bg)
 }
 
+/// Like `ensure_visible_border`, but also caps the *upper* contrast bound.
+/// Passive dividers (the main `border` slot — tab-bar bottom, panel edges,
+/// sidebar boundaries) should read as quiet separators, not accent rails.
+/// When a theme parks its accent in `panel.border` (Dracula: `#BD93F9`),
+/// this collapses the too-loud candidate to a neutral text-over-bg blend.
+/// Themes with a properly subtle `panel.border` (Poimandres' `#00000030`)
+/// land inside the contrast window and pass through untouched.
+fn ensure_subtle_border(candidate: u32, bg: u32, text: u32) -> u32 {
+    const MIN_DELTA: u32 = 12;
+    const MAX_DELTA: u32 = 60;
+    let bg_luma = luma(bg);
+    let cand_luma = luma(candidate);
+    let delta = bg_luma.abs_diff(cand_luma);
+    if (MIN_DELTA..=MAX_DELTA).contains(&delta) {
+        return candidate;
+    }
+    blend_over(text, 0x26, bg)
+}
+
 /// Normalize JSONC into strict JSON: strip `//` and `/* */` comments,
 /// and remove trailing commas before `}` or `]`. String literals are respected.
 pub(crate) fn strip_jsonc(input: &str) -> String {
@@ -414,7 +433,7 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         "tab.border",
     ])
     .unwrap_or(fallback.border);
-    let border = ensure_visible_border(border_raw, bg_primary, text_primary);
+    let border = ensure_subtle_border(border_raw, bg_primary, text_primary);
     // "Active" accent: the color drawn for selected tabs, cursor-row indicators,
     // primary action borders. Zed's converter uses `focusBorder` here.
     let border_active_raw = look(&[
@@ -482,8 +501,20 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     let term_bright_white =
         look(&["terminal.ansiBrightWhite"]).unwrap_or(fallback.term_bright_white);
 
+    // Dim ANSI colors — VSCode JSON has no dim slots, so always the theme fallback.
+    let term_dim_black = fallback.term_dim_black;
+    let term_dim_red = fallback.term_dim_red;
+    let term_dim_green = fallback.term_dim_green;
+    let term_dim_yellow = fallback.term_dim_yellow;
+    let term_dim_blue = fallback.term_dim_blue;
+    let term_dim_magenta = fallback.term_dim_magenta;
+    let term_dim_cyan = fallback.term_dim_cyan;
+    let term_dim_white = fallback.term_dim_white;
+
     let term_foreground =
         look(&["terminal.foreground", "foreground"]).unwrap_or(fallback.term_foreground);
+    let term_bright_foreground = fallback.term_bright_foreground;
+    let term_dim_foreground = fallback.term_dim_foreground;
     let term_background =
         look(&["terminal.background", "editor.background"]).unwrap_or(fallback.term_background);
     let term_background_unfocused = look(&["terminal.background", "editor.background"])
@@ -597,7 +628,17 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         term_bright_magenta,
         term_bright_cyan,
         term_bright_white,
+        term_dim_black,
+        term_dim_red,
+        term_dim_green,
+        term_dim_yellow,
+        term_dim_blue,
+        term_dim_magenta,
+        term_dim_cyan,
+        term_dim_white,
         term_foreground,
+        term_bright_foreground,
+        term_dim_foreground,
         term_background,
         term_background_unfocused,
         cursor,

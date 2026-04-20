@@ -5,7 +5,6 @@ use okena_ui::theme::ansi_to_hsla;
 use okena_ui::color_utils::tint_color;
 use okena_workspace::settings::CursorShape;
 use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::vte::ansi::{Color, NamedColor};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::grid::Dimensions;
 use gpui::*;
@@ -361,21 +360,6 @@ impl Element for TerminalElement {
 
                     let mut fg = cell.fg;
                     let mut bg = cell.bg;
-
-                    if cell.flags.contains(Flags::BOLD) {
-                        fg = match fg {
-                            Color::Named(NamedColor::Black) => Color::Named(NamedColor::BrightBlack),
-                            Color::Named(NamedColor::Red) => Color::Named(NamedColor::BrightRed),
-                            Color::Named(NamedColor::Green) => Color::Named(NamedColor::BrightGreen),
-                            Color::Named(NamedColor::Yellow) => Color::Named(NamedColor::BrightYellow),
-                            Color::Named(NamedColor::Blue) => Color::Named(NamedColor::BrightBlue),
-                            Color::Named(NamedColor::Magenta) => Color::Named(NamedColor::BrightMagenta),
-                            Color::Named(NamedColor::Cyan) => Color::Named(NamedColor::BrightCyan),
-                            Color::Named(NamedColor::White) => Color::Named(NamedColor::BrightWhite),
-                            Color::Indexed(idx @ 0..=7) => Color::Indexed(idx + 8),
-                            other => other,
-                        };
-                    }
 
                     if cell.flags.contains(Flags::INVERSE) {
                         std::mem::swap(&mut fg, &mut bg);

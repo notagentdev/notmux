@@ -529,6 +529,45 @@ fn main() {
         });
         cx.set_global(GlobalTheme(theme_entity.clone()));
 
+        // OSC color query resolver — reads a snapshot kept in sync with the active theme
+        // so terminal apps querying `OSC 10/11/4 ; ? ST` get the real terminal colors.
+        {
+            use parking_lot::Mutex as PLMutex;
+            let snapshot = Arc::new(PLMutex::new(theme_entity.read(cx).display_colors()));
+            {
+                let snap = snapshot.clone();
+                cx.observe(&theme_entity, move |entity, cx| {
+                    *snap.lock() = entity.read(cx).display_colors();
+                })
+                .detach();
+            }
+            okena_terminal::terminal::register_color_resolver(Arc::new(move |index: usize| {
+                let t = snapshot.lock();
+                match index {
+                    0 => t.term_black,
+                    1 => t.term_red,
+                    2 => t.term_green,
+                    3 => t.term_yellow,
+                    4 => t.term_blue,
+                    5 => t.term_magenta,
+                    6 => t.term_cyan,
+                    7 => t.term_white,
+                    8 => t.term_bright_black,
+                    9 => t.term_bright_red,
+                    10 => t.term_bright_green,
+                    11 => t.term_bright_yellow,
+                    12 => t.term_bright_blue,
+                    13 => t.term_bright_magenta,
+                    14 => t.term_bright_cyan,
+                    15 => t.term_bright_white,
+                    256 => t.term_foreground,
+                    257 => t.term_background,
+                    258 => t.cursor,
+                    _ => t.term_foreground,
+                }
+            }));
+        }
+
         // Register theme provider for okena-files crate
         cx.set_global(okena_files::theme::GlobalThemeProvider(|cx| {
             crate::theme::theme(cx)
@@ -557,7 +596,13 @@ fn main() {
                     Some(TitlebarOptions {
                         title: Some("Okena".into()),
                         appears_transparent: true,
-                        ..Default::default()
+                        // Vertically centre the macOS traffic-light buttons in
+                        // our 42 px titlebar. Default position sits them at the
+                        // top, leaving them off-axis vs. our own action icons.
+                        traffic_light_position: Some(Point {
+                            x: px(13.0),
+                            y: px(14.0),
+                        }),
                     })
                 },
                 window_bounds: Some(WindowBounds::Windowed(Bounds {

@@ -47,7 +47,17 @@ pub struct ThemeColors {
     pub term_bright_magenta: u32,
     pub term_bright_cyan: u32,
     pub term_bright_white: u32,
+    pub term_dim_black: u32,
+    pub term_dim_red: u32,
+    pub term_dim_green: u32,
+    pub term_dim_yellow: u32,
+    pub term_dim_blue: u32,
+    pub term_dim_magenta: u32,
+    pub term_dim_cyan: u32,
+    pub term_dim_white: u32,
     pub term_foreground: u32,
+    pub term_bright_foreground: u32,
+    pub term_dim_foreground: u32,
     pub term_background: u32,
     pub term_background_unfocused: u32,
 
@@ -134,7 +144,17 @@ pub const DARK_THEME: ThemeColors = ThemeColors {
     term_bright_magenta: 0xd670d6,
     term_bright_cyan: 0x29b8db,
     term_bright_white: 0xffffff,
+    term_dim_black: 0x333333,
+    term_dim_red: 0x8b2525,
+    term_dim_green: 0x0b8c5a,
+    term_dim_yellow: 0xaba90a,
+    term_dim_blue: 0x1c5a9e,
+    term_dim_magenta: 0x8b2e8b,
+    term_dim_cyan: 0x0c84a2,
+    term_dim_white: 0x999999,
     term_foreground: 0xcccccc,
+    term_bright_foreground: 0xffffff,
+    term_dim_foreground: 0x808080,
     term_background: 0x1e1e1e,
     term_background_unfocused: 0x252526,
     cursor: 0xaeafad,
@@ -204,7 +224,17 @@ pub const LIGHT_THEME: ThemeColors = ThemeColors {
     term_bright_magenta: 0xbc05bc,
     term_bright_cyan: 0x0598bc,
     term_bright_white: 0xa5a5a5,
+    term_dim_black: 0x4a4a4a,
+    term_dim_red: 0xa02828,
+    term_dim_green: 0x007a00,
+    term_dim_yellow: 0x757500,
+    term_dim_blue: 0x03407f,
+    term_dim_magenta: 0x96048f,
+    term_dim_cyan: 0x04789d,
+    term_dim_white: 0x909090,
     term_foreground: 0x333333,
+    term_bright_foreground: 0x000000,
+    term_dim_foreground: 0x666666,
     term_background: 0xffffff,
     term_background_unfocused: 0xf3f3f3,
     cursor: 0x000000,
@@ -274,7 +304,17 @@ pub const PASTEL_DARK_THEME: ThemeColors = ThemeColors {
     term_bright_magenta: 0xff9cfe,
     term_bright_cyan: 0xdfdffe,
     term_bright_white: 0xffffff,
+    term_dim_black: 0x2a2a2a,
+    term_dim_red: 0xb8564a,
+    term_dim_green: 0x84c84c,
+    term_dim_yellow: 0xcccc8c,
+    term_dim_blue: 0x6da3cc,
+    term_dim_magenta: 0xcc5ccc,
+    term_dim_cyan: 0x9e9dcc,
+    term_dim_white: 0xbbbbbb,
     term_foreground: 0xbbbbbb,
+    term_bright_foreground: 0xeeeeee,
+    term_dim_foreground: 0x888888,
     term_background: 0x000000,
     term_background_unfocused: 0x1a1a1a,
     cursor: 0xffa560,
@@ -344,7 +384,17 @@ pub const HIGH_CONTRAST_THEME: ThemeColors = ThemeColors {
     term_bright_magenta: 0xff66ff,
     term_bright_cyan: 0x66ffff,
     term_bright_white: 0xffffff,
+    term_dim_black: 0x333333,
+    term_dim_red: 0xcc0000,
+    term_dim_green: 0x00cc00,
+    term_dim_yellow: 0xcccc00,
+    term_dim_blue: 0x0066cc,
+    term_dim_magenta: 0xcc00cc,
+    term_dim_cyan: 0x00cccc,
+    term_dim_white: 0xcccccc,
     term_foreground: 0xffffff,
+    term_bright_foreground: 0xffffff,
+    term_dim_foreground: 0xcccccc,
     term_background: 0x000000,
     term_background_unfocused: 0x1a1a1a,
     cursor: 0xffffff,
@@ -435,10 +485,19 @@ impl ThemeColors {
             NamedColor::BrightMagenta => self.term_bright_magenta,
             NamedColor::BrightCyan => self.term_bright_cyan,
             NamedColor::BrightWhite => self.term_bright_white,
+            NamedColor::DimBlack => self.term_dim_black,
+            NamedColor::DimRed => self.term_dim_red,
+            NamedColor::DimGreen => self.term_dim_green,
+            NamedColor::DimYellow => self.term_dim_yellow,
+            NamedColor::DimBlue => self.term_dim_blue,
+            NamedColor::DimMagenta => self.term_dim_magenta,
+            NamedColor::DimCyan => self.term_dim_cyan,
+            NamedColor::DimWhite => self.term_dim_white,
             NamedColor::Foreground => self.term_foreground,
+            NamedColor::BrightForeground => self.term_bright_foreground,
+            NamedColor::DimForeground => self.term_dim_foreground,
             NamedColor::Background => self.term_background,
             NamedColor::Cursor => self.cursor,
-            _ => self.term_foreground,
         }
     }
 
@@ -479,11 +538,13 @@ impl ThemeColors {
                     };
                     0xFF000000 | self.get_term_color(&named)
                 } else if idx < 232 {
+                    // xterm 6x6x6 cube: component == 0 ? 0 : component * 40 + 55
                     let i = idx - 16;
-                    let r = (i / 36) * 51;
-                    let g = ((i / 6) % 6) * 51;
-                    let b = (i % 6) * 51;
-                    0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+                    let step = |c: usize| if c == 0 { 0u32 } else { (c as u32) * 40 + 55 };
+                    let r = step(i / 36);
+                    let g = step((i / 6) % 6);
+                    let b = step(i % 6);
+                    0xFF000000 | (r << 16) | (g << 8) | b
                 } else {
                     let gray = ((idx - 232) * 10 + 8) as u32;
                     0xFF000000 | (gray << 16) | (gray << 8) | gray
