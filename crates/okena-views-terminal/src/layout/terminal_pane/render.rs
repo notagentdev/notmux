@@ -5,8 +5,9 @@ use okena_core::api::ActionRequest;
 use crate::actions::{
     AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextTerminal,
     FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
-    MinimizeTerminal, Paste, ResetZoom, Search, SearchNext, SearchPrev, SendBacktab, SendEscape,
-    SendTab, SplitHorizontal, SplitVertical, ToggleFullscreen, ZoomIn, ZoomOut,
+    MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev,
+    SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical, ToggleFullscreen, ZoomIn,
+    ZoomOut,
 };
 use crate::terminal_view_settings;
 use okena_files::theme::theme;
@@ -130,6 +131,14 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             .on_action(cx.listener(|this, _: &FocusDown, window, cx| { this.handle_navigation(NavigationDirection::Down, window, cx); }))
             .on_action(cx.listener(|this, _: &FocusNextTerminal, window, cx| { this.handle_sequential_navigation(true, window, cx); }))
             .on_action(cx.listener(|this, _: &FocusPrevTerminal, window, cx| { this.handle_sequential_navigation(false, window, cx); }))
+            .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
+                if let Some(ref terminal) = this.terminal { terminal.scroll_up(5); }
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
+                if let Some(ref terminal) = this.terminal { terminal.scroll_down(5); }
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &SendTab, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\t"); } }))
             .on_action(cx.listener(|this, _: &SendBacktab, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\x1b[Z"); } }))
             .on_action(cx.listener(|this, _: &SendEscape, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\x1b"); } }))

@@ -27,8 +27,6 @@ actions!(
         CreateWorktree,
         ClearFocus,
         FocusActiveProject,
-        ScrollUp,
-        ScrollDown,
         ShowKeybindings,
         ShowSessionManager,
         ShowThemeSelector,
@@ -61,6 +59,7 @@ pub use okena_views_terminal::actions::{
     Copy, Paste, Search, SearchNext, SearchPrev, CloseSearch,
     SendTab, SendBacktab, ZoomIn, ZoomOut, ResetZoom,
     ToggleFullscreen, FullscreenNextTerminal, FullscreenPrevTerminal,
+    ScrollUp, ScrollDown,
 };
 
 // Sidebar-specific actions (defined in okena-views-sidebar crate)

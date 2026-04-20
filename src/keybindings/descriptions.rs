@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::types::ActionDescription;
 use super::{
-    AddTab, Cancel, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy,
+    AddTab, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy,
     CreateWorktree, FocusActiveProject, FocusDown, FocusLeft, FocusNextTerminal, FocusPrevTerminal, FocusRight,
     FocusSidebar, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal, InstallUpdate,
     MinimizeTerminal, NewProject, OpenSettingsFile, Paste, ResetZoom, ScrollDown, ScrollUp,
@@ -18,15 +18,10 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
     let mut map = HashMap::new();
 
     // Global actions
-    map.insert(
-        "Cancel",
-        ActionDescription {
-            name: "Cancel",
-            description: "Close overlay, cancel rename, or dismiss",
-            category: "Global",
-            factory: || Box::new(Cancel),
-        },
-    );
+    //
+    // Note: `Cancel` is intentionally omitted from the palette. Dispatching
+    // it from the palette only closes the palette itself (no other overlay
+    // is open at that moment), so it would be a no-op for the user.
     map.insert(
         "SendEscape",
         ActionDescription {

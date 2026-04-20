@@ -10,6 +10,7 @@ use okena_git::{
 };
 use okena_workspace::request_broker::RequestBroker;
 use okena_workspace::requests::OverlayRequest;
+use okena_workspace::state::Workspace;
 
 use crate::diff_viewer::provider::GitProvider;
 use crate::project_header;
@@ -85,6 +86,10 @@ pub struct GitHeader {
     project_id: String,
     request_broker: Entity<RequestBroker>,
     git_provider: Arc<dyn GitProvider>,
+    /// Used to clear the workspace focus claim when the user clicks into
+    /// the commit-message input — otherwise the focused TerminalPane
+    /// re-grabs GPUI focus on the next render and the user can't type.
+    workspace: Entity<Workspace>,
 
     /// Current branch from git watcher (updated externally before rendering).
     current_branch: Option<String>,
@@ -154,12 +159,14 @@ impl GitHeader {
         project_id: String,
         request_broker: Entity<RequestBroker>,
         git_provider: Arc<dyn GitProvider>,
+        workspace: Entity<Workspace>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
             project_id,
             request_broker,
             git_provider,
+            workspace,
             current_branch: None,
             diff_popover_visible: false,
             diff_file_summaries: Vec::new(),
@@ -1547,9 +1554,23 @@ impl GitHeader {
             .border_t_1()
             .border_color(rgb(t.border))
             // Message input — borderless, taller than the default SimpleInput height.
-            .child(
+            .child({
+                let input = self.commit_message_input.clone();
                 div()
+                    .id("commit-message-wrap")
                     .p(px(8.0))
+                    // Clear the workspace's "currently focused terminal" claim
+                    // and explicitly focus the input. Without this the
+                    // TerminalPane re-grabs GPUI focus on the next render,
+                    // because its render-loop sees its layout_path is still
+                    // the active one in `focus_manager`.
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.focus_manager.clear_focus();
+                            cx.notify();
+                        });
+                        input.update(cx, |i, cx| i.focus(window, cx));
+                    }))
                     .child(
                         div()
                             .min_h(px(96.0))
@@ -1558,8 +1579,8 @@ impl GitHeader {
                             .px(px(6.0))
                             .py(px(4.0))
                             .child(self.commit_message_input.clone()),
-                    ),
-            )
+                    )
+            })
             // Options row + commit button
             .child(
                 h_flex()
