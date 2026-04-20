@@ -16,10 +16,10 @@ use gpui_component::h_flex;
 
 /// Width of the left accent indicator bar (always reserved for alignment).
 pub(super) const ACCENT_WIDTH: f32 = 3.0;
-/// Background alpha for changed lines (subtle tint).
-pub(super) const LINE_BG_ALPHA: f32 = 0.06;
+/// Background alpha for changed lines.
+pub(super) const LINE_BG_ALPHA: f32 = 0.18;
 /// Background alpha for word-level diff highlights.
-pub(super) const WORD_BG_ALPHA: f32 = 0.18;
+pub(super) const WORD_BG_ALPHA: f32 = 0.40;
 /// Alpha for the left accent bar.
 pub(super) const ACCENT_ALPHA: f32 = 0.7;
 /// Line height as a multiple of font size.

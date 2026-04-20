@@ -20,6 +20,7 @@ use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 use okena_core::theme::ThemeColors;
 use okena_ui::tokens::{ui_text_sm, ui_text_ms, ui_text_md};
+use okena_ui::vscode_icon::vscode_file_icon;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -136,6 +137,14 @@ pub struct GitHeader {
     last_error: Option<String>,
     /// Scroll handle for the virtualized commit-tab file list.
     commit_file_scroll: UniformListScrollHandle,
+
+    /// Bounds of the panel-header three-dots button, used to anchor
+    /// the overflow popover.
+    overflow_button_bounds: Bounds<Pixels>,
+    /// Whether at least one stash entry exists. Refreshed alongside
+    /// the working-tree status. Drives Stash Pop / Show Stash enabled
+    /// state in the overflow menu.
+    has_stash: bool,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -190,10 +199,18 @@ impl GitHeader {
             untracked_collapsed: false,
             last_error: None,
             commit_file_scroll: UniformListScrollHandle::new(),
+            overflow_button_bounds: Bounds::default(),
+            has_stash: false,
         }
     }
 
     /// Update the current branch name (from the git status watcher).
+    /// Borrow the underlying git provider so callers (e.g. the overlay
+    /// manager wiring up the stash list) can issue the same operations.
+    pub fn git_provider(&self) -> Arc<dyn GitProvider> {
+        self.git_provider.clone()
+    }
+
     pub fn set_current_branch(&mut self, branch: Option<String>) {
         self.current_branch = branch;
     }
@@ -491,11 +508,16 @@ impl GitHeader {
         self.working_tree_loading = true;
         let provider = self.git_provider.clone();
         let provider2 = provider.clone();
+        let provider3 = provider.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (wt_status, diff_summaries) = smol::unblock(move || {
+            let (wt_status, diff_summaries, has_stash) = smol::unblock(move || {
                 let wt_status = provider.get_working_tree_status();
                 let diff_summaries = provider2.get_diff_file_summary();
-                (wt_status, diff_summaries)
+                let has_stash = provider3
+                    .stash_list()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                (wt_status, diff_summaries, has_stash)
             })
             .await;
 
@@ -503,6 +525,7 @@ impl GitHeader {
                 this.working_tree_loading = false;
                 this.working_tree_status = Some(wt_status);
                 this.diff_file_summaries = diff_summaries;
+                this.has_stash = has_stash;
                 cx.notify();
             });
         })
@@ -736,7 +759,7 @@ impl GitHeader {
             })
     }
 
-    /// Panel header — three compact icon-buttons in place of the old tab strip.
+    /// Panel header — three compact icon-buttons for switching tabs.
     fn render_panel_header(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(34.0))
@@ -770,6 +793,92 @@ impl GitHeader {
                 t,
                 cx,
             ))
+    }
+
+    /// Render the vertical three-dots overflow button. Sits to the right
+    /// of the "N Changes / Stage All" header bar at the top of the commit tab.
+    fn render_overflow_button(
+        &self,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let entity_handle = cx.entity().clone();
+        div()
+            .id("git-btn-overflow")
+            .relative()
+            .flex_shrink_0()
+            .w(px(22.0))
+            .h(px(22.0))
+            .ml(px(4.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(3.0))
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(|this, _, _window, cx| {
+                this.open_overflow_menu(cx);
+            }))
+            .tooltip(|_window, cx| Tooltip::new("More").build(_window, cx))
+            .child(
+                svg()
+                    .path("icons/more-vertical.svg")
+                    .size(px(14.0))
+                    .text_color(rgb(t.text_secondary)),
+            )
+            .child(
+                canvas(
+                    move |bounds, _window, app| {
+                        entity_handle.update(app, |this, _cx| {
+                            this.overflow_button_bounds = bounds;
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
+    }
+
+    /// Push an overlay request to open the overflow popover, anchored
+    /// just below the three-dots button.
+    fn open_overflow_menu(&mut self, cx: &mut Context<Self>) {
+        let status = self.working_tree_status.as_ref();
+        let has_staged = status.map(|s| s.staged_count() > 0).unwrap_or(false);
+        let has_tracked = status.map(|s| !s.tracked.is_empty()).unwrap_or(false);
+        let has_untracked = status.map(|s| !s.untracked.is_empty()).unwrap_or(false);
+        let all_staged = status.map(|s| s.all_staged()).unwrap_or(false);
+        let has_unstaged = has_tracked && !all_staged;
+
+        // Popover opens downward from the three-dots button at the top of the
+        // commit tab header. Right edge aligned with the button so the menu
+        // doesn't overhang into the next column.
+        let bounds = self.overflow_button_bounds;
+        const MENU_W: Pixels = px(240.0);
+        let position = point(
+            bounds.origin.x + bounds.size.width - MENU_W,
+            bounds.origin.y + bounds.size.height + px(4.0),
+        );
+        let project_id = self.project_id.clone();
+        let has_stash = self.has_stash;
+        self.request_broker.update(cx, |broker, cx| {
+            broker.push_overlay_request(
+                OverlayRequest::GitOverflowMenu {
+                    project_id,
+                    position,
+                    has_staged,
+                    has_unstaged,
+                    has_tracked,
+                    has_untracked,
+                    has_stash,
+                },
+                cx,
+            );
+        });
     }
 
     // ── Commit tab ─────────────────────────────────────────────────
@@ -881,6 +990,7 @@ impl GitHeader {
                         .child(if all_staged { "Unstage All" } else { "Stage All" }),
                 )
             })
+            .child(self.render_overflow_button(t, cx))
     }
 
     /// Render empty state when working tree is clean.
@@ -1149,6 +1259,8 @@ impl GitHeader {
                     });
                 }
             })
+            // VSCode-icons file-type icon (real shape, language-tinted).
+            .child(vscode_file_icon(&file_name, t, cx))
             // Filename (status color) + parent dir (muted) — Zed pattern:
             // `min_w_0` lets the flex item shrink below content size,
             // `flex_1` makes it grow to consume the available space so the
@@ -1419,21 +1531,17 @@ impl GitHeader {
 
     /// Render the commit message footer (multi-line input + commit button + options).
     fn render_commit_footer(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_staged = self
-            .working_tree_status
-            .as_ref()
-            .map(|s| s.staged_count() > 0)
-            .unwrap_or(false);
+        let status = self.working_tree_status.as_ref();
+        let has_staged = status.map(|s| s.staged_count() > 0).unwrap_or(false);
+        let has_tracked = status.map(|s| !s.tracked.is_empty()).unwrap_or(false);
+        let amend = self.commit_options_amend;
         let message_empty = self.commit_message_input.read(cx).value().is_empty();
-        let can_commit = (has_staged || self.commit_options_amend) && !message_empty && !self.committing;
 
-        let button_label = if self.committing {
-            "Committing..."
-        } else if self.commit_options_amend {
-            "Amend"
-        } else {
-            "Commit"
-        };
+        let can_commit = !message_empty
+            && !self.committing
+            && (has_staged || has_tracked || amend);
+
+        let button_label = commit_button_label(self.committing, amend, has_staged, has_tracked);
 
         v_flex()
             .border_t_1()
@@ -1576,7 +1684,7 @@ impl GitHeader {
         .detach();
     }
 
-    fn handle_stage_all(&mut self, cx: &mut Context<Self>) {
+    pub fn handle_stage_all(&mut self, cx: &mut Context<Self>) {
         let provider = self.git_provider.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = smol::unblock(move || provider.stage_all()).await;
@@ -1592,7 +1700,7 @@ impl GitHeader {
         .detach();
     }
 
-    fn handle_unstage_all(&mut self, cx: &mut Context<Self>) {
+    pub fn handle_unstage_all(&mut self, cx: &mut Context<Self>) {
         let provider = self.git_provider.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result = smol::unblock(move || provider.unstage_all()).await;
@@ -1616,11 +1724,37 @@ impl GitHeader {
         let provider = self.git_provider.clone();
         let amend = self.commit_options_amend;
         let signoff = self.commit_options_signoff;
+
+        // If nothing is staged but tracked files have changes, auto-stage them
+        // before committing — matches the "Commit Tracked" semantics on the button.
+        // Untracked files are intentionally left out.
+        let needs_auto_stage = self
+            .working_tree_status
+            .as_ref()
+            .map(|s| s.staged_count() == 0 && !s.tracked.is_empty())
+            .unwrap_or(false);
+        let tracked_paths: Vec<String> = if needs_auto_stage {
+            self.working_tree_status
+                .as_ref()
+                .map(|s| s.tracked.iter().map(|f| f.path.clone()).collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         self.committing = true;
         cx.notify();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let result = smol::unblock(move || provider.commit(&message, amend, signoff)).await;
+            let result = smol::unblock(move || -> Result<(), String> {
+                if needs_auto_stage {
+                    for p in &tracked_paths {
+                        provider.stage_file(p)?;
+                    }
+                }
+                provider.commit(&message, amend, signoff)
+            })
+            .await;
             let _ = this.update(cx, |this, cx| {
                 this.committing = false;
                 if let Err(e) = result {
@@ -1634,6 +1768,86 @@ impl GitHeader {
                     this.commit_options_amend = false;
                     // Refresh commit log too since a new commit exists
                     this.refresh_after_commit(cx);
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn handle_stash_all(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stash_all()).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn handle_stash_pop(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stash_pop()).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn handle_stash_apply(&mut self, index: usize, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stash_apply(index)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn handle_stash_drop(&mut self, index: usize, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.stash_drop(index)).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub fn handle_discard_all_tracked(&mut self, cx: &mut Context<Self>) {
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.discard_all_tracked()).await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
                 }
                 this.refresh_working_tree_status(cx);
             });
@@ -2629,5 +2843,82 @@ impl GitHeader {
                 ),
             )
             .into_any_element()
+    }
+}
+
+/// Button label for the commit footer.
+///
+/// Captures the small state machine that the user sees: which of
+/// "Commit" / "Commit Tracked" / "Amend" / "Amend Tracked" / "Committing..."
+/// is shown depends on whether we're already in flight, whether the user
+/// asked for an amend, and whether they've staged anything.
+fn commit_button_label(
+    committing: bool,
+    amend: bool,
+    has_staged: bool,
+    has_tracked: bool,
+) -> &'static str {
+    if committing {
+        return "Committing...";
+    }
+    match (amend, has_staged, has_tracked) {
+        (true, false, true) => "Amend Tracked",
+        (true, _, _) => "Amend",
+        (false, true, _) => "Commit",
+        (false, false, true) => "Commit Tracked",
+        (false, false, false) => "Commit",
+    }
+}
+
+#[cfg(test)]
+mod commit_label_tests {
+    use super::commit_button_label;
+
+    #[test]
+    fn committing_overrides_everything() {
+        for &amend in &[false, true] {
+            for &staged in &[false, true] {
+                for &tracked in &[false, true] {
+                    assert_eq!(
+                        commit_button_label(true, amend, staged, tracked),
+                        "Committing...",
+                    );
+                }
+            }
+        }
+    }
+
+    // arg order: committing, amend, has_staged, has_tracked
+
+    #[test]
+    fn no_amend_no_staged_with_tracked_says_commit_tracked() {
+        assert_eq!(commit_button_label(false, false, false, true), "Commit Tracked");
+    }
+
+    #[test]
+    fn no_amend_with_staged_says_commit() {
+        assert_eq!(commit_button_label(false, false, true, true), "Commit");
+        assert_eq!(commit_button_label(false, false, true, false), "Commit");
+    }
+
+    #[test]
+    fn no_amend_no_changes_says_commit() {
+        assert_eq!(commit_button_label(false, false, false, false), "Commit");
+    }
+
+    #[test]
+    fn amend_no_staged_with_tracked_says_amend_tracked() {
+        assert_eq!(commit_button_label(false, true, false, true), "Amend Tracked");
+    }
+
+    #[test]
+    fn amend_with_staged_says_amend() {
+        assert_eq!(commit_button_label(false, true, true, true), "Amend");
+        assert_eq!(commit_button_label(false, true, true, false), "Amend");
+    }
+
+    #[test]
+    fn amend_no_changes_says_amend() {
+        assert_eq!(commit_button_label(false, true, false, false), "Amend");
     }
 }

@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use crate::GitStatus;
+use crate::{GitStatus, StashEntry};
 use okena_core::process::{command, safe_output};
 
 /// Get the root directory of the git repository containing the given path.
@@ -496,6 +496,159 @@ pub fn stash_pop(path: &Path) -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(stderr.trim().to_string())
     }
+}
+
+/// Stash all changes including untracked files (`git stash push -u`).
+pub fn stash_all_including_untracked(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "stash", "push", "--include-untracked"]),
+    )
+    .map_err(|e| format!("Failed to stash: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Apply a specific stash entry without removing it (`git stash apply --index stash@{N}`).
+pub fn stash_apply(repo_path: &Path, index: usize) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let stash_ref = format!("stash@{{{}}}", index);
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "stash", "apply", "--index", &stash_ref]),
+    )
+    .map_err(|e| format!("Failed to apply stash: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Drop a specific stash entry (`git stash drop stash@{N}`).
+pub fn stash_drop(repo_path: &Path, index: usize) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let stash_ref = format!("stash@{{{}}}", index);
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "stash", "drop", &stash_ref]),
+    )
+    .map_err(|e| format!("Failed to drop stash: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(())
+}
+
+/// Show the patch diff for a specific stash entry (`git stash show -p stash@{N}`).
+pub fn stash_show_patch(repo_path: &Path, index: usize) -> Result<String, String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let stash_ref = format!("stash@{{{}}}", index);
+    let output = safe_output(
+        command("git").args(["-C", repo_str, "stash", "show", "-p", &stash_ref]),
+    )
+    .map_err(|e| format!("Failed to show stash: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// List stash entries with parsed metadata.
+///
+/// Uses `git stash list --format=%gd%x09%H%x09%gs%x09%ct` and parses the
+/// tab-separated output into [`StashEntry`] values.
+pub fn stash_list(repo_path: &Path) -> Result<Vec<StashEntry>, String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+    let output = safe_output(
+        command("git").args([
+            "-C",
+            repo_str,
+            "stash",
+            "list",
+            "--format=%gd%x09%H%x09%gs%x09%ct",
+        ]),
+    )
+    .map_err(|e| format!("Failed to list stashes: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_stash_list_lines(&stdout))
+}
+
+/// Parse `git stash list` output (tab-separated `%gd<TAB>%H<TAB>%gs<TAB>%ct`).
+///
+/// Skips malformed lines silently. Branch is extracted from the reflog
+/// subject (`WIP on <branch>: ...` or `On <branch>: ...`); for any other
+/// shape it's set to `None`.
+pub(crate) fn parse_stash_list_lines(stdout: &str) -> Vec<StashEntry> {
+    let mut out = Vec::new();
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.splitn(4, '\t').collect();
+        if parts.len() != 4 {
+            continue;
+        }
+        let Some(index) = parse_stash_index(parts[0]) else {
+            continue;
+        };
+        let hash = parts[1].to_string();
+        let reflog_subject = parts[2];
+        let Ok(timestamp_unix) = parts[3].parse::<i64>() else {
+            continue;
+        };
+        let (branch, subject) = parse_reflog_subject(reflog_subject);
+        out.push(StashEntry {
+            index,
+            hash,
+            subject,
+            branch,
+            timestamp_unix,
+        });
+    }
+    out
+}
+
+fn parse_stash_index(gd: &str) -> Option<usize> {
+    let inner = gd.strip_prefix("stash@{")?.strip_suffix('}')?;
+    inner.parse().ok()
+}
+
+fn parse_reflog_subject(s: &str) -> (Option<String>, String) {
+    let (head, rest) = match s.split_once(": ") {
+        Some(pair) => pair,
+        None => return (None, s.to_string()),
+    };
+    let branch = head
+        .strip_prefix("WIP on ")
+        .or_else(|| head.strip_prefix("On "))
+        .map(str::to_string);
+    (branch, rest.to_string())
+}
+
+/// Discard all changes to tracked files (unstage everything, then revert
+/// tracked files to HEAD). Untracked files are left alone.
+pub fn discard_all_tracked(repo_path: &Path) -> Result<(), String> {
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+
+    // Step 1: unstage everything (so `checkout -- .` then sees clean index).
+    let reset = safe_output(command("git").args(["-C", repo_str, "reset", "HEAD", "--"]))
+        .map_err(|e| format!("Failed to unstage: {}", e))?;
+    if !reset.status.success() {
+        return Err(String::from_utf8_lossy(&reset.stderr).trim().to_string());
+    }
+
+    // Step 2: revert tracked files in the working tree.
+    let checkout = safe_output(command("git").args(["-C", repo_str, "checkout", "--", "."]))
+        .map_err(|e| format!("Failed to discard tracked changes: {}", e))?;
+    if !checkout.status.success() {
+        return Err(String::from_utf8_lossy(&checkout.stderr).trim().to_string());
+    }
+    Ok(())
 }
 
 /// Fetch from all remotes.
@@ -1376,6 +1529,84 @@ mod tests {
     fn stash_pop_returns_err_for_invalid_path() {
         let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
         assert!(stash_pop(&path).is_err());
+    }
+
+    #[test]
+    fn stash_all_including_untracked_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(stash_all_including_untracked(&path).is_err());
+    }
+
+    #[test]
+    fn stash_apply_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(stash_apply(&path, 0).is_err());
+    }
+
+    #[test]
+    fn stash_drop_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(stash_drop(&path, 0).is_err());
+    }
+
+    #[test]
+    fn stash_show_patch_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(stash_show_patch(&path, 0).is_err());
+    }
+
+    #[test]
+    fn stash_list_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(stash_list(&path).is_err());
+    }
+
+    #[test]
+    fn discard_all_tracked_returns_err_for_invalid_path() {
+        let path = PathBuf::from("/nonexistent/path/that/does/not/exist");
+        assert!(discard_all_tracked(&path).is_err());
+    }
+
+    #[test]
+    fn parse_stash_list_lines_handles_normal_entries() {
+        let input = concat!(
+            "stash@{0}\tabcdef1\tWIP on main: 1234567 hello world\t1700000000\n",
+            "stash@{1}\t9876543\tOn feature: prep work\t1700000500\n",
+        );
+        let entries = parse_stash_list_lines(input);
+        assert_eq!(entries.len(), 2);
+
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[0].hash, "abcdef1");
+        assert_eq!(entries[0].branch.as_deref(), Some("main"));
+        assert_eq!(entries[0].subject, "1234567 hello world");
+        assert_eq!(entries[0].timestamp_unix, 1700000000);
+
+        assert_eq!(entries[1].index, 1);
+        assert_eq!(entries[1].branch.as_deref(), Some("feature"));
+        assert_eq!(entries[1].subject, "prep work");
+    }
+
+    #[test]
+    fn parse_stash_list_lines_skips_malformed() {
+        let input = concat!(
+            "stash@{0}\tabc\tOn main: ok\t1700000000\n",
+            "garbage line with no tabs\n",
+            "stash@{bad}\tabc\tOn main: x\t1700000000\n",
+            "stash@{2}\tabc\tOn main: y\tNOT_A_NUMBER\n",
+            "stash@{3}\tabc\tWeird subject without colon\t1700000900\n",
+        );
+        let entries = parse_stash_list_lines(input);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[1].index, 3);
+        assert_eq!(entries[1].branch, None);
+        assert_eq!(entries[1].subject, "Weird subject without colon");
+    }
+
+    #[test]
+    fn parse_stash_list_lines_empty_input() {
+        assert!(parse_stash_list_lines("").is_empty());
     }
 
     #[test]

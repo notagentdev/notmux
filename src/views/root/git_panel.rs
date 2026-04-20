@@ -16,6 +16,7 @@ impl RootView {
             // Close the panel
             let target = self.git_panel_ctrl.toggle();
             settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(false, cx));
+            self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(false, cx));
             self.animate_git_panel_to(target, cx);
 
             // Close the commit log in the git header
@@ -45,8 +46,10 @@ impl RootView {
             if !self.git_panel_ctrl.is_open() {
                 let target = self.git_panel_ctrl.toggle();
                 settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(true, cx));
+                self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
                 self.animate_git_panel_to(target, cx);
             } else {
+                self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
                 cx.notify();
             }
         }

@@ -20,6 +20,8 @@ pub mod content_search;
 pub mod context_menu;
 pub mod folder_context_menu;
 pub mod git_file_context_menu;
+pub mod git_overflow_menu;
+pub mod git_stash_list;
 pub mod detached_terminal;
 pub mod diff_viewer;
 pub mod file_search;

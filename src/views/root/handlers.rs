@@ -354,6 +354,38 @@ impl RootView {
                 self.append_to_gitignore(project_id, file_path, cx);
                 self.refresh_git_panel(project_id, cx);
             }
+            OverlayManagerEvent::GitStageAll { project_id } => {
+                self.with_git_header(project_id, cx, |gh, cx| gh.handle_stage_all(cx));
+            }
+            OverlayManagerEvent::GitUnstageAll { project_id } => {
+                self.with_git_header(project_id, cx, |gh, cx| gh.handle_unstage_all(cx));
+            }
+            OverlayManagerEvent::GitStashAll { project_id } => {
+                self.with_git_header(project_id, cx, |gh, cx| gh.handle_stash_all(cx));
+            }
+            OverlayManagerEvent::GitStashPop { project_id } => {
+                self.with_git_header(project_id, cx, |gh, cx| gh.handle_stash_pop(cx));
+            }
+            OverlayManagerEvent::GitDiscardAllTracked { project_id } => {
+                self.with_git_header(project_id, cx, |gh, cx| gh.handle_discard_all_tracked(cx));
+            }
+            OverlayManagerEvent::GitStashRefresh { project_id } => {
+                self.refresh_git_panel(project_id, cx);
+            }
+        }
+    }
+
+    /// Run a closure against the GitHeader of the project, if it exists.
+    fn with_git_header<F>(&self, project_id: &str, cx: &mut Context<Self>, f: F)
+    where
+        F: FnOnce(
+            &mut okena_views_git::git_header::GitHeader,
+            &mut Context<okena_views_git::git_header::GitHeader>,
+        ),
+    {
+        if let Some(col) = self.project_columns.get(project_id).cloned() {
+            let gh = col.read(cx).git_header();
+            gh.update(cx, |gh, cx| f(gh, cx));
         }
     }
 
@@ -623,6 +655,42 @@ impl RootView {
                             );
                         });
                     }
+                }
+                OverlayRequest::GitOverflowMenu {
+                    project_id,
+                    position,
+                    has_staged,
+                    has_unstaged,
+                    has_tracked,
+                    has_untracked,
+                    has_stash,
+                } => {
+                    if !self.overlay_manager.read(cx).has_git_overflow_menu() {
+                        self.overlay_manager.update(cx, |om, cx| {
+                            om.show_git_overflow_menu(
+                                project_id,
+                                position,
+                                has_staged,
+                                has_unstaged,
+                                has_tracked,
+                                has_untracked,
+                                has_stash,
+                                cx,
+                            );
+                        });
+                    }
+                }
+                OverlayRequest::GitStashList { project_id, position } => {
+                    if self.overlay_manager.read(cx).has_git_stash_list() {
+                        continue;
+                    }
+                    let Some(col) = self.project_columns.get(&project_id).cloned() else {
+                        continue;
+                    };
+                    let provider = col.read(cx).git_header().read(cx).git_provider();
+                    self.overlay_manager.update(cx, |om, cx| {
+                        om.show_git_stash_list(project_id, provider, position, cx);
+                    });
                 }
             }
         }

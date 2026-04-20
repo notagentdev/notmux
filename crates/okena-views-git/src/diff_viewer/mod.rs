@@ -270,6 +270,7 @@ impl DiffViewer {
         let diff_mode = self.diff_mode.clone();
         let syntax_set = self.syntax_set.clone();
         let theme_colors = self.theme_colors;
+        let is_dark = self.is_dark;
 
         cx.spawn(async move |this, cx| {
             let (old_content, new_content, display_file, max_line_num) = smol::unblock(move || {
@@ -282,6 +283,7 @@ impl DiffViewer {
                     old_content.clone(),
                     new_content.clone(),
                     &theme_colors,
+                    is_dark,
                 );
                 (old_content, new_content, display_file, max_line_num)
             }).await;
@@ -312,6 +314,7 @@ impl DiffViewer {
             self.current_file_old_content.clone(),
             self.current_file_new_content.clone(),
             &self.theme_colors,
+            self.is_dark,
         );
 
         self.line_num_width = max_line_num.to_string().len().max(3);

@@ -69,6 +69,19 @@ pub enum OverlayRequest {
         is_conflict: bool,
         position: gpui::Point<gpui::Pixels>,
     },
+    GitOverflowMenu {
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+        has_staged: bool,
+        has_unstaged: bool,
+        has_tracked: bool,
+        has_untracked: bool,
+        has_stash: bool,
+    },
+    GitStashList {
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
 }
 
 /// Requests consumed by Sidebar::render()

@@ -19,6 +19,12 @@ pub use repository::{
     merge_branch,
     stash_changes,
     stash_pop,
+    stash_all_including_untracked,
+    stash_apply,
+    stash_drop,
+    stash_show_patch,
+    stash_list,
+    discard_all_tracked,
     fetch_all,
     delete_local_branch,
     delete_remote_branch,
@@ -245,6 +251,21 @@ impl WorkingTreeStatus {
         !self.tracked.is_empty()
             && self.tracked.iter().all(|f| f.is_fully_staged())
     }
+}
+
+/// A single entry in `git stash list`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StashEntry {
+    /// Stash index (the `N` in `stash@{N}`).
+    pub index: usize,
+    /// Full commit hash of the stash.
+    pub hash: String,
+    /// Stash subject (commit message minus the `WIP on <branch>: ` prefix).
+    pub subject: String,
+    /// Branch the stash was created on, if extractable from the reflog subject.
+    pub branch: Option<String>,
+    /// Author timestamp in seconds since the Unix epoch.
+    pub timestamp_unix: i64,
 }
 
 /// Per-file diff summary for popover display

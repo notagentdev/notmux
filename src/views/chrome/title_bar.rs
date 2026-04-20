@@ -23,6 +23,7 @@ pub struct TitleBar {
     title: SharedString,
     menu_open: bool,
     sidebar_open: bool,
+    git_panel_open: bool,
     workspace: Entity<Workspace>,
     _workspace_subscription: Subscription,
     /// Flag for Linux compositor-driven window move (set on mouse-down, consumed on mouse-move)
@@ -41,6 +42,7 @@ impl TitleBar {
             title: title.into(),
             menu_open: false,
             sidebar_open: true,
+            git_panel_open: false,
             workspace,
             _workspace_subscription: subscription,
             #[cfg(target_os = "linux")]
@@ -88,6 +90,64 @@ impl TitleBar {
             self.sidebar_open = open;
             cx.notify();
         }
+    }
+
+    pub fn set_git_panel_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.git_panel_open != open {
+            self.git_panel_open = open;
+            cx.notify();
+        }
+    }
+
+    /// Render the centred command-palette search field. Looks like an input
+    /// but is read-only — clicking it opens the command palette overlay
+    /// (mirrors the search box in the VS Code title bar).
+    fn render_command_palette_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let project_hint = self.focused_project_name(cx);
+        let placeholder: SharedString = match project_hint {
+            Some(name) => format!("Search {}", name).into(),
+            None => "Search projects, files, commands…".into(),
+        };
+
+        h_flex()
+            .id("title-bar-command-field")
+            .flex_shrink_0()
+            .w(px(520.0))
+            .h(px(24.0))
+            .px(px(8.0))
+            .gap(px(6.0))
+            .items_center()
+            .rounded(px(5.0))
+            .bg(rgb(t.bg_primary))
+            .border_1()
+            .border_color(rgb(t.border))
+            .cursor_pointer()
+            .hover(|s| s.border_color(rgb(t.border_active)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(|_, window, cx| {
+                cx.stop_propagation();
+                window.dispatch_action(Box::new(ShowCommandPalette), cx);
+            })
+            .child(
+                svg()
+                    .path("icons/search.svg")
+                    .size(px(12.0))
+                    .text_color(rgb(t.text_muted))
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .child(placeholder),
+            )
     }
 
     pub fn is_menu_open(&self) -> bool {
@@ -450,8 +510,16 @@ impl Render for TitleBar {
                     .children(self.render_project_chip(cx)),
             )
             .child(
-                // Center - spacer
-                div().flex_1()
+                // Center — flexible region containing the command-palette
+                // search field. Two flex_1 spacers around the field keep it
+                // centred even when the left/right halves grow asymmetrically.
+                h_flex()
+                    .flex_1()
+                    .px(px(8.0))
+                    .items_center()
+                    .child(div().flex_1())
+                    .child(self.render_command_palette_field(cx))
+                    .child(div().flex_1())
             )
             .child(
                 // Right side — panel toggles + settings + native window controls
@@ -471,7 +539,7 @@ impl Render for TitleBar {
                     .child(self.render_action_button(
                         "tb-toggle-git-panel",
                         "icons/layout-sidebar-right.svg",
-                        false,
+                        self.git_panel_open,
                         Box::new(ToggleGitPanel),
                         cx,
                     ))

@@ -1250,6 +1250,79 @@ impl Sidebar {
             }
     }
 
+    /// Top header bar — only contains the buttons that switch between
+    /// the panel's sub-views (Projects / Files).
+    fn render_view_switcher(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let is_files = self.view == SidebarView::Files;
+
+        h_flex()
+            .h(px(34.0))
+            .px(px(8.0))
+            .gap(px(2.0))
+            .items_center()
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(t.bg_header))
+            // View toggle: Projects
+            .child(
+                div()
+                    .id("sidebar-view-projects")
+                    .cursor_pointer()
+                    .w(px(28.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .when(!is_files, |d| d.bg(rgb(t.bg_hover)))
+                    .child(
+                        svg()
+                            .path("icons/terminal.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(if !is_files {
+                                t.term_blue
+                            } else {
+                                t.text_secondary
+                            })),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.set_view(SidebarView::Projects, cx);
+                    })),
+            )
+            // View toggle: Files
+            .child(
+                div()
+                    .id("sidebar-view-files")
+                    .cursor_pointer()
+                    .w(px(28.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .when(is_files, |d| d.bg(rgb(t.bg_hover)))
+                    .child(
+                        svg()
+                            .path("icons/folder.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(if is_files {
+                                t.term_blue
+                            } else {
+                                t.text_secondary
+                            })),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.set_view(SidebarView::Files, cx);
+                    })),
+            )
+    }
+
+    /// Section header below the switcher: "EXPLORER" / "FILES" title on the
+    /// left, "+ New folder" and "+ Add Project" actions on the right (only
+    /// for the Projects view).
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_files = self.view == SidebarView::Files;
@@ -1274,54 +1347,6 @@ impl Sidebar {
             .child(
                 h_flex()
                     .gap(px(2.0))
-                    // View toggle: Projects
-                    .child(
-                        div()
-                            .id("sidebar-view-projects")
-                            .cursor_pointer()
-                            .px(px(4.0))
-                            .py(px(2.0))
-                            .rounded(px(4.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .when(!is_files, |d| d.bg(rgb(t.bg_hover)))
-                            .child(
-                                svg()
-                                    .path("icons/terminal.svg")
-                                    .size(px(14.0))
-                                    .text_color(rgb(if !is_files {
-                                        t.term_blue
-                                    } else {
-                                        t.text_secondary
-                                    })),
-                            )
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.set_view(SidebarView::Projects, cx);
-                            })),
-                    )
-                    // View toggle: Files
-                    .child(
-                        div()
-                            .id("sidebar-view-files")
-                            .cursor_pointer()
-                            .px(px(4.0))
-                            .py(px(2.0))
-                            .rounded(px(4.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .when(is_files, |d| d.bg(rgb(t.bg_hover)))
-                            .child(
-                                svg()
-                                    .path("icons/folder.svg")
-                                    .size(px(14.0))
-                                    .text_color(rgb(if is_files {
-                                        t.term_blue
-                                    } else {
-                                        t.text_secondary
-                                    })),
-                            )
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.set_view(SidebarView::Files, cx);
-                            })),
-                    )
                     // Projects view has "New folder" + "+ Add Project" on the right.
                     .when(!is_files, |d| {
                         d.child(
@@ -1954,6 +1979,7 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::handle_sidebar_confirm))
             .on_action(cx.listener(Self::handle_sidebar_toggle_expand))
             .on_action(cx.listener(Self::handle_sidebar_escape))
+            .child(self.render_view_switcher(cx))
             .child(self.render_header(cx));
 
         match self.view {

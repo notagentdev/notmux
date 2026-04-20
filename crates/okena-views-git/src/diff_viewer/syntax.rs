@@ -4,7 +4,7 @@ use super::types::{DiffDisplayFile, DisplayItem, DisplayLine, ExpanderRow, Highl
 use okena_git::{DiffLineType, FileDiff};
 use okena_git::diff::DiffHunk;
 use okena_files::syntax::{
-    build_syntax_theme, default_text_color_for, get_syntax_for_path, highlight_line,
+    default_text_color_for, get_syntax_for_path, highlight_line, load_syntax_theme,
 };
 use okena_core::theme::ThemeColors;
 use gpui::Rgba;
@@ -55,25 +55,29 @@ pub fn process_file(
     old_content: Option<String>,
     new_content: Option<String>,
     colors: &ThemeColors,
+    is_dark: bool,
 ) -> DiffDisplayFile {
     let t_total = std::time::Instant::now();
     let path = file.display_name();
 
-    // Get syntax highlighter for this file
+    // Get syntax highlighter for this file. Use the same shipped theme as
+    // the file viewer (Dracula for dark themes, GitHub for light) — our
+    // hand-rolled `build_syntax_theme` only mapped a handful of TextMate
+    // scopes, leaving most tokens uncoloured and washed-out.
     let syntax = get_syntax_for_path(std::path::Path::new(path), syntax_set);
-    let theme = build_syntax_theme(colors);
+    let theme = load_syntax_theme(is_dark);
     let default_color = default_text_color_for(colors);
 
     let t1 = std::time::Instant::now();
     let old_highlighted = match old_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
+        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!("[process_file] highlight old: {:?}, lines: {}", t1.elapsed(), old_highlighted.len());
 
     let t2 = std::time::Instant::now();
     let new_highlighted = match new_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
+        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!("[process_file] highlight new: {:?}, lines: {}", t2.elapsed(), new_highlighted.len());

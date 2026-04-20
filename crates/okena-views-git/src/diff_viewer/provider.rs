@@ -1,6 +1,9 @@
 //! GitProvider trait and implementations for local and remote git operations.
 
-use okena_git::{DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, GraphRow, WorkingTreeStatus};
+use okena_git::{
+    DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, GraphRow, StashEntry,
+    WorkingTreeStatus,
+};
 use std::path::Path;
 
 /// Provides git data from either local git commands or a remote server.
@@ -50,6 +53,23 @@ pub trait GitProvider: Send + Sync + 'static {
     fn pull(&self) -> Result<(), String>;
     /// Push current branch to upstream.
     fn push(&self) -> Result<(), String>;
+
+    // ── Stash + bulk-discard operations ───────────────────────────
+
+    /// Stash all changes including untracked files.
+    fn stash_all(&self) -> Result<(), String>;
+    /// Pop the most recent stash entry.
+    fn stash_pop(&self) -> Result<(), String>;
+    /// List all stash entries (most-recent first).
+    fn stash_list(&self) -> Result<Vec<StashEntry>, String>;
+    /// Apply a specific stash entry without dropping it.
+    fn stash_apply(&self, index: usize) -> Result<(), String>;
+    /// Drop a specific stash entry.
+    fn stash_drop(&self, index: usize) -> Result<(), String>;
+    /// Show the patch text of a specific stash entry.
+    fn stash_show_patch(&self, index: usize) -> Result<String, String>;
+    /// Discard all changes to tracked files (untracked files are kept).
+    fn discard_all_tracked(&self) -> Result<(), String>;
 }
 
 /// Local git provider — wraps existing git functions.
@@ -141,6 +161,34 @@ impl GitProvider for LocalGitProvider {
         let branch = okena_git::get_current_branch(path)
             .ok_or_else(|| "No current branch (detached HEAD?)".to_string())?;
         okena_git::push_branch(path, &branch)
+    }
+
+    fn stash_all(&self) -> Result<(), String> {
+        okena_git::stash_all_including_untracked(std::path::Path::new(&self.path))
+    }
+
+    fn stash_pop(&self) -> Result<(), String> {
+        okena_git::stash_pop(std::path::Path::new(&self.path))
+    }
+
+    fn stash_list(&self) -> Result<Vec<StashEntry>, String> {
+        okena_git::stash_list(std::path::Path::new(&self.path))
+    }
+
+    fn stash_apply(&self, index: usize) -> Result<(), String> {
+        okena_git::stash_apply(std::path::Path::new(&self.path), index)
+    }
+
+    fn stash_drop(&self, index: usize) -> Result<(), String> {
+        okena_git::stash_drop(std::path::Path::new(&self.path), index)
+    }
+
+    fn stash_show_patch(&self, index: usize) -> Result<String, String> {
+        okena_git::stash_show_patch(std::path::Path::new(&self.path), index)
+    }
+
+    fn discard_all_tracked(&self) -> Result<(), String> {
+        okena_git::discard_all_tracked(std::path::Path::new(&self.path))
     }
 }
 
@@ -325,5 +373,33 @@ impl GitProvider for RemoteGitProvider {
             project_id: self.project_id.clone(),
         };
         self.post_action(action).map(|_| ())
+    }
+
+    fn stash_all(&self) -> Result<(), String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn stash_pop(&self) -> Result<(), String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn stash_list(&self) -> Result<Vec<StashEntry>, String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn stash_apply(&self, _index: usize) -> Result<(), String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn stash_drop(&self, _index: usize) -> Result<(), String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn stash_show_patch(&self, _index: usize) -> Result<String, String> {
+        Err("Stash operations are not supported on remote repositories yet".into())
+    }
+
+    fn discard_all_tracked(&self) -> Result<(), String> {
+        Err("Discard-all is not supported on remote repositories yet".into())
     }
 }

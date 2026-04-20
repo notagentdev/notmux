@@ -352,6 +352,20 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         None
     };
 
+    // Like `look`, but returns the raw RGB without blending against the
+    // background. Use for fields the renderer re-applies its own alpha to —
+    // otherwise alpha gets multiplied twice and the colour washes out.
+    let look_raw = |keys: &[&str]| -> Option<u32> {
+        for k in keys {
+            if let Some(v) = theme.colors.get(*k)
+                && let Some((rgb, _a)) = parse_vscode_color_rgba(v)
+            {
+                return Some(rgb);
+            }
+        }
+        None
+    };
+
     // Primary text — resolved early so we can derive contrast-visible borders from it.
     let text_primary =
         look(&["foreground", "editor.foreground"]).unwrap_or(fallback.text_primary);
@@ -527,12 +541,15 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     let metric_warning = warning;
     let metric_critical = error;
 
-    let diff_added_bg = look(&[
+    // Diff backgrounds: take the raw RGB. The renderer applies its own
+    // alpha (LINE_BG_ALPHA / WORD_BG_ALPHA) — pre-blending here would dim
+    // the colour twice and the overlays disappear on dark themes.
+    let diff_added_bg = look_raw(&[
         "diffEditor.insertedTextBackground",
         "diffEditor.insertedLineBackground",
     ])
     .unwrap_or(fallback.diff_added_bg);
-    let diff_removed_bg = look(&[
+    let diff_removed_bg = look_raw(&[
         "diffEditor.removedTextBackground",
         "diffEditor.removedLineBackground",
     ])

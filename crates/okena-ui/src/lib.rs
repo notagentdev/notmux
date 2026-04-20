@@ -17,6 +17,7 @@ pub mod dialog_actions;
 pub mod dropdown;
 pub mod empty_state;
 pub mod file_icon;
+pub mod vscode_icon;
 mod focusable;
 pub mod expand;
 pub mod icon_action_button;

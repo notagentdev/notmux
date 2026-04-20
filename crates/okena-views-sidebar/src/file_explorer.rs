@@ -9,6 +9,7 @@ use okena_files::dir_listing::{list_directory, DirEntry};
 use okena_files::theme::theme;
 use okena_git::{FileStatus, WorkingFile, WorkingTreeStatus};
 use okena_ui::tokens::ui_text_md;
+use okena_ui::vscode_icon::vscode_file_icon_sized;
 use okena_workspace::request_broker::RequestBroker;
 use okena_workspace::requests::OverlayRequest;
 use std::collections::{HashMap, HashSet};
@@ -325,14 +326,9 @@ impl FileExplorer {
             None
         };
 
-        // Icon path: all files use the same generic file icon. Per-extension
-        // icons (markdown, rust, json, …) are not shipped yet — adding that
-        // is a separate, icon-asset-heavy task.
-        let icon_path = if is_dir {
-            "icons/folder.svg"
-        } else {
-            "icons/file.svg"
-        };
+        // Folder icon stays generic; files use per-extension vscode-icons
+        // (rendered below as a Div). `icon_path` is only used for folders here.
+        let icon_path = "icons/folder.svg";
 
         // Right-click context-menu payload.
         let is_untracked = self.untracked_relpaths.contains(&rel);
@@ -411,15 +407,25 @@ impl FileExplorer {
                         )
                     }),
             )
-            // Icon — 18px (Zed-like prominence)
-            .child(
-                div().flex_shrink_0().w(px(18.0)).h(px(18.0)).flex().items_center().justify_center().child(
-                    svg()
-                        .path(icon_path)
-                        .size(px(18.0))
-                        .text_color(rgb(name_color)),
-                ),
-            )
+            // Icon — 18px (Zed-like prominence). Folders → generic folder
+            // glyph, files → per-extension vscode-icons silhouette.
+            .child(if is_dir {
+                div()
+                    .flex_shrink_0()
+                    .w(px(18.0))
+                    .h(px(18.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path(icon_path)
+                            .size(px(18.0))
+                            .text_color(rgb(name_color)),
+                    )
+            } else {
+                vscode_file_icon_sized(&entry.name, px(18.0), t, cx)
+            })
             // Name — matches Zed LabelSize::Default (14px, `text_ui`).
             .child(
                 div()

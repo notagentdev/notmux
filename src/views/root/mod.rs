@@ -124,12 +124,14 @@ impl RootView {
         // Create sidebar entity once to preserve state
         let sidebar = cx.new(|cx| Sidebar::new(workspace.clone(), request_broker.clone(), terminals.clone(), cx));
 
-        // Create title bar entity (sync initial sidebar state)
+        // Create title bar entity (sync initial sidebar + git-panel state)
         let sidebar_initially_open = sidebar_ctrl.is_open();
+        let git_panel_initially_open = git_panel_ctrl.is_open();
         let workspace_for_title = workspace.clone();
         let title_bar = cx.new(|cx| {
             let mut tb = TitleBar::new("Okena", workspace_for_title, cx);
             tb.set_sidebar_open(sidebar_initially_open, cx);
+            tb.set_git_panel_open(git_panel_initially_open, cx);
             tb
         });
 

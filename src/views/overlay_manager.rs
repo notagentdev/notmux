@@ -14,6 +14,8 @@ use crate::views::overlays::add_project_dialog::{AddProjectDialog, AddProjectDia
 use crate::views::overlays::context_menu::{ContextMenu, ContextMenuEvent};
 use crate::views::overlays::folder_context_menu::{FolderContextMenu, FolderContextMenuEvent};
 use crate::views::overlays::git_file_context_menu::{GitFileContextMenu, GitFileContextMenuEvent};
+use crate::views::overlays::git_overflow_menu::{GitOverflowMenu, GitOverflowMenuEvent};
+use crate::views::overlays::git_stash_list::{GitStashList, GitStashListEvent};
 use crate::views::overlays::content_search::{ContentSearchDialog, ContentSearchDialogEvent};
 use crate::views::overlays::file_search::{FileSearchDialog, FileSearchDialogEvent};
 use crate::views::overlays::diff_viewer::{DiffViewer, DiffViewerEvent};
@@ -173,6 +175,19 @@ pub enum OverlayManagerEvent {
     GitFileDiscard { project_id: String, file_path: String, is_untracked: bool },
     /// Git file context menu: add to .gitignore
     GitFileAddToGitignore { project_id: String, file_path: String },
+
+    /// Git overflow menu: stage all
+    GitStageAll { project_id: String },
+    /// Git overflow menu: unstage all
+    GitUnstageAll { project_id: String },
+    /// Git overflow menu: stash all (tracked + untracked)
+    GitStashAll { project_id: String },
+    /// Git overflow menu: stash pop (top of stack)
+    GitStashPop { project_id: String },
+    /// Git overflow menu: discard all tracked (post-confirmation)
+    GitDiscardAllTracked { project_id: String },
+    /// Stash list overlay closed; the panel should refresh `has_stash`.
+    GitStashRefresh { project_id: String },
 }
 
 /// Centralized overlay manager that handles all modal overlays.
@@ -194,6 +209,8 @@ pub struct OverlayManager {
     context_menu: OverlaySlot<ContextMenu>,
     folder_context_menu: OverlaySlot<FolderContextMenu>,
     git_file_context_menu: OverlaySlot<GitFileContextMenu>,
+    git_overflow_menu: OverlaySlot<GitOverflowMenu>,
+    git_stash_list: OverlaySlot<GitStashList>,
     remote_context_menu: OverlaySlot<RemoteContextMenu>,
     terminal_context_menu: OverlaySlot<TerminalContextMenu>,
     tab_context_menu: OverlaySlot<TabContextMenu>,
@@ -218,6 +235,8 @@ impl OverlayManager {
             context_menu: OverlaySlot::new(),
             folder_context_menu: OverlaySlot::new(),
             git_file_context_menu: OverlaySlot::new(),
+            git_overflow_menu: OverlaySlot::new(),
+            git_stash_list: OverlaySlot::new(),
             remote_context_menu: OverlaySlot::new(),
             terminal_context_menu: OverlaySlot::new(),
             tab_context_menu: OverlaySlot::new(),
@@ -280,6 +299,8 @@ impl OverlayManager {
         self.context_menu.close();
         self.folder_context_menu.close();
         self.git_file_context_menu.close();
+        self.git_overflow_menu.close();
+        self.git_stash_list.close();
         self.remote_context_menu.close();
         self.terminal_context_menu.close();
         self.tab_context_menu.close();
@@ -1056,6 +1077,148 @@ impl OverlayManager {
     /// Get git file context menu entity for rendering.
     pub fn render_git_file_context_menu(&self) -> Option<Entity<GitFileContextMenu>> {
         self.git_file_context_menu.render()
+    }
+
+    // ========================================================================
+    // Git overflow menu (three-dots in panel header)
+    // ========================================================================
+
+    /// Check if git overflow menu is open.
+    pub fn has_git_overflow_menu(&self) -> bool {
+        self.git_overflow_menu.is_open()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_git_overflow_menu(
+        &mut self,
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+        has_staged: bool,
+        has_unstaged: bool,
+        has_tracked: bool,
+        has_untracked: bool,
+        has_stash: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_modal(cx);
+        self.close_all_context_menus();
+
+        let menu = cx.new(|cx| {
+            GitOverflowMenu::new(
+                project_id,
+                position,
+                has_staged,
+                has_unstaged,
+                has_tracked,
+                has_untracked,
+                has_stash,
+                cx,
+            )
+        });
+
+        cx.subscribe(&menu, |this, _, event: &GitOverflowMenuEvent, cx| match event {
+            GitOverflowMenuEvent::Close => {
+                this.hide_git_overflow_menu(cx);
+            }
+            GitOverflowMenuEvent::StageAll { project_id } => {
+                this.hide_git_overflow_menu(cx);
+                cx.emit(OverlayManagerEvent::GitStageAll {
+                    project_id: project_id.clone(),
+                });
+            }
+            GitOverflowMenuEvent::UnstageAll { project_id } => {
+                this.hide_git_overflow_menu(cx);
+                cx.emit(OverlayManagerEvent::GitUnstageAll {
+                    project_id: project_id.clone(),
+                });
+            }
+            GitOverflowMenuEvent::StashAll { project_id } => {
+                this.hide_git_overflow_menu(cx);
+                cx.emit(OverlayManagerEvent::GitStashAll {
+                    project_id: project_id.clone(),
+                });
+            }
+            GitOverflowMenuEvent::StashPop { project_id } => {
+                this.hide_git_overflow_menu(cx);
+                cx.emit(OverlayManagerEvent::GitStashPop {
+                    project_id: project_id.clone(),
+                });
+            }
+            GitOverflowMenuEvent::ShowStash { project_id, position } => {
+                this.hide_git_overflow_menu(cx);
+                this.request_broker.update(cx, |broker, cx| {
+                    broker.push_overlay_request(
+                        OverlayRequest::GitStashList {
+                            project_id: project_id.clone(),
+                            position: *position,
+                        },
+                        cx,
+                    );
+                });
+            }
+            GitOverflowMenuEvent::DiscardAllTracked { project_id } => {
+                this.hide_git_overflow_menu(cx);
+                cx.emit(OverlayManagerEvent::GitDiscardAllTracked {
+                    project_id: project_id.clone(),
+                });
+            }
+        })
+        .detach();
+
+        self.git_overflow_menu.set(menu);
+        cx.notify();
+    }
+
+    pub fn hide_git_overflow_menu(&mut self, cx: &mut Context<Self>) {
+        self.git_overflow_menu.close();
+        cx.notify();
+    }
+
+    pub fn render_git_overflow_menu(&self) -> Option<Entity<GitOverflowMenu>> {
+        self.git_overflow_menu.render()
+    }
+
+    // ========================================================================
+    // Git stash list overlay
+    // ========================================================================
+
+    pub fn has_git_stash_list(&self) -> bool {
+        self.git_stash_list.is_open()
+    }
+
+    pub fn show_git_stash_list(
+        &mut self,
+        project_id: String,
+        provider: std::sync::Arc<dyn okena_views_git::diff_viewer::provider::GitProvider>,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_modal(cx);
+        self.close_all_context_menus();
+
+        let list = cx.new(|cx| GitStashList::new(project_id, provider, position, cx));
+
+        cx.subscribe(&list, |this, _, event: &GitStashListEvent, cx| match event {
+            GitStashListEvent::Close { project_id } => {
+                this.hide_git_stash_list(cx);
+                cx.emit(OverlayManagerEvent::GitStashRefresh {
+                    project_id: project_id.clone(),
+                });
+            }
+        })
+        .detach();
+
+        self.git_stash_list.set(list);
+        cx.notify();
+    }
+
+    pub fn hide_git_stash_list(&mut self, cx: &mut Context<Self>) {
+        self.git_stash_list.close();
+        cx.notify();
+    }
+
+    pub fn render_git_stash_list(&self) -> Option<Entity<GitStashList>> {
+        self.git_stash_list.render()
     }
 
     // ========================================================================
