@@ -549,6 +549,8 @@ impl Render for RootView {
                         });
                     if let Some(pid) = project_id {
                         this.toggle_git_panel(&pid, cx);
+                    } else {
+                        this.toggle_git_panel_empty(cx);
                     }
                 }
             }))

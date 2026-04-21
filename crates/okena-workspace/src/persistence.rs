@@ -1,8 +1,9 @@
 use okena_terminal::session_backend::SessionBackend;
-use okena_core::theme::FolderColor;
-use crate::state::{HookTerminalStatus, LayoutNode, ProjectData, WorkspaceData};
+use crate::state::{HookTerminalStatus, WorkspaceData};
 #[cfg(test)]
-use crate::state::WorktreeMetadata;
+use crate::state::{LayoutNode, ProjectData, WorktreeMetadata};
+#[cfg(test)]
+use okena_core::theme::FolderColor;
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -37,9 +38,9 @@ pub const WORKSPACE_VERSION: u32 = 1;
 
 /// Get the config directory path
 pub fn get_config_dir() -> PathBuf {
-    dirs::config_dir()
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("okena")
+        .join(".okena")
 }
 
 /// Alias for `get_config_dir` (used by remote/auth, remote/server, session manager UI)
@@ -430,34 +431,12 @@ pub(crate) fn sync_worktrees(data: &mut WorkspaceData) {
     }
 }
 
-/// Create a default workspace with one project
+/// Create an empty default workspace (no projects).
 pub fn default_workspace() -> WorkspaceData {
-    let project_id = uuid::Uuid::new_v4().to_string();
-    let home_dir = dirs::home_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "/".to_string());
-
     WorkspaceData {
         version: WORKSPACE_VERSION,
-        projects: vec![ProjectData {
-            id: project_id.clone(),
-            name: "Default".to_string(),
-            path: home_dir,
-            show_in_overview: true,
-            layout: Some(LayoutNode::new_terminal()),
-            terminal_names: HashMap::new(),
-            hidden_terminals: HashMap::new(),
-            worktree_info: None,
-            worktree_ids: Vec::new(),
-            folder_color: FolderColor::default(),
-            hooks: super::settings::HooksConfig::default(),
-            is_remote: false,
-            connection_id: None,
-            service_terminals: HashMap::new(),
-            default_shell: None,
-            hook_terminals: HashMap::new(),
-        }],
-        project_order: vec![project_id],
+        projects: Vec::new(),
+        project_order: Vec::new(),
         project_widths: HashMap::new(),
         service_panel_heights: HashMap::new(),
         hook_panel_heights: HashMap::new(),

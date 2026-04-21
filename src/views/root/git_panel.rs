@@ -1,5 +1,6 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
+use crate::ui::tokens::ui_text_md;
 use crate::views::layout::split_pane::render_git_panel_divider;
 use crate::views::sidebar_controller::{AnimationTarget, SidebarController, FRAME_TIME_MS};
 use gpui::*;
@@ -55,6 +56,16 @@ impl RootView {
         }
     }
 
+    /// Toggle the git panel without binding it to a project.
+    /// Used when no project is available — the panel shows a placeholder.
+    pub(super) fn toggle_git_panel_empty(&mut self, cx: &mut Context<Self>) {
+        let target = self.git_panel_ctrl.toggle();
+        let is_open = self.git_panel_ctrl.is_open();
+        settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(is_open, cx));
+        self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(is_open, cx));
+        self.animate_git_panel_to(target, cx);
+    }
+
     /// Render the git panel content.
     pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let show_panel = self.git_panel_ctrl.should_render();
@@ -83,12 +94,8 @@ impl RootView {
             }
         }
 
-        let has_content = self.git_panel_project_id.as_ref()
-            .and_then(|pid| self.project_columns.get(pid))
-            .is_some();
-
-        // No panel or no project to show for it -> take zero space, no divider.
-        if !show_panel || !has_content {
+        // Panel closed -> take zero space, no divider.
+        if !show_panel {
             return div()
                 .id("git-panel-wrapper")
                 .w(px(0.0))
@@ -97,14 +104,30 @@ impl RootView {
                 .into_any_element();
         }
 
+        let has_content = self.git_panel_project_id.as_ref()
+            .and_then(|pid| self.project_columns.get(pid))
+            .is_some();
+
         let git_panel_width = self.git_panel_ctrl.current_width();
         let configured_width = self.git_panel_ctrl.width();
         let t = theme(cx);
 
-        let pid = self.git_panel_project_id.clone().expect("has_content guard verified Some");
-        let col = self.project_columns.get(&pid).cloned().expect("has_content guard verified column exists");
-        let gh = col.read(cx).git_header();
-        let content = gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx));
+        let content: AnyElement = if has_content {
+            let pid = self.git_panel_project_id.clone().expect("has_content guard verified Some");
+            let col = self.project_columns.get(&pid).cloned().expect("has_content guard verified column exists");
+            let gh = col.read(cx).git_header();
+            gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx)).into_any_element()
+        } else {
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(ui_text_md(cx))
+                .text_color(rgb(t.text_muted))
+                .child("No project selected")
+                .into_any_element()
+        };
 
         let panel_container = div()
             .id("git-panel-container")
