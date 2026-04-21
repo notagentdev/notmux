@@ -142,7 +142,8 @@ impl ExtensionSettingsStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{ExtensionInstance, ExtensionManifest, ExtensionRegistration, ExtensionRegistry};
+    use std::sync::Arc;
 
     #[test]
     fn registry_register_and_lookup() {
