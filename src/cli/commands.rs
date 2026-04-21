@@ -215,7 +215,7 @@ pub fn cli_services(args: &[String]) -> i32 {
                 }));
             }
         }
-        println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+        println!("{}", serde_json::to_string_pretty(&entries).expect("serializing owned JSON values cannot fail"));
     } else {
         for project in &projects {
             for svc in &project.services {

@@ -1030,7 +1030,7 @@ impl Render for FileViewer {
                                         )
                                         .when(scrollbar_geometry.is_some(), |d| {
                                             let (_, _, thumb_y, thumb_height) =
-                                                scrollbar_geometry.unwrap();
+                                                scrollbar_geometry.expect("guarded by is_some() in when()");
                                             d.child(self.render_scrollbar(
                                                 &t,
                                                 thumb_y,
@@ -1424,7 +1424,7 @@ impl Render for FileViewer {
                 )
             })
             .when(self.filter_popover_open && self.filter_button_bounds.is_some(), |d| {
-                let bounds = self.filter_button_bounds.unwrap();
+                let bounds = self.filter_button_bounds.expect("guarded by is_some() in when()");
                 let entity = cx.entity().downgrade();
                 d.child(crate::list_overlay::file_filter_popover(
                     bounds, self.show_ignored, self.show_hidden, &t, cx,

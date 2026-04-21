@@ -140,7 +140,10 @@ pub fn generate_branch_name(repo_path: &Path) -> String {
     let (username, taken) = std::thread::scope(|s| {
         let u = s.spawn(|| detect_github_username(repo_path));
         let t = s.spawn(|| collect_taken_branches(repo_path));
-        (u.join().unwrap(), t.join().unwrap())
+        (
+            u.join().expect("username detection thread panicked"),
+            t.join().expect("branch collection thread panicked"),
+        )
     });
 
     // Shuffle goods and adjectives so the generated name feels random
@@ -196,7 +199,10 @@ fn collect_taken_branches(repo_path: &Path) -> HashSet<String> {
     let (branches, wt_branches) = std::thread::scope(|s| {
         let b = s.spawn(|| super::repository::list_branches(repo_path));
         let w = s.spawn(|| super::repository::get_worktree_branches(repo_path));
-        (b.join().unwrap(), w.join().unwrap())
+        (
+            b.join().expect("list_branches thread panicked"),
+            w.join().expect("get_worktree_branches thread panicked"),
+        )
     });
     let mut taken: HashSet<String> = branches.into_iter().collect();
     taken.extend(wt_branches);

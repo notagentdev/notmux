@@ -1461,7 +1461,7 @@ impl Render for ContentSearchDialog {
                     )
                 })
                 .when(self.filter_popover_open && self.filter_button_bounds.is_some(), |d| {
-                    let bounds = self.filter_button_bounds.unwrap();
+                    let bounds = self.filter_button_bounds.expect("guarded by is_some() in when()");
                     let entity = cx.entity().downgrade();
                     d.child(crate::list_overlay::file_filter_popover(
                         bounds, self.show_ignored, self.show_hidden, &t, cx,
@@ -1518,7 +1518,7 @@ impl Render for ContentSearchDialog {
                             )
                         })
                         .when(self.filter_popover_open && self.filter_button_bounds.is_some(), |modal| {
-                            let bounds = self.filter_button_bounds.unwrap();
+                            let bounds = self.filter_button_bounds.expect("guarded by is_some() in when()");
                             let entity = cx.entity().downgrade();
                             modal.child(crate::list_overlay::file_filter_popover(
                                 bounds, self.show_ignored, self.show_hidden, &t, cx,

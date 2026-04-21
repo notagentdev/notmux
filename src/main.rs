@@ -365,7 +365,7 @@ fn main() {
             eprintln!("Headless mode requires --listen <addr>, e.g. --headless --listen 0.0.0.0");
             std::process::exit(1);
         }
-        run_headless(listen_addr.unwrap());
+        run_headless(listen_addr.expect("listen_addr presence checked above"));
         return;
     }
 

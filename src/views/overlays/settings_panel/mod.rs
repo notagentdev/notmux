@@ -833,19 +833,19 @@ impl Render for SettingsPanel {
                     })
                     // Dropdown overlays positioned below trigger button
                     .when(self.project_dropdown_open && self.project_button_bounds.is_some(), |modal| {
-                        modal.child(dropdown_anchored_below(self.project_button_bounds.unwrap(), self.render_project_dropdown_overlay(cx)))
+                        modal.child(dropdown_anchored_below(self.project_button_bounds.expect("guarded by is_some() in when()"), self.render_project_dropdown_overlay(cx)))
                     })
                     .when(self.font_dropdown_open && self.font_button_bounds.is_some(), |modal| {
                         let current = settings_entity(cx).read(cx).settings.font_family.clone();
-                        modal.child(dropdown_anchored_below(self.font_button_bounds.unwrap(), self.render_font_dropdown_overlay(&current, cx)))
+                        modal.child(dropdown_anchored_below(self.font_button_bounds.expect("guarded by is_some() in when()"), self.render_font_dropdown_overlay(&current, cx)))
                     })
                     .when(self.shell_dropdown_open && self.shell_button_bounds.is_some(), |modal| {
                         let current = settings_entity(cx).read(cx).settings.default_shell.clone();
-                        modal.child(dropdown_anchored_below(self.shell_button_bounds.unwrap(), self.render_shell_dropdown_overlay(&current, cx)))
+                        modal.child(dropdown_anchored_below(self.shell_button_bounds.expect("guarded by is_some() in when()"), self.render_shell_dropdown_overlay(&current, cx)))
                     })
                     .when(self.session_backend_dropdown_open && self.session_backend_button_bounds.is_some(), |modal| {
                         let current = settings_entity(cx).read(cx).settings.session_backend;
-                        modal.child(dropdown_anchored_below(self.session_backend_button_bounds.unwrap(), self.render_session_backend_dropdown_overlay(&current, cx)))
+                        modal.child(dropdown_anchored_below(self.session_backend_button_bounds.expect("guarded by is_some() in when()"), self.render_session_backend_dropdown_overlay(&current, cx)))
                     }),
             )
     }

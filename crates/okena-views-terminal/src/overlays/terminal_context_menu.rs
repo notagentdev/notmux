@@ -97,7 +97,7 @@ impl Render for TerminalContextMenu {
                         context_menu_panel("terminal-context-menu", &t)
                             // Open in Browser (conditional - requires URL at click position)
                             .when(link_url.is_some(), |el| {
-                                let url = link_url.clone().unwrap();
+                                let url = link_url.clone().expect("guarded by is_some() in when()");
                                 let url2 = url.clone();
                                 el.child(
                                     menu_item("ctx-open-link", "icons/external-link.svg", "Open in Browser", &t)

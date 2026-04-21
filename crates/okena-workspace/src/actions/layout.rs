@@ -659,7 +659,7 @@ impl Workspace {
             // Source is root — remove entire layout
             src_project.layout = None;
         } else {
-            let src_layout = src_project.layout.as_mut().unwrap();
+            let src_layout = src_project.layout.as_mut().expect("non-empty source_path implies layout is Some");
             if src_layout.remove_at_path(&source_path).is_none() {
                 return;
             }
@@ -708,7 +708,7 @@ impl Workspace {
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
-            tgt_project.layout.as_ref().unwrap().find_terminal_path(source_terminal_id)
+            tgt_project.layout.as_ref().expect("set to Some one line above").find_terminal_path(source_terminal_id)
         };
 
         self.notify_data(cx);
@@ -958,7 +958,7 @@ impl Workspace {
         if source_path.is_empty() {
             src_project.layout = None;
         } else {
-            let src_layout = src_project.layout.as_mut().unwrap();
+            let src_layout = src_project.layout.as_mut().expect("non-empty source_path implies layout is Some");
             if src_layout.remove_at_path(&source_path).is_none() {
                 return;
             }
@@ -1017,7 +1017,7 @@ impl Workspace {
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
-            tgt_project.layout.as_ref().unwrap().find_terminal_path(terminal_id)
+            tgt_project.layout.as_ref().expect("set to Some one line above").find_terminal_path(terminal_id)
         };
 
         self.notify_data(cx);

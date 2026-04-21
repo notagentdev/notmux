@@ -249,7 +249,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     .flex_1()
                     .min_h_0()
                     .relative()
-                    .child(AnyView::from(self.terminal_pane.clone().unwrap()).cached(
+                    .child(AnyView::from(self.terminal_pane.clone().expect("ensure_terminal_pane sets this to Some")).cached(
                         StyleRefinement::default().size_full()
                     ))
                     .child(self.render_drop_zones(terminal_id, cx, &self.active_drag.clone())),

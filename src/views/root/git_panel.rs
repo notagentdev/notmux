@@ -101,8 +101,8 @@ impl RootView {
         let configured_width = self.git_panel_ctrl.width();
         let t = theme(cx);
 
-        let pid = self.git_panel_project_id.clone().unwrap();
-        let col = self.project_columns.get(&pid).cloned().unwrap();
+        let pid = self.git_panel_project_id.clone().expect("has_content guard verified Some");
+        let col = self.project_columns.get(&pid).cloned().expect("has_content guard verified column exists");
         let gh = col.read(cx).git_header();
         let content = gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx));
 

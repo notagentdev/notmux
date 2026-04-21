@@ -69,7 +69,7 @@ impl Workspace {
             if let Some(project) = self.project(&id)
                 && project.layout.is_some() {
                     // Focus the currently visible terminal (follows active tabs)
-                    let path = project.layout.as_ref().unwrap().find_visible_terminal_path();
+                    let path = project.layout.as_ref().expect("guarded by layout.is_some() above").find_visible_terminal_path();
                     self.focus_manager.focus_terminal(id, path);
                     return;
                 }

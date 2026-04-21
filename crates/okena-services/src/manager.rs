@@ -205,7 +205,7 @@ impl ServiceManager {
                 ));
                 self.terminals.lock().insert(terminal_id.clone(), terminal);
 
-                let instance = self.instances.get_mut(&key).unwrap();
+                let instance = self.instances.get_mut(&key).expect("key verified present at function entry");
                 instance.status = ServiceStatus::Running;
                 instance.terminal_id = Some(terminal_id.clone());
                 self.terminal_to_service.insert(
@@ -453,7 +453,7 @@ impl ServiceManager {
                 ));
                 self.terminals.lock().insert(terminal_id.clone(), terminal);
 
-                let instance = self.instances.get_mut(&key).unwrap();
+                let instance = self.instances.get_mut(&key).expect("key verified present at function entry");
                 instance.status = ServiceStatus::Running;
                 instance.terminal_id = Some(terminal_id.clone());
                 self.terminal_to_service.insert(
@@ -468,7 +468,7 @@ impl ServiceManager {
                     project_id,
                     e
                 );
-                let instance = self.instances.get_mut(&key).unwrap();
+                let instance = self.instances.get_mut(&key).expect("key verified present at function entry");
                 instance.status = ServiceStatus::Crashed { exit_code: None };
             }
         }
@@ -1159,7 +1159,7 @@ impl ServiceManager {
                 ));
                 self.terminals.lock().insert(terminal_id.clone(), terminal);
 
-                let instance = self.instances.get_mut(&key).unwrap();
+                let instance = self.instances.get_mut(&key).expect("key verified present at function entry");
                 instance.terminal_id = Some(terminal_id.clone());
                 self.terminal_to_service.insert(
                     terminal_id,

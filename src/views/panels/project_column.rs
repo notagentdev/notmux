@@ -673,7 +673,7 @@ impl Render for ProjectColumn {
                         .flex_1()
                         .min_h_0()
                         .overflow_hidden()
-                        .child(AnyView::from(self.layout_container.clone().unwrap()).cached(
+                        .child(AnyView::from(self.layout_container.clone().expect("ensure_layout_container sets this to Some")).cached(
                             StyleRefinement::default().size_full()
                         ))
                         .into_any_element()

@@ -531,7 +531,7 @@ impl DiffViewer {
             }));
         }
 
-        let file = self.current_file.as_mut().unwrap();
+        let file = self.current_file.as_mut().expect("current_file verified Some at function entry");
         file.items.splice(item_index..=item_index, new_items);
 
         self.max_line_chars = Self::calc_max_line_chars(file);

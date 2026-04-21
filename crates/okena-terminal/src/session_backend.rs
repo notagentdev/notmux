@@ -363,7 +363,7 @@ pub fn resolve_for_wsl(distro: Option<&str>, preference: SessionBackend) -> Reso
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
     let key = (distro.map(|s| s.to_string()), preference);
-    if let Some(cached) = CACHE.lock().unwrap().get(&key) {
+    if let Some(cached) = CACHE.lock().expect("WSL backend cache mutex poisoned").get(&key) {
         return *cached;
     }
 
@@ -410,7 +410,7 @@ pub fn resolve_for_wsl(distro: Option<&str>, preference: SessionBackend) -> Reso
         }
     };
 
-    CACHE.lock().unwrap().insert(key, result);
+    CACHE.lock().expect("WSL backend cache mutex poisoned").insert(key, result);
     result
 }
 

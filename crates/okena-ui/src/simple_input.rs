@@ -253,7 +253,7 @@ impl SimpleInputState {
                 self.extend_selection(old_pos, self.cursor_position);
             } else if self.selection.is_some() {
                 // Move cursor to start of selection
-                self.cursor_position = self.selection.as_ref().unwrap().start;
+                self.cursor_position = self.selection.as_ref().expect("guarded by is_some() above").start;
                 self.selection = None;
             }
             if !extend_selection {
@@ -277,7 +277,7 @@ impl SimpleInputState {
                 self.extend_selection(old_pos, self.cursor_position);
             } else if self.selection.is_some() {
                 // Move cursor to end of selection
-                self.cursor_position = self.selection.as_ref().unwrap().end;
+                self.cursor_position = self.selection.as_ref().expect("guarded by is_some() above").end;
                 self.selection = None;
             }
             if !extend_selection {

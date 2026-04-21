@@ -19,7 +19,7 @@ pub async fn post_pair(
                 token,
                 expires_in: TOKEN_TTL_SECS,
             })
-            .unwrap()),
+            .expect("PairResponse serializes to valid JSON")),
         )
             .into_response(),
         Err(PairError::RateLimited) => {

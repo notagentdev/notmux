@@ -2362,8 +2362,8 @@ impl GitHeader {
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
                                 .when(both_selected, |d| {
                                     d.on_click(cx.listener(move |this, _, _window, cx| {
-                                        let base = this.commit_log_compare_base.clone().unwrap();
-                                        let head = this.commit_log_compare_head.clone().unwrap();
+                                        let base = this.commit_log_compare_base.clone().expect("both_selected implies compare_base is Some");
+                                        let head = this.commit_log_compare_head.clone().expect("both_selected implies compare_head is Some");
                                         broker.update(cx, |broker, cx| {
                                             broker.push_overlay_request(OverlayRequest::DiffViewer {
                                                 project_id: pid.clone(),
@@ -2728,8 +2728,8 @@ impl GitHeader {
                                                             .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
                                                             .when(both_selected, |d| {
                                                                 d.on_click(cx.listener(move |this, _, _window, cx| {
-                                                                    let base = this.commit_log_compare_base.clone().unwrap();
-                                                                    let head = this.commit_log_compare_head.clone().unwrap();
+                                                                    let base = this.commit_log_compare_base.clone().expect("both_selected implies compare_base is Some");
+                                                                    let head = this.commit_log_compare_head.clone().expect("both_selected implies compare_head is Some");
                                                                     this.hide_commit_log(cx);
                                                                     broker.update(cx, |broker, cx| {
                                                                         broker.push_overlay_request(OverlayRequest::DiffViewer {

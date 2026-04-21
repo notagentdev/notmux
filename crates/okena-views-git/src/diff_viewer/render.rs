@@ -543,7 +543,7 @@ impl DiffViewer {
                             .track_scroll(&self.scroll_handle),
                         )
                         .when(scrollbar_geometry.is_some(), |d| {
-                            let (_, _, thumb_y, thumb_height) = scrollbar_geometry.unwrap();
+                            let (_, _, thumb_y, thumb_height) = scrollbar_geometry.expect("guarded by is_some() in when()");
                             d.child(self.render_scrollbar_thumb(
                                 t,
                                 thumb_y,

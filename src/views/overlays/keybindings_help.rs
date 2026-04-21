@@ -143,7 +143,7 @@ impl KeybindingsHelp {
 
         if editing.waiting_for_chord {
             // This is the second keystroke of a chord
-            let first = editing.first_chord.take().unwrap();
+            let first = editing.first_chord.take().expect("waiting_for_chord implies first_chord is Some");
             let chord = format!("{} {}", first, config_str);
             self.finalize_recording(chord, window, cx);
         } else {
@@ -612,7 +612,7 @@ impl Render for KeybindingsHelp {
                         }
                     }
                     k if k.len() == 1 && !event.keystroke.modifiers.modified() => {
-                        let ch = k.chars().next().unwrap();
+                        let ch = k.chars().next().expect("k.len() == 1 guarantees a char");
                         if SEARCH_CHARS.contains(ch) {
                             this.search_query.push(ch);
                             cx.notify();

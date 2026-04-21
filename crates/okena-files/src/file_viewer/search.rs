@@ -152,7 +152,7 @@ impl FileViewer {
             Some(0)
         };
 
-        let state = self.search_state.as_mut().unwrap();
+        let state = self.search_state.as_mut().expect("search_state verified Some at function entry");
         state.matches = matches;
         state.current_match_index = current_match_index;
 
@@ -254,7 +254,7 @@ impl FileViewer {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let state = self.search_state.as_ref().unwrap();
+        let state = self.search_state.as_ref().expect("render_search_bar only called when search is active");
         let match_count = state.matches.len();
         let current_idx = state.current_match_index.map(|i| i + 1).unwrap_or(0);
         let match_text = if match_count > 0 {

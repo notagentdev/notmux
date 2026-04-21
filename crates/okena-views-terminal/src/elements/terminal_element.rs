@@ -401,7 +401,7 @@ impl Element for TerminalElement {
                             if rect.line == visual_line && rect.start_col + rect.num_cells as i32 == col_i32 && rect.color == color {
                                 rect.extend();
                             } else {
-                                rects.push(current_rect.take().unwrap());
+                                rects.push(current_rect.take().expect("guarded by if let Some(ref mut rect) above"));
                                 current_rect = Some(LayoutRect::new(visual_line, col_i32, color));
                             }
                         } else {
@@ -465,7 +465,7 @@ impl Element for TerminalElement {
                         if batch.can_append(&text_style, visual_line, col_i32) {
                             batch.append_char(cell.c);
                         } else {
-                            batched_runs.push(current_batch.take().unwrap());
+                            batched_runs.push(current_batch.take().expect("guarded by if let Some(ref mut batch) above"));
                             current_batch = Some(BatchedTextRun::new(visual_line, col_i32, cell.c, text_style));
                         }
                     } else {
