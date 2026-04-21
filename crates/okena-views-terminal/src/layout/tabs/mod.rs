@@ -94,7 +94,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let supports_buffer_capture = self.backend.supports_buffer_capture();
         let backend_for_export = self.backend.clone();
         let terminal_id_for_export = terminal_id.clone();
-        let terminal_id_for_close = terminal_id.clone();
         let terminal_id_for_fullscreen = terminal_id.clone();
 
         let ctx_split_v = ctx.clone();
@@ -103,9 +102,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let ctx_minimize = ctx.clone();
         let ctx_fullscreen = ctx.clone();
         let ctx_detach = ctx.clone();
-        let ctx_close = ctx.clone();
 
-        let standalone = ctx.standalone;
+        let _ = ctx;
 
         div()
             .flex()
@@ -204,18 +202,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         });
                     }),
             )
-            .child({
-                header_button_base(HeaderAction::Close, &id_suffix, ButtonSize::COMPACT, &t, Some(if standalone { "Close" } else { "Close Tab" }), None)
-                    .on_click(move |_, _window, cx| {
-                        if let Some(ref tid) = terminal_id_for_close
-                            && let Some(ref dispatcher) = ctx_close.action_dispatcher {
-                                dispatcher.dispatch(okena_core::api::ActionRequest::CloseTerminal {
-                                    project_id: ctx_close.project_id.clone(),
-                                    terminal_id: tid.clone(),
-                                }, cx);
-                            }
-                    })
-            })
     }
 
     pub(super) fn render_tabs(
@@ -402,20 +388,19 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .map(|(_, p)| p)
                 .unwrap_or(0.0);
 
+            let tab_group = SharedString::from(format!("term-tab-{}-{:?}", i, layout_path));
             div()
                 .id(ElementId::Name(format!("tab-{}-{:?}", i, layout_path).into()))
+                .group(tab_group.clone())
                 .cursor_pointer()
                 .relative()
                 .flex_shrink_0()
                 .max_w(px(200.0))
+                .h(px(32.0))
                 .overflow_hidden()
-                .px(px(8.0))
-                .pt(px(4.0))
-                .pb(px(4.0))
                 .border_r_1()
                 .border_color(rgb(t.border))
                 .text_size(ui_text_md(cx))
-                .items_center()
                 .when(is_active && is_pane_focused, |d| {
                     d.bg(rgb(t.term_background))
                         .text_color(rgb(t.text_primary))
@@ -468,15 +453,89 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             .into_any_element()
                     } else {
                         let icon_color = if is_hook { rgb(t.term_yellow) } else if is_waiting { rgb(t.border_idle) } else if is_active { rgb(t.success) } else { rgb(t.text_muted) };
-                        h_flex()
-                            .gap(px(6.0))
+                        let close_id = ElementId::Name(format!("tab-close-{}-{:?}", i, layout_path).into());
+                        let close_terminal_id = terminal_id.clone();
+                        let close_project_id = project_id.clone();
+                        let close_dispatcher = self.action_dispatcher.clone();
+
+                        // Start slot: terminal icon
+                        let start_slot = h_flex()
+                            .w(px(12.0))
+                            .h(px(12.0))
+                            .justify_center()
+                            .child(
+                                svg()
+                                    .path("icons/terminal.svg")
+                                    .size(px(12.0))
+                                    .text_color(icon_color),
+                            );
+
+                        // End slot: close button (Zed-style: muted icon, subtle hover bg)
+                        let bg_hover = t.bg_hover;
+                        let muted = t.text_muted;
+                        let end_slot = h_flex()
+                            .flex_none()
+                            .justify_center()
+                            .mt(px(2.0))
+                            .when_some(close_terminal_id, |slot, tid| {
+                                slot.child(
+                                    h_flex()
+                                        .id(close_id)
+                                        .flex_none()
+                                        .w(px(24.0))
+                                        .h(px(24.0))
+                                        .justify_center()
+                                        .rounded(px(4.0))
+                                        .cursor_pointer()
+                                        .hover(move |s| s.bg(rgb(bg_hover)))
+                                        .child(
+                                            svg()
+                                                .path("icons/close.svg")
+                                                .size(px(16.0))
+                                                .text_color(rgb(muted)),
+                                        )
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_click(move |_, _window, cx| {
+                                            cx.stop_propagation();
+                                            if let Some(ref dispatcher) = close_dispatcher {
+                                                dispatcher.dispatch(
+                                                    okena_core::api::ActionRequest::CloseTerminal {
+                                                        project_id: close_project_id.clone(),
+                                                        terminal_id: tid.clone(),
+                                                    },
+                                                    cx,
+                                                );
+                                            }
+                                        }),
+                                )
+                            });
+
+                        // Children: the label
+                        let label = div()
+                            .flex_1()
+                            .min_w_0()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(svg().path("icons/terminal.svg").size(px(12.0)).flex_shrink_0().text_color(icon_color))
-                            .child(tab_label.clone())
+                            .child(tab_label.clone());
+
+                        h_flex()
+                            .h(px(32.0))
+                            .w_full()
+                            .px(px(8.0))
+                            .gap(px(6.0))
+                            .overflow_hidden()
+                            .child(start_slot)
+                            .child(label)
                             .children(idle_label.as_ref().map(|d| {
-                                div().text_size(ui_text_sm(cx)).text_color(rgb(t.border_idle)).child(d.clone())
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(ui_text_sm(cx))
+                                    .text_color(rgb(t.border_idle))
+                                    .child(d.clone())
                             }))
+                            .child(end_slot)
                             .into_any_element()
                     }
                 })
@@ -738,6 +797,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             self.last_scrolled_to_tab = Some(active_tab);
         }
 
+        let focus_marker_color = t.border_active;
+
         div()
             .group("tab-bar-row")
             .flex_shrink_0()
@@ -745,6 +806,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .flex()
             .items_stretch()
             .gap(px(0.0))
+            .relative()
             .border_t_1()
             .border_b_1()
             .border_color(rgb(t.border))
@@ -772,5 +834,36 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     })
                     .child(action_buttons),
             )
+            .when(is_pane_focused, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .w(px(FOCUS_TRIANGLE_SIZE))
+                        .h(px(FOCUS_TRIANGLE_SIZE))
+                        .group_hover("tab-bar-row", |s| s.opacity(0.0))
+                        .child(canvas(
+                            |_bounds, _window, _cx| {},
+                            move |bounds, _state, window, _cx| {
+                                let tr = point(
+                                    bounds.origin.x + bounds.size.width,
+                                    bounds.origin.y,
+                                );
+                                let br = point(
+                                    bounds.origin.x + bounds.size.width,
+                                    bounds.origin.y + bounds.size.height,
+                                );
+                                let tl = bounds.origin;
+                                let mut path = Path::new(tr);
+                                path.line_to(br);
+                                path.line_to(tl);
+                                window.paint_path(path, rgb(focus_marker_color));
+                            },
+                        ).size_full()),
+                )
+            })
     }
 }
+
+const FOCUS_TRIANGLE_SIZE: f32 = 24.0;

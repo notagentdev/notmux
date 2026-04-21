@@ -293,6 +293,54 @@ impl Sidebar {
         }
     }
 
+    /// Find the FileExplorer whose project_path is a prefix of `path`.
+    pub fn file_explorer_for_path(
+        &self,
+        path: &std::path::Path,
+        cx: &App,
+    ) -> Option<Entity<FileExplorer>> {
+        let mut best: Option<(usize, Entity<FileExplorer>)> = None;
+        for fe in self.file_explorers.values() {
+            let root = fe.read(cx).project_path().to_path_buf();
+            if path.starts_with(&root) {
+                let len = root.as_os_str().len();
+                if best.as_ref().map(|(l, _)| len > *l).unwrap_or(true) {
+                    best = Some((len, fe.clone()));
+                }
+            }
+        }
+        best.map(|(_, fe)| fe)
+    }
+
+    /// Clear the context-menu target (row highlight) on every file explorer.
+    pub fn clear_all_explorer_context_menu_targets(&mut self, cx: &mut Context<Self>) {
+        let explorers: Vec<Entity<FileExplorer>> = self.file_explorers.values().cloned().collect();
+        for fe in explorers {
+            fe.update(cx, |fe, cx| fe.clear_context_menu_target(cx));
+        }
+    }
+
+    /// Apply an FS patch to every explorer whose project contains `path`.
+    pub fn patch_explorers_for_path(
+        &mut self,
+        path: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) {
+        let parent = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| path.to_path_buf());
+        let targets: Vec<Entity<FileExplorer>> = self
+            .file_explorers
+            .values()
+            .filter(|fe| parent.starts_with(fe.read(cx).project_path()))
+            .cloned()
+            .collect();
+        for fe in targets {
+            fe.update(cx, |fe, cx| fe.patch_paths(&[parent.clone()], cx));
+        }
+    }
+
     /// Set the dispatch action callback.
     pub fn set_dispatch_action(&mut self, f: DispatchActionFn) {
         self.dispatch_action = Some(f);

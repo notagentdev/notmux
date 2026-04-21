@@ -3,6 +3,17 @@
 //! These types describe UI interactions (context menus, overlays, rename dialogs)
 //! and are never persisted. They flow through `Workspace`'s request queues.
 
+/// Target kind for `OverlayRequest::ExplorerContextMenu`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExplorerKind {
+    /// Right-click on a file row.
+    File,
+    /// Right-click on a folder row.
+    Folder,
+    /// Right-click on the empty area below the tree (project root).
+    Empty,
+}
+
 /// Request to show context menu at a position
 #[derive(Clone, Debug)]
 pub struct ContextMenuRequest {
@@ -80,6 +91,17 @@ pub enum OverlayRequest {
     },
     GitStashList {
         project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    ExplorerContextMenu {
+        kind: ExplorerKind,
+        /// Path of the clicked row, or the project root for `Empty`.
+        path: std::path::PathBuf,
+        /// Directory used as parent for New File / New Folder / Paste.
+        parent_dir: std::path::PathBuf,
+        /// Whether the explorer clipboard currently holds an entry (toggles
+        /// the Paste visibility in the menu).
+        has_clipboard: bool,
         position: gpui::Point<gpui::Pixels>,
     },
 }

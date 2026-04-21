@@ -41,4 +41,6 @@ gpui::actions!(okena_views_sidebar, [
     SidebarToggleExpand,
     SidebarEscape,
     Cancel,
+    ExplorerInputConfirm,
+    ExplorerInputCancel,
 ]);

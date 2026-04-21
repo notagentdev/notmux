@@ -132,6 +132,11 @@ pub fn reload_keybindings(cx: &mut App) {
     ]);
 
     cx.bind_keys([
+        KeyBinding::new("enter", okena_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
+        KeyBinding::new("escape", okena_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
+    ]);
+
+    cx.bind_keys([
         KeyBinding::new("escape", Cancel, None),
         KeyBinding::new("escape", SendEscape, Some("TerminalPane")),
         KeyBinding::new("escape", CloseSearch, Some("SearchBar")),
@@ -194,6 +199,12 @@ pub fn register_keybindings(cx: &mut App) {
         KeyBinding::new("left", SidebarToggleExpand, Some("Sidebar")),
         KeyBinding::new("right", SidebarToggleExpand, Some("Sidebar")),
         KeyBinding::new("escape", SidebarEscape, Some("Sidebar")),
+    ]);
+
+    // File explorer inline input confirm/cancel (deeper than Sidebar so it wins).
+    cx.bind_keys([
+        KeyBinding::new("enter", okena_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
+        KeyBinding::new("escape", okena_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
     ]);
 
     // Register escape keybindings with context-based precedence:

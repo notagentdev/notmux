@@ -13,6 +13,7 @@ use crate::views::overlays::keybindings_help::{KeybindingsHelp, KeybindingsHelpE
 use crate::views::overlays::add_project_dialog::{AddProjectDialog, AddProjectDialogEvent};
 use crate::views::overlays::context_menu::{ContextMenu, ContextMenuEvent};
 use crate::views::overlays::folder_context_menu::{FolderContextMenu, FolderContextMenuEvent};
+use crate::views::overlays::explorer_context_menu::{ExplorerContextMenu, ExplorerContextMenuEvent};
 use crate::views::overlays::git_file_context_menu::{GitFileContextMenu, GitFileContextMenuEvent};
 use crate::views::overlays::git_overflow_menu::{GitOverflowMenu, GitOverflowMenuEvent};
 use crate::views::overlays::git_stash_list::{GitStashList, GitStashListEvent};
@@ -188,6 +189,23 @@ pub enum OverlayManagerEvent {
     GitDiscardAllTracked { project_id: String },
     /// Stash list overlay closed; the panel should refresh `has_stash`.
     GitStashRefresh { project_id: String },
+
+    /// Explorer context menu: start inline input for a new file inside `parent`.
+    ExplorerNewFile { parent: std::path::PathBuf },
+    /// Explorer context menu: start inline input for a new folder inside `parent`.
+    ExplorerNewFolder { parent: std::path::PathBuf },
+    /// Explorer context menu: start inline rename on `target`.
+    ExplorerRename { target: std::path::PathBuf },
+    /// Explorer context menu: delete `path` (synchronous from disk).
+    ExplorerDelete { path: std::path::PathBuf, is_dir: bool },
+    /// Explorer context menu: reveal `path` in the platform file manager.
+    ExplorerReveal { path: std::path::PathBuf },
+    /// Explorer context menu: paste the clipboard entry into `target_dir`.
+    ExplorerPaste { target_dir: std::path::PathBuf },
+    /// Explorer context menu: append the file's relative path to .gitignore.
+    ExplorerAddToGitignore { path: std::path::PathBuf },
+    /// Explorer context menu: closed (clear the per-row highlight in the tree).
+    ExplorerContextMenuClosed,
 }
 
 /// Centralized overlay manager that handles all modal overlays.
@@ -208,6 +226,7 @@ pub struct OverlayManager {
     // Context menus remain separate (positioned popups, not full-screen modals)
     context_menu: OverlaySlot<ContextMenu>,
     folder_context_menu: OverlaySlot<FolderContextMenu>,
+    explorer_context_menu: OverlaySlot<ExplorerContextMenu>,
     git_file_context_menu: OverlaySlot<GitFileContextMenu>,
     git_overflow_menu: OverlaySlot<GitOverflowMenu>,
     git_stash_list: OverlaySlot<GitStashList>,
@@ -234,6 +253,7 @@ impl OverlayManager {
             cached_file_viewers: std::collections::HashMap::new(),
             context_menu: OverlaySlot::new(),
             folder_context_menu: OverlaySlot::new(),
+            explorer_context_menu: OverlaySlot::new(),
             git_file_context_menu: OverlaySlot::new(),
             git_overflow_menu: OverlaySlot::new(),
             git_stash_list: OverlaySlot::new(),
@@ -297,6 +317,7 @@ impl OverlayManager {
     /// Close all context menu slots (mutual exclusion).
     fn close_all_context_menus(&mut self) {
         self.context_menu.close();
+        self.explorer_context_menu.close();
         self.folder_context_menu.close();
         self.git_file_context_menu.close();
         self.git_overflow_menu.close();
@@ -1077,6 +1098,99 @@ impl OverlayManager {
     /// Get git file context menu entity for rendering.
     pub fn render_git_file_context_menu(&self) -> Option<Entity<GitFileContextMenu>> {
         self.git_file_context_menu.render()
+    }
+
+    // ========================================================================
+    // Explorer context menu (positioned popup for sidebar file tree)
+    // ========================================================================
+
+    pub fn has_explorer_context_menu(&self) -> bool {
+        self.explorer_context_menu.is_open()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn show_explorer_context_menu(
+        &mut self,
+        kind: okena_workspace::requests::ExplorerKind,
+        path: std::path::PathBuf,
+        parent_dir: std::path::PathBuf,
+        has_clipboard: bool,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_modal(cx);
+        self.close_all_context_menus();
+
+        let menu = cx.new(|cx| {
+            ExplorerContextMenu::new(kind, path, parent_dir, has_clipboard, position, cx)
+        });
+
+        cx.subscribe(&menu, |this, _, event: &ExplorerContextMenuEvent, cx| match event {
+            ExplorerContextMenuEvent::Close => {
+                this.hide_explorer_context_menu(cx);
+            }
+            ExplorerContextMenuEvent::NewFile { parent } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerNewFile { parent: parent.clone() });
+            }
+            ExplorerContextMenuEvent::NewFolder { parent } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerNewFolder { parent: parent.clone() });
+            }
+            ExplorerContextMenuEvent::Rename { target } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerRename { target: target.clone() });
+            }
+            ExplorerContextMenuEvent::Delete { path, is_dir } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerDelete {
+                    path: path.clone(),
+                    is_dir: *is_dir,
+                });
+            }
+            ExplorerContextMenuEvent::CopyPath { path } => {
+                cx.write_to_clipboard(ClipboardItem::new_string(path.to_string_lossy().into()));
+                this.hide_explorer_context_menu(cx);
+            }
+            ExplorerContextMenuEvent::RevealInFinder { path } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerReveal { path: path.clone() });
+            }
+            ExplorerContextMenuEvent::Cut { path } => {
+                let cb = cx.global_mut::<okena_files::clipboard::ExplorerClipboard>();
+                cb.set(path.clone(), okena_files::clipboard::ClipboardOp::Cut);
+                this.hide_explorer_context_menu(cx);
+            }
+            ExplorerContextMenuEvent::Copy { path } => {
+                let cb = cx.global_mut::<okena_files::clipboard::ExplorerClipboard>();
+                cb.set(path.clone(), okena_files::clipboard::ClipboardOp::Copy);
+                this.hide_explorer_context_menu(cx);
+            }
+            ExplorerContextMenuEvent::Paste { target_dir } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerPaste {
+                    target_dir: target_dir.clone(),
+                });
+            }
+            ExplorerContextMenuEvent::AddToGitignore { path } => {
+                this.hide_explorer_context_menu(cx);
+                cx.emit(OverlayManagerEvent::ExplorerAddToGitignore { path: path.clone() });
+            }
+        })
+        .detach();
+
+        self.explorer_context_menu.set(menu);
+        cx.notify();
+    }
+
+    pub fn hide_explorer_context_menu(&mut self, cx: &mut Context<Self>) {
+        self.explorer_context_menu.close();
+        cx.emit(OverlayManagerEvent::ExplorerContextMenuClosed);
+        cx.notify();
+    }
+
+    pub fn render_explorer_context_menu(&self) -> Option<Entity<ExplorerContextMenu>> {
+        self.explorer_context_menu.render()
     }
 
     // ========================================================================

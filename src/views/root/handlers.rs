@@ -372,6 +372,123 @@ impl RootView {
             OverlayManagerEvent::GitStashRefresh { project_id } => {
                 self.refresh_git_panel(project_id, cx);
             }
+            OverlayManagerEvent::ExplorerNewFile { parent } => {
+                let parent = parent.clone();
+                self.sidebar.update(cx, |sb, cx| {
+                    if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
+                        fe.update(cx, |fe, cx| fe.start_new_file(parent, cx));
+                    }
+                });
+            }
+            OverlayManagerEvent::ExplorerNewFolder { parent } => {
+                let parent = parent.clone();
+                self.sidebar.update(cx, |sb, cx| {
+                    if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
+                        fe.update(cx, |fe, cx| fe.start_new_folder(parent, cx));
+                    }
+                });
+            }
+            OverlayManagerEvent::ExplorerRename { target } => {
+                let target = target.clone();
+                self.sidebar.update(cx, |sb, cx| {
+                    if let Some(fe) = sb.file_explorer_for_path(&target, cx) {
+                        fe.update(cx, |fe, cx| fe.start_rename(target, cx));
+                    }
+                });
+            }
+            OverlayManagerEvent::ExplorerDelete { path, is_dir } => {
+                let path = path.clone();
+                let is_dir = *is_dir;
+                let sidebar = self.sidebar.clone();
+                cx.spawn(async move |_this, cx| {
+                    let p = path.clone();
+                    let result = smol::unblock(move || okena_files::fs_ops::delete(&p, is_dir)).await;
+                    let _ = cx.update(|cx| {
+                        if let Err(msg) = result {
+                            log::warn!("explorer delete failed: {msg}");
+                        }
+                        sidebar.update(cx, |sb, cx| {
+                            sb.patch_explorers_for_path(&path, cx);
+                        });
+                    });
+                })
+                .detach();
+            }
+            OverlayManagerEvent::ExplorerReveal { path } => {
+                let path = path.clone();
+                cx.spawn(async move |_this, _cx| {
+                    let _ = smol::unblock(move || okena_files::fs_ops::reveal_in_file_manager(&path))
+                        .await;
+                })
+                .detach();
+            }
+            OverlayManagerEvent::ExplorerContextMenuClosed => {
+                self.sidebar.update(cx, |sb, cx| {
+                    sb.clear_all_explorer_context_menu_targets(cx);
+                });
+            }
+            OverlayManagerEvent::ExplorerAddToGitignore { path } => {
+                let (project_id, rel) = {
+                    let sb = self.sidebar.read(cx);
+                    let Some(fe) = sb.file_explorer_for_path(path, cx) else {
+                        return;
+                    };
+                    let fe = fe.read(cx);
+                    let Ok(rel) = path.strip_prefix(fe.project_path()) else {
+                        return;
+                    };
+                    (
+                        fe.project_id().to_string(),
+                        rel.to_string_lossy().replace('\\', "/"),
+                    )
+                };
+                self.append_to_gitignore(&project_id, &rel, cx);
+                self.refresh_git_panel(&project_id, cx);
+            }
+            OverlayManagerEvent::ExplorerPaste { target_dir } => {
+                let target_dir = target_dir.clone();
+                let Some(cb) = cx.try_global::<okena_files::clipboard::ExplorerClipboard>().cloned() else {
+                    return;
+                };
+                let (Some(src), Some(op)) = (cb.path.clone(), cb.op) else {
+                    return;
+                };
+                let sidebar = self.sidebar.clone();
+                let src_for_paths = src.clone();
+                let target_for_paths = target_dir.clone();
+                let file_name = match src.file_name() {
+                    Some(n) => n.to_os_string(),
+                    None => return,
+                };
+                let dst = target_dir.join(&file_name);
+                cx.spawn(async move |_this, cx| {
+                    let src_ = src.clone();
+                    let dst_ = dst.clone();
+                    let result = smol::unblock(move || match op {
+                        okena_files::clipboard::ClipboardOp::Cut => {
+                            okena_files::fs_ops::move_to(&src_, &dst_)
+                        }
+                        okena_files::clipboard::ClipboardOp::Copy => {
+                            okena_files::fs_ops::copy(&src_, &dst_)
+                        }
+                    })
+                    .await;
+                    let _ = cx.update(|cx| {
+                        if let Err(msg) = result {
+                            log::warn!("explorer paste failed: {msg}");
+                        }
+                        // Clear clipboard on Cut; keep on Copy.
+                        if matches!(op, okena_files::clipboard::ClipboardOp::Cut) {
+                            cx.global_mut::<okena_files::clipboard::ExplorerClipboard>().clear();
+                        }
+                        sidebar.update(cx, |sb, cx| {
+                            sb.patch_explorers_for_path(&src_for_paths, cx);
+                            sb.patch_explorers_for_path(&target_for_paths, cx);
+                        });
+                    });
+                })
+                .detach();
+            }
         }
     }
 
@@ -633,6 +750,26 @@ impl RootView {
                 }
                 OverlayRequest::ToggleGitPanel { project_id } => {
                     self.toggle_git_panel(&project_id, cx);
+                }
+                OverlayRequest::ExplorerContextMenu {
+                    kind,
+                    path,
+                    parent_dir,
+                    has_clipboard,
+                    position,
+                } => {
+                    if !self.overlay_manager.read(cx).has_explorer_context_menu() {
+                        self.overlay_manager.update(cx, |om, cx| {
+                            om.show_explorer_context_menu(
+                                kind,
+                                path,
+                                parent_dir,
+                                has_clipboard,
+                                position,
+                                cx,
+                            );
+                        });
+                    }
                 }
                 OverlayRequest::GitFileContextMenu {
                     project_id,

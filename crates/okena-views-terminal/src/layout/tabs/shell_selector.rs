@@ -1,17 +1,21 @@
 //! Shell selector for tab groups
 
 use crate::ActionDispatch;
-use okena_terminal::shell_config::ShellType;
-use okena_files::theme::theme;
-use okena_ui::chip::shell_indicator_chip;
 use crate::layout::layout_container::LayoutContainer;
-use okena_workspace::state::LayoutNode;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
+use okena_files::theme::theme;
+use okena_terminal::shell_config::ShellType;
+use okena_ui::chip::shell_indicator_chip;
+use okena_workspace::state::LayoutNode;
 
 impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
-    pub(super) fn get_active_terminal_id(&self, active_tab: usize, cx: &Context<Self>) -> Option<String> {
+    pub(super) fn get_active_terminal_id(
+        &self,
+        active_tab: usize,
+        cx: &Context<Self>,
+    ) -> Option<String> {
         let ws = self.workspace.read(cx);
         match self.get_layout(ws) {
             Some(LayoutNode::Tabs { children, .. }) => {
@@ -43,7 +47,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         ShellType::Default
     }
 
-    pub(super) fn render_shell_indicator(&self, active_tab: usize, cx: &Context<Self>) -> impl IntoElement {
+    pub(super) fn render_shell_indicator(
+        &self,
+        active_tab: usize,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let t = theme(cx);
         let shell_type = self.get_active_shell_type(active_tab, cx);
         let shell_name = shell_type.short_display_name().to_string();
@@ -57,11 +65,14 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 el.on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                     cx.stop_propagation();
                     request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(okena_workspace::requests::OverlayRequest::ShellSelector {
-                            project_id: project_id.clone(),
-                            terminal_id: tid.clone(),
-                            current_shell: shell_type.clone(),
-                        }, cx);
+                        broker.push_overlay_request(
+                            okena_workspace::requests::OverlayRequest::ShellSelector {
+                                project_id: project_id.clone(),
+                                terminal_id: tid.clone(),
+                                current_shell: shell_type.clone(),
+                            },
+                            cx,
+                        );
                     });
                 })
             })

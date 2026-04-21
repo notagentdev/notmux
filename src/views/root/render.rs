@@ -388,6 +388,7 @@ impl Render for RootView {
         let has_remote_context_menu = om.has_remote_context_menu();
         let has_terminal_context_menu = om.has_terminal_context_menu();
         let has_git_file_context_menu = om.has_git_file_context_menu();
+        let has_explorer_context_menu = om.has_explorer_context_menu();
         let has_git_overflow_menu = om.has_git_overflow_menu();
         let has_git_stash_list = om.has_git_stash_list();
         let has_tab_context_menu = om.has_tab_context_menu();
@@ -1028,6 +1029,10 @@ impl Render for RootView {
             // Git file context menu overlay (positioned popup)
             .when(has_git_file_context_menu, |d| {
                 d.children(self.overlay_manager.read(cx).render_git_file_context_menu())
+            })
+            // Explorer context menu overlay (positioned popup, sidebar file tree)
+            .when(has_explorer_context_menu, |d| {
+                d.children(self.overlay_manager.read(cx).render_explorer_context_menu())
             })
             // Git overflow menu (three-dots in panel header)
             .when(has_git_overflow_menu, |d| {

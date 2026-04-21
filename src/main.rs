@@ -573,6 +573,9 @@ fn main() {
             crate::theme::theme(cx)
         }));
 
+        // Initialize explorer clipboard (cut/copy/paste in sidebar file explorer)
+        cx.set_global(okena_files::clipboard::ExplorerClipboard::default());
+
         // Register UI font size provider for all crates
         cx.set_global(okena_ui::tokens::GlobalUiFontSize(|cx| {
             settings::settings_entity(cx).read(cx).settings.ui_font_size

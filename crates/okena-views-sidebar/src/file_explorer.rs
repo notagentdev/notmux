@@ -1,19 +1,38 @@
 //! Workspace File Explorer panel — lazy-loading directory tree with
-//! per-file git status decoration. Mirrors the visual model of Vryn's
-//! `FileTreeView` in GPUI. Right-click on a file row opens the same
-//! git file context menu as the git panel.
+//! per-file git status decoration. Right-click opens a vryn-style context
+//! menu (files/folders get full CRUD actions; empty area gets new-file/
+//! new-folder/paste/reveal).
 
 use gpui::prelude::*;
 use gpui::*;
+use okena_files::clipboard::ExplorerClipboard;
 use okena_files::dir_listing::{list_directory, DirEntry};
+use okena_files::fs_ops;
 use okena_files::theme::theme;
 use okena_git::{FileStatus, WorkingFile, WorkingTreeStatus};
+use okena_ui::simple_input::{SimpleInput, SimpleInputState};
 use okena_ui::tokens::ui_text_md;
 use okena_ui::vscode_icon::vscode_file_icon_sized;
 use okena_workspace::request_broker::RequestBroker;
-use okena_workspace::requests::OverlayRequest;
+use okena_workspace::requests::{ExplorerKind, OverlayRequest};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use crate::{ExplorerInputCancel, ExplorerInputConfirm};
+
+/// Active inline-input mode (rename target, or new file/folder under parent).
+#[derive(Clone, Debug)]
+enum InputMode {
+    Rename { target: PathBuf },
+    NewFile { parent: PathBuf },
+    NewFolder { parent: PathBuf },
+}
+
+struct ActiveInput {
+    mode: InputMode,
+    input: Entity<SimpleInputState>,
+    needs_focus: bool,
+}
 
 /// Root-level GPUI entity for the file explorer panel.
 pub struct FileExplorer {
@@ -34,6 +53,13 @@ pub struct FileExplorer {
     conflict_relpaths: HashSet<String>,
 
     scroll_handle: ScrollHandle,
+
+    active_input: Option<ActiveInput>,
+
+    /// Path of the row whose context menu is currently open. The row gets a
+    /// persistent highlight so the user sees which entry they're operating
+    /// on even though the menu backdrop occludes hover events.
+    context_menu_target: Option<PathBuf>,
 }
 
 impl FileExplorer {
@@ -56,6 +82,8 @@ impl FileExplorer {
             staged_relpaths: HashSet::new(),
             conflict_relpaths: HashSet::new(),
             scroll_handle: ScrollHandle::new(),
+            active_input: None,
+            context_menu_target: None,
         };
         this.load_directory(project_path, cx);
         this.refresh_git_status(cx);
@@ -215,21 +243,183 @@ impl FileExplorer {
             None
         }
     }
+
+    pub fn set_context_menu_target(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.context_menu_target != path {
+            self.context_menu_target = path;
+            cx.notify();
+        }
+    }
+
+    pub fn clear_context_menu_target(&mut self, cx: &mut Context<Self>) {
+        if self.context_menu_target.is_some() {
+            self.context_menu_target = None;
+            cx.notify();
+        }
+    }
+
+    // ===== inline input (rename / new file / new folder) =====
+
+    pub fn start_rename(&mut self, target: PathBuf, cx: &mut Context<Self>) {
+        let current_name = target
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let is_dir = target.is_dir();
+        let input = cx.new(|cx| {
+            let mut s = SimpleInputState::new(cx)
+                .placeholder(if is_dir { "Folder name..." } else { "File name..." })
+                .default_value(&current_name);
+            s.select_all(cx);
+            s
+        });
+        self.active_input = Some(ActiveInput {
+            mode: InputMode::Rename { target },
+            input,
+            needs_focus: true,
+        });
+        cx.notify();
+    }
+
+    pub fn start_new_file(&mut self, parent: PathBuf, cx: &mut Context<Self>) {
+        self.ensure_expanded(&parent, cx);
+        let input = cx.new(|cx| SimpleInputState::new(cx).placeholder("File name..."));
+        self.active_input = Some(ActiveInput {
+            mode: InputMode::NewFile { parent },
+            input,
+            needs_focus: true,
+        });
+        cx.notify();
+    }
+
+    pub fn start_new_folder(&mut self, parent: PathBuf, cx: &mut Context<Self>) {
+        self.ensure_expanded(&parent, cx);
+        let input = cx.new(|cx| SimpleInputState::new(cx).placeholder("Folder name..."));
+        self.active_input = Some(ActiveInput {
+            mode: InputMode::NewFolder { parent },
+            input,
+            needs_focus: true,
+        });
+        cx.notify();
+    }
+
+    fn ensure_expanded(&mut self, parent: &Path, cx: &mut Context<Self>) {
+        if parent != self.project_path && !self.expanded_paths.contains(parent) {
+            self.expanded_paths.insert(parent.to_path_buf());
+        }
+        if !self.loaded_children.contains_key(parent) {
+            self.load_directory(parent.to_path_buf(), cx);
+        }
+    }
+
+    fn cancel_input_action(&mut self, _: &ExplorerInputCancel, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.active_input.is_some() {
+            self.active_input = None;
+            cx.notify();
+        }
+    }
+
+    fn commit_input_action(&mut self, _: &ExplorerInputConfirm, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(active) = self.active_input.take() else {
+            return;
+        };
+        let raw = active.input.read(cx).value().trim().to_string();
+        if raw.is_empty() {
+            cx.notify();
+            return;
+        }
+        match active.mode {
+            InputMode::Rename { target } => {
+                let Some(parent) = target.parent().map(|p| p.to_path_buf()) else {
+                    return;
+                };
+                let new_path = parent.join(&raw);
+                let patch_dirs = vec![parent.clone()];
+                cx.spawn(async move |this, cx| {
+                    let (src, dst) = (target.clone(), new_path.clone());
+                    let result = smol::unblock(move || fs_ops::rename(&src, &dst)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if let Err(msg) = result {
+                            log::warn!("rename failed: {msg}");
+                        }
+                        this.patch_paths(&patch_dirs, cx);
+                    });
+                })
+                .detach();
+            }
+            InputMode::NewFile { parent } => {
+                let path = parent.join(&raw);
+                let patch_dirs = vec![parent.clone()];
+                cx.spawn(async move |this, cx| {
+                    let p = path.clone();
+                    let result = smol::unblock(move || fs_ops::create_file(&p)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if let Err(msg) = result {
+                            log::warn!("create_file failed: {msg}");
+                        }
+                        this.patch_paths(&patch_dirs, cx);
+                    });
+                })
+                .detach();
+            }
+            InputMode::NewFolder { parent } => {
+                let path = parent.join(&raw);
+                let patch_dirs = vec![parent.clone()];
+                cx.spawn(async move |this, cx| {
+                    let p = path.clone();
+                    let result = smol::unblock(move || fs_ops::create_folder(&p)).await;
+                    let _ = this.update(cx, |this, cx| {
+                        if let Err(msg) = result {
+                            log::warn!("create_folder failed: {msg}");
+                        }
+                        this.patch_paths(&patch_dirs, cx);
+                    });
+                })
+                .detach();
+            }
+        }
+        cx.notify();
+    }
 }
 
 impl Render for FileExplorer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
 
+        // Pull focus into the inline input the first render after start_*.
+        if let Some(active) = self.active_input.as_mut() {
+            if active.needs_focus {
+                let fh = active.input.read(cx).focus_handle(cx);
+                window.focus(&fh, cx);
+                active.needs_focus = false;
+            }
+        }
+
         // Flatten visible tree into rows by recursive expansion.
-        let mut rows: Vec<TreeRow> = Vec::new();
+        let mut rows: Vec<Row> = Vec::new();
+        let ghost_parent = match self.active_input.as_ref().map(|a| &a.mode) {
+            Some(InputMode::NewFile { parent }) | Some(InputMode::NewFolder { parent }) => {
+                Some(parent.clone())
+            }
+            _ => None,
+        };
+        let ghost_is_folder = matches!(
+            self.active_input.as_ref().map(|a| &a.mode),
+            Some(InputMode::NewFolder { .. })
+        );
         collect_rows(
             self.project_path.clone(),
             0,
             &self.loaded_children,
             &self.expanded_paths,
+            ghost_parent.as_deref(),
+            ghost_is_folder,
             &mut rows,
         );
+
+        let broker = self.request_broker.clone();
+        let project_path = self.project_path.clone();
+        let has_active_input = self.active_input.is_some();
 
         let mut container = div()
             .id("file-explorer-scroll")
@@ -237,7 +427,35 @@ impl Render for FileExplorer {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll_handle)
-            .bg(rgb(t.bg_primary));
+            .bg(rgb(t.bg_primary))
+            .when(has_active_input, |d| {
+                d.key_context("ExplorerInput")
+                    .on_action(cx.listener(Self::commit_input_action))
+                    .on_action(cx.listener(Self::cancel_input_action))
+            })
+            // Empty-area right-click: open context menu with project root target
+            .on_mouse_down(MouseButton::Right, {
+                let broker = broker.clone();
+                let project_path = project_path.clone();
+                move |event: &MouseDownEvent, _window, cx| {
+                    let has_clipboard = cx
+                        .try_global::<ExplorerClipboard>()
+                        .map(|c| c.is_set())
+                        .unwrap_or(false);
+                    broker.update(cx, |b, cx| {
+                        b.push_overlay_request(
+                            OverlayRequest::ExplorerContextMenu {
+                                kind: ExplorerKind::Empty,
+                                path: project_path.clone(),
+                                parent_dir: project_path.clone(),
+                                has_clipboard,
+                                position: event.position,
+                            },
+                            cx,
+                        );
+                    });
+                }
+            });
 
         for row in rows {
             container = container.child(self.render_row(row, &t, cx));
@@ -247,10 +465,11 @@ impl Render for FileExplorer {
 }
 
 #[derive(Clone)]
-struct TreeRow {
-    entry: DirEntry,
+struct Row {
+    entry: Option<DirEntry>, // None → ghost input row
     level: usize,
     is_expanded: bool,
+    ghost_is_folder: bool,
 }
 
 fn collect_rows(
@@ -258,20 +477,50 @@ fn collect_rows(
     level: usize,
     loaded: &HashMap<PathBuf, Vec<DirEntry>>,
     expanded: &HashSet<PathBuf>,
-    out: &mut Vec<TreeRow>,
+    ghost_parent: Option<&Path>,
+    ghost_is_folder: bool,
+    out: &mut Vec<Row>,
 ) {
     let Some(entries) = loaded.get(&dir) else {
+        // Even if no entries loaded, still drop a ghost row when this is the
+        // ghost parent (e.g. empty folder getting a new file).
+        if ghost_parent == Some(dir.as_path()) {
+            out.push(Row {
+                entry: None,
+                level,
+                is_expanded: false,
+                ghost_is_folder,
+            });
+        }
         return;
     };
+    // Ghost at the top of the folder so it's visible without scrolling.
+    if ghost_parent == Some(dir.as_path()) {
+        out.push(Row {
+            entry: None,
+            level,
+            is_expanded: false,
+            ghost_is_folder,
+        });
+    }
     for entry in entries {
         let is_expanded = entry.is_dir && expanded.contains(&entry.path);
-        out.push(TreeRow {
-            entry: entry.clone(),
+        out.push(Row {
+            entry: Some(entry.clone()),
             level,
             is_expanded,
+            ghost_is_folder: false,
         });
         if is_expanded {
-            collect_rows(entry.path.clone(), level + 1, loaded, expanded, out);
+            collect_rows(
+                entry.path.clone(),
+                level + 1,
+                loaded,
+                expanded,
+                ghost_parent,
+                ghost_is_folder,
+                out,
+            );
         }
     }
 }
@@ -279,33 +528,49 @@ fn collect_rows(
 impl FileExplorer {
     fn render_row(
         &self,
-        row: TreeRow,
+        row: Row,
         t: &okena_core::theme::ThemeColors,
         cx: &Context<Self>,
-    ) -> impl IntoElement {
-        // Indent per level matches Zed's default project_panel indent_size (20px).
+    ) -> AnyElement {
+        // Ghost row: inline input for NewFile / NewFolder
+        let Some(entry) = row.entry.clone() else {
+            return self.render_ghost_row(row, t, cx).into_any_element();
+        };
+
         let indent_px = 8.0 + (row.level as f32) * 20.0;
-        let entry = row.entry.clone();
         let abs_path = entry.path.clone();
         let is_dir = entry.is_dir;
         let rel = self.rel_path(&abs_path).unwrap_or_default();
 
-        // Resolve git status (file direct lookup, dir rollup).
+        // Are we renaming this row?
+        let is_renaming = matches!(
+            &self.active_input,
+            Some(ActiveInput {
+                mode: InputMode::Rename { target },
+                ..
+            }) if target == &abs_path
+        );
+
         let effective_status: Option<FileStatus> = if is_dir {
             self.dir_rollup(&rel)
         } else {
             self.git_status_by_relpath.get(&rel).copied()
         };
 
-        // Color + badge per Vryn spec.
         let (name_color, badge): (u32, Option<(String, u32)>) = match effective_status {
             Some(FileStatus::Added) | Some(FileStatus::Untracked) => {
                 let c = t.success;
                 let b = if is_dir { None } else { Some(("U".to_string(), c)) };
                 (c, b)
             }
-            Some(FileStatus::Deleted) => (t.error, if is_dir { None } else { Some(("D".to_string(), t.error)) }),
-            Some(FileStatus::Conflict) => (t.error, if is_dir { None } else { Some(("!".to_string(), t.error)) }),
+            Some(FileStatus::Deleted) => (
+                t.error,
+                if is_dir { None } else { Some(("D".to_string(), t.error)) },
+            ),
+            Some(FileStatus::Conflict) => (
+                t.error,
+                if is_dir { None } else { Some(("!".to_string(), t.error)) },
+            ),
             Some(_) => {
                 let c = t.term_yellow;
                 let b = if is_dir { None } else { Some(("M".to_string(), c)) };
@@ -314,7 +579,6 @@ impl FileExplorer {
             None => (t.text_primary, None),
         };
 
-        // For directories with any dirty child but no per-file badge, show a dot.
         let dir_dot_color: Option<u32> = if is_dir {
             match effective_status {
                 Some(FileStatus::Added) | Some(FileStatus::Untracked) => Some(t.success),
@@ -326,19 +590,32 @@ impl FileExplorer {
             None
         };
 
-        // Folder icon stays generic; files use per-extension vscode-icons
-        // (rendered below as a Div). `icon_path` is only used for folders here.
         let icon_path = "icons/folder.svg";
-
-        // Right-click context-menu payload.
-        let is_untracked = self.untracked_relpaths.contains(&rel);
-        let is_staged = self.staged_relpaths.contains(&rel);
-        let is_conflict = self.conflict_relpaths.contains(&rel);
-        let broker = self.request_broker.clone();
-        let project_id = self.project_id.clone();
-        let rel_for_menu = rel.clone();
-
         let row_path = abs_path.clone();
+        let broker = self.request_broker.clone();
+        let project_root = self.project_path.clone();
+        let is_context_target = self.context_menu_target.as_deref() == Some(abs_path.as_path());
+
+        let name_element: AnyElement = if is_renaming {
+            let Some(input) = self.active_input.as_ref().map(|a| a.input.clone()) else {
+                return div().into_any_element();
+            };
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(SimpleInput::new(&input))
+                .into_any_element()
+        } else {
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(ui_text_md(cx))
+                .text_color(rgb(name_color))
+                .text_ellipsis()
+                .overflow_hidden()
+                .child(entry.name.clone())
+                .into_any_element()
+        };
 
         div()
             .id(ElementId::Name(format!("fx-row-{}", rel).into()))
@@ -351,7 +628,8 @@ impl FileExplorer {
             .pr(px(8.0))
             .gap(px(8.0))
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .when(is_context_target, |d| d.bg(rgb(t.bg_hover)))
+            .when(!is_context_target, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -359,33 +637,40 @@ impl FileExplorer {
                 if is_dir {
                     this.toggle_expand(row_path.clone(), cx);
                 }
-                // Files: no-op (click-to-open is out of scope for this iteration).
             }))
-            // Right-click: reuse the git file context menu.
-            .when(!is_dir, |d| {
-                let broker = broker.clone();
-                let project_id = project_id.clone();
-                let rel_for_menu = rel_for_menu.clone();
-                d.on_mouse_down(MouseButton::Right, move |event: &MouseDownEvent, _window, cx| {
+            .on_mouse_down(MouseButton::Right, cx.listener({
+                let abs_path = abs_path.clone();
+                move |this, event: &MouseDownEvent, _window, cx| {
                     cx.stop_propagation();
-                    let pid = project_id.clone();
-                    let fp = rel_for_menu.clone();
+                    let (kind, parent_dir) = if is_dir {
+                        (ExplorerKind::Folder, abs_path.clone())
+                    } else {
+                        let parent = abs_path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| project_root.clone());
+                        (ExplorerKind::File, parent)
+                    };
+                    let has_clipboard = cx
+                        .try_global::<ExplorerClipboard>()
+                        .map(|c| c.is_set())
+                        .unwrap_or(false);
+                    this.context_menu_target = Some(abs_path.clone());
                     broker.update(cx, |b, cx| {
                         b.push_overlay_request(
-                            OverlayRequest::GitFileContextMenu {
-                                project_id: pid,
-                                file_path: fp,
-                                is_staged,
-                                is_untracked,
-                                is_conflict,
+                            OverlayRequest::ExplorerContextMenu {
+                                kind,
+                                path: abs_path.clone(),
+                                parent_dir,
+                                has_clipboard,
                                 position: event.position,
                             },
                             cx,
                         );
                     });
-                })
-            })
-            // Chevron (dirs only) — 16px slot, 14px glyph
+                    cx.notify();
+                }
+            }))
             .child(
                 div()
                     .w(px(16.0))
@@ -407,8 +692,6 @@ impl FileExplorer {
                         )
                     }),
             )
-            // Icon — 18px (Zed-like prominence). Folders → generic folder
-            // glyph, files → per-extension vscode-icons silhouette.
             .child(if is_dir {
                 div()
                     .flex_shrink_0()
@@ -423,21 +706,11 @@ impl FileExplorer {
                             .size(px(18.0))
                             .text_color(rgb(name_color)),
                     )
+                    .into_any_element()
             } else {
-                vscode_file_icon_sized(&entry.name, px(18.0), t, cx)
+                vscode_file_icon_sized(&entry.name, px(18.0), t, cx).into_any_element()
             })
-            // Name — matches Zed LabelSize::Default (14px, `text_ui`).
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(ui_text_md(cx))
-                    .text_color(rgb(name_color))
-                    .text_ellipsis()
-                    .overflow_hidden()
-                    .child(entry.name.clone()),
-            )
-            // Git decoration (badge or dot) — right-aligned in a fixed slot.
+            .child(name_element)
             .child(
                 div()
                     .flex_shrink_0()
@@ -463,6 +736,45 @@ impl FileExplorer {
                         )
                     }),
             )
+            .into_any_element()
+    }
+
+    fn render_ghost_row(
+        &self,
+        row: Row,
+        t: &okena_core::theme::ThemeColors,
+        _cx: &Context<Self>,
+    ) -> Div {
+        let indent_px = 8.0 + ((row.level + 1) as f32) * 20.0;
+        let icon = if row.ghost_is_folder {
+            "icons/folder.svg"
+        } else {
+            "icons/file.svg"
+        };
+        let input = match self.active_input.as_ref() {
+            Some(a) => a.input.clone(),
+            None => return div(),
+        };
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .w_full()
+            .h(px(32.0))
+            .pl(px(indent_px))
+            .pr(px(8.0))
+            .gap(px(8.0))
+            .child(div().w(px(16.0)).flex_shrink_0())
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(18.0))
+                    .h(px(18.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(svg().path(icon).size(px(18.0)).text_color(rgb(t.text_muted))),
+            )
+            .child(div().flex_1().min_w_0().child(SimpleInput::new(&input)))
     }
 }
-
