@@ -418,7 +418,7 @@ impl KeybindingConfig {
 pub fn get_keybindings_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("vryn")
+        .join("vryn-ws")
         .join("keybindings.json")
 }
 

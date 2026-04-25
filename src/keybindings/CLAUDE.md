@@ -15,4 +15,4 @@ Defines all keyboard actions, default bindings, and user-configurable keybinding
 
 - **`actions!()` macro**: GPUI macro that generates action structs from names. Each action is a zero-sized type.
 - **Context-scoped dispatch**: Bindings can be scoped to specific contexts (e.g., terminal-focused vs global).
-- **User overrides**: `~/.config/vryn/keybindings.json` overrides are merged on top of defaults at startup.
+- **User overrides**: `~/.config/vryn-ws/keybindings.json` overrides are merged on top of defaults at startup.

@@ -7,9 +7,9 @@
     <key>CFBundleIdentifier</key>
     <string>dev.vryn.ws</string>
     <key>CFBundleName</key>
-    <string>Vryn</string>
+    <string>Vryn-WS</string>
     <key>CFBundleDisplayName</key>
-    <string>Vryn</string>
+    <string>Vryn-WS</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

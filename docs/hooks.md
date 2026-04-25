@@ -6,7 +6,7 @@ Vryn can run shell commands automatically in response to project and worktree ev
 
 Hooks are configured in two places:
 
-- **Global** -- `~/.config/vryn/settings.json` under the `"hooks"` key. Applies to all projects.
+- **Global** -- `~/.config/vryn-ws/settings.json` under the `"hooks"` key. Applies to all projects.
 - **Per-project** -- stored in `workspace.json` on each project entry. Overrides the global default when set.
 
 Per-project hooks take priority. If a project does not define a given hook, the global value is used. If neither is set, the hook does not fire.

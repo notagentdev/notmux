@@ -430,7 +430,7 @@ fn is_wsl_tool_available(distro: Option<&str>, tool: &str) -> bool {
 /// WSL-native socket directory for dtach sessions (lives inside WSL, not on Windows host).
 /// Uses a fixed path since we can't read XDG_RUNTIME_DIR from outside WSL.
 #[cfg(windows)]
-const WSL_DTACH_SOCKET_DIR: &str = "/tmp/vryn-dtach";
+const WSL_DTACH_SOCKET_DIR: &str = "/tmp/vryn-ws-dtach";
 
 /// Get the WSL-native socket path for a dtach session.
 #[cfg(windows)]
@@ -540,17 +540,17 @@ fn get_dtach_socket_dir() -> std::path::PathBuf {
     // Use XDG_RUNTIME_DIR if available (Linux), otherwise fall back to temp dir
     // XDG_RUNTIME_DIR is preferred as it's user-specific and cleaned on logout
     if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        std::path::PathBuf::from(runtime_dir).join("vryn")
+        std::path::PathBuf::from(runtime_dir).join("vryn-ws")
     } else {
-        // Fallback: /tmp/vryn-<uid> for security
+        // Fallback: /tmp/vryn-ws-<uid> for security
         #[cfg(unix)]
         {
             let uid = unsafe { libc::getuid() };
-            std::path::PathBuf::from(format!("/tmp/vryn-{}", uid))
+            std::path::PathBuf::from(format!("/tmp/vryn-ws-{}", uid))
         }
         #[cfg(not(unix))]
         {
-            std::env::temp_dir().join("vryn")
+            std::env::temp_dir().join("vryn-ws")
         }
     }
 }
@@ -945,7 +945,7 @@ mod tests {
         assert!(inner_cmd.contains("dtach -A"), "inner cmd: {}", inner_cmd);
         assert!(inner_cmd.contains("-E -r winch"), "inner cmd: {}", inner_cmd);
         // Must use WSL-native socket path, not Windows temp dir
-        assert!(inner_cmd.contains("/tmp/vryn-dtach/"), "socket path should be WSL-native: {}", inner_cmd);
+        assert!(inner_cmd.contains("/tmp/vryn-ws-dtach/"), "socket path should be WSL-native: {}", inner_cmd);
         // Must use $SHELL (resolved inside WSL), not /bin/sh
         assert!(inner_cmd.contains("\"$SHELL\""), "should use $SHELL not /bin/sh: {}", inner_cmd);
         assert!(!inner_cmd.contains("/bin/sh"), "should not contain /bin/sh: {}", inner_cmd);

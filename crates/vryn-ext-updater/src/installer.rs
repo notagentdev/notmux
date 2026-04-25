@@ -142,9 +142,9 @@ fn extract_archive(archive: &Path, dest: &Path) -> Result<()> {
 
 fn find_binary(dir: &Path) -> Result<PathBuf> {
     #[cfg(unix)]
-    let binary_name = "vryn";
+    let binary_name = "vrynws";
     #[cfg(windows)]
-    let binary_name = "vryn.exe";
+    let binary_name = "vrynws.exe";
 
     find_binary_recursive(dir, binary_name, 3)
         .with_context(|| format!("could not find '{}' in extracted archive", binary_name))

@@ -36,11 +36,29 @@ pub use super::sessions::{
 /// Current workspace schema version - increment when making breaking changes
 pub const WORKSPACE_VERSION: u32 = 1;
 
-/// Get the config directory path
+/// Get the config directory path.
+///
+/// Defaults to `~/.vryn-ws`. The `-ws` suffix is intentional: there are
+/// other unrelated tools called "vryn" that own `~/.vryn`, so we MUST NOT
+/// write into that directory.
+///
+/// Can be overridden via the `VRYN_CONFIG_DIR` environment variable to
+/// allow running a second instance against an isolated state directory
+/// (workspace.json, sessions, settings, logs, remote tokens, instance lock).
+/// This override exists purely for development/testing — e.g. running a
+/// dev build alongside a production install without clobbering shared
+/// state or tripping the single-instance lock in `acquire_instance_lock`.
+/// Released builds rely on the default path; the env var is opt-in and
+/// unset for normal users, so shipping this is safe.
 pub fn get_config_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("VRYN_CONFIG_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".vryn")
+        .join(".vryn-ws")
 }
 
 /// Alias for `get_config_dir` (used by remote/auth, remote/server, session manager UI)

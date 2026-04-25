@@ -11,7 +11,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TARGET=""
 SKIP_BUILD=false
 CREATE_DMG=false
-APP_NAME="Vryn"
+APP_NAME="Vryn-WS"
 BUNDLE_ID="dev.vryn.ws"
 BIN_NAME="vrynws"
 

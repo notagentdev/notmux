@@ -2,7 +2,7 @@
 //!
 //! Loads VS Code color theme JSON files (`*-color-theme.json`) and maps
 //! them to Vryn's `ThemeColors`. Users can download a theme from the
-//! VS Code extension source, drop the JSON into `~/.config/vryn/themes/`,
+//! VS Code extension source, drop the JSON into `~/.config/vryn-ws/themes/`,
 //! and it will appear in the theme picker.
 //!
 //! Supported:

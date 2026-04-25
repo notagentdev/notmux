@@ -12,9 +12,9 @@ pub fn command(program: &str) -> std::process::Command {
     cmd
 }
 
-/// Get the config directory for vryn (~/.config/vryn/).
+/// Get the config directory for vryn-ws (~/.config/vryn-ws/).
 pub fn get_config_dir() -> std::path::PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("vryn")
+        .join("vryn-ws")
 }

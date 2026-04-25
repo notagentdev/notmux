@@ -47,7 +47,7 @@ Observable state with auto-notify:
 
 ### Configuration Files
 
-Located in `~/.config/vryn/`:
+Located in `~/.config/vryn-ws/`:
 - `workspace.json` — projects, layouts, terminal state
 - `settings.json` — font, theme, shell, session backend
 - `keybindings.json` — custom keyboard shortcuts

@@ -125,7 +125,7 @@ This ensures the full repository is checked out in the worktree while your proje
 
 ## Configuration
 
-Worktree settings live in `~/.config/vryn/settings.json` under the `worktree` key:
+Worktree settings live in `~/.config/vryn-ws/settings.json` under the `worktree` key:
 
 ```json
 {

@@ -4,14 +4,14 @@ Vryn stores all configuration files in your system's config directory:
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/.config/vryn/` |
-| Linux | `~/.config/vryn/` |
-| Windows | `%APPDATA%\vryn\` |
+| macOS | `~/.config/vryn-ws/` |
+| Linux | `~/.config/vryn-ws/` |
+| Windows | `%APPDATA%\vryn-ws\` |
 
 The directory contains:
 
 ```
-~/.config/vryn/
+~/.config/vryn-ws/
   settings.json        # App settings (fonts, theme, shell, etc.)
   keybindings.json     # Custom keyboard shortcuts
   workspace.json       # Project layouts and terminal state (auto-managed)
@@ -295,7 +295,7 @@ Vryn warns on startup if it detects conflicting keybindings (same keystroke and 
 
 ## Custom Themes
 
-Place custom theme JSON files in `~/.config/vryn/themes/`. Vryn creates this directory with an `example-theme.json` on first launch.
+Place custom theme JSON files in `~/.config/vryn-ws/themes/`. Vryn creates this directory with an `example-theme.json` on first launch.
 
 To activate a custom theme, set `theme_mode` to `"Custom"` in `settings.json`, then select your theme from the theme selector (`Cmd+K Cmd+T`).
 

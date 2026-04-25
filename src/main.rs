@@ -623,7 +623,7 @@ fn main() {
                     width: px(400.0),
                     height: px(300.0),
                 }),
-                app_id: Some("vryn".to_string()),
+                app_id: Some("vryn-ws".to_string()),
                 ..Default::default()
             },
             |window, cx| {

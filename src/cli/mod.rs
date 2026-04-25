@@ -5,7 +5,7 @@ use crate::workspace::persistence::config_dir;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// CLI config stored in `~/.config/vryn/cli.json`.
+/// CLI config stored in `~/.config/vryn-ws/cli.json`.
 #[derive(Serialize, Deserialize)]
 pub struct CliConfig {
     pub token: String,
@@ -162,7 +162,7 @@ fn api_get(path: &str, token: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Token expired or revoked. Delete ~/.config/vryn/cli.json and retry.".into());
+        return Err("Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into());
     }
     if !resp.status().is_success() {
         return Err(format!("Server returned {}", resp.status()));
@@ -185,7 +185,7 @@ fn api_post(path: &str, token: &str, body: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Token expired or revoked. Delete ~/.config/vryn/cli.json and retry.".into());
+        return Err("Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into());
     }
     if !resp.status().is_success() {
         let status = resp.status();

@@ -170,11 +170,11 @@ cargo run
 | Toggle sidebar | Cmd+B | Ctrl+B |
 | Settings | Cmd+, | Ctrl+, |
 
-All shortcuts are customizable via `~/.config/vryn/keybindings.json`.
+All shortcuts are customizable via `~/.config/vryn-ws/keybindings.json`.
 
 ## Configuration
 
-Settings are stored in `~/.config/vryn/`:
+Settings are stored in `~/.config/vryn-ws/`:
 
 | File | Purpose |
 |------|---------|
