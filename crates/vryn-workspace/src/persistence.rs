@@ -38,27 +38,31 @@ pub const WORKSPACE_VERSION: u32 = 1;
 
 /// Get the config directory path.
 ///
-/// Defaults to `~/.vryn-ws`. The `-ws` suffix is intentional: there are
-/// other unrelated tools called "vryn" that own `~/.vryn`, so we MUST NOT
-/// write into that directory.
+/// - Release builds: `~/.vryn-ws`
+/// - Debug builds (`cargo run`, `cargo test`): `~/.vryn-ws-dev`
 ///
-/// Can be overridden via the `VRYN_CONFIG_DIR` environment variable to
-/// allow running a second instance against an isolated state directory
-/// (workspace.json, sessions, settings, logs, remote tokens, instance lock).
-/// This override exists purely for development/testing — e.g. running a
-/// dev build alongside a production install without clobbering shared
-/// state or tripping the single-instance lock in `acquire_instance_lock`.
-/// Released builds rely on the default path; the env var is opt-in and
-/// unset for normal users, so shipping this is safe.
+/// The `-ws` suffix is intentional: other unrelated tools called "vryn"
+/// own `~/.vryn`, so we MUST NOT write into that directory.
+///
+/// The debug/release split lets a `cargo run` dev build run in parallel
+/// with the installed production app — separate state, separate
+/// instance lock, no collision.
+///
+/// `VRYN_CONFIG_DIR` overrides both defaults for ad-hoc testing
+/// (e.g. spinning up a third isolated instance). Unset for normal users.
 pub fn get_config_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("VRYN_CONFIG_DIR")
         && !dir.is_empty()
     {
         return PathBuf::from(dir);
     }
+    #[cfg(debug_assertions)]
+    let dir_name = ".vryn-ws-dev";
+    #[cfg(not(debug_assertions))]
+    let dir_name = ".vryn-ws";
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".vryn-ws")
+        .join(dir_name)
 }
 
 /// Alias for `get_config_dir` (used by remote/auth, remote/server, session manager UI)

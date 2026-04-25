@@ -12,9 +12,14 @@ pub fn command(program: &str) -> std::process::Command {
     cmd
 }
 
-/// Get the config directory for vryn-ws (~/.config/vryn-ws/).
+/// Get the config directory for vryn-ws.
+/// Release: `~/.config/vryn-ws/`. Debug: `~/.config/vryn-ws-dev/`.
 pub fn get_config_dir() -> std::path::PathBuf {
+    #[cfg(debug_assertions)]
+    let dir = "vryn-ws-dev";
+    #[cfg(not(debug_assertions))]
+    let dir = "vryn-ws";
     dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("vryn-ws")
+        .join(dir)
 }

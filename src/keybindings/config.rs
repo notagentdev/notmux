@@ -416,9 +416,15 @@ impl KeybindingConfig {
 
 /// Get the keybindings configuration file path
 pub fn get_keybindings_path() -> PathBuf {
+    // Debug builds use a separate config dir so `cargo run` doesn't
+    // overwrite keybindings of the installed release app.
+    #[cfg(debug_assertions)]
+    let dir = "vryn-ws-dev";
+    #[cfg(not(debug_assertions))]
+    let dir = "vryn-ws";
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("vryn-ws")
+        .join(dir)
         .join("keybindings.json")
 }
 

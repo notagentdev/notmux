@@ -370,9 +370,15 @@ impl CustomThemeColors {
 
 /// Get path to custom themes directory
 pub fn get_themes_dir() -> PathBuf {
+    // Debug builds use a separate config dir so `cargo run` doesn't
+    // share themes with the installed release app.
+    #[cfg(debug_assertions)]
+    let dir = "vryn-ws-dev";
+    #[cfg(not(debug_assertions))]
+    let dir = "vryn-ws";
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("vryn-ws")
+        .join(dir)
         .join("themes")
 }
 

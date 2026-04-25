@@ -623,7 +623,12 @@ fn main() {
                     width: px(400.0),
                     height: px(300.0),
                 }),
-                app_id: Some("vryn-ws".to_string()),
+                // Debug builds use a distinct app_id so the window manager
+                // treats them as a separate application from the installed
+                // release app (separate Dock entry, no instance grouping).
+                app_id: Some(
+                    if cfg!(debug_assertions) { "vryn-ws-dev" } else { "vryn-ws" }.to_string(),
+                ),
                 ..Default::default()
             },
             |window, cx| {
