@@ -1399,24 +1399,6 @@ impl Sidebar {
                     .when(!is_files, |d| {
                         d.child(
                             div()
-                                .id("new-folder-btn")
-                                .cursor_pointer()
-                                .px(px(4.0))
-                                .py(px(2.0))
-                                .rounded(px(4.0))
-                                .hover(|s| s.bg(rgb(t.bg_hover)))
-                                .child(
-                                    svg()
-                                        .path("icons/plus.svg")
-                                        .size(px(14.0))
-                                        .text_color(rgb(t.text_secondary)),
-                                )
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.create_folder(window, cx);
-                                })),
-                        )
-                        .child(
-                            div()
                                 .id("add-project-btn")
                                 .cursor_pointer()
                                 .px(px(4.0))
@@ -1623,6 +1605,9 @@ impl Render for Sidebar {
                 }
                 SidebarRequest::RenameFolder { folder_id, folder_name } => {
                     self.start_folder_rename(folder_id, folder_name, window, cx);
+                }
+                SidebarRequest::CreateFolder => {
+                    self.create_folder(window, cx);
                 }
                 SidebarRequest::QuickCreateWorktree { project_id } => {
                     self.spawn_quick_create_worktree(&project_id, cx);

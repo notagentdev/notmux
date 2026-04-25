@@ -28,6 +28,7 @@ pub enum ContextMenuEvent {
     ShowDiff { project_id: String },
     FocusProject { project_id: String },
     HideProject { project_id: String },
+    CreateFolder,
 }
 
 impl okena_ui::overlay::CloseEvent for ContextMenuEvent {
@@ -154,6 +155,10 @@ impl ContextMenu {
         cx.emit(ContextMenuEvent::HideProject {
             project_id: self.request.project_id.clone(),
         });
+    }
+
+    fn create_folder(&self, cx: &mut Context<Self>) {
+        cx.emit(ContextMenuEvent::CreateFolder);
     }
 }
 
@@ -339,6 +344,13 @@ impl Render for ContextMenu {
                                 })),
                         )
                     })
+                    // Add Folder
+                    .child(
+                        menu_item("context-menu-create-folder", "icons/folder.svg", "Add Folder", &t)
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.create_folder(cx);
+                            })),
+                    )
                     // Delete option
                     .child(
                         menu_item_with_color("context-menu-delete", "icons/trash.svg", "Delete Project", t.error, t.error, &t)

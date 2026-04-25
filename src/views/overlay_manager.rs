@@ -764,6 +764,12 @@ impl OverlayManager {
                     this.hide_context_menu(cx);
                     cx.emit(OverlayManagerEvent::ToggleProjectVisibility(project_id.clone()));
                 }
+                ContextMenuEvent::CreateFolder => {
+                    this.hide_context_menu(cx);
+                    this.request_broker.update(cx, |broker, cx| {
+                        broker.push_sidebar_request(SidebarRequest::CreateFolder, cx);
+                    });
+                }
             }
         })
         .detach();
