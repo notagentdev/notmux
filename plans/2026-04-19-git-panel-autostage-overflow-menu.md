@@ -23,17 +23,17 @@ After the change `cargo clippy --all-targets -- -D warnings` must be 0/0.
 
 | Layer | File | Change |
 |-------|------|--------|
-| Pure git ops | `crates/okena-git/src/repository.rs` | Add `stash_all_including_untracked`, `stash_list`, `stash_apply`, `stash_drop`, `stash_show_patch`, `discard_all_tracked`. Existing `stash_changes` / `stash_pop` stay untouched. |
-| Public API | `crates/okena-git/src/lib.rs` | Add `pub struct StashEntry { index, hash, subject, branch, timestamp_unix }` + re-exports. |
-| Provider trait | `crates/okena-views-git/src/diff_viewer/provider.rs` | Extend `GitProvider` trait with `stash_all`, `stash_pop`, `stash_list`, `stash_apply`, `stash_drop`, `stash_show_patch`, `discard_all_tracked`. Implement on `LocalGitProvider`; for `RemoteGitProvider` (line 283+) return `Err("not supported")` for the new ops (matches existing remote-stub pattern) so we don't widen the remote API surface in this PR. |
-| UI request | `crates/okena-workspace/src/requests.rs` | Add two new variants to `OverlayRequest`: `GitOverflowMenu { project_id, position, has_staged, has_unstaged, has_tracked, has_stash }` and `GitStashList { project_id, position }`. |
-| Header view | `crates/okena-views-git/src/git_header.rs` | (1) Add three-dots button to `render_panel_header`. (2) Rewrite `render_commit_footer` button label/enable logic. (3) Rewrite `handle_commit` to auto-stage tracked first when no files are staged. (4) Add handlers `handle_stash_all`, `handle_stash_pop`, `handle_discard_all_tracked` (called from root via the existing `gh.update(...)` lookup). |
-| Overflow overlay | `src/views/overlays/git_overflow_menu.rs` (NEW) | Small popover at the three-dots position. Reuses `okena_ui::menu::{context_menu_panel, menu_item, menu_item_conditional, menu_separator}`. Has internal `confirming_discard: bool` state for the inline two-step Discard All Tracked confirmation (no separate dialog overlay needed). Emits `GitOverflowMenuEvent`. |
+| Pure git ops | `crates/vryn-git/src/repository.rs` | Add `stash_all_including_untracked`, `stash_list`, `stash_apply`, `stash_drop`, `stash_show_patch`, `discard_all_tracked`. Existing `stash_changes` / `stash_pop` stay untouched. |
+| Public API | `crates/vryn-git/src/lib.rs` | Add `pub struct StashEntry { index, hash, subject, branch, timestamp_unix }` + re-exports. |
+| Provider trait | `crates/vryn-views-git/src/diff_viewer/provider.rs` | Extend `GitProvider` trait with `stash_all`, `stash_pop`, `stash_list`, `stash_apply`, `stash_drop`, `stash_show_patch`, `discard_all_tracked`. Implement on `LocalGitProvider`; for `RemoteGitProvider` (line 283+) return `Err("not supported")` for the new ops (matches existing remote-stub pattern) so we don't widen the remote API surface in this PR. |
+| UI request | `crates/vryn-workspace/src/requests.rs` | Add two new variants to `OverlayRequest`: `GitOverflowMenu { project_id, position, has_staged, has_unstaged, has_tracked, has_stash }` and `GitStashList { project_id, position }`. |
+| Header view | `crates/vryn-views-git/src/git_header.rs` | (1) Add three-dots button to `render_panel_header`. (2) Rewrite `render_commit_footer` button label/enable logic. (3) Rewrite `handle_commit` to auto-stage tracked first when no files are staged. (4) Add handlers `handle_stash_all`, `handle_stash_pop`, `handle_discard_all_tracked` (called from root via the existing `gh.update(...)` lookup). |
+| Overflow overlay | `src/views/overlays/git_overflow_menu.rs` (NEW) | Small popover at the three-dots position. Reuses `vryn_ui::menu::{context_menu_panel, menu_item, menu_item_conditional, menu_separator}`. Has internal `confirming_discard: bool` state for the inline two-step Discard All Tracked confirmation (no separate dialog overlay needed). Emits `GitOverflowMenuEvent`. |
 | Stash list overlay | `src/views/overlays/git_stash_list.rs` (NEW) | Scrollable popover showing `Vec<StashEntry>`. Per-row buttons: Apply, Pop, Drop, Show Diff. "Show Diff" toggles an inline `<pre>`-style block fed by `stash_show_patch`. |
 | Overlay wiring | `src/views/overlay_manager.rs` | New `OverlaySlot<GitOverflowMenu>` + `OverlaySlot<GitStashList>`, `show_*` / `hide_*` / `render_*` methods, and event re-emission as `OverlayManagerEvent::GitStageAll/UnstageAll/StashAll/StashPop/StashApply/StashDrop/DiscardAllTracked`. |
 | Root handler | `src/views/root/handlers.rs` | Two new arms in `process_pending_requests` (mirroring lines 605-626) and new arms in the `OverlayManagerEvent` match (mirroring lines 319-356). All git-side execution goes through the existing pattern: look up the `ProjectColumn`, get its `git_header()`, and call a handler method on it. |
 
-No changes needed to `crates/okena-core/src/api.rs` or to the dispatcher/`ActionRequest`
+No changes needed to `crates/vryn-core/src/api.rs` or to the dispatcher/`ActionRequest`
 machinery — these new ops only ever originate from local UI actions, so they follow
 the same direct-provider-call pattern that `handle_stage_all` / `handle_unstage_all`
 already use today (`git_header.rs:1579-1609`).
@@ -42,7 +42,7 @@ already use today (`git_header.rs:1579-1609`).
 
 ## Detailed Changes
 
-### 1. `crates/okena-git/src/repository.rs` — new git operations
+### 1. `crates/vryn-git/src/repository.rs` — new git operations
 
 All commands shell out via the existing `command("git").args([...])` helper used
 throughout the file. Each function returns `Result<(), String>` with stderr on
@@ -80,7 +80,7 @@ Add unit tests after the existing `stash_*_returns_err_for_invalid_path` tests
 non-existent path. Real success paths are not tested (no temp-repo harness in
 this crate today and the existing stash tests don't have one either).
 
-### 2. `crates/okena-git/src/lib.rs`
+### 2. `crates/vryn-git/src/lib.rs`
 
 ```rust
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -96,28 +96,28 @@ pub struct StashEntry {
 Add re-exports next to existing `stash_changes, stash_pop` (line 20-21):
 `stash_all_including_untracked, stash_list, stash_apply, stash_drop, stash_show_patch, discard_all_tracked, StashEntry`.
 
-### 3. `crates/okena-views-git/src/diff_viewer/provider.rs`
+### 3. `crates/vryn-views-git/src/diff_viewer/provider.rs`
 
 Add to the trait (after `discard_file` at line 42):
 
 ```rust
 fn stash_all(&self) -> Result<(), String>;
 fn stash_pop(&self) -> Result<(), String>;
-fn stash_list(&self) -> Result<Vec<okena_git::StashEntry>, String>;
+fn stash_list(&self) -> Result<Vec<vryn_git::StashEntry>, String>;
 fn stash_apply(&self, index: usize) -> Result<(), String>;
 fn stash_drop(&self, index: usize) -> Result<(), String>;
 fn stash_show_patch(&self, index: usize) -> Result<String, String>;
 fn discard_all_tracked(&self) -> Result<(), String>;
 ```
 
-`LocalGitProvider` impl: each method delegates to `okena_git::*`, mirroring the
+`LocalGitProvider` impl: each method delegates to `vryn_git::*`, mirroring the
 existing `discard_file` (line 119-121).
 
 `RemoteGitProvider` impl (around line 283): each method returns
 `Err("Stash operations not supported on remote repositories yet".into())` —
 matching how the remote impl already stubs out unsupported ops.
 
-### 4. `crates/okena-views-git/src/git_header.rs`
+### 4. `crates/vryn-views-git/src/git_header.rs`
 
 #### 4a. Header — three-dots button (`render_panel_header`, line 740)
 
@@ -215,7 +215,7 @@ fn handle_commit(&mut self, cx: &mut Context<Self>) {
 
 Per-file `stage_file` (vs. `stage_all`) is intentional — it stages exactly the
 non-untracked tracked set we observed at click time, matching Zed's behaviour
-without adding an `okena_git::stage_paths(&[...])` helper. Untracked files are
+without adding an `vryn_git::stage_paths(&[...])` helper. Untracked files are
 left alone.
 
 #### 4c. New handlers
@@ -265,7 +265,7 @@ Render (matching the structure of `git_file_context_menu.rs:68-216`):
 - `deferred(anchored().position(self.position).snap_to_window().child(panel))`.
 - Panel uses `context_menu_panel("git-overflow-menu", &t)`.
 - Items use `menu_item_conditional(...)` with `enabled = ...` so disabled
-  greying matches the existing helper at `crates/okena-ui/src/menu.rs:91`.
+  greying matches the existing helper at `crates/vryn-ui/src/menu.rs:91`.
   - "Stage All"   — enabled when `has_unstaged`
   - "Unstage All" — enabled when `has_staged`
   - separator
@@ -401,12 +401,12 @@ Per `src/CLAUDE.md`'s "what to test" rules, the new logic that warrants tests:
 
 ```bash
 cargo build
-cargo test -p okena-git -p okena-views-git
+cargo test -p vryn-git -p vryn-views-git
 cargo clippy --all-targets -- -D warnings    # MUST be 0 warnings
 cargo run
 ```
 
-Manual end-to-end (in a scratch git repo opened as an okena project):
+Manual end-to-end (in a scratch git repo opened as an vryn project):
 
 1. **Auto-stage commit**
    - Modify two tracked files, leave checkboxes unticked.

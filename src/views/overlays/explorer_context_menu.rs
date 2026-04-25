@@ -2,14 +2,14 @@
 //! folders, or the empty area below the tree).
 //!
 //! Entries match the vryn reference project's file explorer (minus Open,
-//! which is not supported in okena yet).
+//! which is not supported in vryn yet).
 
 use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
-use okena_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
-use okena_workspace::requests::ExplorerKind;
+use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
+use vryn_workspace::requests::ExplorerKind;
 use std::path::PathBuf;
 
 /// Event emitted by ExplorerContextMenu.
@@ -27,7 +27,7 @@ pub enum ExplorerContextMenuEvent {
     AddToGitignore { path: PathBuf },
 }
 
-impl okena_ui::overlay::CloseEvent for ExplorerContextMenuEvent {
+impl vryn_ui::overlay::CloseEvent for ExplorerContextMenuEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close)
     }

@@ -1,3 +1,3 @@
-//! Design tokens — re-exported from okena-ui.
+//! Design tokens — re-exported from vryn-ui.
 
-pub use okena_ui::tokens::*;
+pub use vryn_ui::tokens::*;

@@ -1,1 +1,1 @@
-pub use okena_views_sidebar::*;
+pub use vryn_views_sidebar::*;

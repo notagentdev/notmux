@@ -1,0 +1,26 @@
+mod status;
+mod usage;
+mod ui_helpers;
+
+use gpui::AppContext as _;
+use vryn_extensions::{ExtensionInstance, ExtensionManifest, ExtensionRegistration};
+use std::sync::Arc;
+
+pub fn register() -> ExtensionRegistration {
+    ExtensionRegistration {
+        manifest: ExtensionManifest {
+            id: "codex",
+            name: "Codex",
+            default_enabled: false,
+        },
+        activate: Arc::new(|app| {
+            let status = app.new(status::CodexStatus::new);
+            let usage = app.new(usage::CodexUsage::new);
+            ExtensionInstance {
+                status_bar_widgets: vec![status.into(), usage.into()],
+                status_bar_right_widgets: vec![],
+            }
+        }),
+        settings_view: None,
+    }
+}

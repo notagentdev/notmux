@@ -10,11 +10,11 @@ import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   await RustLib.init();
-  runApp(const OkenaApp());
+  runApp(const VrynApp());
 }
 
-class OkenaApp extends StatelessWidget {
-  const OkenaApp({super.key});
+class VrynApp extends StatelessWidget {
+  const VrynApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +29,7 @@ class OkenaApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Okena',
+        title: 'Vryn',
         theme: ThemeData.dark(useMaterial3: true).copyWith(
           colorScheme: const ColorScheme.dark(
             primary: Color(0xFF007ACC),

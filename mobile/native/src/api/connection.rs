@@ -2,7 +2,7 @@ use crate::client::manager::ConnectionManager;
 
 /// Connection status returned via FFI.
 ///
-/// Simplified version of okena_core's ConnectionStatus — collapses `Reconnecting { attempt }`
+/// Simplified version of vryn_core's ConnectionStatus — collapses `Reconnecting { attempt }`
 /// into `Connecting` since mobile UI doesn't need the attempt count.
 #[derive(Debug, Clone)]
 pub enum ConnectionStatus {
@@ -13,17 +13,17 @@ pub enum ConnectionStatus {
     Error { message: String },
 }
 
-impl From<okena_core::client::ConnectionStatus> for ConnectionStatus {
-    fn from(status: okena_core::client::ConnectionStatus) -> Self {
+impl From<vryn_core::client::ConnectionStatus> for ConnectionStatus {
+    fn from(status: vryn_core::client::ConnectionStatus) -> Self {
         match status {
-            okena_core::client::ConnectionStatus::Disconnected => ConnectionStatus::Disconnected,
-            okena_core::client::ConnectionStatus::Connecting => ConnectionStatus::Connecting,
-            okena_core::client::ConnectionStatus::Connected => ConnectionStatus::Connected,
-            okena_core::client::ConnectionStatus::Pairing => ConnectionStatus::Pairing,
-            okena_core::client::ConnectionStatus::Reconnecting { .. } => {
+            vryn_core::client::ConnectionStatus::Disconnected => ConnectionStatus::Disconnected,
+            vryn_core::client::ConnectionStatus::Connecting => ConnectionStatus::Connecting,
+            vryn_core::client::ConnectionStatus::Connected => ConnectionStatus::Connected,
+            vryn_core::client::ConnectionStatus::Pairing => ConnectionStatus::Pairing,
+            vryn_core::client::ConnectionStatus::Reconnecting { .. } => {
                 ConnectionStatus::Connecting
             }
-            okena_core::client::ConnectionStatus::Error(msg) => {
+            vryn_core::client::ConnectionStatus::Error(msg) => {
                 ConnectionStatus::Error { message: msg }
             }
         }
@@ -37,7 +37,7 @@ pub fn init_app() {
     ConnectionManager::init();
 }
 
-/// Connect to an Okena remote server. Returns a connection ID.
+/// Connect to an Vryn remote server. Returns a connection ID.
 /// If a saved token is provided, it will be used to skip pairing.
 #[flutter_rust_bridge::frb(sync)]
 pub fn connect(host: String, port: u16, saved_token: Option<String>) -> String {

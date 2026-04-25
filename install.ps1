@@ -1,5 +1,5 @@
-# Okena Windows Installer
-# Usage: irm https://raw.githubusercontent.com/contember/okena/main/install.ps1 | iex
+# Vryn Windows Installer
+# Usage: irm https://raw.githubusercontent.com/contember/vryn-ws/main/install.ps1 | iex
 # Or: .\install.ps1 [-Version "1.0.0"]
 
 param(
@@ -8,9 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "contember/okena"
-$InstallDir = "$env:LOCALAPPDATA\Programs\Okena"
-$BinName = "okena.exe"
+$Repo = "contember/vryn-ws"
+$InstallDir = "$env:LOCALAPPDATA\Programs\Vryn"
+$BinName = "vrynws.exe"
 
 # Get version
 if (-not $Version) {
@@ -24,13 +24,13 @@ if (-not $Version) {
     }
 }
 
-Write-Host "Installing Okena v$Version..."
+Write-Host "Installing Vryn v$Version..."
 
 # Download
-$Artifact = "okena-windows-x64"
+$Artifact = "vryn-ws-windows-x64"
 $DownloadUrl = "https://github.com/$Repo/releases/download/v$Version/$Artifact.zip"
 $TempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
-$ZipPath = Join-Path $TempDir "okena.zip"
+$ZipPath = Join-Path $TempDir "vryn-ws.zip"
 
 Write-Host "Downloading from $DownloadUrl..."
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
@@ -64,7 +64,7 @@ if ($UserPath -notlike "*$InstallDir*") {
 
 # Create Start Menu shortcut
 $StartMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
-$ShortcutPath = Join-Path $StartMenuDir "Okena.lnk"
+$ShortcutPath = Join-Path $StartMenuDir "Vryn.lnk"
 
 Write-Host "Creating Start Menu shortcut..."
 $WshShell = New-Object -ComObject WScript.Shell
@@ -78,11 +78,11 @@ $Shortcut.Save()
 Remove-Item -Recurse -Force $TempDir
 
 Write-Host ""
-Write-Host "Okena installed successfully!" -ForegroundColor Green
+Write-Host "Vryn installed successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Location: $InstallDir\$BinName"
 Write-Host "  Shortcut: $ShortcutPath"
 Write-Host ""
-Write-Host "Launch from Start Menu or run: okena"
+Write-Host "Launch from Start Menu or run: vrynws"
 Write-Host ""
 Write-Host "Note: You may need to restart your terminal for PATH changes to take effect."

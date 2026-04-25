@@ -1,7 +1,7 @@
 //! Context menu for files in the git panel (right-click on a file entry).
 
 use crate::keybindings::Cancel;
-use okena_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
+use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
@@ -18,7 +18,7 @@ pub enum GitFileContextMenuEvent {
     CopyPath { path: String },
 }
 
-impl okena_ui::overlay::CloseEvent for GitFileContextMenuEvent {
+impl vryn_ui::overlay::CloseEvent for GitFileContextMenuEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close)
     }

@@ -1,1 +1,1 @@
-pub use okena_workspace::sidebar_controller::*;
+pub use vryn_workspace::sidebar_controller::*;

@@ -9,7 +9,7 @@ use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
-use okena_ui::menu::{
+use vryn_ui::menu::{
     context_menu_panel, menu_item, menu_item_conditional, menu_item_with_color, menu_separator,
 };
 
@@ -23,7 +23,7 @@ pub enum GitOverflowMenuEvent {
     DiscardAllTracked { project_id: String },
 }
 
-impl okena_ui::overlay::CloseEvent for GitOverflowMenuEvent {
+impl vryn_ui::overlay::CloseEvent for GitOverflowMenuEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close)
     }
@@ -253,7 +253,7 @@ fn stage_item<F>(
     icon: &'static str,
     label: &'static str,
     enabled: bool,
-    t: &okena_core::theme::ThemeColors,
+    t: &vryn_core::theme::ThemeColors,
     cx: &mut Context<GitOverflowMenu>,
     on_click: F,
 ) -> Stateful<Div>
@@ -272,7 +272,7 @@ where
 
 fn discard_item(
     enabled: bool,
-    t: &okena_core::theme::ThemeColors,
+    t: &vryn_core::theme::ThemeColors,
     cx: &mut Context<GitOverflowMenu>,
 ) -> Stateful<Div> {
     if !enabled {

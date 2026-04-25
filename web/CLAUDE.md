@@ -1,6 +1,6 @@
-# Okena Web Client
+# Vryn Web Client
 
-Remote web client for Okena terminal multiplexer. Connects to the desktop app's remote server via REST + WebSocket.
+Remote web client for Vryn terminal multiplexer. Connects to the desktop app's remote server via REST + WebSocket.
 
 ## Stack
 

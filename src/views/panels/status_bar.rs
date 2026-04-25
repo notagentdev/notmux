@@ -5,7 +5,7 @@ use crate::ui::tokens::{ui_text_ms, ui_text_sm};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
-use okena_extensions::{ExtensionInstance, ExtensionRegistry};
+use vryn_extensions::{ExtensionInstance, ExtensionRegistry};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -93,7 +93,7 @@ impl SystemInfoCache {
 pub struct StatusBar {
     cache: Arc<Mutex<SystemInfoCache>>,
     /// Activate functions cloned from registry (keyed by extension ID).
-    activate_fns: Vec<(String, okena_extensions::ActivateFn)>,
+    activate_fns: Vec<(String, vryn_extensions::ActivateFn)>,
     /// Active extension instances. Dropping an instance deactivates the extension
     /// (cancels background tasks, releases views).
     active_extensions: HashMap<String, ExtensionInstance>,
@@ -157,7 +157,7 @@ impl StatusBar {
 
     /// Activate extensions that are in the enabled set.
     fn activate_extensions(
-        activate_fns: &[(String, okena_extensions::ActivateFn)],
+        activate_fns: &[(String, vryn_extensions::ActivateFn)],
         enabled: &HashSet<String>,
         cx: &mut App,
     ) -> HashMap<String, ExtensionInstance> {

@@ -16,7 +16,7 @@ Das `GitHeader`-Entity bleibt pro Projekt bestehen und behält seine Lade-/State
 ## Implementierungs-Schritte
 
 ### 1. Settings erweitern
-**`crates/okena-workspace/src/settings.rs`**
+**`crates/vryn-workspace/src/settings.rs`**
 - Neues `GitPanelSettings { is_open: bool, width: f32 }` (Default: `false`, `400.0`)
 - Konstanten: `DEFAULT_GIT_PANEL_WIDTH = 400.0`, `MIN_GIT_PANEL_WIDTH = 250.0`, `MAX_GIT_PANEL_WIDTH = 700.0`
 - Feld `git_panel: GitPanelSettings` zu `AppSettings` hinzufügen (`#[serde(default)]`)
@@ -28,19 +28,19 @@ Das `GitHeader`-Entity bleibt pro Projekt bestehen und behält seine Lade-/State
 `SidebarController` ist generisch genug (open/close, animation, width). Wird als zweite Instanz `git_panel_ctrl` im `RootView` genutzt — kein neuer Controller-Typ nötig.
 
 ### 3. DragState-Variante für Resize
-**`crates/okena-views-terminal/src/layout/split_pane.rs`**
+**`crates/vryn-views-terminal/src/layout/split_pane.rs`**
 - `DragState::GitPanel` Variante hinzufügen
 - `render_git_panel_divider()` Funktion (analog zu `render_sidebar_divider`, aber auf der linken Seite des Panels)
 
 ### 4. GitHeader API anpassen
-**`crates/okena-views-git/src/git_header.rs`**
+**`crates/vryn-views-git/src/git_header.rs`**
 - Neue Methode `render_commit_log_panel_content()` — extrahiert den Inhalt (Header-Bar, Branch-Selector, Compare-Mode, Commit-Liste) **ohne** Popover-Wrapper/Backdrop/Anchoring
 - `render_commit_log_popover()` delegiert intern an `render_commit_log_panel_content()` (Rückwärtskompatibilität, kann später entfernt werden)
 - Public Getter: `is_commit_log_visible()`, `open_commit_log()`, `close_commit_log()`
 - Commit-Log-Button `on_click` → statt direkt `toggle_commit_log()` aufzurufen, wird ein `OverlayRequest::ToggleGitPanel { project_id }` über den `RequestBroker` gesendet
 
 ### 5. Request-Broker erweitern
-**`crates/okena-workspace/src/requests.rs`**
+**`crates/vryn-workspace/src/requests.rs`**
 - Neue Variante: `OverlayRequest::ToggleGitPanel { project_id: String }`
 
 ### 6. RootView Integration
@@ -78,11 +78,11 @@ Das `GitHeader`-Entity bleibt pro Projekt bestehen und behält seine Lade-/State
 
 | Datei | Änderung |
 |-------|----------|
-| `crates/okena-workspace/src/settings.rs` | GitPanelSettings, Konstanten |
+| `crates/vryn-workspace/src/settings.rs` | GitPanelSettings, Konstanten |
 | `src/settings.rs` | Setter-Methoden |
-| `crates/okena-views-terminal/src/layout/split_pane.rs` | DragState::GitPanel, Divider |
-| `crates/okena-views-git/src/git_header.rs` | Panel-Content extrahieren, Public API |
-| `crates/okena-workspace/src/requests.rs` | ToggleGitPanel Variante |
+| `crates/vryn-views-terminal/src/layout/split_pane.rs` | DragState::GitPanel, Divider |
+| `crates/vryn-views-git/src/git_header.rs` | Panel-Content extrahieren, Public API |
+| `crates/vryn-workspace/src/requests.rs` | ToggleGitPanel Variante |
 | `src/views/root/mod.rs` | Neue Felder, Modul |
 | `src/views/root/git_panel.rs` | **Neue Datei** — Toggle/Animate/Render |
 | `src/views/root/render.rs` | Layout, Resize-Handler |

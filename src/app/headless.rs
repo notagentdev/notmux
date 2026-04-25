@@ -13,7 +13,7 @@ use crate::workspace::persistence;
 use crate::workspace::state::{GlobalWorkspace, Workspace, WorkspaceData};
 use async_channel::Receiver;
 use gpui::*;
-use okena_core::api::ApiGitStatus;
+use vryn_core::api::ApiGitStatus;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -247,7 +247,7 @@ impl HeadlessApp {
                 let code = self.auth_store.get_or_create_code();
                 println!("Remote server listening on port {port}");
                 println!("Pairing code: {code} (expires in 60s)");
-                println!("Run `okena pair` anytime for a fresh code.");
+                println!("Run `vryn pair` anytime for a fresh code.");
 
                 self.remote_server = Some(server);
             }

@@ -53,7 +53,7 @@ impl std::io::Write for TeeWriter {
     }
 }
 
-use crate::app::Okena;
+use crate::app::Vryn;
 use crate::app::headless::HeadlessApp;
 use crate::assets::{Assets, embedded_fonts};
 use crate::keybindings::{About, Quit, ShowSettings, ShowCommandPalette, ShowThemeSelector, ShowKeybindings};
@@ -191,23 +191,23 @@ fn about(_: &About, _cx: &mut App) {
 
 #[cfg(not(target_os = "macos"))]
 fn about(_: &About, _cx: &mut App) {
-    log::info!("Okena v{}", env!("CARGO_PKG_VERSION"));
+    log::info!("Vryn v{}", env!("CARGO_PKG_VERSION"));
 }
 
 /// Set up macOS application menu
 fn set_app_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
-            name: "Okena".into(),
+            name: "Vryn".into(),
             disabled: false,
             items: vec![
-                MenuItem::action("About Okena", About),
+                MenuItem::action("About Vryn", About),
                 MenuItem::separator(),
                 MenuItem::action("Settings...", ShowSettings),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Quit Okena", Quit),
+                MenuItem::action("Quit Vryn", Quit),
             ],
         },
         Menu {
@@ -236,14 +236,14 @@ fn set_app_menus(cx: &mut App) {
     ]);
 }
 
-/// `okena pair` — generate a pairing code and write it to a file for the running server to validate.
+/// `vryn pair` — generate a pairing code and write it to a file for the running server to validate.
 /// Global handle keeping the headless app entity alive for the process lifetime.
 struct GlobalHeadless(#[allow(dead_code)] Entity<HeadlessApp>);
 impl Global for GlobalHeadless {}
 
 /// Run the application in headless mode (no GUI, remote server only).
 fn run_headless(listen_addr: IpAddr) {
-    println!("Starting Okena in headless mode...");
+    println!("Starting Vryn in headless mode...");
 
     Application::with_platform(gpui_platform::current_platform(true)).run(move |cx: &mut App| {
         cx.set_quit_mode(QuitMode::Explicit);
@@ -275,7 +275,7 @@ fn run_headless(listen_addr: IpAddr) {
 fn main() {
     // Handle --version before initializing anything (used by updater validation)
     if std::env::args().any(|a| a == "--version") {
-        println!("okena {}", env!("CARGO_PKG_VERSION"));
+        println!("vryn {}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
@@ -288,8 +288,8 @@ fn main() {
     let log_target = (|| -> Option<env_logger::fmt::Target> {
         let config_dir = persistence::get_config_dir();
         std::fs::create_dir_all(&config_dir).ok()?;
-        let log_path = config_dir.join("okena.log");
-        let prev_path = config_dir.join("okena.log.1");
+        let log_path = config_dir.join("vryn.log");
+        let prev_path = config_dir.join("vryn.log.1");
         if log_path.exists() {
             let _ = std::fs::rename(&log_path, &prev_path);
         }
@@ -308,7 +308,7 @@ fn main() {
     }
     builder.init();
 
-    // Log panics to okena.log (otherwise they only go to stderr which is lost)
+    // Log panics to vryn.log (otherwise they only go to stderr which is lost)
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let backtrace = std::backtrace::Backtrace::force_capture();
@@ -350,7 +350,7 @@ fn main() {
     let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
     let headless = explicit_headless || (cfg!(target_os = "linux") && listen_addr.is_some() && !has_display);
 
-    // Acquire instance lock to prevent multiple Okena processes from
+    // Acquire instance lock to prevent multiple Vryn processes from
     // clobbering each other's workspace.json.
     let _instance_lock = match persistence::acquire_instance_lock() {
         Ok(guard) => guard,
@@ -398,29 +398,29 @@ fn main() {
         cx.set_global(ToastManager::new());
 
         // Initialize extension registry
-        let mut ext_registry = okena_extensions::ExtensionRegistry::new();
-        ext_registry.register(okena_ext_claude::register());
-        ext_registry.register(okena_ext_codex::register());
-        ext_registry.register(okena_ext_updater::register());
+        let mut ext_registry = vryn_extensions::ExtensionRegistry::new();
+        ext_registry.register(vryn_ext_claude::register());
+        ext_registry.register(vryn_ext_codex::register());
+        ext_registry.register(vryn_ext_updater::register());
         cx.set_global(ext_registry);
 
         // Initialize updater (sets GlobalUpdateInfo global, cleans old binary)
-        okena_ext_updater::init(env!("CARGO_PKG_VERSION"), cx);
+        vryn_ext_updater::init(env!("CARGO_PKG_VERSION"), cx);
 
         // Register theme provider for extensions
-        cx.set_global(okena_extensions::GlobalThemeProvider(|cx| {
+        cx.set_global(vryn_extensions::GlobalThemeProvider(|cx| {
             crate::theme::theme(cx)
         }));
 
         // Register extension settings store (bridge for extensions and view crates to read/write settings).
         // Known namespaces ("terminal", "git") map to/from individual AppSettings fields.
         // Unknown namespaces fall back to the generic extension_settings map.
-        cx.set_global(okena_extensions::ExtensionSettingsStore::new(
+        cx.set_global(vryn_extensions::ExtensionSettingsStore::new(
             |namespace, cx| {
                 let s = settings::settings_entity(cx).read(cx);
                 match namespace {
                     "terminal" => {
-                        serde_json::to_value(&okena_views_terminal::TerminalViewSettings {
+                        serde_json::to_value(&vryn_views_terminal::TerminalViewSettings {
                             font_size: s.settings.font_size,
                             line_height: s.settings.line_height,
                             font_family: s.settings.font_family.clone(),
@@ -437,7 +437,7 @@ fn main() {
                     }
                     "git" => {
                         let is_dark = crate::theme::theme(cx).is_dark();
-                        serde_json::to_value(&okena_views_git::settings::GitViewSettings {
+                        serde_json::to_value(&vryn_views_git::settings::GitViewSettings {
                             diff_view_mode: s.settings.diff_view_mode,
                             diff_ignore_whitespace: s.settings.diff_ignore_whitespace,
                             file_font_size: s.settings.file_font_size,
@@ -452,7 +452,7 @@ fn main() {
             |namespace, value, cx| {
                 match namespace {
                     "terminal" => {
-                        if let Ok(tvs) = serde_json::from_value::<okena_views_terminal::TerminalViewSettings>(value) {
+                        if let Ok(tvs) = serde_json::from_value::<vryn_views_terminal::TerminalViewSettings>(value) {
                             settings::settings_entity(cx).update(cx, |state, cx| {
                                 state.settings.font_size = tvs.font_size;
                                 state.settings.line_height = tvs.line_height;
@@ -471,7 +471,7 @@ fn main() {
                         }
                     }
                     "git" => {
-                        if let Ok(gs) = serde_json::from_value::<okena_views_git::settings::GitViewSettings>(value) {
+                        if let Ok(gs) = serde_json::from_value::<vryn_views_git::settings::GitViewSettings>(value) {
                             settings::settings_entity(cx).update(cx, |state, cx| {
                                 state.settings.diff_view_mode = gs.diff_view_mode;
                                 state.settings.diff_ignore_whitespace = gs.diff_ignore_whitespace;
@@ -541,7 +541,7 @@ fn main() {
                 })
                 .detach();
             }
-            okena_terminal::terminal::register_color_resolver(Arc::new(move |index: usize| {
+            vryn_terminal::terminal::register_color_resolver(Arc::new(move |index: usize| {
                 let t = snapshot.lock();
                 match index {
                     0 => t.term_black,
@@ -568,16 +568,16 @@ fn main() {
             }));
         }
 
-        // Register theme provider for okena-files crate
-        cx.set_global(okena_files::theme::GlobalThemeProvider(|cx| {
+        // Register theme provider for vryn-files crate
+        cx.set_global(vryn_files::theme::GlobalThemeProvider(|cx| {
             crate::theme::theme(cx)
         }));
 
         // Initialize explorer clipboard (cut/copy/paste in sidebar file explorer)
-        cx.set_global(okena_files::clipboard::ExplorerClipboard::default());
+        cx.set_global(vryn_files::clipboard::ExplorerClipboard::default());
 
         // Register UI font size provider for all crates
-        cx.set_global(okena_ui::tokens::GlobalUiFontSize(|cx| {
+        cx.set_global(vryn_ui::tokens::GlobalUiFontSize(|cx| {
             settings::settings_entity(cx).read(cx).settings.ui_font_size
         }));
 
@@ -597,7 +597,7 @@ fn main() {
                     None
                 } else {
                     Some(TitlebarOptions {
-                        title: Some("Okena".into()),
+                        title: Some("Vryn".into()),
                         appears_transparent: true,
                         // Vertically centre the macOS traffic-light buttons in
                         // our 42 px titlebar. Default position sits them at the
@@ -623,7 +623,7 @@ fn main() {
                     width: px(400.0),
                     height: px(300.0),
                 }),
-                app_id: Some("okena".to_string()),
+                app_id: Some("vryn".to_string()),
                 ..Default::default()
             },
             |window, cx| {
@@ -660,15 +660,15 @@ fn main() {
                     .detach();
 
                 // Wire up content pane registration so PTY events can notify terminal views
-                okena_views_terminal::set_register_content_pane_fn(Box::new(|terminal_id, weak_content| {
+                vryn_views_terminal::set_register_content_pane_fn(Box::new(|terminal_id, weak_content| {
                     crate::views::root::content_pane_registry().lock().insert(terminal_id, weak_content);
                 }));
 
                 // Create the main app view wrapped in Root (required for gpui_component inputs)
-                let okena = cx.new(|cx| {
-                    Okena::new(workspace_data, pty_manager.clone(), pty_events, listen_addr, window, cx)
+                let vryn = cx.new(|cx| {
+                    Vryn::new(workspace_data, pty_manager.clone(), pty_events, listen_addr, window, cx)
                 });
-                cx.new(|cx| Root::new(okena, window, cx))
+                cx.new(|cx| Root::new(vryn, window, cx))
             },
         )
         .expect("Failed to create main window");

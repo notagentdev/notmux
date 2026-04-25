@@ -1,17 +1,17 @@
-# Okena Configuration Guide
+# Vryn Configuration Guide
 
-Okena stores all configuration files in your system's config directory:
+Vryn stores all configuration files in your system's config directory:
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/.config/okena/` |
-| Linux | `~/.config/okena/` |
-| Windows | `%APPDATA%\okena\` |
+| macOS | `~/.config/vryn/` |
+| Linux | `~/.config/vryn/` |
+| Windows | `%APPDATA%\vryn\` |
 
 The directory contains:
 
 ```
-~/.config/okena/
+~/.config/vryn/
   settings.json        # App settings (fonts, theme, shell, etc.)
   keybindings.json     # Custom keyboard shortcuts
   workspace.json       # Project layouts and terminal state (auto-managed)
@@ -23,9 +23,9 @@ The directory contains:
 
 ## settings.json
 
-The main configuration file. Okena creates it with defaults on first launch. You can edit it by hand or use the in-app settings panel (`Cmd+,` / `Ctrl+,`). To open the raw file, press `Cmd+Alt+,` / `Ctrl+Alt+,`.
+The main configuration file. Vryn creates it with defaults on first launch. You can edit it by hand or use the in-app settings panel (`Cmd+,` / `Ctrl+,`). To open the raw file, press `Cmd+Alt+,` / `Ctrl+Alt+,`.
 
-If the file contains invalid JSON, Okena recovers as many fields as possible and falls back to defaults for the rest.
+If the file contains invalid JSON, Vryn recovers as many fields as possible and falls back to defaults for the rest.
 
 ### Full Example
 
@@ -179,7 +179,7 @@ Controls default behavior when creating and closing git worktrees:
 
 Custom keybindings override the defaults. The file maps action names to an array of binding entries. Each entry has a `keystroke`, an optional `context`, and an `enabled` flag.
 
-Okena generates this file with defaults if it does not exist. You can view and edit bindings in-app with `Cmd+K Cmd+S` / `Ctrl+K Ctrl+S`.
+Vryn generates this file with defaults if it does not exist. You can view and edit bindings in-app with `Cmd+K Cmd+S` / `Ctrl+K Ctrl+S`.
 
 ### Format
 
@@ -289,13 +289,13 @@ Set `enabled` to `false` to disable a specific binding without removing it:
 | `ToggleFullscreen` | `Shift+Escape` (in terminal) | Toggle terminal fullscreen |
 | `TogglePaneSwitcher` | `` Cmd+` `` / `` Ctrl+` `` | Quick pane switcher |
 
-Okena warns on startup if it detects conflicting keybindings (same keystroke and context assigned to different actions).
+Vryn warns on startup if it detects conflicting keybindings (same keystroke and context assigned to different actions).
 
 ---
 
 ## Custom Themes
 
-Place custom theme JSON files in `~/.config/okena/themes/`. Okena creates this directory with an `example-theme.json` on first launch.
+Place custom theme JSON files in `~/.config/vryn/themes/`. Vryn creates this directory with an `example-theme.json` on first launch.
 
 To activate a custom theme, set `theme_mode` to `"Custom"` in `settings.json`, then select your theme from the theme selector (`Cmd+K Cmd+T`).
 
@@ -369,7 +369,7 @@ Each project can specify a `default_shell` that overrides the global `default_sh
 
 ## workspace.json
 
-This file stores your project list, terminal layouts, and session state. It is **auto-managed** by Okena -- you should not need to edit it by hand.
+This file stores your project list, terminal layouts, and session state. It is **auto-managed** by Vryn -- you should not need to edit it by hand.
 
 Contents include:
 - Project definitions (name, path, folder color)
@@ -379,7 +379,7 @@ Contents include:
 - Worktree metadata for git worktree projects
 - Active session name
 
-Okena auto-saves this file (debounced at 500ms) whenever project or layout state changes. A backup is created before each save. If the file becomes corrupted, Okena attempts recovery and validation on load, normalizing layouts and fixing inconsistencies.
+Vryn auto-saves this file (debounced at 500ms) whenever project or layout state changes. A backup is created before each save. If the file becomes corrupted, Vryn attempts recovery and validation on load, normalizing layouts and fixing inconsistencies.
 
 ### Sessions
 

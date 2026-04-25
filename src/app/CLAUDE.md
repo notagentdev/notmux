@@ -1,12 +1,12 @@
 # app/ — Main Application Entity
 
-The `Okena` entity is the central coordinator that owns the top-level GPUI entities (RootView, Workspace, RequestBroker, PtyManager) and routes events between them.
+The `Vryn` entity is the central coordinator that owns the top-level GPUI entities (RootView, Workspace, RequestBroker, PtyManager) and routes events between them.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `mod.rs` | `Okena` struct — owns all top-level entities. Runs the PTY event loop (batched `async_channel` processing). Sets up workspace auto-save observer. |
+| `mod.rs` | `Vryn` struct — owns all top-level entities. Runs the PTY event loop (batched `async_channel` processing). Sets up workspace auto-save observer. |
 | `detached_terminals.rs` | Opens separate OS windows for detached terminals. |
 | `headless.rs` | Headless mode (no GUI). |
 | `remote_commands.rs` | Bridge from remote server to GPUI thread — handles `RemoteCommand` variants by dispatching into Workspace/PtyManager. |

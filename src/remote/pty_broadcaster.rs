@@ -1,4 +1,4 @@
-use okena_terminal::pty_manager::PtyOutputSink;
+use vryn_terminal::pty_manager::PtyOutputSink;
 use tokio::sync::broadcast;
 
 /// A PTY broadcast event for WebSocket subscribers.

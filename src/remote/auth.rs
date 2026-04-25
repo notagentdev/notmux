@@ -120,7 +120,7 @@ impl AuthStore {
     #[cfg(test)]
     fn with_secret(secret: Vec<u8>) -> Self {
         let test_dir = std::env::temp_dir().join(format!(
-            "okena-auth-test-{:?}-{}",
+            "vryn-auth-test-{:?}-{}",
             std::thread::current().id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -402,7 +402,7 @@ pub enum PairError {
     RateLimited,
 }
 
-/// Check a pairing code against the file-based code written by `okena pair` CLI.
+/// Check a pairing code against the file-based code written by `vryn pair` CLI.
 /// Returns true if the file exists, was modified within 60s, and the code matches.
 fn check_file_pair_code(code: &str, path: &std::path::Path) -> bool {
     let metadata = match std::fs::metadata(path) {
@@ -446,7 +446,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
 
-/// Path to the file-based pairing code (written by `okena pair` CLI).
+/// Path to the file-based pairing code (written by `vryn pair` CLI).
 pub fn pair_code_path() -> std::path::PathBuf {
     crate::workspace::persistence::config_dir().join("pair_code")
 }

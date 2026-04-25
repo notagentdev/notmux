@@ -1,8 +1,8 @@
 use crate::client::handler::MobileConnectionHandler;
 use crate::client::terminal_holder::TerminalHolder;
 
-use okena_core::api::{ActionRequest, StateResponse};
-use okena_core::client::{
+use vryn_core::api::{ActionRequest, StateResponse};
+use vryn_core::client::{
     make_prefixed_id, ConnectionEvent, ConnectionStatus, RemoteClient, RemoteConnectionConfig,
     WsClientMessage,
 };

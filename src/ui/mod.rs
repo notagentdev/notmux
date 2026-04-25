@@ -5,4 +5,4 @@
 
 pub mod tokens;
 
-pub use okena_ui::color_utils::tint_color;
+pub use vryn_ui::color_utils::tint_color;

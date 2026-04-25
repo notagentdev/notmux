@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Vryn
+Comment=Terminal multiplexer for managing multiple terminal sessions
+Exec=vrynws
+Icon=vrynws
+Terminal=false
+Categories=System;TerminalEmulator;Utility;
+Keywords=terminal;console;shell;command;pty;
+StartupWMClass=vrynws
+X-GNOME-UsesNotifications=true

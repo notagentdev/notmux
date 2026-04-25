@@ -1,1 +1,1 @@
-pub use okena_views_git::diff_viewer::*;
+pub use vryn_views_git::diff_viewer::*;

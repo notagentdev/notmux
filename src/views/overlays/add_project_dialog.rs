@@ -8,14 +8,14 @@ use crate::views::components::{
     button, input_container, labeled_input, modal_backdrop, modal_content,
     modal_header, PathAutoCompleteState, SimpleInput, SimpleInputState,
 };
-use okena_ui::dialog_actions::dialog_actions;
+use vryn_ui::dialog_actions::dialog_actions;
 use crate::workspace::state::Workspace;
 use crate::ui::tokens::{ui_text_md, ui_text_ms};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
-use okena_core::api::ActionRequest;
-use okena_core::client::ConnectionStatus;
+use vryn_core::api::ActionRequest;
+use vryn_core::client::ConnectionStatus;
 
 enum AddProjectTarget {
     Local,

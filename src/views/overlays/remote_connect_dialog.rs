@@ -1,1 +1,1 @@
-pub use okena_views_remote::remote_connect_dialog::*;
+pub use vryn_views_remote::remote_connect_dialog::*;

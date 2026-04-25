@@ -1,5 +1,5 @@
-const TOKEN_KEY = "okena_token";
-const EXPIRY_KEY = "okena_token_expiry";
+const TOKEN_KEY = "vryn_token";
+const EXPIRY_KEY = "vryn_token_expiry";
 
 export function saveToken(token: string, expiresIn: number): void {
   const expiryMs = Date.now() + expiresIn * 1000;

@@ -78,7 +78,7 @@ class _PairingScreenState extends State<PairingScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Check the Okena desktop app for the pairing code.',
+                'Check the Vryn desktop app for the pairing code.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey,

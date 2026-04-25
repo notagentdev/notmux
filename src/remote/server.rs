@@ -2,7 +2,7 @@ use crate::remote::auth::AuthStore;
 use crate::remote::bridge::BridgeSender;
 use crate::remote::pty_broadcaster::PtyBroadcaster;
 use crate::remote::routes;
-use okena_core::api::ApiGitStatus;
+use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicU64;
@@ -36,7 +36,7 @@ impl RemoteServer {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
-            .thread_name("okena-remote")
+            .thread_name("vryn-remote")
             .build()?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

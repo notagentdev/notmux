@@ -1,7 +1,7 @@
-// Re-export everything from the okena-git crate.
+// Re-export everything from the vryn-git crate.
 // This allows existing `use crate::git::*` imports to keep working.
-pub use okena_git::*;
+pub use vryn_git::*;
 
-// Watcher re-exported from okena-views-git crate
-pub use okena_views_git::watcher;
+// Watcher re-exported from vryn-views-git crate
+pub use vryn_views_git::watcher;
 

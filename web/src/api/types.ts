@@ -1,4 +1,4 @@
-// Types matching crates/okena-core exactly
+// Types matching crates/vryn-core exactly
 
 // ── REST types ──────────────────────────────────────────────────────────────
 

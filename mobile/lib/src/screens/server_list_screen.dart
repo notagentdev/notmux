@@ -13,7 +13,7 @@ class ServerListScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Okena'),
+        title: const Text('Vryn'),
         centerTitle: true,
       ),
       body: provider.servers.isEmpty

@@ -1,8 +1,8 @@
-//! Theme module — re-exports from okena-theme crate.
+//! Theme module — re-exports from vryn-theme crate.
 
-// Re-export everything from okena-theme
+// Re-export everything from vryn-theme
 #[allow(unused_imports)]
-pub use okena_theme::{
+pub use vryn_theme::{
     ThemeColors, ThemeInfo, ThemeMode, FolderColor,
     DARK_THEME, LIGHT_THEME, PASTEL_DARK_THEME, HIGH_CONTRAST_THEME,
     with_alpha, ansi_to_hsla,
@@ -14,7 +14,7 @@ use gpui::*;
 
 /// Get the current theme colors from the global theme entity (uses preview if active).
 /// This is the desktop app's theme() — reads from GlobalTheme entity directly.
-/// Different from okena_theme::theme() which uses GlobalThemeProvider function pointer.
+/// Different from vryn_theme::theme() which uses GlobalThemeProvider function pointer.
 pub fn theme(cx: &App) -> ThemeColors {
     cx.global::<GlobalTheme>().0.read(cx).display_colors()
 }

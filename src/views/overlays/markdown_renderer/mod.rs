@@ -1,3 +1,3 @@
-//! Re-exports from the `okena-markdown` crate.
+//! Re-exports from the `vryn-markdown` crate.
 
-pub use okena_markdown::{MarkdownDocument, MarkdownSelection, RenderedNode};
+pub use vryn_markdown::{MarkdownDocument, MarkdownSelection, RenderedNode};

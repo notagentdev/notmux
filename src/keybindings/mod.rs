@@ -15,7 +15,7 @@ pub use types::{ActionDescription, KeybindingConflict, KeybindingEntry};
 
 // App-level actions (handled by root view, overlay manager, sidebar)
 actions!(
-    okena,
+    vryn,
     [
         Quit,
         About,
@@ -51,8 +51,8 @@ actions!(
     ]
 );
 
-// Terminal-specific actions (defined in okena-views-terminal crate)
-pub use okena_views_terminal::actions::{
+// Terminal-specific actions (defined in vryn-views-terminal crate)
+pub use vryn_views_terminal::actions::{
     SendEscape, SplitVertical, SplitHorizontal, AddTab, CloseTerminal,
     MinimizeTerminal, FocusNextTerminal, FocusPrevTerminal,
     FocusLeft, FocusRight, FocusUp, FocusDown,
@@ -62,8 +62,8 @@ pub use okena_views_terminal::actions::{
     ScrollUp, ScrollDown,
 };
 
-// Sidebar-specific actions (defined in okena-views-sidebar crate)
-pub use okena_views_sidebar::{
+// Sidebar-specific actions (defined in vryn-views-sidebar crate)
+pub use vryn_views_sidebar::{
     SidebarUp, SidebarDown, SidebarConfirm, SidebarToggleExpand, SidebarEscape,
 };
 
@@ -132,28 +132,28 @@ pub fn reload_keybindings(cx: &mut App) {
     ]);
 
     cx.bind_keys([
-        KeyBinding::new("enter", okena_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
-        KeyBinding::new("escape", okena_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
+        KeyBinding::new("enter", vryn_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
+        KeyBinding::new("escape", vryn_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
     ]);
 
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, None),
         KeyBinding::new("escape", SendEscape, Some("TerminalPane")),
         KeyBinding::new("escape", CloseSearch, Some("SearchBar")),
-        KeyBinding::new("escape", okena_views_terminal::actions::Cancel, Some("TerminalRename")),
-        KeyBinding::new("escape", okena_files::file_search::Cancel, Some("FileSearchDialog")),
-        KeyBinding::new("escape", okena_files::file_search::Cancel, Some("FileViewer")),
-        KeyBinding::new("escape", okena_views_git::Cancel, Some("WorktreeDialog")),
-        KeyBinding::new("escape", okena_views_git::Cancel, Some("CloseWorktreeDialog")),
-        KeyBinding::new("escape", okena_views_git::diff_viewer::Cancel, Some("DiffViewer")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("ContextMenu")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("FolderContextMenu")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("RenameDirectoryDialog")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("HookLog")),
-        KeyBinding::new("escape", okena_views_terminal::actions::Cancel, Some("ShellSelectorOverlay")),
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemoteConnectDialog")),
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemotePairDialog")),
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemoteContextMenu")),
+        KeyBinding::new("escape", vryn_views_terminal::actions::Cancel, Some("TerminalRename")),
+        KeyBinding::new("escape", vryn_files::file_search::Cancel, Some("FileSearchDialog")),
+        KeyBinding::new("escape", vryn_files::file_search::Cancel, Some("FileViewer")),
+        KeyBinding::new("escape", vryn_views_git::Cancel, Some("WorktreeDialog")),
+        KeyBinding::new("escape", vryn_views_git::Cancel, Some("CloseWorktreeDialog")),
+        KeyBinding::new("escape", vryn_views_git::diff_viewer::Cancel, Some("DiffViewer")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("ContextMenu")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("FolderContextMenu")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("RenameDirectoryDialog")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("HookLog")),
+        KeyBinding::new("escape", vryn_views_terminal::actions::Cancel, Some("ShellSelectorOverlay")),
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemoteConnectDialog")),
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemotePairDialog")),
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemoteContextMenu")),
     ]);
 }
 
@@ -203,8 +203,8 @@ pub fn register_keybindings(cx: &mut App) {
 
     // File explorer inline input confirm/cancel (deeper than Sidebar so it wins).
     cx.bind_keys([
-        KeyBinding::new("enter", okena_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
-        KeyBinding::new("escape", okena_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
+        KeyBinding::new("enter", vryn_views_sidebar::ExplorerInputConfirm, Some("ExplorerInput")),
+        KeyBinding::new("escape", vryn_views_sidebar::ExplorerInputCancel, Some("ExplorerInput")),
     ]);
 
     // Register escape keybindings with context-based precedence:
@@ -217,25 +217,25 @@ pub fn register_keybindings(cx: &mut App) {
         KeyBinding::new("escape", SendEscape, Some("TerminalPane")),
         KeyBinding::new("escape", CloseSearch, Some("SearchBar")),
         // Terminal rename uses the crate's Cancel action
-        KeyBinding::new("escape", okena_views_terminal::actions::Cancel, Some("TerminalRename")),
-        // okena-files crate Cancel action for file search/viewer
-        KeyBinding::new("escape", okena_files::file_search::Cancel, Some("FileSearchDialog")),
-        KeyBinding::new("escape", okena_files::file_search::Cancel, Some("FileViewer")),
-        // okena-views-git crate Cancel actions for git overlays
-        KeyBinding::new("escape", okena_views_git::Cancel, Some("WorktreeDialog")),
-        KeyBinding::new("escape", okena_views_git::Cancel, Some("CloseWorktreeDialog")),
-        KeyBinding::new("escape", okena_views_git::diff_viewer::Cancel, Some("DiffViewer")),
-        // okena-views-sidebar crate Cancel actions for context menus
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("ContextMenu")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("FolderContextMenu")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("RenameDirectoryDialog")),
-        KeyBinding::new("escape", okena_views_sidebar::Cancel, Some("HookLog")),
-        // okena-views-terminal crate Cancel for shell selector
-        KeyBinding::new("escape", okena_views_terminal::actions::Cancel, Some("ShellSelectorOverlay")),
-        // okena-views-remote crate Cancel actions
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemoteConnectDialog")),
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemotePairDialog")),
-        KeyBinding::new("escape", okena_views_remote::Cancel, Some("RemoteContextMenu")),
+        KeyBinding::new("escape", vryn_views_terminal::actions::Cancel, Some("TerminalRename")),
+        // vryn-files crate Cancel action for file search/viewer
+        KeyBinding::new("escape", vryn_files::file_search::Cancel, Some("FileSearchDialog")),
+        KeyBinding::new("escape", vryn_files::file_search::Cancel, Some("FileViewer")),
+        // vryn-views-git crate Cancel actions for git overlays
+        KeyBinding::new("escape", vryn_views_git::Cancel, Some("WorktreeDialog")),
+        KeyBinding::new("escape", vryn_views_git::Cancel, Some("CloseWorktreeDialog")),
+        KeyBinding::new("escape", vryn_views_git::diff_viewer::Cancel, Some("DiffViewer")),
+        // vryn-views-sidebar crate Cancel actions for context menus
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("ContextMenu")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("FolderContextMenu")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("RenameDirectoryDialog")),
+        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("HookLog")),
+        // vryn-views-terminal crate Cancel for shell selector
+        KeyBinding::new("escape", vryn_views_terminal::actions::Cancel, Some("ShellSelectorOverlay")),
+        // vryn-views-remote crate Cancel actions
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemoteConnectDialog")),
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemotePairDialog")),
+        KeyBinding::new("escape", vryn_views_remote::Cancel, Some("RemoteContextMenu")),
     ]);
 }
 

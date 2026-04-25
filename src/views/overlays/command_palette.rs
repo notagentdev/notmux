@@ -8,8 +8,8 @@ use crate::ui::tokens::{ui_text, ui_text_ms};
 use gpui::*;
 use gpui_component::h_flex;
 use gpui::prelude::*;
-use okena_ui::empty_state::empty_state;
-use okena_ui::selectable_list::selectable_list_item;
+use vryn_ui::empty_state::empty_state;
+use vryn_ui::selectable_list::selectable_list_item;
 
 /// Remembered state from the last command palette session.
 #[derive(Default)]
@@ -36,7 +36,7 @@ struct CommandEntry {
 
 /// Command palette for quick access to all commands
 pub struct CommandPalette {
-    workspace: Entity<okena_workspace::state::Workspace>,
+    workspace: Entity<vryn_workspace::state::Workspace>,
     focus_handle: FocusHandle,
     state: ListOverlayState<CommandEntry>,
     /// When true, the entire query is "selected" — first keystroke replaces it.
@@ -44,7 +44,7 @@ pub struct CommandPalette {
 }
 
 impl CommandPalette {
-    pub fn new(workspace: Entity<okena_workspace::state::Workspace>, cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace: Entity<vryn_workspace::state::Workspace>, cx: &mut Context<Self>) -> Self {
         // Build command list from action descriptions
         let descriptions = get_action_descriptions();
         let config_data = get_config();
@@ -120,7 +120,7 @@ impl CommandPalette {
             // Restore focus to the terminal pane before dispatching so that
             // context-scoped actions (e.g. CloseTerminal on "TerminalPane")
             // are routed to the correct element.
-            let pane_map = okena_views_terminal::layout::navigation::get_pane_map();
+            let pane_map = vryn_views_terminal::layout::navigation::get_pane_map();
             if let Some(focused) = self.workspace.read(cx).focus_manager
                 .focused_terminal_state()
                 && let Some(pane) = pane_map.find_pane(&focused.project_id, &focused.layout_path)

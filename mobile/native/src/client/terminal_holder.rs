@@ -8,7 +8,7 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config as TermConfig, Term};
 use alacritty_terminal::vte::ansi::Processor;
-use okena_core::theme::ThemeColors;
+use vryn_core::theme::ThemeColors;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -256,7 +256,7 @@ impl TerminalHolder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use okena_core::theme::DARK_THEME;
+    use vryn_core::theme::DARK_THEME;
 
     #[test]
     fn process_simple_text() {

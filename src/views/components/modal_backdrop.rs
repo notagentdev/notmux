@@ -1,3 +1,3 @@
-//! Modal backdrop component — re-exported from okena-ui.
+//! Modal backdrop component — re-exported from vryn-ui.
 
-pub use okena_ui::modal::{modal_backdrop, modal_content, modal_header};
+pub use vryn_ui::modal::{modal_backdrop, modal_content, modal_header};

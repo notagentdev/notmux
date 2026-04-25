@@ -1,1 +1,1 @@
-pub use okena_views_terminal::overlays::detached_terminal::*;
+pub use vryn_views_terminal::overlays::detached_terminal::*;

@@ -35,18 +35,18 @@ use crate::views::overlays::close_worktree_dialog::{CloseWorktreeDialog, CloseWo
 use crate::views::overlays::hook_log::{HookLog, HookLogEvent};
 use crate::views::overlays::rename_directory_dialog::{RenameDirectoryDialog, RenameDirectoryDialogEvent};
 use crate::views::overlays::worktree_dialog::{WorktreeDialog, WorktreeDialogEvent};
-use okena_views_sidebar::{WorktreeListPopover, WorktreeListPopoverEvent};
-use okena_views_sidebar::{ColorPickerPopover, ColorPickerPopoverEvent, ColorPickerTarget};
-use okena_core::client::RemoteConnectionConfig;
+use vryn_views_sidebar::{WorktreeListPopover, WorktreeListPopoverEvent};
+use vryn_views_sidebar::{ColorPickerPopover, ColorPickerPopoverEvent, ColorPickerTarget};
+use vryn_core::client::RemoteConnectionConfig;
 use crate::remote::GlobalRemoteInfo;
 use crate::remote_client::manager::RemoteConnectionManager;
 use crate::workspace::request_broker::RequestBroker;
 use crate::workspace::requests::{ContextMenuRequest, FolderContextMenuRequest, OverlayRequest, SidebarRequest};
 use crate::workspace::state::{Workspace, WorkspaceData};
 
-// Re-export generic overlay utilities from okena-ui
-pub use okena_ui::overlay::{CloseEvent, OverlaySlot};
-pub use okena_ui::toggle_overlay;
+// Re-export generic overlay utilities from vryn-ui
+pub use vryn_ui::overlay::{CloseEvent, OverlaySlot};
+pub use vryn_ui::toggle_overlay;
 
 // CloseEvent impls for overlay events defined in src/ (local types)
 
@@ -117,9 +117,9 @@ pub enum OverlayManagerEvent {
     QuickCreateWorktree { project_id: String },
 
     /// Color picker: project color was changed (for remote sync)
-    ProjectColorChanged { project_id: String, color: okena_core::theme::FolderColor },
+    ProjectColorChanged { project_id: String, color: vryn_core::theme::FolderColor },
 
-    /// Context menu: Reload services (okena.yaml) for a project
+    /// Context menu: Reload services (vryn.yaml) for a project
     ReloadServices { project_id: String },
 
     /// Context menu: Focus parent project of a worktree
@@ -1117,7 +1117,7 @@ impl OverlayManager {
     #[allow(clippy::too_many_arguments)]
     pub fn show_explorer_context_menu(
         &mut self,
-        kind: okena_workspace::requests::ExplorerKind,
+        kind: vryn_workspace::requests::ExplorerKind,
         path: std::path::PathBuf,
         parent_dir: std::path::PathBuf,
         has_clipboard: bool,
@@ -1163,13 +1163,13 @@ impl OverlayManager {
                 cx.emit(OverlayManagerEvent::ExplorerReveal { path: path.clone() });
             }
             ExplorerContextMenuEvent::Cut { path } => {
-                let cb = cx.global_mut::<okena_files::clipboard::ExplorerClipboard>();
-                cb.set(path.clone(), okena_files::clipboard::ClipboardOp::Cut);
+                let cb = cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>();
+                cb.set(path.clone(), vryn_files::clipboard::ClipboardOp::Cut);
                 this.hide_explorer_context_menu(cx);
             }
             ExplorerContextMenuEvent::Copy { path } => {
-                let cb = cx.global_mut::<okena_files::clipboard::ExplorerClipboard>();
-                cb.set(path.clone(), okena_files::clipboard::ClipboardOp::Copy);
+                let cb = cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>();
+                cb.set(path.clone(), vryn_files::clipboard::ClipboardOp::Copy);
                 this.hide_explorer_context_menu(cx);
             }
             ExplorerContextMenuEvent::Paste { target_dir } => {
@@ -1309,7 +1309,7 @@ impl OverlayManager {
     pub fn show_git_stash_list(
         &mut self,
         project_id: String,
-        provider: std::sync::Arc<dyn okena_views_git::diff_viewer::provider::GitProvider>,
+        provider: std::sync::Arc<dyn vryn_views_git::diff_viewer::provider::GitProvider>,
         position: gpui::Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
@@ -1499,7 +1499,7 @@ impl OverlayManager {
     // ========================================================================
 
     /// Toggle file search dialog for a project.
-    pub fn toggle_file_search(&mut self, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
+    pub fn toggle_file_search(&mut self, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
         if self.is_modal::<FileSearchDialog>() {
             self.close_modal(cx);
         } else {
@@ -1508,7 +1508,7 @@ impl OverlayManager {
     }
 
     /// Show file search dialog for a project.
-    pub fn show_file_search(&mut self, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
+    pub fn show_file_search(&mut self, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
         let fs_for_viewer = fs.clone();
         let dialog = cx.new(|cx| FileSearchDialog::new(fs, cx));
 
@@ -1535,7 +1535,7 @@ impl OverlayManager {
     // ========================================================================
 
     /// Toggle content search dialog for a project.
-    pub fn toggle_content_search(&mut self, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, is_dark: bool, cx: &mut Context<Self>) {
+    pub fn toggle_content_search(&mut self, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, is_dark: bool, cx: &mut Context<Self>) {
         if self.is_modal::<ContentSearchDialog>() {
             self.close_modal(cx);
         } else {
@@ -1544,7 +1544,7 @@ impl OverlayManager {
     }
 
     /// Show content search dialog for a project.
-    pub fn show_content_search(&mut self, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, is_dark: bool, cx: &mut Context<Self>) {
+    pub fn show_content_search(&mut self, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, is_dark: bool, cx: &mut Context<Self>) {
         let fs_for_viewer = fs.clone();
         let dialog = cx.new(|cx| ContentSearchDialog::new(fs, is_dark, cx));
 
@@ -1571,7 +1571,7 @@ impl OverlayManager {
     // ========================================================================
 
     /// Show file browser for a project (no pre-selected file).
-    pub fn show_file_browser(&mut self, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
+    pub fn show_file_browser(&mut self, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
         let font_size = crate::settings::settings_entity(cx).read(cx).settings.file_font_size;
         let is_dark = crate::theme::theme(cx).is_dark();
         let cache_key = fs.project_id();
@@ -1601,7 +1601,7 @@ impl OverlayManager {
     }
 
     /// Show file viewer for a file.
-    pub fn show_file_viewer(&mut self, relative_path: String, fs: std::sync::Arc<dyn okena_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
+    pub fn show_file_viewer(&mut self, relative_path: String, fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>, cx: &mut Context<Self>) {
         let font_size = crate::settings::settings_entity(cx).read(cx).settings.file_font_size;
         let is_dark = crate::theme::theme(cx).is_dark();
         let cache_key = fs.project_id();
@@ -1643,7 +1643,7 @@ impl OverlayManager {
         &mut self,
         provider: std::sync::Arc<dyn crate::views::overlays::diff_viewer::provider::GitProvider>,
         select_file: Option<String>,
-        mode: Option<okena_core::types::DiffMode>,
+        mode: Option<vryn_core::types::DiffMode>,
         commit_message: Option<String>,
         commits: Option<Vec<crate::git::CommitLogEntry>>,
         commit_index: Option<usize>,

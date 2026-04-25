@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::client::manager::ConnectionManager;
-use okena_core::api::ActionRequest;
-use okena_core::client::{collect_state_terminal_ids, WsClientMessage};
-use okena_core::keys::SpecialKey;
+use vryn_core::api::ActionRequest;
+use vryn_core::client::{collect_state_terminal_ids, WsClientMessage};
+use vryn_core::keys::SpecialKey;
 
 /// Flat FFI-friendly project info.
 #[derive(Debug, Clone)]
@@ -86,15 +86,15 @@ pub async fn send_special_key(
     Ok(())
 }
 
-fn collect_layout_ids_vec(node: &okena_core::api::ApiLayoutNode, ids: &mut Vec<String>) {
+fn collect_layout_ids_vec(node: &vryn_core::api::ApiLayoutNode, ids: &mut Vec<String>) {
     match node {
-        okena_core::api::ApiLayoutNode::Terminal { terminal_id, .. } => {
+        vryn_core::api::ApiLayoutNode::Terminal { terminal_id, .. } => {
             if let Some(id) = terminal_id {
                 ids.push(id.clone());
             }
         }
-        okena_core::api::ApiLayoutNode::Split { children, .. }
-        | okena_core::api::ApiLayoutNode::Tabs { children, .. } => {
+        vryn_core::api::ApiLayoutNode::Split { children, .. }
+        | vryn_core::api::ApiLayoutNode::Tabs { children, .. } => {
             for child in children {
                 collect_layout_ids_vec(child, ids);
             }

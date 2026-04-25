@@ -6,14 +6,14 @@ use crate::views::root::TerminalsRegistry;
 use crate::workspace::actions::execute::{ensure_terminal, execute_action};
 use crate::workspace::state::Workspace;
 use gpui::*;
-use okena_core::api::ApiGitStatus;
+use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::watch as tokio_watch;
 
-use super::Okena;
+use super::Vryn;
 
-/// Shared remote command loop used by both GUI (`Okena`) and headless (`HeadlessApp`).
+/// Shared remote command loop used by both GUI (`Vryn`) and headless (`HeadlessApp`).
 ///
 /// Processes commands from the remote API bridge on the GPUI main thread.
 /// Callers are responsible for spawning this via `cx.spawn()`.
@@ -140,7 +140,7 @@ pub(crate) async fn remote_command_loop(
                                     ServiceStatus::Restarting => ("restarting", None),
                                 };
                                 let kind = match &inst.kind {
-                                    crate::services::manager::ServiceKind::Okena => "okena",
+                                    crate::services::manager::ServiceKind::Vryn => "vryn",
                                     crate::services::manager::ServiceKind::DockerCompose { .. } => "docker_compose",
                                 };
                                 ApiServiceInfo {
@@ -165,7 +165,7 @@ pub(crate) async fn remote_command_loop(
                             folder_color: p.folder_color,
                             services,
                             worktree_info: p.worktree_info.as_ref().map(|wt| {
-                                okena_core::api::ApiWorktreeMetadata {
+                                vryn_core::api::ApiWorktreeMetadata {
                                     parent_project_id: wt.parent_project_id.clone(),
                                     color_override: wt.color_override,
                                 }
@@ -258,7 +258,7 @@ pub(crate) async fn remote_command_loop(
     }
 }
 
-impl Okena {
+impl Vryn {
     /// Process commands from the remote API bridge.
     /// Thin wrapper that spawns the shared `remote_command_loop`.
     pub(super) fn start_remote_command_loop(
@@ -273,7 +273,7 @@ impl Okena {
         let git_status_tx = self.git_status_tx.clone();
         let service_manager = self.service_manager.clone();
 
-        cx.spawn(async move |_this: WeakEntity<Okena>, cx: &mut AsyncApp| {
+        cx.spawn(async move |_this: WeakEntity<Vryn>, cx: &mut AsyncApp| {
             remote_command_loop(
                 bridge_rx, backend, workspace, terminals,
                 state_version, git_status_tx, service_manager, cx,

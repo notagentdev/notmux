@@ -20,7 +20,7 @@ use crate::workspace::request_broker::RequestBroker;
 use crate::workspace::state::{GlobalWorkspace, Workspace, WorkspaceData};
 use async_channel::Receiver;
 use gpui::*;
-use okena_core::api::ApiGitStatus;
+use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -87,7 +87,7 @@ fn sync_services(
 }
 
 /// Main application state and view
-pub struct Okena {
+pub struct Vryn {
     root_view: Entity<RootView>,
     pub(crate) workspace: Entity<Workspace>,
     #[allow(dead_code)]
@@ -122,7 +122,7 @@ pub struct Okena {
     service_manager: Entity<ServiceManager>,
 }
 
-impl Okena {
+impl Vryn {
     pub fn new(
         workspace_data: WorkspaceData,
         pty_manager: Arc<PtyManager>,
@@ -388,8 +388,8 @@ impl Okena {
         })
         .detach();
 
-        // Note: updater is now handled by the okena-ext-updater extension.
-        // GlobalUpdateInfo is set in main.rs via okena_ext_updater::init().
+        // Note: updater is now handled by the vryn-ext-updater extension.
+        // GlobalUpdateInfo is set in main.rs via vryn_ext_updater::init().
 
         manager
     }
@@ -414,7 +414,7 @@ impl Okena {
                 let code = self.auth_store.get_or_create_code();
                 println!("Remote server listening on port {port}");
                 println!("Pairing code: {code} (expires in 60s)");
-                println!("Run `okena pair` anytime for a fresh code.");
+                println!("Run `vryn pair` anytime for a fresh code.");
 
                 self.remote_server = Some(server);
             }
@@ -441,7 +441,7 @@ impl Okena {
         let terminals = self.terminals.clone();
         let pty_manager = self.pty_manager.clone();
 
-        cx.spawn(async move |this: WeakEntity<Okena>, cx| {
+        cx.spawn(async move |this: WeakEntity<Vryn>, cx| {
             loop {
                 let event = match pty_events.recv().await {
                     Ok(event) => event,
@@ -592,7 +592,7 @@ impl Okena {
                     }
 
                     // Check if any hook terminal reported its exit code via
-                    // OSC title (__okena_hook_exit:<code>). This happens when
+                    // OSC title (__vryn_hook_exit:<code>). This happens when
                     // keep_alive hooks finish their command but the PTY stays
                     // alive as an interactive shell.
                     if !dirty_terminal_ids.is_empty() {
@@ -605,7 +605,7 @@ impl Okena {
                             }
                             if let Some(terminal) = terminals_guard.get(tid)
                                 && let Some(title) = terminal.title()
-                                    && let Some(code_str) = title.strip_prefix("__okena_hook_exit:") {
+                                    && let Some(code_str) = title.strip_prefix("__vryn_hook_exit:") {
                                         let exit_code = code_str.parse::<i32>().unwrap_or(-1);
                                         let status = if exit_code == 0 {
                                             crate::workspace::state::HookTerminalStatus::Succeeded
@@ -793,7 +793,7 @@ impl Okena {
 
 }
 
-impl Render for Okena {
+impl Render for Vryn {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(self.root_view.clone())
     }

@@ -1,0 +1,15 @@
+[package]
+name = "vryn-state"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+vryn-core = { path = "../vryn-core", features = ["client"] }
+vryn-terminal = { path = "../vryn-terminal" }
+vryn-layout = { path = "../vryn-layout" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4"] }
+log = "0.4"

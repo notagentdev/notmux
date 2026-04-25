@@ -2,7 +2,7 @@ use crate::theme::theme;
 use crate::ui::tokens::ui_text_md;
 use gpui::*;
 use gpui::prelude::*;
-use okena_extensions::ExtensionRegistry;
+use vryn_extensions::ExtensionRegistry;
 
 use super::categories::SettingsCategory;
 use super::SettingsPanel;
@@ -91,7 +91,7 @@ impl SettingsPanel {
     fn render_sidebar_item<T: Fn(&MouseDownEvent, &mut Window, &mut App) + 'static>(
         label: &str,
         is_active: bool,
-        t: &okena_core::theme::ThemeColors,
+        t: &vryn_core::theme::ThemeColors,
         on_click: T,
         cx: &App,
     ) -> impl IntoElement + use<T> {

@@ -1,6 +1,6 @@
 # src/ — Desktop Application
 
-The main binary. Most logic has been extracted into `crates/okena-*`; the `src/` subdirectories are thin re-export modules (`pub use okena_*::*`). Real code still lives in `src/app/`, `src/views/`, `src/remote/`, and `src/keybindings/`.
+The main binary. Most logic has been extracted into `crates/vryn-*`; the `src/` subdirectories are thin re-export modules (`pub use vryn_*::*`). Real code still lives in `src/app/`, `src/views/`, `src/remote/`, and `src/keybindings/`.
 
 ## Module Structure
 
@@ -16,14 +16,14 @@ src/
 ├── views/                # UI views — real code (overlays, chrome, panels, components)
 ├── keybindings/          # Keyboard actions — real code (see keybindings/CLAUDE.md)
 ├── remote/               # Remote server — real code (see remote/CLAUDE.md)
-├── terminal/             # Re-exports okena-terminal
-├── workspace/            # Re-exports okena-workspace (+ local actions/)
-├── git/                  # Re-exports okena-git + okena-views-git
-├── theme/                # Re-exports okena-theme
-├── ui/                   # Re-exports okena-ui
-├── elements/             # Re-exports okena-views-terminal elements
-├── services/             # Re-exports okena-services
-└── remote_client/        # Re-exports okena-remote-client
+├── terminal/             # Re-exports vryn-terminal
+├── workspace/            # Re-exports vryn-workspace (+ local actions/)
+├── git/                  # Re-exports vryn-git + vryn-views-git
+├── theme/                # Re-exports vryn-theme
+├── ui/                   # Re-exports vryn-ui
+├── elements/             # Re-exports vryn-views-terminal elements
+├── services/             # Re-exports vryn-services
+└── remote_client/        # Re-exports vryn-remote-client
 ```
 
 ## Architecture
@@ -40,14 +40,14 @@ Observable state with auto-notify:
 
 ### Event Flow
 
-1. **PTY events**: `PtyManager` → `async_channel` → `Okena` → `Terminal` (+ `PtyBroadcaster` for remote clients)
+1. **PTY events**: `PtyManager` → `async_channel` → `Vryn` → `Terminal` (+ `PtyBroadcaster` for remote clients)
 2. **UI requests**: `RequestBroker` → `cx.notify()` → observers in RootView/Sidebar
 3. **State mutations**: `Workspace` notify → observers update UI
 4. **Persistence**: debounced 500ms save to disk
 
 ### Configuration Files
 
-Located in `~/.config/okena/`:
+Located in `~/.config/vryn/`:
 - `workspace.json` — projects, layouts, terminal state
 - `settings.json` — font, theme, shell, session backend
 - `keybindings.json` — custom keyboard shortcuts

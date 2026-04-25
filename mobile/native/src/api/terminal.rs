@@ -1,6 +1,6 @@
 use crate::client::manager::ConnectionManager;
-use okena_core::client::WsClientMessage;
-use okena_core::theme::DARK_THEME;
+use vryn_core::client::WsClientMessage;
+use vryn_core::theme::DARK_THEME;
 
 /// Cell data for FFI transfer (flat, no pointers).
 #[derive(Debug, Clone)]

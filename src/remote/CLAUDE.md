@@ -14,7 +14,7 @@ Client → HTTP/WS request
 
 The remote server runs on a separate tokio runtime. Commands cross the thread boundary via `async_channel` to execute on the GPUI thread, with results returned via `oneshot` channels.
 
-Note: the client-side connection logic lives in `crates/okena-remote-client/`.
+Note: the client-side connection logic lives in `crates/vryn-remote-client/`.
 
 ## Files
 

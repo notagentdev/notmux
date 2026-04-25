@@ -13,8 +13,8 @@ use crate::views::components::{
     ListOverlayState,
 };
 use crate::workspace::state::{ProjectData, Workspace};
-use okena_ui::empty_state::empty_state;
-use okena_ui::selectable_list::selectable_list_item;
+use vryn_ui::empty_state::empty_state;
+use vryn_ui::selectable_list::selectable_list_item;
 use crate::ui::tokens::{ui_text, ui_text_ms};
 use gpui::*;
 use gpui_component::h_flex;

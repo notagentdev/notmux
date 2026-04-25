@@ -1,1 +1,1 @@
-pub use okena_remote_client::manager;
+pub use vryn_remote_client::manager;

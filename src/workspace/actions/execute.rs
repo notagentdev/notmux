@@ -13,7 +13,7 @@ use crate::terminal::backend::TerminalBackend;
 use crate::terminal::shell_config::ShellType;
 use crate::terminal::terminal::{Terminal, TerminalSize};
 use crate::workspace::state::DropZone;
-use okena_terminal::TerminalsRegistry;
+use vryn_terminal::TerminalsRegistry;
 use crate::workspace::hooks;
 use crate::workspace::state::{LayoutNode, Workspace};
 use gpui::*;
@@ -447,7 +447,7 @@ pub fn execute_action(
                         Ok(c) => c,
                         Err(e) => return ActionResult::Err(format!("Cannot resolve project path: {}", e)),
                     };
-                    let files = okena_files::file_search::FileSearchDialog::scan_files(&path, show_ignored, show_hidden);
+                    let files = vryn_files::file_search::FileSearchDialog::scan_files(&path, show_ignored, show_hidden);
                     ActionResult::Ok(Some(serde_json::to_value(files).expect("BUG: FileEntry must serialize")))
                 }
                 None => ActionResult::Err(format!("project not found: {}", project_id)),
@@ -495,11 +495,11 @@ pub fn execute_action(
                         Err(e) => return ActionResult::Err(format!("Cannot resolve project path: {}", e)),
                     };
                     let search_mode = match mode.as_str() {
-                        "regex" => okena_files::content_search::SearchMode::Regex,
-                        "fuzzy" => okena_files::content_search::SearchMode::Fuzzy,
-                        _ => okena_files::content_search::SearchMode::Literal,
+                        "regex" => vryn_files::content_search::SearchMode::Regex,
+                        "fuzzy" => vryn_files::content_search::SearchMode::Fuzzy,
+                        _ => vryn_files::content_search::SearchMode::Literal,
                     };
-                    let config = okena_files::content_search::ContentSearchConfig {
+                    let config = vryn_files::content_search::ContentSearchConfig {
                         case_sensitive,
                         mode: search_mode,
                         max_results,
@@ -510,7 +510,7 @@ pub fn execute_action(
                     };
                     let cancelled = std::sync::atomic::AtomicBool::new(false);
                     let mut results = Vec::new();
-                    okena_files::content_search::search_content(
+                    vryn_files::content_search::search_content(
                         &path, &query, &config, &cancelled, &mut |result| results.push(result),
                     );
                     ActionResult::Ok(Some(serde_json::to_value(results).expect("BUG: FileSearchResult must serialize")))
@@ -753,9 +753,9 @@ pub fn execute_action(
                 None => return ActionResult::Err(format!("project not found: {}", project_id)),
             };
             let project_path = std::path::PathBuf::from(&project.path);
-            let (git_root, subdir) = okena_git::resolve_git_root_and_subdir(&project_path);
+            let (git_root, subdir) = vryn_git::resolve_git_root_and_subdir(&project_path);
             let path_template = settings(cx).worktree.path_template.clone();
-            let (worktree_path, wt_project_path) = okena_git::compute_target_paths(&git_root, &subdir, &path_template, &branch);
+            let (worktree_path, wt_project_path) = vryn_git::compute_target_paths(&git_root, &subdir, &path_template, &branch);
             let global_hooks = settings(cx).hooks.clone();
 
             match ws.create_worktree_project(&project_id, &branch, &git_root, &worktree_path, &wt_project_path, create_branch, &global_hooks, cx) {
@@ -1027,7 +1027,7 @@ mod path_guard_tests {
 
     fn mktmp() -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
-            "okena-exec-{}-{}",
+            "vryn-exec-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));

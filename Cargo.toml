@@ -1,36 +1,40 @@
 [workspace]
-members = [".", "mobile/native", "crates/okena-core", "crates/okena-git", "crates/okena-views-git", "crates/okena-views-services", "crates/okena-views-sidebar", "crates/okena-views-terminal", "crates/okena-terminal", "crates/okena-layout", "crates/okena-state", "crates/okena-hooks", "crates/okena-workspace", "crates/okena-ui", "crates/okena-files", "crates/okena-markdown", "crates/okena-extensions", "crates/okena-ext-claude", "crates/okena-ext-codex", "crates/okena-ext-updater", "crates/okena-services", "crates/okena-remote-client", "crates/okena-views-remote", "crates/okena-theme"]
+members = [".", "mobile/native", "crates/vryn-core", "crates/vryn-git", "crates/vryn-views-git", "crates/vryn-views-services", "crates/vryn-views-sidebar", "crates/vryn-views-terminal", "crates/vryn-terminal", "crates/vryn-layout", "crates/vryn-state", "crates/vryn-hooks", "crates/vryn-workspace", "crates/vryn-ui", "crates/vryn-files", "crates/vryn-markdown", "crates/vryn-extensions", "crates/vryn-ext-claude", "crates/vryn-ext-codex", "crates/vryn-ext-updater", "crates/vryn-services", "crates/vryn-remote-client", "crates/vryn-views-remote", "crates/vryn-theme"]
 resolver = "2"
 
 [package]
-name = "okena"
+name = "vryn-ws"
 version = "0.20.0"
 edition = "2024"
 license = "MIT"
 
+[[bin]]
+name = "vrynws"
+path = "src/main.rs"
+
 [dependencies]
 # Shared core types
-okena-core = { path = "crates/okena-core", features = ["client"] }
-okena-git = { path = "crates/okena-git" }
-okena-views-git = { path = "crates/okena-views-git" }
-okena-views-terminal = { path = "crates/okena-views-terminal" }
-okena-terminal = { path = "crates/okena-terminal" }
-okena-services = { path = "crates/okena-services" }
-okena-views-services = { path = "crates/okena-views-services" }
-okena-views-sidebar = { path = "crates/okena-views-sidebar" }
-okena-remote-client = { path = "crates/okena-remote-client" }
-okena-views-remote = { path = "crates/okena-views-remote" }
-okena-workspace = { path = "crates/okena-workspace" }
-okena-ui = { path = "crates/okena-ui" }
-okena-theme = { path = "crates/okena-theme" }
-okena-files = { path = "crates/okena-files" }
-okena-markdown = { path = "crates/okena-markdown" }
+vryn-core = { path = "crates/vryn-core", features = ["client"] }
+vryn-git = { path = "crates/vryn-git" }
+vryn-views-git = { path = "crates/vryn-views-git" }
+vryn-views-terminal = { path = "crates/vryn-views-terminal" }
+vryn-terminal = { path = "crates/vryn-terminal" }
+vryn-services = { path = "crates/vryn-services" }
+vryn-views-services = { path = "crates/vryn-views-services" }
+vryn-views-sidebar = { path = "crates/vryn-views-sidebar" }
+vryn-remote-client = { path = "crates/vryn-remote-client" }
+vryn-views-remote = { path = "crates/vryn-views-remote" }
+vryn-workspace = { path = "crates/vryn-workspace" }
+vryn-ui = { path = "crates/vryn-ui" }
+vryn-theme = { path = "crates/vryn-theme" }
+vryn-files = { path = "crates/vryn-files" }
+vryn-markdown = { path = "crates/vryn-markdown" }
 
 # Extension system
-okena-extensions = { path = "crates/okena-extensions" }
-okena-ext-claude = { path = "crates/okena-ext-claude" }
-okena-ext-codex = { path = "crates/okena-ext-codex" }
-okena-ext-updater = { path = "crates/okena-ext-updater" }
+vryn-extensions = { path = "crates/vryn-extensions" }
+vryn-ext-claude = { path = "crates/vryn-ext-claude" }
+vryn-ext-codex = { path = "crates/vryn-ext-codex" }
+vryn-ext-updater = { path = "crates/vryn-ext-updater" }
 
 # UI Framework (from Zed repo)
 gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }

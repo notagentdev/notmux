@@ -4,12 +4,12 @@ use crate::views::components::simple_input::{SimpleInput, SimpleInputState};
 use gpui::*;
 use gpui_component::v_flex;
 
-// Re-export from okena-ui
-pub use okena_ui::settings::{
+// Re-export from vryn-ui
+pub use vryn_ui::settings::{
     section_container, section_header, settings_row, settings_row_with_desc, stepper_button,
     value_display,
 };
-pub use okena_ui::toggle::toggle_switch;
+pub use vryn_ui::toggle::toggle_switch;
 
 /// Available monospace font families
 pub(super) const FONT_FAMILIES: &[&str] = &[

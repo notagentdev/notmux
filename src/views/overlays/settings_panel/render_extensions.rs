@@ -1,7 +1,7 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
 use gpui::*;
-use okena_extensions::ExtensionRegistry;
+use vryn_extensions::ExtensionRegistry;
 
 use super::components::*;
 use super::SettingsPanel;

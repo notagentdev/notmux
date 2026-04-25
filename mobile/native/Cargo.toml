@@ -1,5 +1,5 @@
 [package]
-name = "okena_mobile_native"
+name = "vryn_mobile_native"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-okena-core = { path = "../../crates/okena-core", features = ["client"] }
+vryn-core = { path = "../../crates/vryn-core", features = ["client"] }
 flutter_rust_bridge = "=2.11.1"
 alacritty_terminal = "0.25"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros", "time"] }

@@ -1,1 +1,1 @@
-pub use okena_views_terminal::shell_selector_overlay::*;
+pub use vryn_views_terminal::shell_selector_overlay::*;

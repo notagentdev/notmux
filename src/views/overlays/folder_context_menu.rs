@@ -1,1 +1,1 @@
-pub use okena_views_sidebar::folder_context_menu::*;
+pub use vryn_views_sidebar::folder_context_menu::*;

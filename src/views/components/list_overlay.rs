@@ -1,3 +1,3 @@
-//! Generic list overlay component -- re-exported from okena-files.
+//! Generic list overlay component -- re-exported from vryn-files.
 
-pub use okena_files::list_overlay::*;
+pub use vryn_files::list_overlay::*;

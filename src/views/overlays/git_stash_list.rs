@@ -10,9 +10,9 @@ use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
-use okena_core::theme::ThemeColors;
-use okena_git::{format_relative_time, StashEntry};
-use okena_views_git::diff_viewer::provider::GitProvider;
+use vryn_core::theme::ThemeColors;
+use vryn_git::{format_relative_time, StashEntry};
+use vryn_views_git::diff_viewer::provider::GitProvider;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ pub enum GitStashListEvent {
     Close { project_id: String },
 }
 
-impl okena_ui::overlay::CloseEvent for GitStashListEvent {
+impl vryn_ui::overlay::CloseEvent for GitStashListEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close { .. })
     }

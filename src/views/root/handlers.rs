@@ -6,7 +6,7 @@ use crate::workspace::requests::SidebarRequest;
 use crate::workspace::state::{LayoutNode, Workspace};
 use gpui::*;
 
-use okena_core::api::ActionRequest;
+use vryn_core::api::ActionRequest;
 
 use super::RootView;
 
@@ -44,7 +44,7 @@ impl RootView {
         let connections = rm.connections();
         let (config, _, _) = connections.iter().find(|(c, _, _)| c.id == connection_id)?;
         let token = config.saved_token.as_ref()?.clone();
-        let actual_id = okena_core::client::strip_prefix(project_id, connection_id);
+        let actual_id = vryn_core::client::strip_prefix(project_id, connection_id);
         Some((config.host.clone(), config.port, token, actual_id))
     }
 
@@ -71,17 +71,17 @@ impl RootView {
         &self,
         project_id: &str,
         cx: &Context<Self>,
-    ) -> Option<std::sync::Arc<dyn okena_files::project_fs::ProjectFs>> {
+    ) -> Option<std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>> {
         let ws = self.workspace.read(cx);
         let project = ws.project(project_id)?;
         if project.is_remote {
             let conn_id = project.connection_id.as_ref()?;
             let (host, port, token, actual_id) = self.remote_params(project_id, conn_id, cx)?;
-            Some(std::sync::Arc::new(okena_files::project_fs::RemoteProjectFs::new(
+            Some(std::sync::Arc::new(vryn_files::project_fs::RemoteProjectFs::new(
                 host, port, token, actual_id, project.name.clone(),
             )))
         } else {
-            Some(std::sync::Arc::new(okena_files::project_fs::LocalProjectFs::new(
+            Some(std::sync::Arc::new(vryn_files::project_fs::LocalProjectFs::new(
                 project.path.clone(),
             )))
         }
@@ -152,7 +152,7 @@ impl RootView {
             }
             OverlayManagerEvent::ReloadServices { project_id } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
-                dispatcher.dispatch(okena_core::api::ActionRequest::ReloadServices {
+                dispatcher.dispatch(vryn_core::api::ActionRequest::ReloadServices {
                     project_id: project_id.clone(),
                 }, cx);
             }
@@ -319,7 +319,7 @@ impl RootView {
             OverlayManagerEvent::GitFileStage { project_id, file_path } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    okena_core::api::ActionRequest::GitStageFile {
+                    vryn_core::api::ActionRequest::GitStageFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                     },
@@ -330,7 +330,7 @@ impl RootView {
             OverlayManagerEvent::GitFileUnstage { project_id, file_path } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    okena_core::api::ActionRequest::GitUnstageFile {
+                    vryn_core::api::ActionRequest::GitUnstageFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                     },
@@ -341,7 +341,7 @@ impl RootView {
             OverlayManagerEvent::GitFileDiscard { project_id, file_path, is_untracked } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    okena_core::api::ActionRequest::GitDiscardFile {
+                    vryn_core::api::ActionRequest::GitDiscardFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                         is_untracked: *is_untracked,
@@ -402,7 +402,7 @@ impl RootView {
                 let sidebar = self.sidebar.clone();
                 cx.spawn(async move |_this, cx| {
                     let p = path.clone();
-                    let result = smol::unblock(move || okena_files::fs_ops::delete(&p, is_dir)).await;
+                    let result = smol::unblock(move || vryn_files::fs_ops::delete(&p, is_dir)).await;
                     let _ = cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer delete failed: {msg}");
@@ -417,7 +417,7 @@ impl RootView {
             OverlayManagerEvent::ExplorerReveal { path } => {
                 let path = path.clone();
                 cx.spawn(async move |_this, _cx| {
-                    let _ = smol::unblock(move || okena_files::fs_ops::reveal_in_file_manager(&path))
+                    let _ = smol::unblock(move || vryn_files::fs_ops::reveal_in_file_manager(&path))
                         .await;
                 })
                 .detach();
@@ -447,7 +447,7 @@ impl RootView {
             }
             OverlayManagerEvent::ExplorerPaste { target_dir } => {
                 let target_dir = target_dir.clone();
-                let Some(cb) = cx.try_global::<okena_files::clipboard::ExplorerClipboard>().cloned() else {
+                let Some(cb) = cx.try_global::<vryn_files::clipboard::ExplorerClipboard>().cloned() else {
                     return;
                 };
                 let (Some(src), Some(op)) = (cb.path.clone(), cb.op) else {
@@ -465,11 +465,11 @@ impl RootView {
                     let src_ = src.clone();
                     let dst_ = dst.clone();
                     let result = smol::unblock(move || match op {
-                        okena_files::clipboard::ClipboardOp::Cut => {
-                            okena_files::fs_ops::move_to(&src_, &dst_)
+                        vryn_files::clipboard::ClipboardOp::Cut => {
+                            vryn_files::fs_ops::move_to(&src_, &dst_)
                         }
-                        okena_files::clipboard::ClipboardOp::Copy => {
-                            okena_files::fs_ops::copy(&src_, &dst_)
+                        vryn_files::clipboard::ClipboardOp::Copy => {
+                            vryn_files::fs_ops::copy(&src_, &dst_)
                         }
                     })
                     .await;
@@ -478,8 +478,8 @@ impl RootView {
                             log::warn!("explorer paste failed: {msg}");
                         }
                         // Clear clipboard on Cut; keep on Copy.
-                        if matches!(op, okena_files::clipboard::ClipboardOp::Cut) {
-                            cx.global_mut::<okena_files::clipboard::ExplorerClipboard>().clear();
+                        if matches!(op, vryn_files::clipboard::ClipboardOp::Cut) {
+                            cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>().clear();
                         }
                         sidebar.update(cx, |sb, cx| {
                             sb.patch_explorers_for_path(&src_for_paths, cx);
@@ -496,8 +496,8 @@ impl RootView {
     fn with_git_header<F>(&self, project_id: &str, cx: &mut Context<Self>, f: F)
     where
         F: FnOnce(
-            &mut okena_views_git::git_header::GitHeader,
-            &mut Context<okena_views_git::git_header::GitHeader>,
+            &mut vryn_views_git::git_header::GitHeader,
+            &mut Context<vryn_views_git::git_header::GitHeader>,
         ),
     {
         if let Some(col) = self.project_columns.get(project_id).cloned() {
@@ -728,7 +728,7 @@ impl RootView {
                 OverlayRequest::ColorPicker { project_id, position } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
-                            okena_views_sidebar::ColorPickerTarget::Project { project_id },
+                            vryn_views_sidebar::ColorPickerTarget::Project { project_id },
                             position,
                             cx,
                         );
@@ -737,7 +737,7 @@ impl RootView {
                 OverlayRequest::FolderColorPicker { folder_id, position } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
-                            okena_views_sidebar::ColorPickerTarget::Folder { folder_id },
+                            vryn_views_sidebar::ColorPickerTarget::Folder { folder_id },
                             position,
                             cx,
                         );

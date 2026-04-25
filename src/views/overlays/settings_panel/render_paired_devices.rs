@@ -1,7 +1,7 @@
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_ms};
 use gpui::*;
-use okena_ui::empty_state::empty_state;
+use vryn_ui::empty_state::empty_state;
 
 use super::components::*;
 use super::SettingsPanel;

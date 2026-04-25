@@ -12,7 +12,7 @@ use crate::ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl}
 use gpui::*;
 use gpui_component::h_flex;
 use gpui::prelude::*;
-use okena_ui::selectable_list::selectable_list_item;
+use vryn_ui::selectable_list::selectable_list_item;
 
 /// Theme selection entry with preview and info
 #[derive(Clone)]

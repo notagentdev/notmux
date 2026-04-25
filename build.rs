@@ -21,8 +21,8 @@ fn main() {
         if std::path::Path::new(icon_path).exists() {
             let mut res = winresource::WindowsResource::new();
             res.set_icon(icon_path);
-            res.set("FileDescription", "Okena");
-            res.set("ProductName", "Okena");
+            res.set("FileDescription", "Vryn");
+            res.set("ProductName", "Vryn");
 
             if let Err(e) = res.compile() {
                 eprintln!("Warning: Failed to set Windows icon: {}", e);

@@ -31,7 +31,7 @@ use crate::views::components::simple_input::{InputChangedEvent, SimpleInputState
 use crate::workspace::state::Workspace;
 use gpui::*;
 use gpui::prelude::*;
-use okena_extensions::ExtensionRegistry;
+use vryn_extensions::ExtensionRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -124,13 +124,13 @@ impl SettingsPanel {
         let hook_project_open = cx.new(|cx| {
             let state = SimpleInputState::new(cx)
                 .multiline()
-                .placeholder("e.g. echo \"opened $OKENA_PROJECT_NAME\"");
+                .placeholder("e.g. echo \"opened $VRYN_PROJECT_NAME\"");
             match s.hooks.project.on_open { Some(ref v) => state.default_value(v.clone()), None => state }
         });
         let hook_project_close = cx.new(|cx| {
             let state = SimpleInputState::new(cx)
                 .multiline()
-                .placeholder("e.g. echo \"closed $OKENA_PROJECT_NAME\"");
+                .placeholder("e.g. echo \"closed $VRYN_PROJECT_NAME\"");
             match s.hooks.project.on_close { Some(ref v) => state.default_value(v.clone()), None => state }
         });
         let hook_worktree_create = cx.new(|cx| {

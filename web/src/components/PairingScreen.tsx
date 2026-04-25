@@ -30,7 +30,7 @@ export function PairingScreen({ onPaired }: { onPaired: () => void }) {
     <div className="flex items-center justify-center h-screen">
       <div className="w-80 space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-zinc-100">Okena</h1>
+          <h1 className="text-2xl font-bold text-zinc-100">Vryn</h1>
           <p className="mt-2 text-sm text-zinc-400">
             Enter the pairing code from the desktop app status bar
           </p>

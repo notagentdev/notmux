@@ -16,7 +16,7 @@ use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use okena_core::api::ApiGitStatus;
+use vryn_core::api::ApiGitStatus;
 use rust_embed::RustEmbed;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;

@@ -1,3 +1,3 @@
-//! File search dialog -- re-exported from okena-files.
+//! File search dialog -- re-exported from vryn-files.
 
-pub use okena_files::file_search::*;
+pub use vryn_files::file_search::*;

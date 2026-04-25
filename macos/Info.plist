@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>okena</string>
+    <string>vrynws</string>
     <key>CFBundleIdentifier</key>
-    <string>com.contember.okena</string>
+    <string>dev.vryn.ws</string>
     <key>CFBundleName</key>
-    <string>Okena</string>
+    <string>Vryn</string>
     <key>CFBundleDisplayName</key>
-    <string>Okena</string>
+    <string>Vryn</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

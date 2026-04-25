@@ -1,19 +1,19 @@
 # Project Services
 
-Okena can manage background services (dev servers, databases, watchers) alongside your terminals. Services are defined per-project in an `okena.yaml` file and/or auto-detected from Docker Compose.
+Vryn can manage background services (dev servers, databases, watchers) alongside your terminals. Services are defined per-project in an `vryn.yaml` file and/or auto-detected from Docker Compose.
 
 ## Overview
 
 There are two kinds of services:
 
-- **Okena services** -- shell commands that Okena spawns and manages in PTY processes. Defined in `okena.yaml`.
-- **Docker Compose services** -- containers managed by Docker Compose. Auto-detected from compose files or configured in `okena.yaml`.
+- **Vryn services** -- shell commands that Vryn spawns and manages in PTY processes. Defined in `vryn.yaml`.
+- **Docker Compose services** -- containers managed by Docker Compose. Auto-detected from compose files or configured in `vryn.yaml`.
 
 Both kinds appear in the sidebar under a "Services" group for each project, showing live status, detected ports, and controls for start/stop/restart.
 
-## okena.yaml Configuration
+## vryn.yaml Configuration
 
-Place an `okena.yaml` file in your project root. It has two top-level keys:
+Place an `vryn.yaml` file in your project root. It has two top-level keys:
 
 ```yaml
 services:
@@ -49,22 +49,22 @@ docker_compose:                  # Optional, see below
 
 ## Docker Compose Integration
 
-Okena detects and integrates Docker Compose services automatically.
+Vryn detects and integrates Docker Compose services automatically.
 
 ### Auto-Detection
 
-When a project is opened, Okena checks for compose files in this order:
+When a project is opened, Vryn checks for compose files in this order:
 
 1. `docker-compose.yml`
 2. `docker-compose.yaml`
 3. `compose.yml`
 4. `compose.yaml`
 
-If one is found and the `docker compose` CLI is available, Okena lists the services defined in it. Services with `deploy.replicas: 0` are excluded.
+If one is found and the `docker compose` CLI is available, Vryn lists the services defined in it. Services with `deploy.replicas: 0` are excluded.
 
 ### Configuration
 
-Use the `docker_compose` section in `okena.yaml` to customize behavior:
+Use the `docker_compose` section in `vryn.yaml` to customize behavior:
 
 ```yaml
 docker_compose:
@@ -75,15 +75,15 @@ docker_compose:
     - db
 ```
 
-- **`file`** -- Path to the compose file, relative to the project root. If omitted, Okena auto-detects.
+- **`file`** -- Path to the compose file, relative to the project root. If omitted, Vryn auto-detects.
 - **`enabled`** -- Explicitly enable or disable Docker Compose integration. If omitted, integration is enabled when a compose file is found.
 - **`services`** -- A list of service names to highlight. Services not in this list are still shown but marked as "extra" and grouped separately.
 
-Docker Compose integration works even without an `okena.yaml` file -- Okena will auto-detect compose files in any project.
+Docker Compose integration works even without an `vryn.yaml` file -- Vryn will auto-detect compose files in any project.
 
 ### Status Polling
 
-Okena polls Docker service statuses every 5 seconds using `docker compose ps`. This updates each service's status and detected ports in the sidebar without manual refresh.
+Vryn polls Docker service statuses every 5 seconds using `docker compose ps`. This updates each service's status and detected ports in the sidebar without manual refresh.
 
 ### Docker Actions
 
@@ -104,12 +104,12 @@ Okena polls Docker service statuses every 5 seconds using `docker compose ps`. T
 
 ### Auto-Restart Behavior
 
-When `restart_on_crash: true` is set for an Okena service:
+When `restart_on_crash: true` is set for an Vryn service:
 
 1. The service exits with a non-zero code.
 2. The old terminal is cleaned up.
 3. The status changes to **Restarting**.
-4. After `restart_delay_ms` milliseconds, Okena spawns a new process.
+4. After `restart_delay_ms` milliseconds, Vryn spawns a new process.
 5. The restart counter increments.
 
 Auto-restart stops after **5 consecutive crashes** (the max retry limit). At that point the service enters the **Crashed** state and the terminal output is preserved so you can inspect what went wrong.
@@ -118,7 +118,7 @@ A manual restart (from the sidebar) resets the restart counter to zero.
 
 ### Session Persistence
 
-Okena services can reconnect to existing sessions across app restarts (when using a session backend like tmux). The terminal ID for each service is persisted in the workspace file. Docker log viewer PTYs are ephemeral and not persisted.
+Vryn services can reconnect to existing sessions across app restarts (when using a session backend like tmux). The terminal ID for each service is persisted in the workspace file. Docker log viewer PTYs are ephemeral and not persisted.
 
 ## Service Panel
 
@@ -126,7 +126,7 @@ Services appear in the sidebar under each project. The **Services** group header
 
 - **Start All** -- Start every service in the project.
 - **Stop All** -- Stop every service.
-- **Reload** -- Re-read `okena.yaml` and update services. New services are added, removed services are stopped, and unchanged running services keep running.
+- **Reload** -- Re-read `vryn.yaml` and update services. New services are added, removed services are stopped, and unchanged running services keep running.
 
 Each service row shows:
 
@@ -135,15 +135,15 @@ Each service row shows:
 - Detected ports (if any)
 - Start, stop, or restart buttons on hover
 
-Clicking a running Okena service shows its terminal output. Clicking a Docker service opens its log viewer.
+Clicking a running Vryn service shows its terminal output. Clicking a Docker service opens its log viewer.
 
 ## Port Detection
 
-Okena automatically detects TCP ports that a running service is listening on.
+Vryn automatically detects TCP ports that a running service is listening on.
 
 ### How It Works
 
-1. After a service starts, Okena waits 2 seconds for the process to bind its port.
+1. After a service starts, Vryn waits 2 seconds for the process to bind its port.
 2. It walks the process tree from the service's root PID to find all child processes.
 3. It checks for listening TCP ports owned by those processes.
 4. Polling repeats every 3 seconds, up to 10 times, to catch late-binding ports.
@@ -205,7 +205,7 @@ docker_compose:
     - redis
 ```
 
-This starts the Vite dev server as an Okena service and monitors `postgres` and `redis` containers from Docker Compose. Any other services in the compose file will appear in a separate "Other" group.
+This starts the Vite dev server as an Vryn service and monitors `postgres` and `redis` containers from Docker Compose. Any other services in the compose file will appear in a separate "Other" group.
 
 ### Rust Project with Cargo Watch
 
@@ -223,11 +223,11 @@ services:
     auto_start: true
 ```
 
-### Docker Compose Only (No okena.yaml Needed)
+### Docker Compose Only (No vryn.yaml Needed)
 
-If your project has a `docker-compose.yml` and no `okena.yaml`, Okena will still auto-detect the compose file and show all services in the sidebar. No configuration needed.
+If your project has a `docker-compose.yml` and no `vryn.yaml`, Vryn will still auto-detect the compose file and show all services in the sidebar. No configuration needed.
 
-To customize which Docker services are highlighted or to use a non-standard compose file path, add an `okena.yaml` with just the `docker_compose` section:
+To customize which Docker services are highlighted or to use a non-standard compose file path, add an `vryn.yaml` with just the `docker_compose` section:
 
 ```yaml
 services: []

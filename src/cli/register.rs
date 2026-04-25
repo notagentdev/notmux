@@ -8,7 +8,7 @@ pub fn register() -> Result<String, String> {
     // 1. Read the app secret
     let secret_path = auth::secret_path();
     let secret = std::fs::read(&secret_path).map_err(|_| {
-        "No Okena config found. Has Okena been started at least once?".to_string()
+        "No Vryn config found. Has Vryn been started at least once?".to_string()
     })?;
     if secret.len() != 32 {
         return Err("Invalid remote_secret (wrong size).".into());

@@ -1,7 +1,7 @@
 use crate::git;
 use crate::git::watcher::GitStatusWatcher;
 use crate::action_dispatch::ActionDispatcher;
-use okena_views_git::git_header::GitHeader;
+use vryn_views_git::git_header::GitHeader;
 use crate::services::manager::ServiceManager;
 use crate::terminal::backend::TerminalBackend;
 use crate::theme::{theme, ThemeColors};
@@ -16,9 +16,9 @@ use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 use std::sync::Arc;
 
-use okena_core::api::ActionRequest;
-use okena_workspace::requests::OverlayRequest;
-use okena_views_services::service_panel::ServicePanel;
+use vryn_core::api::ActionRequest;
+use vryn_workspace::requests::OverlayRequest;
+use vryn_views_services::service_panel::ServicePanel;
 use crate::views::panels::hook_panel::HookPanel;
 use crate::views::root::TerminalsRegistry;
 
@@ -57,7 +57,7 @@ impl ProjectColumn {
         terminals: TerminalsRegistry,
         active_drag: ActiveDrag,
         git_watcher: Option<Entity<GitStatusWatcher>>,
-        git_provider: Arc<dyn okena_views_git::diff_viewer::provider::GitProvider>,
+        git_provider: Arc<dyn vryn_views_git::diff_viewer::provider::GitProvider>,
         cx: &mut Context<Self>,
     ) -> Self {
         // Observe git watcher for re-renders (replaces per-column polling)

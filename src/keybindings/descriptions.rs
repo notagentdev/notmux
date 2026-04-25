@@ -483,7 +483,7 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
         "CheckForUpdates",
         ActionDescription {
             name: "Check for Updates",
-            description: "Check for a new version of Okena",
+            description: "Check for a new version of Vryn",
             category: "Global",
             factory: || Box::new(CheckForUpdates),
         },

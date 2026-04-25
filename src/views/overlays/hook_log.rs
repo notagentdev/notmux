@@ -1,1 +1,1 @@
-pub use okena_views_sidebar::hook_log::*;
+pub use vryn_views_sidebar::hook_log::*;

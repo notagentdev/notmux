@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Shared terminals registry for PTY event routing (re-exported from okena-terminal)
-pub use okena_terminal::TerminalsRegistry;
+/// Shared terminals registry for PTY event routing (re-exported from vryn-terminal)
+pub use vryn_terminal::TerminalsRegistry;
 
 /// Registry mapping terminal_id → WeakEntity<TerminalContent> for direct
 /// dirty notification from PTY event loop (avoids per-pane polling).
@@ -75,13 +75,13 @@ pub struct RootView {
     hscroll_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
     /// Remote connection manager (set after creation)
     remote_manager: Option<Entity<RemoteConnectionManager>>,
-    /// Git status watcher (set by Okena after creation)
+    /// Git status watcher (set by Vryn after creation)
     git_watcher: Option<Entity<GitStatusWatcher>>,
     /// Whether the pane switcher overlay is active
     pane_switch_active: bool,
     /// Pane switcher overlay entity (separate entity for proper focus handling)
     pane_switcher_entity: Option<Entity<pane_switcher::PaneSwitcher>>,
-    /// Service manager (set by Okena after creation)
+    /// Service manager (set by Vryn after creation)
     service_manager: Option<Entity<ServiceManager>>,
     /// Last focused project ID (for scroll-to-focused detection)
     last_scroll_project: Option<String>,
@@ -129,7 +129,7 @@ impl RootView {
         let git_panel_initially_open = git_panel_ctrl.is_open();
         let workspace_for_title = workspace.clone();
         let title_bar = cx.new(|cx| {
-            let mut tb = TitleBar::new("Okena", workspace_for_title, cx);
+            let mut tb = TitleBar::new("Vryn", workspace_for_title, cx);
             tb.set_sidebar_open(sidebar_initially_open, cx);
             tb.set_git_panel_open(git_panel_initially_open, cx);
             tb
@@ -189,7 +189,7 @@ impl RootView {
                 // Settings callback
                 s.set_settings(Box::new(|cx| {
                     let app_settings = crate::settings::settings(cx);
-                    okena_views_sidebar::SidebarSettings {
+                    vryn_views_sidebar::SidebarSettings {
                         worktree_path_template: app_settings.worktree.path_template.clone(),
                         hooks: app_settings.hooks.clone(),
                     }
@@ -302,7 +302,7 @@ impl RootView {
         self.pending_git_internal_refresh.insert(project_id, task);
     }
 
-    /// Set the git watcher entity (called by Okena after creation).
+    /// Set the git watcher entity (called by Vryn after creation).
     pub fn set_git_watcher(&mut self, watcher: Entity<GitStatusWatcher>, cx: &mut Context<Self>) {
         // Observe the watcher so the sidebar's file explorer refreshes when
         // git status changes from the slow status-poll loop. ProjectColumns
@@ -370,7 +370,7 @@ impl RootView {
         self.sync_project_columns(cx);
     }
 
-    /// Set the remote connection manager (called after creation by Okena).
+    /// Set the remote connection manager (called after creation by Vryn).
     pub fn set_remote_manager(&mut self, manager: Entity<RemoteConnectionManager>, cx: &mut Context<Self>) {
         // Observe remote manager and sync remote projects into workspace
         let workspace = self.workspace.clone();
@@ -389,7 +389,7 @@ impl RootView {
                 // Get remote connections callback
                 sidebar.set_remote_connections(Box::new(move |cx| {
                     rm_for_connections.read(cx).connections().iter().map(|(config, status, _state)| {
-                        okena_views_sidebar::RemoteConnectionSnapshot {
+                        vryn_views_sidebar::RemoteConnectionSnapshot {
                             config: (*config).clone(),
                             status: (*status).clone(),
                         }
@@ -405,7 +405,7 @@ impl RootView {
 
                 // Get remote folder callback
                 sidebar.set_get_remote_folder(Box::new(move |conn_id, prefixed_project_id, cx| {
-                    let server_project_id = okena_core::client::strip_prefix(prefixed_project_id, conn_id);
+                    let server_project_id = vryn_core::client::strip_prefix(prefixed_project_id, conn_id);
                     rm_for_folder.read(cx).connections().iter()
                         .find(|(config, _, _)| config.id == conn_id)
                         .and_then(|(_, _, state)| state.as_ref())
@@ -429,7 +429,7 @@ impl RootView {
         self.rebuild_sidebar_dispatch(cx);
     }
 
-    /// Set the service manager entity (called by Okena after creation).
+    /// Set the service manager entity (called by Vryn after creation).
     pub fn set_service_manager(&mut self, manager: Entity<ServiceManager>, cx: &mut Context<Self>) {
         cx.observe(&manager, |_this, _sm, cx| {
             cx.notify();
@@ -484,12 +484,12 @@ impl RootView {
     ) {
         use crate::workspace::state::{FolderData, ProjectData, LayoutNode};
         use crate::workspace::settings::HooksConfig;
-        use okena_core::client::RemoteConnectionConfig;
+        use vryn_core::client::RemoteConnectionConfig;
 
         // Snapshot all connection data into owned structures to release the borrow on cx
         struct ConnSnapshot {
             config: RemoteConnectionConfig,
-            state: Option<okena_core::api::StateResponse>,
+            state: Option<vryn_core::api::StateResponse>,
         }
         let snapshots: Vec<ConnSnapshot> = {
             let rm_read = rm.read(cx);
@@ -521,7 +521,7 @@ impl RootView {
 
             if let Some(ref state) = snap.state {
                 // Build the server folder lookup
-                let server_folder_map: std::collections::HashMap<&str, &okena_core::api::ApiFolder> =
+                let server_folder_map: std::collections::HashMap<&str, &vryn_core::api::ApiFolder> =
                     state.folders.iter().map(|f| (f.id.as_str(), f)).collect();
 
                 // Build prefixed project_order and folder entries that mirror the server structure
@@ -572,7 +572,7 @@ impl RootView {
                     let conn_id_owned = conn_id.clone();
 
                     // Build remote services with prefixed terminal IDs
-                    let remote_services: Vec<okena_core::api::ApiServiceInfo> = api_project.services.iter().map(|s| {
+                    let remote_services: Vec<vryn_core::api::ApiServiceInfo> = api_project.services.iter().map(|s| {
                         let mut svc = s.clone();
                         svc.terminal_id = s.terminal_id.as_ref()
                             .map(|tid| format!("remote:{}:{}", conn_id, tid));
@@ -854,7 +854,7 @@ impl RootView {
                 let path = self.workspace.read(cx).project(project_id)
                     .map(|p| p.path.clone())
                     .unwrap_or_default();
-                Arc::new(okena_views_git::diff_viewer::provider::LocalGitProvider::new(path))
+                Arc::new(vryn_views_git::diff_viewer::provider::LocalGitProvider::new(path))
             }
         };
 

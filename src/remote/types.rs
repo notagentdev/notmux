@@ -1,22 +1,22 @@
 #[allow(unused_imports)]
-pub use okena_core::api::{
+pub use vryn_core::api::{
     ActionRequest, ApiFolder, ApiFullscreen, ApiGitStatus, ApiLayoutNode, ApiProject,
     ApiServiceInfo, ErrorResponse, HealthResponse, PairRequest, PairResponse, StateResponse,
 };
 #[allow(unused_imports)]
-pub use okena_core::ws::{
+pub use vryn_core::ws::{
     WsInbound, WsOutbound, build_binary_frame, build_pty_frame, parse_binary_frame,
     parse_pty_frame, FRAME_TYPE_INPUT, FRAME_TYPE_PTY, FRAME_TYPE_SNAPSHOT, PROTO_VERSION,
 };
 
 // LayoutNode conversion helpers (from_api, from_api_prefixed, to_api) are now
-// defined in the okena-workspace crate (state.rs impl LayoutNode).
+// defined in the vryn-workspace crate (state.rs impl LayoutNode).
 
 #[cfg(test)]
 mod tests {
     use crate::workspace::state::LayoutNode;
-    use okena_core::api::ApiLayoutNode;
-    use okena_core::types::SplitDirection;
+    use vryn_core::api::ApiLayoutNode;
+    use vryn_core::types::SplitDirection;
 
     #[test]
     fn prefixed_terminal_id() {

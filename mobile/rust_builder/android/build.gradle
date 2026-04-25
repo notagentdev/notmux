@@ -52,5 +52,5 @@ android {
 apply from: "../cargokit/gradle/plugin.gradle"
 cargokit {
     manifestDir = "../../native"
-    libname = "okena_mobile_native"
+    libname = "vryn_mobile_native"
 }

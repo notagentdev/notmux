@@ -1,3 +1,3 @@
-//! File viewer overlay — re-exports from okena-files crate.
+//! File viewer overlay — re-exports from vryn-files crate.
 
-pub use okena_files::file_viewer::*;
+pub use vryn_files::file_viewer::*;

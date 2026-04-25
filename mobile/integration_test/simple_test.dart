@@ -7,8 +7,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async => await RustLib.init());
   testWidgets('App launches and shows server list', (WidgetTester tester) async {
-    await tester.pumpWidget(const OkenaApp());
+    await tester.pumpWidget(const VrynApp());
     await tester.pumpAndSettle();
-    expect(find.text('Okena'), findsWidgets);
+    expect(find.text('Vryn'), findsWidgets);
   });
 }

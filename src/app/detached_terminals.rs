@@ -7,9 +7,9 @@ use gpui_component::Root;
 use crate::simple_root::SimpleRoot as Root;
 use std::collections::HashSet;
 
-use super::Okena;
+use super::Vryn;
 
-impl Okena {
+impl Vryn {
     pub(super) fn handle_detached_terminals_changed(
         &mut self,
         workspace: Entity<Workspace>,

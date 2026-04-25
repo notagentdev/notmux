@@ -1,10 +1,10 @@
 # Git Worktree Management
 
-Okena has built-in support for git worktrees, letting you work on multiple branches of a repository simultaneously without switching branches or cloning the repo again. Each worktree gets its own project in the sidebar with independent terminal sessions.
+Vryn has built-in support for git worktrees, letting you work on multiple branches of a repository simultaneously without switching branches or cloning the repo again. Each worktree gets its own project in the sidebar with independent terminal sessions.
 
 ## Overview
 
-A git worktree is a linked checkout of a branch in a separate directory, sharing the same `.git` history as the main repo. Okena treats each worktree as a child project of the repository it was created from. When you create a worktree, Okena:
+A git worktree is a linked checkout of a branch in a separate directory, sharing the same `.git` history as the main repo. Vryn treats each worktree as a child project of the repository it was created from. When you create a worktree, Vryn:
 
 1. Runs `git worktree add` to create the checkout
 2. Adds a new project in the sidebar linked to the parent
@@ -33,9 +33,9 @@ Check **Use custom path** to override where the worktree is created on disk. The
 
 ## Worktree Sync Watcher
 
-Okena runs a background watcher that polls every **30 seconds** to:
+Vryn runs a background watcher that polls every **30 seconds** to:
 
-- **Discover new worktrees** -- If you create a worktree from the command line (outside Okena), the watcher detects it via `git worktree list` and adds it to the sidebar automatically.
+- **Discover new worktrees** -- If you create a worktree from the command line (outside Vryn), the watcher detects it via `git worktree list` and adds it to the sidebar automatically.
 - **Remove stale worktrees** -- If a worktree directory no longer exists on disk (deleted externally), the watcher removes the corresponding project from the sidebar.
 
 The watcher only scans non-remote, non-worktree projects (i.e., your "parent" repositories). Discovery uses canonical path comparison to avoid duplicates.
@@ -109,9 +109,9 @@ Worktree removal uses a fast path: it deletes the directory directly and runs `g
 
 ## Monorepo Support
 
-Okena handles monorepos where the project directory is a subdirectory of the git repository root. When creating a worktree from a monorepo project:
+Vryn handles monorepos where the project directory is a subdirectory of the git repository root. When creating a worktree from a monorepo project:
 
-- Okena detects the git root via `git rev-parse --show-toplevel`
+- Vryn detects the git root via `git rev-parse --show-toplevel`
 - The worktree is created at the **repository root level** (not the subdirectory)
 - The project path is set to the **same subdirectory** within the new worktree
 
@@ -125,7 +125,7 @@ This ensures the full repository is checked out in the worktree while your proje
 
 ## Configuration
 
-Worktree settings live in `~/.config/okena/settings.json` under the `worktree` key:
+Worktree settings live in `~/.config/vryn/settings.json` under the `worktree` key:
 
 ```json
 {
