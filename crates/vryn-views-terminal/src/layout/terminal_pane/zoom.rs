@@ -97,12 +97,14 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let id_suffix = "zoom";
 
         div()
-            .h(px(28.0))
-            .px(px(8.0))
+            .h(px(34.0))
+            .px(px(6.0))
             .flex()
             .items_center()
             .justify_between()
-            .bg(rgb(t.term_background_unfocused))
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(t.bg_header))
             .child(
                 h_flex()
                     .gap(px(6.0))

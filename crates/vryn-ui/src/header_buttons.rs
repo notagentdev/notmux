@@ -37,7 +37,7 @@ impl HeaderAction {
             HeaderAction::Close => "icons/close.svg",
             HeaderAction::ZoomPrev => "icons/chevron-left.svg",
             HeaderAction::ZoomNext => "icons/chevron-right.svg",
-            HeaderAction::ExitZoom => "icons/close.svg",
+            HeaderAction::ExitZoom => "icons/minimize.svg",
         }
     }
 
@@ -54,13 +54,13 @@ impl HeaderAction {
             HeaderAction::Close => "Close",
             HeaderAction::ZoomPrev => "Previous Terminal",
             HeaderAction::ZoomNext => "Next Terminal",
-            HeaderAction::ExitZoom => "Exit Zoom",
+            HeaderAction::ExitZoom => "Restore Normal Mode",
         }
     }
 
-    /// Returns true if this is a close/exit action (for red hover styling).
+    /// Returns true if this is a destructive close action (for red hover styling).
     pub fn is_close(&self) -> bool {
-        matches!(self, HeaderAction::Close | HeaderAction::ExitZoom)
+        matches!(self, HeaderAction::Close)
     }
 
     /// Returns the element ID prefix for this action.
