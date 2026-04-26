@@ -394,6 +394,8 @@ impl Render for RootView {
         let has_tab_context_menu = om.has_tab_context_menu();
         let has_worktree_list = om.has_worktree_list();
         let has_color_picker = om.has_color_picker();
+        let settings_panel = om.render_settings_panel();
+        let _ = om;
 
         // Get active drag for global mouse handling
         let active_drag = self.active_drag.clone();
@@ -992,7 +994,14 @@ impl Render for RootView {
                                     .flex_1()
                                     .min_h_0()
                                     .min_w_0()
-                                    .child(self.render_projects_grid(cx)),
+                                    .when_some(settings_panel.clone(), |d, panel| {
+                                        d.child(AnyView::from(panel).cached(
+                                            StyleRefinement::default().size_full()
+                                        ))
+                                    })
+                                    .when(settings_panel.is_none(), |d| {
+                                        d.child(self.render_projects_grid(cx))
+                                    }),
                             ),
                     )
                     // Git panel (right side)

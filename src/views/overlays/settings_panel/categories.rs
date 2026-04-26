@@ -1,6 +1,7 @@
 #[derive(Clone, PartialEq)]
 pub(in crate::views::overlays) enum SettingsCategory {
     General,
+    Themes,
     Font,
     Terminal,
     Worktree,
@@ -15,6 +16,7 @@ impl SettingsCategory {
     pub(super) fn label(&self) -> &str {
         match self {
             Self::General => "General",
+            Self::Themes => "Themes",
             Self::Font => "Font",
             Self::Terminal => "Terminal",
             Self::Worktree => "Worktree",
@@ -26,7 +28,7 @@ impl SettingsCategory {
     }
 
     pub(super) fn all() -> &'static [SettingsCategory] {
-        &[Self::General, Self::Font, Self::Terminal, Self::Worktree, Self::Hooks, Self::Extensions, Self::PairedDevices]
+        &[Self::General, Self::Themes, Self::Font, Self::Terminal, Self::Worktree, Self::Hooks, Self::Extensions, Self::PairedDevices]
     }
 
     /// Categories available in project mode (only hooks for now)

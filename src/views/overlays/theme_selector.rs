@@ -16,9 +16,144 @@ use vryn_ui::selectable_list::selectable_list_item;
 
 /// Theme selection entry with preview and info
 #[derive(Clone)]
-struct ThemeEntry {
-    info: ThemeInfo,
-    colors: ThemeColors,
+pub(crate) struct ThemeEntry {
+    pub(crate) info: ThemeInfo,
+    pub(crate) colors: ThemeColors,
+}
+
+pub(crate) fn theme_entries() -> Vec<ThemeEntry> {
+    let mut themes = vec![
+        ThemeEntry {
+            info: ThemeInfo {
+                id: "auto".to_string(),
+                name: "Auto".to_string(),
+                description: "Follow system appearance".to_string(),
+                is_dark: true,
+            },
+            colors: DARK_THEME,
+        },
+        ThemeEntry {
+            info: ThemeInfo {
+                id: "dark".to_string(),
+                name: "Dark".to_string(),
+                description: "Default dark theme (VSCode-like)".to_string(),
+                is_dark: true,
+            },
+            colors: DARK_THEME,
+        },
+        ThemeEntry {
+            info: ThemeInfo {
+                id: "light".to_string(),
+                name: "Light".to_string(),
+                description: "Clean light theme".to_string(),
+                is_dark: false,
+            },
+            colors: LIGHT_THEME,
+        },
+        ThemeEntry {
+            info: ThemeInfo {
+                id: "pastel-dark".to_string(),
+                name: "Pastel Dark".to_string(),
+                description: "Soft pastel colors on dark background".to_string(),
+                is_dark: true,
+            },
+            colors: PASTEL_DARK_THEME,
+        },
+        ThemeEntry {
+            info: ThemeInfo {
+                id: "high-contrast".to_string(),
+                name: "High Contrast".to_string(),
+                description: "High contrast for better visibility".to_string(),
+                is_dark: true,
+            },
+            colors: HIGH_CONTRAST_THEME,
+        },
+    ];
+
+    for (info, colors) in load_custom_themes() {
+        themes.push(ThemeEntry { info, colors });
+    }
+
+    themes
+}
+
+pub(crate) fn selected_theme_index(themes: &[ThemeEntry], cx: &App) -> usize {
+    let current_mode = theme_entity(cx).read(cx).mode;
+    let settings = settings_entity(cx).read(cx).settings.clone();
+
+    match current_mode {
+        ThemeMode::Auto => 0,
+        ThemeMode::Dark => 1,
+        ThemeMode::Light => 2,
+        ThemeMode::PastelDark => 3,
+        ThemeMode::HighContrast => 4,
+        ThemeMode::Custom => settings
+            .custom_theme_id
+            .as_deref()
+            .and_then(|id| themes.iter().position(|t| t.info.id == format!("custom:{id}")))
+            .or_else(|| themes.iter().position(|t| t.info.id.starts_with("custom:")))
+            .unwrap_or(0),
+    }
+}
+
+pub(crate) fn apply_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
+    let theme_ent = theme_entity(cx);
+
+    let (mode, custom_colors) = match theme_entry.info.id.as_str() {
+        "auto" => (ThemeMode::Auto, None),
+        "dark" => (ThemeMode::Dark, None),
+        "light" => (ThemeMode::Light, None),
+        "pastel-dark" => (ThemeMode::PastelDark, None),
+        "high-contrast" => (ThemeMode::HighContrast, None),
+        id if id.starts_with("custom:") => (ThemeMode::Custom, Some(theme_entry.colors)),
+        _ => (ThemeMode::Dark, None),
+    };
+
+    theme_ent.update(cx, |theme, cx| {
+        theme.clear_preview();
+        if let Some(colors) = custom_colors {
+            theme.set_custom_colors(colors);
+        }
+        theme.set_mode(mode);
+        cx.notify();
+    });
+
+    let custom_id = if mode == ThemeMode::Custom {
+        theme_entry.info.id.strip_prefix("custom:").map(|s| s.to_string())
+    } else {
+        None
+    };
+    settings_entity(cx).update(cx, |s, cx| {
+        s.set_theme_mode(mode, cx);
+        if custom_id.is_some() {
+            s.set_custom_theme_id(custom_id, cx);
+        }
+    });
+}
+
+pub(crate) fn preview_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
+    let theme_ent = theme_entity(cx);
+
+    let mode = match theme_entry.info.id.as_str() {
+        "auto" => ThemeMode::Auto,
+        "dark" => ThemeMode::Dark,
+        "light" => ThemeMode::Light,
+        "pastel-dark" => ThemeMode::PastelDark,
+        "high-contrast" => ThemeMode::HighContrast,
+        id if id.starts_with("custom:") => {
+            theme_ent.update(cx, |theme, cx| {
+                theme.set_preview_colors(theme_entry.colors);
+                cx.notify();
+            });
+            return;
+        }
+        _ => ThemeMode::Dark,
+    };
+
+    theme_ent.update(cx, |theme, cx| {
+        theme.set_preview(mode);
+        cx.notify();
+    });
 }
 
 /// Theme selector overlay for choosing and previewing themes
@@ -30,72 +165,10 @@ pub struct ThemeSelector {
 impl ThemeSelector {
     pub fn new(cx: &mut Context<Self>) -> Self {
         // Build theme list: built-in + custom
-        let mut themes = vec![
-            ThemeEntry {
-                info: ThemeInfo {
-                    id: "auto".to_string(),
-                    name: "Auto".to_string(),
-                    description: "Follow system appearance".to_string(),
-                    is_dark: true,
-                },
-                colors: DARK_THEME, // Preview with dark theme
-            },
-            ThemeEntry {
-                info: ThemeInfo {
-                    id: "dark".to_string(),
-                    name: "Dark".to_string(),
-                    description: "Default dark theme (VSCode-like)".to_string(),
-                    is_dark: true,
-                },
-                colors: DARK_THEME,
-            },
-            ThemeEntry {
-                info: ThemeInfo {
-                    id: "light".to_string(),
-                    name: "Light".to_string(),
-                    description: "Clean light theme".to_string(),
-                    is_dark: false,
-                },
-                colors: LIGHT_THEME,
-            },
-            ThemeEntry {
-                info: ThemeInfo {
-                    id: "pastel-dark".to_string(),
-                    name: "Pastel Dark".to_string(),
-                    description: "Soft pastel colors on dark background".to_string(),
-                    is_dark: true,
-                },
-                colors: PASTEL_DARK_THEME,
-            },
-            ThemeEntry {
-                info: ThemeInfo {
-                    id: "high-contrast".to_string(),
-                    name: "High Contrast".to_string(),
-                    description: "High contrast for better visibility".to_string(),
-                    is_dark: true,
-                },
-                colors: HIGH_CONTRAST_THEME,
-            },
-        ];
-
-        // Add custom themes
-        for (info, colors) in load_custom_themes() {
-            themes.push(ThemeEntry { info, colors });
-        }
+        let themes = theme_entries();
 
         // Find current theme index
-        let current_mode = theme_entity(cx).read(cx).mode;
-        let selected_index = match current_mode {
-            ThemeMode::Auto => 0,
-            ThemeMode::Dark => 1,
-            ThemeMode::Light => 2,
-            ThemeMode::PastelDark => 3,
-            ThemeMode::HighContrast => 4,
-            ThemeMode::Custom => {
-                // Try to find matching custom theme
-                themes.iter().position(|t| t.info.id.starts_with("custom:")).unwrap_or(0)
-            }
-        };
+        let selected_index = selected_theme_index(&themes, cx);
 
         let config = ListOverlayConfig::new("Theme")
             .subtitle("Select a color theme for the application")
@@ -123,42 +196,8 @@ impl ThemeSelector {
         }
 
         let theme_entry = &self.state.items[index];
-        let theme_ent = theme_entity(cx);
-
-        // Determine the mode from the theme ID
-        let (mode, custom_colors) = match theme_entry.info.id.as_str() {
-            "auto" => (ThemeMode::Auto, None),
-            "dark" => (ThemeMode::Dark, None),
-            "light" => (ThemeMode::Light, None),
-            "pastel-dark" => (ThemeMode::PastelDark, None),
-            "high-contrast" => (ThemeMode::HighContrast, None),
-            id if id.starts_with("custom:") => (ThemeMode::Custom, Some(theme_entry.colors)),
-            _ => (ThemeMode::Dark, None),
-        };
-
-        // Apply the theme
-        theme_ent.update(cx, |theme, cx| {
-            theme.clear_preview();
-            if let Some(colors) = custom_colors {
-                theme.set_custom_colors(colors);
-            }
-            theme.set_mode(mode);
-            cx.notify();
-        });
-
-        // Save to settings via SettingsState (ensures in-memory and disk stay in sync)
-        let custom_id = if mode == ThemeMode::Custom {
-            // Extract file stem from "custom:stem" ID
-            theme_entry.info.id.strip_prefix("custom:").map(|s| s.to_string())
-        } else {
-            None
-        };
-        settings_entity(cx).update(cx, |s, cx| {
-            s.set_theme_mode(mode, cx);
-            if custom_id.is_some() {
-                s.set_custom_theme_id(custom_id, cx);
-            }
-        });
+        // Apply and persist the theme
+        apply_theme_entry(theme_entry, cx);
 
         self.state.selected_index = index;
         cx.notify();
@@ -173,31 +212,7 @@ impl ThemeSelector {
         }
 
         let theme_entry = &self.state.items[index];
-        let theme_ent = theme_entity(cx);
-
-        // Determine the mode for preview
-        let mode = match theme_entry.info.id.as_str() {
-            "auto" => ThemeMode::Auto,
-            "dark" => ThemeMode::Dark,
-            "light" => ThemeMode::Light,
-            "pastel-dark" => ThemeMode::PastelDark,
-            "high-contrast" => ThemeMode::HighContrast,
-            id if id.starts_with("custom:") => {
-                // For custom themes, set the preview colors directly
-                theme_ent.update(cx, |theme, cx| {
-                    theme.set_preview_colors(theme_entry.colors);
-                    cx.notify();
-                });
-                return;
-            }
-            _ => ThemeMode::Dark,
-        };
-
-        // Set preview for built-in themes
-        theme_ent.update(cx, |theme, cx| {
-            theme.set_preview(mode);
-            cx.notify();
-        });
+        preview_theme_entry(theme_entry, cx);
     }
 
     fn render_theme_preview(&self, colors: &ThemeColors, cx: &App) -> impl IntoElement {

@@ -14,6 +14,7 @@ mod render_general;
 mod render_hooks;
 mod render_paired_devices;
 mod render_terminal;
+mod render_themes;
 mod render_worktree;
 mod sidebar;
 
@@ -26,7 +27,7 @@ use crate::remote::GlobalRemoteInfo;
 use crate::settings::settings_entity;
 use crate::terminal::shell_config::{available_shells, AvailableShell};
 use crate::theme::theme;
-use crate::views::components::{dropdown_anchored_below, modal_backdrop, modal_content};
+use crate::views::components::dropdown_anchored_below;
 use crate::views::components::simple_input::{InputChangedEvent, SimpleInputState};
 use crate::workspace::state::Workspace;
 use gpui::*;
@@ -718,6 +719,7 @@ impl SettingsPanel {
     fn render_content(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match &self.active_category {
             SettingsCategory::General => self.render_general(cx).into_any_element(),
+            SettingsCategory::Themes => self.render_themes(cx).into_any_element(),
             SettingsCategory::Font => self.render_font(cx).into_any_element(),
             SettingsCategory::Terminal => self.render_terminal(cx).into_any_element(),
             SettingsCategory::Worktree => self.render_worktree(cx).into_any_element(),
@@ -779,10 +781,15 @@ impl Render for SettingsPanel {
             window.focus(&focus_handle, cx);
         }
 
-        modal_backdrop("settings-panel-backdrop", &t)
+        div()
+            .id("settings-panel")
+            .size_full()
+            .relative()
+            .bg(rgb(t.bg_primary))
             .track_focus(&focus_handle)
             .key_context("SettingsPanel")
-            .items_center()
+            .flex()
+            .flex_col()
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 if this.has_open_dropdown() {
                     this.close_all_dropdowns();
@@ -791,63 +798,46 @@ impl Render for SettingsPanel {
                     this.close(cx);
                 }
             }))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if this.has_open_dropdown() {
-                    this.close_all_dropdowns();
-                    cx.notify();
-                } else {
-                    this.close(cx);
-                }
-            }))
+            .child(self.render_header(cx))
             .child(
-                modal_content("settings-panel-modal", &t)
-                    .relative()
-                    .w(px(720.0))
-                    .h(px(560.0))
-                    // Header with project selector and edit button
-                    .child(self.render_header(cx))
-                    // Main body: sidebar + content
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_hidden()
-                            .child(self.render_sidebar(cx))
-                            .child(self.render_content(cx)),
-                    )
-                    // Footer
-                    .child(self.render_footer(cx))
-                    // Click-outside backdrop (covers the modal, under the dropdown)
-                    .when(self.has_open_dropdown(), |modal| {
-                        modal.child(
-                            div()
-                                .id("dropdown-backdrop")
-                                .absolute()
-                                .inset_0()
-                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                    this.close_all_dropdowns();
-                                    cx.notify();
-                                }))
-                        )
-                    })
-                    // Dropdown overlays positioned below trigger button
-                    .when(self.project_dropdown_open && self.project_button_bounds.is_some(), |modal| {
-                        modal.child(dropdown_anchored_below(self.project_button_bounds.expect("guarded by is_some() in when()"), self.render_project_dropdown_overlay(cx)))
-                    })
-                    .when(self.font_dropdown_open && self.font_button_bounds.is_some(), |modal| {
-                        let current = settings_entity(cx).read(cx).settings.font_family.clone();
-                        modal.child(dropdown_anchored_below(self.font_button_bounds.expect("guarded by is_some() in when()"), self.render_font_dropdown_overlay(&current, cx)))
-                    })
-                    .when(self.shell_dropdown_open && self.shell_button_bounds.is_some(), |modal| {
-                        let current = settings_entity(cx).read(cx).settings.default_shell.clone();
-                        modal.child(dropdown_anchored_below(self.shell_button_bounds.expect("guarded by is_some() in when()"), self.render_shell_dropdown_overlay(&current, cx)))
-                    })
-                    .when(self.session_backend_dropdown_open && self.session_backend_button_bounds.is_some(), |modal| {
-                        let current = settings_entity(cx).read(cx).settings.session_backend;
-                        modal.child(dropdown_anchored_below(self.session_backend_button_bounds.expect("guarded by is_some() in when()"), self.render_session_backend_dropdown_overlay(&current, cx)))
-                    }),
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(self.render_sidebar(cx))
+                    .child(self.render_content(cx)),
             )
+            .child(self.render_footer(cx))
+            // Click-away layer inside the settings panel only closes open dropdowns.
+            .when(self.has_open_dropdown(), |panel| {
+                panel.child(
+                    div()
+                        .id("dropdown-backdrop")
+                        .absolute()
+                        .inset_0()
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            this.close_all_dropdowns();
+                            cx.notify();
+                        }))
+                )
+            })
+            // Dropdown overlays positioned below trigger button
+            .when(self.project_dropdown_open && self.project_button_bounds.is_some(), |panel| {
+                panel.child(dropdown_anchored_below(self.project_button_bounds.expect("guarded by is_some() in when()"), self.render_project_dropdown_overlay(cx)))
+            })
+            .when(self.font_dropdown_open && self.font_button_bounds.is_some(), |panel| {
+                let current = settings_entity(cx).read(cx).settings.font_family.clone();
+                panel.child(dropdown_anchored_below(self.font_button_bounds.expect("guarded by is_some() in when()"), self.render_font_dropdown_overlay(&current, cx)))
+            })
+            .when(self.shell_dropdown_open && self.shell_button_bounds.is_some(), |panel| {
+                let current = settings_entity(cx).read(cx).settings.default_shell.clone();
+                panel.child(dropdown_anchored_below(self.shell_button_bounds.expect("guarded by is_some() in when()"), self.render_shell_dropdown_overlay(&current, cx)))
+            })
+            .when(self.session_backend_dropdown_open && self.session_backend_button_bounds.is_some(), |panel| {
+                let current = settings_entity(cx).read(cx).settings.session_backend;
+                panel.child(dropdown_anchored_below(self.session_backend_button_bounds.expect("guarded by is_some() in when()"), self.render_session_backend_dropdown_overlay(&current, cx)))
+            })
     }
 }
 

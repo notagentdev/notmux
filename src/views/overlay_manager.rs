@@ -223,6 +223,9 @@ pub struct OverlayManager {
     /// TypeId of the active modal for toggle detection.
     modal_type_id: Option<std::any::TypeId>,
 
+    /// Settings panel rendered in the main content area, not as a modal overlay.
+    settings_panel: Option<Entity<SettingsPanel>>,
+
     // Context menus remain separate (positioned popups, not full-screen modals)
     context_menu: OverlaySlot<ContextMenu>,
     folder_context_menu: OverlaySlot<FolderContextMenu>,
@@ -250,6 +253,7 @@ impl OverlayManager {
             request_broker,
             active_modal: None,
             modal_type_id: None,
+            settings_panel: None,
             cached_file_viewers: std::collections::HashMap::new(),
             context_menu: OverlaySlot::new(),
             folder_context_menu: OverlaySlot::new(),
@@ -308,6 +312,30 @@ impl OverlayManager {
     /// Get the active modal for rendering.
     pub fn render_modal(&self) -> Option<AnyView> {
         self.active_modal.clone()
+    }
+
+    /// Get the settings panel for rendering in the main content area.
+    pub fn render_settings_panel(&self) -> Option<Entity<SettingsPanel>> {
+        self.settings_panel.clone()
+    }
+
+    /// Check if the embedded settings panel is open.
+    pub fn has_settings_panel(&self) -> bool {
+        self.settings_panel.is_some()
+    }
+
+    fn close_settings_panel(&mut self, cx: &mut Context<Self>) {
+        if self.settings_panel.take().is_some() {
+            self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+            cx.notify();
+        }
+    }
+
+    fn open_settings_panel(&mut self, entity: Entity<SettingsPanel>, cx: &mut Context<Self>) {
+        self.close_modal(cx);
+        self.settings_panel = Some(entity);
+        self.workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        cx.notify();
     }
 
     // ========================================================================
@@ -418,19 +446,19 @@ impl OverlayManager {
         cx.notify();
     }
 
-    /// Toggle settings panel overlay.
+    /// Toggle settings panel in the main content area.
     pub fn toggle_settings_panel(&mut self, cx: &mut Context<Self>) {
-        if self.is_modal::<SettingsPanel>() {
-            self.close_modal(cx);
+        if self.has_settings_panel() {
+            self.close_settings_panel(cx);
         } else {
             let workspace = self.workspace.clone();
             let entity = cx.new(|cx| SettingsPanel::new(workspace, cx));
             cx.subscribe(&entity, |this, _, event: &SettingsPanelEvent, cx| {
                 if event.is_close() {
-                    this.close_modal(cx);
+                    this.close_settings_panel(cx);
                 }
             }).detach();
-            self.open_modal(entity, cx);
+            self.open_settings_panel(entity, cx);
         }
         cx.notify();
     }
@@ -463,10 +491,10 @@ impl OverlayManager {
         let entity = cx.new(|cx| SettingsPanel::new_for_project(workspace, project_id, cx));
         cx.subscribe(&entity, |this, _, event: &SettingsPanelEvent, cx| {
             if event.is_close() {
-                this.close_modal(cx);
+                this.close_settings_panel(cx);
             }
         }).detach();
-        self.open_modal(entity, cx);
+        self.open_settings_panel(entity, cx);
         cx.notify();
     }
 
