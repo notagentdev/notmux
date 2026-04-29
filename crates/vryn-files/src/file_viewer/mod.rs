@@ -45,6 +45,14 @@ pub(super) enum DisplayMode {
 /// Type alias for source view selection (line, column).
 type Selection = SelectionState<(usize, usize)>;
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SelectionAutoscrollState {
+    pub pointer_y_in_viewport: f32,
+    pub viewport_height: f32,
+    pub line_height: f32,
+    pub token: u64,
+}
+
 /// Width of file tree sidebar.
 const SIDEBAR_WIDTH: f32 = 240.0;
 
@@ -64,6 +72,7 @@ pub(super) struct FileViewerTab {
     pub markdown_scroll_handle: ScrollHandle,
     pub source_scroll_handle: UniformListScrollHandle,
     pub scrollbar_drag: Option<ScrollbarDrag>,
+    pub selection_autoscroll: Option<SelectionAutoscrollState>,
     pub selected_file_index: Option<usize>,
     /// Last known modification time of the file (for detecting external changes).
     pub modified_at: Option<SystemTime>,
@@ -89,6 +98,7 @@ impl FileViewerTab {
             markdown_scroll_handle: ScrollHandle::new(),
             source_scroll_handle: UniformListScrollHandle::new(),
             scrollbar_drag: None,
+            selection_autoscroll: None,
             selected_file_index: None,
             modified_at: None,
             loading: false,
@@ -117,6 +127,7 @@ impl FileViewerTab {
             markdown_scroll_handle: ScrollHandle::new(),
             source_scroll_handle: UniformListScrollHandle::new(),
             scrollbar_drag: None,
+            selection_autoscroll: None,
             selected_file_index: file_index,
             modified_at: None,
             loading: true,
@@ -241,6 +252,8 @@ pub struct FileViewer {
     pub(super) filter_popover_open: bool,
     /// Bounds of the filter button for popover positioning
     pub(super) filter_button_bounds: Option<Bounds<Pixels>>,
+    /// Bounds of the source content area for selection autoscroll.
+    pub(super) source_content_bounds: Option<Bounds<Pixels>>,
     /// Context menu state for file tree right-click
     pub(super) context_menu: Option<FileTreeContextMenu>,
     /// Context menu state for tab right-click
@@ -354,6 +367,7 @@ impl FileViewer {
             show_hidden: false,
             filter_popover_open: false,
             filter_button_bounds: None,
+            source_content_bounds: None,
             context_menu: None,
             tab_context_menu: None,
             rename_state: None,
@@ -412,6 +426,7 @@ impl FileViewer {
             show_hidden: false,
             filter_popover_open: false,
             filter_button_bounds: None,
+            source_content_bounds: None,
             context_menu: None,
             tab_context_menu: None,
             rename_state: None,

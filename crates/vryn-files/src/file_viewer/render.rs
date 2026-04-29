@@ -109,7 +109,9 @@ impl FileViewer {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|this, _, _window, cx| {
-                    this.active_tab_mut().selection.finish();
+                    let tab = this.active_tab_mut();
+                    tab.selection.finish();
+                    tab.selection_autoscroll = None;
                     cx.notify();
                 }),
             )
@@ -688,6 +690,7 @@ impl Render for FileViewer {
             ..Default::default()
         };
         let font_size = self.file_font_size;
+        let line_height = font_size * 1.8;
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);
         self.measured_char_width = text_system
@@ -841,10 +844,22 @@ impl Render for FileViewer {
                     _ => {}
                 }
             }))
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+            .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
                 if this.active_tab().scrollbar_drag.is_some() {
                     let y = f32::from(event.position.y);
                     this.update_scrollbar_drag(y, cx);
+                } else if !is_preview_mode
+                    && this.active_tab().selection.is_selecting
+                    && let Some(bounds) = this.source_content_bounds
+                {
+                    let pointer_y = f32::from(event.position.y - bounds.origin.y);
+                    let viewport_height = f32::from(bounds.size.height);
+                    this.update_source_selection_from_pointer(
+                        pointer_y,
+                        viewport_height,
+                        line_height,
+                        cx,
+                    );
                 }
             }))
             .on_mouse_up(
@@ -852,6 +867,12 @@ impl Render for FileViewer {
                 cx.listener(|this, _, _window, cx| {
                     if this.active_tab().scrollbar_drag.is_some() {
                         this.end_scrollbar_drag(cx);
+                    }
+                    if this.active_tab().selection.is_selecting {
+                        let tab = this.active_tab_mut();
+                        tab.selection.finish();
+                        tab.selection_autoscroll = None;
+                        cx.notify();
                     }
                 }),
             )
@@ -1010,6 +1031,16 @@ impl Render for FileViewer {
                                         .flex_1()
                                         .min_h_0()
                                         .relative()
+                                        .child(canvas({
+                                            let entity = cx.entity().downgrade();
+                                            move |bounds, _, cx| {
+                                                if let Some(entity) = entity.upgrade() {
+                                                    entity.update(cx, |this, _| {
+                                                        this.source_content_bounds = Some(bounds);
+                                                    });
+                                                }
+                                            }
+                                        }, |_, _, _, _| {}).absolute().size_full())
                                         .child(
                                             uniform_list(
                                                 "file-lines",

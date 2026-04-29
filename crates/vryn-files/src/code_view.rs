@@ -28,23 +28,90 @@ pub struct ScrollbarDrag {
     pub start_scroll_y: f32,
 }
 
+/// Last measured virtualized list scroll metrics.
+#[derive(Clone, Copy, Debug)]
+pub struct CodeScrollMetrics {
+    pub viewport_height: f32,
+    pub content_height: f32,
+    pub scroll_y: f32,
+}
+
+/// Get the current scroll metrics for a virtualized code view.
+pub fn get_scroll_metrics(scroll_handle: &UniformListScrollHandle) -> Option<CodeScrollMetrics> {
+    let state = scroll_handle.0.borrow();
+    let item_size = state.last_item_size?;
+
+    Some(CodeScrollMetrics {
+        viewport_height: f32::from(item_size.item.height),
+        content_height: f32::from(item_size.contents.height),
+        scroll_y: -f32::from(state.base_handle.offset().y),
+    })
+}
+
+/// Zed-like vertical mouse autoscroll scaling.
+pub fn scale_vertical_mouse_autoscroll_delta(delta: f32) -> f32 {
+    (delta.max(0.0).powf(1.2) / 100.0).min(3.0)
+}
+
+/// Compute vertical autoscroll delta in pixels from a mouse position relative to a viewport.
+pub fn vertical_selection_autoscroll_delta(
+    pointer_y_in_viewport: f32,
+    viewport_height: f32,
+    line_height: f32,
+) -> f32 {
+    if viewport_height <= 0.0 || line_height <= 0.0 {
+        return 0.0;
+    }
+
+    let vertical_margin = line_height.min(viewport_height / 3.0);
+    let top = vertical_margin;
+    let bottom = viewport_height - vertical_margin;
+
+    if pointer_y_in_viewport < top {
+        -scale_vertical_mouse_autoscroll_delta(top - pointer_y_in_viewport)
+    } else if pointer_y_in_viewport > bottom {
+        scale_vertical_mouse_autoscroll_delta(pointer_y_in_viewport - bottom)
+    } else {
+        0.0
+    }
+}
+
+/// Apply a vertical selection autoscroll delta to a virtualized code view.
+pub fn apply_vertical_selection_autoscroll(
+    scroll_handle: &UniformListScrollHandle,
+    delta_y: f32,
+) -> Option<f32> {
+    if delta_y == 0.0 {
+        return None;
+    }
+
+    let metrics = get_scroll_metrics(scroll_handle)?;
+    let max_scroll = (metrics.content_height - metrics.viewport_height).max(0.0);
+    let new_scroll = (metrics.scroll_y + delta_y).clamp(0.0, max_scroll);
+
+    if (new_scroll - metrics.scroll_y).abs() <= f32::EPSILON {
+        return None;
+    }
+
+    let state = scroll_handle.0.borrow_mut();
+    state.base_handle.set_offset(point(px(0.0), px(-new_scroll)));
+    Some(new_scroll)
+}
+
 /// Get scrollbar geometry if scrollable.
 /// Returns (viewport_height, content_height, thumb_y, thumb_height).
 pub fn get_scrollbar_geometry(
     scroll_handle: &UniformListScrollHandle,
 ) -> Option<(f32, f32, f32, f32)> {
-    let state = scroll_handle.0.borrow();
-    let item_size = state.last_item_size?;
-
-    let viewport_height = f32::from(item_size.item.height);
-    let content_height = f32::from(item_size.contents.height);
+    let metrics = get_scroll_metrics(scroll_handle)?;
+    let viewport_height = metrics.viewport_height;
+    let content_height = metrics.content_height;
 
     if content_height <= viewport_height {
         return None;
     }
 
-    let scroll_offset = state.base_handle.offset();
-    let scroll_y = -f32::from(scroll_offset.y);
+    let scroll_y = metrics.scroll_y;
 
     let thumb_height = (viewport_height / content_height * viewport_height).max(20.0);
     let scrollable_content = content_height - viewport_height;
