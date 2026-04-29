@@ -10,6 +10,7 @@ use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
 use vryn_terminal::terminal::{Terminal, TerminalSize, TerminalTransport};
 use vryn_terminal::TerminalsRegistry;
 use crate::layout::terminal_pane::TerminalContent;
+use crate::layout::terminal_pane::actions::paste_clipboard_into_terminal;
 use vryn_workspace::state::Workspace;
 use gpui::*;
 use std::sync::Arc;
@@ -92,7 +93,12 @@ pub fn create_terminal_content<V: 'static>(
 ///
 /// Converts the key event to terminal bytes and sends them to the terminal.
 /// Returns true if input was sent.
-pub fn handle_terminal_key_input(terminal: &Terminal, event: &KeyDownEvent) -> bool {
+pub fn handle_terminal_key_input(terminal: &Terminal, event: &KeyDownEvent, cx: &mut App) -> bool {
+    if is_paste_shortcut(event) {
+        paste_clipboard_into_terminal(terminal, cx.read_from_clipboard());
+        return true;
+    }
+
     let app_cursor_mode = terminal.is_app_cursor_mode();
     if let Some(input) = gpui_key_to_bytes(event, app_cursor_mode) {
         terminal.send_bytes(&input);
@@ -100,6 +106,15 @@ pub fn handle_terminal_key_input(terminal: &Terminal, event: &KeyDownEvent) -> b
     } else {
         false
     }
+}
+
+fn is_paste_shortcut(event: &KeyDownEvent) -> bool {
+    let modifiers = &event.keystroke.modifiers;
+    let key = event.keystroke.key.as_str();
+
+    key.eq_ignore_ascii_case("v")
+        && !modifiers.alt
+        && ((modifiers.platform && !modifiers.control) || (modifiers.control && modifiers.shift))
 }
 
 /// Handle pending focus for a terminal view.
