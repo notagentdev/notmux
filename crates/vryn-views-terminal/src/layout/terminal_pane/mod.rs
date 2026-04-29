@@ -4,7 +4,7 @@ pub mod url_detector;
 mod scrollbar;
 mod search_bar;
 mod content;
-mod actions;
+pub(crate) mod actions;
 mod zoom;
 mod navigation;
 mod render;

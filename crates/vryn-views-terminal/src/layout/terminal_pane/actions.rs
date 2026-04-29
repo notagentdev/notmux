@@ -64,11 +64,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
     }
 
     pub(super) fn handle_paste(&mut self, cx: &mut Context<Self>) {
-        if let Some(ref terminal) = self.terminal
-            && let Some(clipboard_item) = cx.read_from_clipboard()
-                && let Some(text) = clipboard_item.text() {
-                    terminal.send_paste(&text);
-                }
+        let Some(ref terminal) = self.terminal else {
+            return;
+        };
+        paste_clipboard_into_terminal(terminal, cx.read_from_clipboard());
     }
 
     pub(super) fn handle_file_drop(&mut self, paths: &ExternalPaths, _cx: &mut Context<Self>) {
@@ -83,20 +82,71 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
     }
 
     pub(super) fn shell_escape_path(path: &std::path::Path) -> String {
-        let path_str = path.to_string_lossy();
-        let mut escaped = String::with_capacity(path_str.len() * 2);
+        shell_escape_path(path)
+    }
+}
 
-        for c in path_str.chars() {
-            match c {
-                ' ' | '(' | ')' | '[' | ']' | '{' | '}' | '\'' | '"' | '`' | '$' | '&' | '|'
-                | ';' | '<' | '>' | '*' | '?' | '!' | '#' | '~' | '\\' => {
-                    escaped.push('\\');
-                    escaped.push(c);
-                }
-                _ => escaped.push(c),
+pub(crate) fn paste_clipboard_into_terminal(
+    terminal: &vryn_terminal::terminal::Terminal,
+    clipboard_item: Option<ClipboardItem>,
+) -> bool {
+    let Some(clipboard_item) = clipboard_item else {
+        return false;
+    };
+
+    match clipboard_item.entries().first() {
+        Some(ClipboardEntry::Image(image)) if !image.bytes.is_empty() => {
+            terminal.send_bytes(b"\x16");
+            true
+        }
+        _ => {
+            let text = terminal_clipboard_text(&clipboard_item);
+            if text.is_empty() {
+                false
+            } else {
+                terminal.send_paste(&text);
+                true
             }
         }
-
-        escaped
     }
+}
+
+fn terminal_clipboard_text(clipboard_item: &ClipboardItem) -> String {
+    let mut text = String::new();
+
+    for entry in clipboard_item.entries() {
+        match entry {
+            ClipboardEntry::String(clipboard_string) => text.push_str(&clipboard_string.text),
+            ClipboardEntry::ExternalPaths(paths) => {
+                for path in paths.paths() {
+                    if !text.is_empty() && !text.ends_with(' ') {
+                        text.push(' ');
+                    }
+                    text.push_str(&shell_escape_path(path));
+                    text.push(' ');
+                }
+            }
+            ClipboardEntry::Image(_) => {}
+        }
+    }
+
+    text
+}
+
+fn shell_escape_path(path: &std::path::Path) -> String {
+    let path_str = path.to_string_lossy();
+    let mut escaped = String::with_capacity(path_str.len() * 2);
+
+    for c in path_str.chars() {
+        match c {
+            ' ' | '(' | ')' | '[' | ']' | '{' | '}' | '\'' | '"' | '`' | '$' | '&' | '|'
+            | ';' | '<' | '>' | '*' | '?' | '!' | '#' | '~' | '\\' => {
+                escaped.push('\\');
+                escaped.push(c);
+            }
+            _ => escaped.push(c),
+        }
+    }
+
+    escaped
 }

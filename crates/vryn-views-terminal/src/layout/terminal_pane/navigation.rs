@@ -3,6 +3,7 @@
 use crate::ActionDispatch;
 use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
 use crate::layout::navigation::{get_pane_map, PaneBounds, NavigationDirection};
+use crate::layout::terminal_pane::actions::paste_clipboard_into_terminal;
 use gpui::*;
 
 use super::TerminalPane;
@@ -85,8 +86,15 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         });
     }
 
-    pub(super) fn handle_key(&mut self, event: &KeyDownEvent, _cx: &mut Context<Self>) {
+    pub(super) fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         if let Some(ref terminal) = self.terminal {
+            if is_paste_shortcut(event) {
+                terminal.claim_resize_local();
+                paste_clipboard_into_terminal(terminal, cx.read_from_clipboard());
+                cx.stop_propagation();
+                return;
+            }
+
             terminal.claim_resize_local();
 
             // Backspace with selection: delete selected text (only in plain shell)
@@ -118,4 +126,13 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             }
         }
     }
+}
+
+fn is_paste_shortcut(event: &KeyDownEvent) -> bool {
+    let modifiers = &event.keystroke.modifiers;
+    let key = event.keystroke.key.as_str();
+
+    key.eq_ignore_ascii_case("v")
+        && !modifiers.alt
+        && ((modifiers.platform && !modifiers.control) || (modifiers.control && modifiers.shift))
 }

@@ -54,6 +54,19 @@ impl TerminalInputHandler {
             }
         }
     }
+
+    fn is_paste_like_text(text: &str) -> bool {
+        text.contains(['\n', '\r']) || text.chars().count() > 64
+    }
+
+    fn send_replacement_text(&self, text: &str) {
+        if Self::is_paste_like_text(text) {
+            self.terminal.claim_resize_local();
+            self.terminal.send_paste(text);
+        } else {
+            self.send_filtered_input(text);
+        }
+    }
 }
 
 impl InputHandler for TerminalInputHandler {
@@ -90,7 +103,7 @@ impl InputHandler for TerminalInputHandler {
         _window: &mut Window,
         _cx: &mut App,
     ) {
-        self.send_filtered_input(text);
+        self.send_replacement_text(text);
     }
 
     fn replace_and_mark_text_in_range(
