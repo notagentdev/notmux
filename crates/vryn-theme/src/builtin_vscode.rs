@@ -37,6 +37,24 @@ const SPECS: &[BuiltinThemeSpec] = &[
         description: "Classic Dracula palette",
         json: include_str!("../assets/themes/dracula.json"),
     },
+    BuiltinThemeSpec {
+        id: "builtin-onedark-pro",
+        name: "One Dark Pro",
+        description: "Atom's iconic One Dark, polished for VS Code (Binaryify)",
+        json: include_str!("../assets/themes/onedark-pro.json"),
+    },
+    BuiltinThemeSpec {
+        id: "builtin-tokyo-night",
+        name: "Tokyo Night",
+        description: "Clean dark theme inspired by Tokyo at night",
+        json: include_str!("../assets/themes/tokyo-night.json"),
+    },
+    BuiltinThemeSpec {
+        id: "builtin-alucard",
+        name: "Alucard",
+        description: "Light counterpart of Dracula (dracula/cursor)",
+        json: include_str!("../assets/themes/alucard.json"),
+    },
 ];
 
 /// The default theme id used on first launch (no prior settings).

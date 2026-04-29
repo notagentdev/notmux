@@ -799,6 +799,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
         let focus_marker_color = t.border_active;
 
+        let workspace_for_header = self.workspace.clone();
+        let project_id_for_header = self.project_id.clone();
+        let layout_path_for_header = self.layout_path.clone();
+
         div()
             .group("tab-bar-row")
             .flex_shrink_0()
@@ -811,6 +815,18 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .border_b_1()
             .border_color(rgb(t.border))
             .bg(rgb(tab_bar_bg(t.term_background, t.text_primary)))
+            .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
+                let terminal_path = if standalone {
+                    layout_path_for_header.clone()
+                } else {
+                    let mut p = layout_path_for_header.clone();
+                    p.push(active_tab);
+                    p
+                };
+                workspace_for_header.update(cx, |ws, cx| {
+                    ws.set_focused_terminal(project_id_for_header.clone(), terminal_path, cx);
+                });
+            })
             .child(
                 div()
                     .id(ElementId::Name(format!("tab-scroll-{:?}", self.layout_path).into()))
