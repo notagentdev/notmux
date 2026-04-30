@@ -34,6 +34,16 @@ impl SettingsPanel {
                         |state, val, cx| state.set_scrollback_lines(val, cx), cx,
                     ))
                     .child(self.render_toggle(
+                        "persist-scrollback", "Persist Scrollback Across Restarts", s.persist_scrollback, true,
+                        |state, val, cx| state.set_persist_scrollback(val, cx), cx,
+                    ))
+                    .when(s.persist_scrollback, |el| {
+                        el.child(self.render_integer_stepper(
+                            "persist-scrollback-lines", "Lines to Restore", s.persist_scrollback_lines, 50, 70.0, false,
+                            |state, val, cx| state.set_persist_scrollback_lines(val, cx), cx,
+                        ))
+                    })
+                    .child(self.render_toggle(
                         "idle-detection", "Idle Detection", s.idle_timeout_secs > 0, true,
                         |state, val, cx| state.set_idle_timeout_secs(if val { 5 } else { 0 }, cx), cx,
                     ))

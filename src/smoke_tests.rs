@@ -51,6 +51,8 @@ mod tests {
                             file_opener: s.settings.file_opener.clone(),
                             default_shell: s.settings.default_shell.clone(),
                             hooks: s.settings.hooks.clone(),
+                            persist_scrollback: s.settings.persist_scrollback,
+                            persist_scrollback_lines: s.settings.persist_scrollback_lines,
                         }).ok(),
                         "git" => serde_json::to_value(&vryn_views_git::settings::GitViewSettings {
                             diff_view_mode: s.settings.diff_view_mode,

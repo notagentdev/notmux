@@ -90,6 +90,8 @@ impl SettingsState {
 
     setting_setter!(set_cursor_blink, cursor_blink, bool);
     setting_setter!(set_scrollback_lines, scrollback_lines, u32, 100, 100000);
+    setting_setter!(set_persist_scrollback, persist_scrollback, bool);
+    setting_setter!(set_persist_scrollback_lines, persist_scrollback_lines, u32, 0, 50000);
     setting_setter!(set_show_focused_border, show_focused_border, bool);
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
     setting_setter!(set_show_shell_selector, show_shell_selector, bool);

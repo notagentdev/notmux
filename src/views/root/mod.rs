@@ -109,6 +109,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         let terminals: TerminalsRegistry = Arc::new(Mutex::new(HashMap::new()));
+        vryn_terminal::set_global_registry(terminals.clone());
 
         // Create sidebar controller from current global settings
         let app_settings = settings(cx);

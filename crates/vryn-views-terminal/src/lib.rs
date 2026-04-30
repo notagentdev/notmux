@@ -66,7 +66,14 @@ pub struct TerminalViewSettings {
     pub file_opener: String,
     pub default_shell: vryn_terminal::shell_config::ShellType,
     pub hooks: vryn_workspace::settings::HooksConfig,
+    #[serde(default = "default_persist_scrollback")]
+    pub persist_scrollback: bool,
+    #[serde(default = "default_persist_scrollback_lines")]
+    pub persist_scrollback_lines: u32,
 }
+
+fn default_persist_scrollback() -> bool { true }
+fn default_persist_scrollback_lines() -> u32 { 100 }
 
 /// Read current terminal view settings from ExtensionSettingsStore.
 pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
@@ -87,6 +94,8 @@ pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
             file_opener: String::new(),
             default_shell: vryn_terminal::shell_config::ShellType::Default,
             hooks: Default::default(),
+            persist_scrollback: default_persist_scrollback(),
+            persist_scrollback_lines: default_persist_scrollback_lines(),
         })
 }
 

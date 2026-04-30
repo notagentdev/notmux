@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
+const REPLAY_BUFFER_MAX_BYTES: usize = 4 * 1024 * 1024;
+
 /// Transport trait for terminal I/O operations.
 /// Implemented by PtyManager (local) and RemoteTransport (remote).
 pub trait TerminalTransport: Send + Sync {
@@ -110,6 +112,8 @@ pub struct ZedEventListener {
     has_bell: Arc<Mutex<bool>>,
     /// Transport for writing responses back to the terminal
     transport: Arc<dyn TerminalTransport>,
+    /// Suppress emulator-generated replies while replaying persisted history.
+    suppress_pty_responses: Arc<AtomicBool>,
     /// Terminal ID for PTY write operations
     terminal_id: String,
 }
@@ -119,9 +123,16 @@ impl ZedEventListener {
         title: Arc<Mutex<Option<String>>>,
         has_bell: Arc<Mutex<bool>>,
         transport: Arc<dyn TerminalTransport>,
+        suppress_pty_responses: Arc<AtomicBool>,
         terminal_id: String,
     ) -> Self {
-        Self { title, has_bell, transport, terminal_id }
+        Self {
+            title,
+            has_bell,
+            transport,
+            suppress_pty_responses,
+            terminal_id,
+        }
     }
 }
 
@@ -138,11 +149,17 @@ impl EventListener for ZedEventListener {
                 *self.has_bell.lock() = true;
             }
             TermEvent::PtyWrite(data) => {
+                if self.suppress_pty_responses.load(Ordering::Relaxed) {
+                    return;
+                }
                 // Write response back to PTY (e.g., cursor position report)
                 log::debug!("PtyWrite event: {:?}", data);
                 self.transport.send_input(&self.terminal_id, data.as_bytes());
             }
             TermEvent::ColorRequest(index, format) => {
+                if self.suppress_pty_responses.load(Ordering::Relaxed) {
+                    return;
+                }
                 let hex = resolve_osc_color(index);
                 let rgb = alacritty_terminal::vte::ansi::Rgb {
                     r: ((hex >> 16) & 0xFF) as u8,
@@ -271,6 +288,14 @@ pub struct Terminal {
     /// `process_output` (which holds `term.lock()`) never runs on the tokio
     /// thread, avoiding lock contention that freezes the UI.
     pending_output: Mutex<Vec<u8>>,
+    /// Rolling PTY byte stream used for persistent scrollback snapshots.
+    ///
+    /// This mirrors VS Code's revive path at a smaller scale: persist the bytes
+    /// that fed the terminal emulator rather than reconstructing bytes from the
+    /// already-rendered grid, which bakes stale column spacing into snapshots.
+    replay_buffer: Mutex<Vec<u8>>,
+    /// True while replaying persisted bytes into the local emulator.
+    suppress_pty_responses: Arc<AtomicBool>,
     /// Dirty flag - set when terminal content changes, cleared after render
     dirty: AtomicBool,
     /// Content generation counter - incremented on each process_output call.
@@ -304,10 +329,12 @@ impl Terminal {
         // Create shared storage for OSC sequence handling and bell
         let title = Arc::new(Mutex::new(None));
         let has_bell = Arc::new(Mutex::new(false));
+        let suppress_pty_responses = Arc::new(AtomicBool::new(false));
         let event_listener = ZedEventListener::new(
             title.clone(),
             has_bell.clone(),
             transport.clone(),
+            suppress_pty_responses.clone(),
             terminal_id.clone(),
         );
         let term = Term::new(config, &term_size, event_listener);
@@ -331,6 +358,8 @@ impl Terminal {
             title,
             has_bell,
             pending_output: Mutex::new(Vec::new()),
+            replay_buffer: Mutex::new(Vec::new()),
+            suppress_pty_responses,
             dirty: AtomicBool::new(false),
             content_generation: AtomicU64::new(0),
             initial_cwd,
@@ -342,15 +371,66 @@ impl Terminal {
         }
     }
 
+    /// Capture up to `max_lines` of replayable PTY output bytes. The `cwd` is
+    /// embedded in the snapshot header so the next launch can spawn the shell
+    /// in the same directory the user was last working in.
+    pub fn capture_scrollback(&self, max_lines: u32, cwd: Option<&str>) -> Vec<u8> {
+        let replay_bytes = self.replay_buffer.lock().clone();
+        let size = self.resize_state.lock().size;
+        crate::scrollback_snapshot::capture_raw(
+            &replay_bytes,
+            size.cols,
+            size.rows,
+            max_lines,
+            cwd,
+        )
+    }
+
     /// Process output from PTY
     pub fn process_output(&self, data: &[u8]) {
+        self.process_output_inner(data, true, false);
+    }
+
+    /// Replay previously persisted terminal output.
+    ///
+    /// Unlike live PTY output this must not be appended to the replay buffer
+    /// again, and emulator-generated replies must not be sent to the new shell.
+    pub fn replay_output(&self, data: &[u8]) {
+        self.process_output_inner(data, false, true);
+    }
+
+    fn process_output_inner(&self, data: &[u8], record_replay: bool, suppress_replies: bool) {
+        if data.is_empty() {
+            return;
+        }
+        if suppress_replies {
+            self.suppress_pty_responses.store(true, Ordering::Relaxed);
+        }
+        if record_replay {
+            self.record_replay_bytes(data);
+        }
         let mut term = self.term.lock();
         let mut processor = self.processor.lock();
 
         processor.advance(&mut *term, data);
+        if suppress_replies {
+            self.suppress_pty_responses.store(false, Ordering::Relaxed);
+        }
         self.dirty.store(true, Ordering::Relaxed);
         self.content_generation.fetch_add(1, Ordering::Relaxed);
         *self.last_output_time.lock() = Instant::now();
+    }
+
+    fn record_replay_bytes(&self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+        let mut buffer = self.replay_buffer.lock();
+        buffer.extend_from_slice(data);
+        if buffer.len() > REPLAY_BUFFER_MAX_BYTES {
+            let overflow = buffer.len() - REPLAY_BUFFER_MAX_BYTES;
+            buffer.drain(..overflow);
+        }
     }
 
     /// Enqueue output data for deferred processing.
@@ -375,6 +455,7 @@ impl Terminal {
             }
             std::mem::take(&mut *pending)
         };
+        self.record_replay_bytes(&data);
         let mut term = self.term.lock();
         let mut processor = self.processor.lock();
         processor.advance(&mut *term, &data);
@@ -2018,6 +2099,69 @@ mod tests {
         assert!(!transport.resize_called.load(Ordering::Relaxed));
         assert_eq!(terminal.resize_state.lock().size.cols, 120);
         assert_eq!(terminal.resize_state.lock().size.rows, 40);
+    }
+
+    #[test]
+    fn scrollback_capture_preserves_simple_spaces_as_text() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.process_output(b"assets        crates\r\n");
+
+        let snapshot = terminal.capture_scrollback(100, None);
+        let body = &snapshot[10..];
+
+        assert!(
+            body.windows(b"assets        crates".len())
+                .any(|w| w == b"assets        crates"),
+            "snapshot body should contain literal spacing: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            !body.windows(b"\x1b[8C".len()).any(|w| w == b"\x1b[8C"),
+            "snapshot body should not encode simple spaces as cursor-forward escapes: {:?}",
+            String::from_utf8_lossy(body)
+        );
+    }
+
+    #[test]
+    fn replay_output_suppresses_terminal_query_responses() {
+        struct SpyTransport {
+            writes: Mutex<Vec<Vec<u8>>>,
+        }
+        impl TerminalTransport for SpyTransport {
+            fn send_input(&self, _: &str, data: &[u8]) {
+                self.writes.lock().push(data.to_vec());
+            }
+            fn resize(&self, _: &str, _: u16, _: u16) {}
+            fn uses_mouse_backend(&self) -> bool { false }
+        }
+
+        let transport = Arc::new(SpyTransport { writes: Mutex::new(Vec::new()) });
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport.clone(),
+            String::new(),
+        );
+
+        terminal.process_output(b"\x1b[6n\x1b]10;?\x1b\\");
+        assert!(
+            !transport.writes.lock().is_empty(),
+            "live output should answer terminal queries"
+        );
+        transport.writes.lock().clear();
+
+        terminal.replay_output(b"\x1b[6n\x1b]10;?\x1b\\");
+        assert!(
+            transport.writes.lock().is_empty(),
+            "replayed history must not send query responses to the live shell"
+        );
     }
 
     /// Helper: create a terminal and write text to it, returns detected URLs

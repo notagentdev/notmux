@@ -206,7 +206,7 @@ impl Default for FileExplorerSettings {
 }
 
 /// Current settings schema version - increment when making breaking changes
-pub const SETTINGS_VERSION: u32 = 3;
+pub const SETTINGS_VERSION: u32 = 4;
 
 /// App settings (persisted separately from workspace)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -266,6 +266,13 @@ pub struct AppSettings {
     /// Number of scrollback lines (default: 10000)
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
+    /// Persist a slice of each terminal's scrollback to disk on shutdown and
+    /// replay it after restart (default: true).
+    #[serde(default = "default_persist_scrollback")]
+    pub persist_scrollback: bool,
+    /// Number of lines to persist/restore per terminal (default: 100, max: 50000).
+    #[serde(default = "default_persist_scrollback_lines")]
+    pub persist_scrollback_lines: u32,
 
     // Shell settings
     /// Default shell type for new terminals
@@ -368,6 +375,8 @@ impl Default for AppSettings {
             cursor_style: CursorShape::default(),
             cursor_blink: default_cursor_blink(),
             scrollback_lines: default_scrollback_lines(),
+            persist_scrollback: default_persist_scrollback(),
+            persist_scrollback_lines: default_persist_scrollback_lines(),
             default_shell: ShellType::default(),
             show_shell_selector: false,
             session_backend: SessionBackend::default(),
@@ -430,6 +439,14 @@ fn default_cursor_blink() -> bool {
 
 fn default_scrollback_lines() -> u32 {
     10000
+}
+
+fn default_persist_scrollback() -> bool {
+    true
+}
+
+fn default_persist_scrollback_lines() -> u32 {
+    100
 }
 
 fn default_file_opener() -> String {
@@ -646,6 +663,13 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
         settings.codex_integration = false;
         settings.auto_update_enabled = false;
         settings.version = 3;
+    }
+
+    // v3 -> v4: introduce persistent scrollback fields. Defaults are applied
+    // by serde via #[serde(default)], so this is just a version bump.
+    if settings.version == 3 {
+        log::info!("Migrating settings from v3 to v4 (persistent scrollback)");
+        settings.version = 4;
     }
 
     // Ensure version is current

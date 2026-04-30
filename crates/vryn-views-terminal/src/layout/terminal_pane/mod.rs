@@ -331,9 +331,15 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             &settings.default_shell,
         );
 
+        let cwd = resolve_revival_cwd(
+            &self.project_id,
+            &self.layout_path,
+            &self.project_path,
+            self.backend.is_remote(),
+        );
         match self
             .backend
-            .reconnect_terminal(&terminal_id, &self.project_path, Some(&shell))
+            .reconnect_terminal(&terminal_id, &cwd, Some(&shell))
         {
             Ok(_) => {}
             Err(e) => {
@@ -342,10 +348,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         }
 
         let size = TerminalSize::default();
-        let terminal = Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), self.project_path.clone()));
+        let terminal = Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), cwd));
         if let Some(pid) = self.backend.get_foreground_shell_pid(&terminal_id) {
             terminal.set_shell_pid(pid);
         }
+        replay_persisted_scrollback(&self.project_id, &self.layout_path, &terminal, &settings);
         self.terminals.lock().insert(terminal_id, terminal.clone());
         self.terminal = Some(terminal.clone());
         self.update_child_terminals(terminal, cx);
@@ -383,6 +390,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
         let env = hooks::terminal_hook_env(&self.project_id, &project_name, &project_path, is_worktree, folder_id.as_deref(), folder_name.as_deref());
 
+        // Snapshot the small persist-scrollback flags before consuming `settings.hooks`
+        // below, so the post-spawn replay call can still read them.
+        let persist_scrollback = settings.persist_scrollback;
+        let persist_lines = settings.persist_scrollback_lines;
+
         // Apply shell_wrapper if configured
         let global_hooks = settings.hooks;
         if let Some(wrapper) = hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks) {
@@ -394,9 +406,15 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             shell = hooks::apply_on_create(&shell, &cmd, &env);
         }
 
+        let cwd = resolve_revival_cwd(
+            &self.project_id,
+            &self.layout_path,
+            &project_path,
+            self.backend.is_remote(),
+        );
         match self
             .backend
-            .create_terminal(&project_path, Some(&shell))
+            .create_terminal(&cwd, Some(&shell))
         {
             Ok(terminal_id) => {
                 self.terminal_id = Some(terminal_id.clone());
@@ -406,9 +424,16 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
                 let size = TerminalSize::default();
                 let terminal =
-                    Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), project_path));
+                    Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), cwd));
                 if let Some(pid) = self.backend.get_shell_pid(&terminal_id) {
                     terminal.set_shell_pid(pid);
+                }
+                if persist_scrollback && persist_lines > 0 {
+                    replay_persisted_scrollback_raw(
+                        &self.project_id,
+                        &self.layout_path,
+                        &terminal,
+                    );
                 }
                 self.terminals.lock().insert(terminal_id.clone(), terminal.clone());
                 self.terminal = Some(terminal.clone());
@@ -486,3 +511,105 @@ impl<D: ActionDispatch + Send + Sync> gpui::Focusable for TerminalPane<D> {
         self.focus_handle.clone()
     }
 }
+
+/// Resolve the cwd to spawn the new PTY in. If a snapshot exists and
+/// carries a previous-session cwd that still exists on disk, prefer that.
+/// Otherwise fall back to the project path. Skipped for remote backends —
+/// the path namespace there belongs to the remote host.
+fn resolve_revival_cwd(
+    project_id: &str,
+    layout_path: &[usize],
+    fallback: &str,
+    is_remote: bool,
+) -> String {
+    if is_remote {
+        return fallback.to_string();
+    }
+    let dir = vryn_workspace::persistence::get_config_dir().join("scrollback");
+    let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
+    let Some(meta) = vryn_terminal::scrollback_snapshot::peek_metadata(&dir, &key) else {
+        return fallback.to_string();
+    };
+    let Some(cwd) = meta.cwd else {
+        return fallback.to_string();
+    };
+    if std::path::Path::new(&cwd).is_dir() {
+        log::info!("Reviving terminal {} cwd from snapshot: {}", key, cwd);
+        cwd
+    } else {
+        log::warn!(
+            "Snapshot cwd {} for {} no longer exists, falling back to {}",
+            cwd, key, fallback
+        );
+        fallback.to_string()
+    }
+}
+
+/// Replay a previously persisted scrollback snapshot into a freshly created
+/// terminal, then delete the snapshot file so it isn't replayed twice.
+/// Snapshots are keyed by `(project_id, layout_path)` so they survive the
+/// terminal_id reset that workspace persistence performs on restart when
+/// no session backend is available.
+///
+/// The bytes are pre-rendered ANSI from the previous session and feed the
+/// vte parser directly via `process_output` — the shell never sees them.
+fn replay_persisted_scrollback(
+    project_id: &str,
+    layout_path: &[usize],
+    terminal: &Terminal,
+    settings: &crate::TerminalViewSettings,
+) {
+    if !settings.persist_scrollback || settings.persist_scrollback_lines == 0 {
+        return;
+    }
+    replay_persisted_scrollback_raw(project_id, layout_path, terminal);
+}
+
+/// Inner replay: caller has already verified the feature is enabled.
+fn replay_persisted_scrollback_raw(
+    project_id: &str,
+    layout_path: &[usize],
+    terminal: &Terminal,
+) {
+    let dir = vryn_workspace::persistence::get_config_dir().join("scrollback");
+    let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
+    match vryn_terminal::scrollback_snapshot::load(&dir, &key) {
+        Some(snap) => {
+            log::info!(
+                "Replaying scrollback for {} ({} bytes, original size={}x{}, from {})",
+                key,
+                snap.bytes.len(),
+                snap.original_cols,
+                snap.original_rows,
+                dir.display()
+            );
+            // Replay PTY bytes at their capture dimensions, matching VS Code's
+            // revive path. Commands like `ls` already formatted their output
+            // for that width; replaying into a narrower fresh grid causes the
+            // rightmost columns to wrap/shift.
+            if snap.original_cols >= 2 && snap.original_rows >= 2 {
+                terminal.resize_grid_only(snap.original_cols, snap.original_rows);
+            }
+            terminal.replay_output(&snap.bytes);
+            terminal.replay_output(HISTORY_RESTORED_BANNER);
+        }
+        None => {
+            log::debug!(
+                "No scrollback snapshot found for {} at {}",
+                key,
+                dir.display()
+            );
+        }
+    }
+    // Always clear: stale snapshots from terminals that opened-but-didn't-quit
+    // shouldn't replay twice. The next graceful shutdown writes a fresh one.
+    vryn_terminal::scrollback_snapshot::clear(&dir, &key);
+}
+
+/// VSCode's "History restored" banner, byte-for-byte.
+/// Source: `formatMessageForTerminal` in `microsoft/vscode`
+/// `src/vs/platform/terminal/common/terminalStrings.ts` (commit 560a9db,
+/// referenced from this repo's `ref/vscodium-master/upstream/stable.json`).
+/// Layout: leading CRLF → reset → inverse-video banner → reset → trailing LF+CR.
+const HISTORY_RESTORED_BANNER: &[u8] =
+    b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\n\r";

@@ -65,6 +65,33 @@ use crate::workspace::persistence;
 use crate::workspace::state::GlobalWorkspace;
 
 /// Quit action handler - flushes pending saves before exiting
+/// Walk a `LayoutNode` tree and collect `(snapshot_key, terminal_id)` for
+/// every terminal slot that currently has a live id. The snapshot key uses
+/// `project_id + layout_path` so it survives the terminal_id reset that
+/// happens during workspace load when no session backend is available.
+fn collect_terminal_keys(
+    project_id: &str,
+    node: &vryn_workspace::state::LayoutNode,
+    path: &mut Vec<usize>,
+    out: &mut Vec<(String, String)>,
+) {
+    match node {
+        vryn_workspace::state::LayoutNode::Terminal { terminal_id: Some(tid), .. } => {
+            let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, path);
+            out.push((key, tid.clone()));
+        }
+        vryn_workspace::state::LayoutNode::Terminal { .. } => {}
+        vryn_workspace::state::LayoutNode::Split { children, .. }
+        | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                path.push(i);
+                collect_terminal_keys(project_id, child, path, out);
+                path.pop();
+            }
+        }
+    }
+}
+
 fn quit(_: &Quit, cx: &mut App) {
     // Flush pending settings save
     if let Some(gs) = cx.try_global::<GlobalSettings>() {
@@ -433,6 +460,8 @@ fn main() {
                             file_opener: s.settings.file_opener.clone(),
                             default_shell: s.settings.default_shell.clone(),
                             hooks: s.settings.hooks.clone(),
+                            persist_scrollback: s.settings.persist_scrollback,
+                            persist_scrollback_lines: s.settings.persist_scrollback_lines,
                         }).ok()
                     }
                     "git" => {
@@ -466,6 +495,9 @@ fn main() {
                                 state.settings.file_opener = tvs.file_opener;
                                 state.settings.default_shell = tvs.default_shell;
                                 state.settings.hooks = tvs.hooks;
+                                state.settings.persist_scrollback = tvs.persist_scrollback;
+                                state.settings.persist_scrollback_lines =
+                                    tvs.persist_scrollback_lines.min(50_000);
                                 state.save_and_notify(cx);
                             });
                         }
@@ -681,10 +713,82 @@ fn main() {
         // Flush pending saves on ALL quit paths (including window X button).
         // The Quit action handler only runs for Ctrl+Q / menu quit, not for
         // QuitMode::LastWindowClosed. on_app_quit fires for every exit path.
-        let _quit_sub = cx.on_app_quit(|cx| {
+        cx.on_app_quit(|cx| {
             // Flush pending settings save
             if let Some(gs) = cx.try_global::<GlobalSettings>() {
                 gs.0.read(cx).flush_pending_save();
+            }
+
+            // Persist scrollback for each live terminal so the next launch can
+            // replay the recent history into a fresh PTY. Honors the user's
+            // persist_scrollback / persist_scrollback_lines settings.
+            if let Some(gs) = cx.try_global::<GlobalSettings>() {
+                let s = gs.0.read(cx).get();
+                if s.persist_scrollback && s.persist_scrollback_lines > 0
+                    && let Some(registry) = vryn_terminal::global_registry()
+                    && let Some(gw) = cx.try_global::<GlobalWorkspace>()
+                {
+                    let dir = persistence::get_config_dir().join("scrollback");
+                    let max_lines = s.persist_scrollback_lines;
+
+                    // Walk every project's layout tree, collect (snapshot_key, terminal_id)
+                    // tuples for each Terminal node that has a live terminal_id.
+                    // The snapshot is keyed by (project_id, layout_path) — stable across
+                    // restarts — not by terminal_id, which workspace persistence wipes
+                    // when no session backend is available.
+                    let pairs: Vec<(String, String)> = {
+                        let data = gw.0.read(cx).data().clone();
+                        let mut out: Vec<(String, String)> = Vec::new();
+                        for project in &data.projects {
+                            if let Some(root) = project.layout.as_ref() {
+                                collect_terminal_keys(&project.id, root, &mut Vec::new(), &mut out);
+                            }
+                        }
+                        out
+                    };
+
+                    let registry_map = registry.lock();
+                    let mut captures: Vec<(String, Vec<u8>)> = Vec::with_capacity(pairs.len());
+                    for (key, terminal_id) in pairs {
+                        if let Some(term) = registry_map.get(&terminal_id) {
+                            // Capture the shell's current cwd so the next launch
+                            // can spawn the PTY in the same directory. We rely on
+                            // the OS process table (procfs/lsof) — works for any
+                            // shell without requiring OSC 7 emission.
+                            let cwd = term
+                                .shell_pid()
+                                .and_then(vryn_terminal::process::read_process_cwd);
+                            captures.push((key, term.capture_scrollback(max_lines, cwd.as_deref())));
+                        }
+                    }
+                    drop(registry_map);
+
+                    log::info!(
+                        "Persisting scrollback for {} terminal(s) to {}",
+                        captures.len(),
+                        dir.display()
+                    );
+                    for (key, bytes) in captures {
+                        match vryn_terminal::scrollback_snapshot::save(&dir, &key, &bytes) {
+                            Ok(_) => log::info!(
+                                "Saved scrollback snapshot {} ({} bytes)",
+                                key,
+                                bytes.len()
+                            ),
+                            Err(e) => log::warn!(
+                                "Failed to persist scrollback for {}: {}",
+                                key,
+                                e
+                            ),
+                        }
+                    }
+                } else {
+                    log::info!(
+                        "Scrollback persistence skipped (enabled={}, lines={})",
+                        s.persist_scrollback,
+                        s.persist_scrollback_lines,
+                    );
+                }
             }
 
             // Flush pending workspace save
@@ -693,6 +797,6 @@ fn main() {
                     log::error!("Failed to flush workspace on quit: {}", e);
                 }
             async {}
-        });
+        }).detach();
     });
 }
