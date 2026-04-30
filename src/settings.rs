@@ -82,6 +82,7 @@ impl SettingsState {
     setting_setter!(set_line_height, line_height, f32, 1.0, 3.0);
     setting_setter!(set_ui_font_size, ui_font_size, f32, 8.0, 24.0);
     setting_setter!(set_file_font_size, file_font_size, f32, 8.0, 24.0);
+    setting_setter!(set_diff_font_size, diff_font_size, f32, 8.0, 24.0);
     /// Set the cursor style (Block, Bar, Underline)
     pub fn set_cursor_style(
         &mut self,

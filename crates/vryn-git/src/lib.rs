@@ -3,8 +3,8 @@ pub mod diff;
 pub mod repository;
 
 pub use diff::{
-    DiffLineType, DiffMode, DiffResult, FileDiff, get_diff_with_options,
-    get_file_contents_for_diff, is_git_repo,
+    DiffLineType, DiffMode, DiffResult, FileDiff, get_diff_for_file_with_options,
+    get_diff_with_options, get_file_contents_for_diff, is_git_repo,
 };
 pub use repository::{
     FileSection, FileStatusRefresh, commit, compute_target_paths, count_unpushed_commits,

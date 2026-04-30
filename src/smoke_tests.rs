@@ -60,6 +60,7 @@ mod tests {
                         "git" => serde_json::to_value(&vryn_views_git::settings::GitViewSettings {
                             diff_view_mode: s.settings.diff_view_mode,
                             diff_ignore_whitespace: s.settings.diff_ignore_whitespace,
+                            diff_font_size: s.settings.diff_font_size,
                             file_font_size: s.settings.file_font_size,
                             is_dark: true,
                         })
@@ -89,6 +90,7 @@ mod tests {
         init_globals(cx);
         cx.update(|cx| {
             let settings = vryn_views_git::settings::git_settings(cx);
+            assert!(settings.diff_font_size > 0.0);
             assert!(settings.file_font_size > 0.0);
         });
     }

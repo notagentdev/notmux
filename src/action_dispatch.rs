@@ -503,10 +503,12 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             project_id,
             mode,
             ignore_whitespace,
+            file_path,
         } => ActionRequest::GitDiff {
             project_id: s(&project_id),
             mode,
             ignore_whitespace,
+            file_path,
         },
         ActionRequest::GitBranches { project_id } => ActionRequest::GitBranches {
             project_id: s(&project_id),

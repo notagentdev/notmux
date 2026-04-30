@@ -14,8 +14,19 @@ const SETTINGS_ID: &str = "git";
 pub struct GitViewSettings {
     pub diff_view_mode: DiffViewMode,
     pub diff_ignore_whitespace: bool,
+    #[serde(default = "default_diff_font_size")]
+    pub diff_font_size: f32,
+    #[serde(default = "default_file_font_size")]
     pub file_font_size: f32,
     pub is_dark: bool,
+}
+
+fn default_diff_font_size() -> f32 {
+    12.0
+}
+
+fn default_file_font_size() -> f32 {
+    13.0
 }
 
 impl Default for GitViewSettings {
@@ -23,7 +34,8 @@ impl Default for GitViewSettings {
         Self {
             diff_view_mode: DiffViewMode::default(),
             diff_ignore_whitespace: false,
-            file_font_size: 13.0,
+            diff_font_size: default_diff_font_size(),
+            file_font_size: default_file_font_size(),
             is_dark: true,
         }
     }

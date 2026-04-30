@@ -118,7 +118,7 @@ impl DiffViewer {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         let gs = git_settings(cx);
-        let font_size = gs.file_font_size;
+        let font_size = gs.diff_font_size;
         let view_mode = gs.diff_view_mode;
         let ignore_whitespace = gs.diff_ignore_whitespace;
         let is_dark = gs.is_dark;
@@ -220,10 +220,18 @@ impl DiffViewer {
 
         let provider = self.provider.clone();
         let ignore_whitespace = self.ignore_whitespace;
+        let selected_file = select_file.clone();
 
         cx.spawn(async move |this, cx| {
             let mode_for_fallback = mode.clone();
-            let result = smol::unblock(move || provider.get_diff(mode, ignore_whitespace)).await;
+            let result = smol::unblock(move || {
+                if let Some(file_path) = selected_file.as_deref() {
+                    provider.get_diff_for_file(mode, ignore_whitespace, file_path)
+                } else {
+                    provider.get_diff(mode, ignore_whitespace)
+                }
+            })
+            .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;

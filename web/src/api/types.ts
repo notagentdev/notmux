@@ -71,7 +71,7 @@ export type ActionRequest =
   | { action: "update_split_sizes"; project_id: string; path: number[]; sizes: number[] }
   | { action: "git_status"; project_id: string }
   | { action: "git_diff_summary"; project_id: string }
-  | { action: "git_diff"; project_id: string; mode?: DiffMode; ignore_whitespace?: boolean }
+  | { action: "git_diff"; project_id: string; mode?: DiffMode; ignore_whitespace?: boolean; file_path?: string }
   | { action: "git_branches"; project_id: string }
   | { action: "git_file_contents"; project_id: string; file_path: string; mode?: DiffMode }
   | { action: "reorder_project_in_folder"; folder_id: string; project_id: string; new_index: number }

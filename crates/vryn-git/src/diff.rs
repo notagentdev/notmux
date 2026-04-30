@@ -302,6 +302,25 @@ pub fn get_diff_with_options(
     mode: DiffMode,
     ignore_whitespace: bool,
 ) -> Result<DiffResult, String> {
+    get_diff_with_options_for_file(path, mode, ignore_whitespace, None)
+}
+
+/// Get diff for a single file in a repository with options.
+pub fn get_diff_for_file_with_options(
+    path: &Path,
+    mode: DiffMode,
+    ignore_whitespace: bool,
+    file_path: &str,
+) -> Result<DiffResult, String> {
+    get_diff_with_options_for_file(path, mode, ignore_whitespace, Some(file_path))
+}
+
+fn get_diff_with_options_for_file(
+    path: &Path,
+    mode: DiffMode,
+    ignore_whitespace: bool,
+    file_path: Option<&str>,
+) -> Result<DiffResult, String> {
     let t_total = std::time::Instant::now();
     let path_str = path.to_str().ok_or("Invalid path")?;
 
@@ -354,6 +373,11 @@ pub fn get_diff_with_options(
         args.push("-w");
     }
 
+    if let Some(file_path) = file_path {
+        args.push("--");
+        args.push(file_path);
+    }
+
     let t0 = std::time::Instant::now();
     let output = safe_output(command("git").args(&args))
         .map_err(|e| format!("Failed to execute git: {}", e))?;
@@ -388,14 +412,19 @@ pub fn get_diff_with_options(
     // For unstaged mode, also include untracked files
     if matches!(mode, DiffMode::WorkingTree) {
         let t2 = std::time::Instant::now();
-        let untracked = get_untracked_files(path);
+        let untracked = get_untracked_files(path, file_path);
         log::debug!(
             "[get_diff_with_options] get_untracked_files: {:?}, count: {}",
             t2.elapsed(),
             untracked.len()
         );
-        for file_path in untracked {
-            if let Some(file_diff) = create_untracked_file_diff(path, &file_path) {
+        for untracked_path in untracked {
+            if let Some(selected_file) = file_path
+                && selected_file != untracked_path
+            {
+                continue;
+            }
+            if let Some(file_diff) = create_untracked_file_diff(path, &untracked_path) {
                 result.files.push(file_diff);
             }
         }
@@ -406,19 +435,25 @@ pub fn get_diff_with_options(
 }
 
 /// Get list of untracked files in a repository.
-fn get_untracked_files(path: &Path) -> Vec<String> {
+fn get_untracked_files(path: &Path, file_path: Option<&str>) -> Vec<String> {
     let path_str = match path.to_str() {
         Some(s) => s,
         None => return vec![],
     };
 
-    let output = safe_output(command("git").args([
+    let mut args = vec![
         "-C",
         path_str,
         "ls-files",
         "--others",
         "--exclude-standard",
-    ]))
+    ];
+    if let Some(file_path) = file_path {
+        args.push("--");
+        args.push(file_path);
+    }
+
+    let output = safe_output(command("git").args(args))
     .ok();
 
     match output {

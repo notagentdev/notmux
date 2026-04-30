@@ -484,6 +484,7 @@ fn main() {
                         serde_json::to_value(&vryn_views_git::settings::GitViewSettings {
                             diff_view_mode: s.settings.diff_view_mode,
                             diff_ignore_whitespace: s.settings.diff_ignore_whitespace,
+                            diff_font_size: s.settings.diff_font_size,
                             file_font_size: s.settings.file_font_size,
                             is_dark,
                         }).ok()
@@ -522,6 +523,7 @@ fn main() {
                             settings::settings_entity(cx).update(cx, |state, cx| {
                                 state.settings.diff_view_mode = gs.diff_view_mode;
                                 state.settings.diff_ignore_whitespace = gs.diff_ignore_whitespace;
+                                state.settings.diff_font_size = gs.diff_font_size;
                                 state.settings.file_font_size = gs.file_font_size;
                                 state.save_and_notify(cx);
                             });

@@ -222,6 +222,8 @@ pub enum ActionRequest {
         mode: DiffMode,
         #[serde(default)]
         ignore_whitespace: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_path: Option<String>,
     },
     GitBranches {
         project_id: String,
@@ -649,6 +651,7 @@ mod tests {
                 project_id: "p1".into(),
                 mode: DiffMode::WorkingTree,
                 ignore_whitespace: false,
+                file_path: None,
             },
             ActionRequest::GitBranches {
                 project_id: "p1".into(),

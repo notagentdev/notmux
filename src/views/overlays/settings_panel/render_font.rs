@@ -53,8 +53,19 @@ impl SettingsPanel {
                     "{}",
                     1.0,
                     50.0,
-                    false,
+                    true,
                     |state, val, cx| state.set_file_font_size(val, cx),
+                    cx,
+                ))
+                .child(self.render_number_stepper(
+                    "diff-font-size",
+                    "Diff Font Size",
+                    s.diff_font_size,
+                    "{}",
+                    1.0,
+                    50.0,
+                    false,
+                    |state, val, cx| state.set_diff_font_size(val, cx),
                     cx,
                 )),
         )

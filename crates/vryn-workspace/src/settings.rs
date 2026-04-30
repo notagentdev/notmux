@@ -259,6 +259,9 @@ pub struct AppSettings {
     /// File viewer/diff viewer font size (default: 12.0)
     #[serde(default = "default_file_font_size")]
     pub file_font_size: f32,
+    /// Diff viewer font size (default: 12.0)
+    #[serde(default = "default_diff_font_size")]
+    pub diff_font_size: f32,
 
     // Terminal settings
     /// Cursor shape: Block, Bar, or Underline (default: Block)
@@ -376,6 +379,7 @@ impl Default for AppSettings {
             line_height: default_line_height(),
             ui_font_size: default_ui_font_size(),
             file_font_size: default_file_font_size(),
+            diff_font_size: default_diff_font_size(),
             cursor_style: CursorShape::default(),
             cursor_blink: default_cursor_blink(),
             scrollback_lines: default_scrollback_lines(),
@@ -434,6 +438,10 @@ fn default_ui_font_size() -> f32 {
 }
 
 fn default_file_font_size() -> f32 {
+    12.0
+}
+
+fn default_diff_font_size() -> f32 {
     12.0
 }
 
@@ -613,6 +621,10 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
 
     if let Some(v) = obj.get("file_font_size").and_then(|v| v.as_f64()) {
         settings.file_font_size = (v as f32).clamp(8.0, 24.0);
+    }
+
+    if let Some(v) = obj.get("diff_font_size").and_then(|v| v.as_f64()) {
+        settings.diff_font_size = (v as f32).clamp(8.0, 24.0);
     }
 
     if let Some(v) = obj.get("cursor_style")

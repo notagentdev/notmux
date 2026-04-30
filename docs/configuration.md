@@ -82,7 +82,8 @@ If the file contains invalid JSON, Vryn recovers as many fields as possible and 
 | `font_family` | string | `"JetBrains Mono"` | Terminal font family |
 | `font_size` | float | `14.0` | Terminal font size (8.0 - 48.0) |
 | `ui_font_size` | float | `13.0` | Font size for panels and dialogs (8.0 - 24.0) |
-| `file_font_size` | float | `12.0` | Font size for file/diff viewer (8.0 - 24.0) |
+| `file_font_size` | float | `12.0` | Font size for file viewer (8.0 - 24.0) |
+| `diff_font_size` | float | `12.0` | Font size for diff viewer (8.0 - 24.0) |
 | `line_height` | float | `1.3` | Line height multiplier (1.0 - 3.0) |
 | `show_focused_border` | bool | `false` | Show a border around the focused terminal |
 

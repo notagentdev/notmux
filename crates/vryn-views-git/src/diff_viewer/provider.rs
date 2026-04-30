@@ -10,6 +10,16 @@ use vryn_git::{
 pub trait GitProvider: Send + Sync + 'static {
     fn is_git_repo(&self) -> bool;
     fn get_diff(&self, mode: DiffMode, ignore_whitespace: bool) -> Result<DiffResult, String>;
+    fn get_diff_for_file(
+        &self,
+        mode: DiffMode,
+        ignore_whitespace: bool,
+        file_path: &str,
+    ) -> Result<DiffResult, String> {
+        let mut result = self.get_diff(mode, ignore_whitespace)?;
+        result.files.retain(|file| file.display_name() == file_path);
+        Ok(result)
+    }
     fn get_file_contents(
         &self,
         file_path: &str,
@@ -94,6 +104,20 @@ impl GitProvider for LocalGitProvider {
 
     fn get_diff(&self, mode: DiffMode, ignore_whitespace: bool) -> Result<DiffResult, String> {
         vryn_git::get_diff_with_options(std::path::Path::new(&self.path), mode, ignore_whitespace)
+    }
+
+    fn get_diff_for_file(
+        &self,
+        mode: DiffMode,
+        ignore_whitespace: bool,
+        file_path: &str,
+    ) -> Result<DiffResult, String> {
+        vryn_git::get_diff_for_file_with_options(
+            std::path::Path::new(&self.path),
+            mode,
+            ignore_whitespace,
+            file_path,
+        )
     }
 
     fn get_file_contents(
@@ -236,6 +260,27 @@ impl GitProvider for RemoteGitProvider {
             project_id: self.project_id.clone(),
             mode,
             ignore_whitespace,
+            file_path: None,
+        };
+        let result = self.post_action(action)?;
+        match result {
+            Some(value) => serde_json::from_value(value)
+                .map_err(|e| format!("Failed to deserialize DiffResult: {}", e)),
+            None => Ok(DiffResult::default()),
+        }
+    }
+
+    fn get_diff_for_file(
+        &self,
+        mode: DiffMode,
+        ignore_whitespace: bool,
+        file_path: &str,
+    ) -> Result<DiffResult, String> {
+        let action = vryn_core::api::ActionRequest::GitDiff {
+            project_id: self.project_id.clone(),
+            mode,
+            ignore_whitespace,
+            file_path: Some(file_path.to_string()),
         };
         let result = self.post_action(action)?;
         match result {

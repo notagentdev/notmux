@@ -289,14 +289,25 @@ pub fn execute_action(
             project_id,
             mode,
             ignore_whitespace,
+            file_path,
         } => match ws.project(&project_id) {
             Some(p) => {
                 let path = p.path.clone();
-                match crate::git::get_diff_with_options(
-                    std::path::Path::new(&path),
-                    mode,
-                    ignore_whitespace,
-                ) {
+                let diff = if let Some(file_path) = file_path {
+                    crate::git::get_diff_for_file_with_options(
+                        std::path::Path::new(&path),
+                        mode,
+                        ignore_whitespace,
+                        &file_path,
+                    )
+                } else {
+                    crate::git::get_diff_with_options(
+                        std::path::Path::new(&path),
+                        mode,
+                        ignore_whitespace,
+                    )
+                };
+                match diff {
                     Ok(diff) => ActionResult::Ok(Some(
                         serde_json::to_value(diff).expect("BUG: DiffResult must serialize"),
                     )),

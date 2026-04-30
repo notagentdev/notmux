@@ -21,7 +21,7 @@ pub(super) const ACCENT_WIDTH: f32 = 3.0;
 /// Background alpha for changed lines.
 pub(super) const LINE_BG_ALPHA: f32 = 0.18;
 /// Background alpha for word-level diff highlights.
-pub(super) const WORD_BG_ALPHA: f32 = 0.40;
+pub(super) const WORD_BG_ALPHA: f32 = 0.12;
 /// Alpha for the left accent bar.
 pub(super) const ACCENT_ALPHA: f32 = 0.7;
 /// Line height as a multiple of font size.
