@@ -24,7 +24,8 @@ impl Workspace {
             self.focus_first_terminal_in(pid);
         }
 
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Set focused project in individual mode (show only this project, not its worktree children).
@@ -42,7 +43,8 @@ impl Workspace {
             self.focus_first_terminal_in(pid);
         }
 
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Toggle folder selection: sets folder filter and focuses the first terminal inside.
@@ -64,7 +66,8 @@ impl Workspace {
         } else {
             self.set_folder_filter(None, cx);
         }
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Resolve a focusable project and focus its first terminal.
@@ -122,7 +125,8 @@ impl Workspace {
             terminal_id
         );
 
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Exit fullscreen mode
@@ -132,7 +136,8 @@ impl Workspace {
         // Use FocusManager for focus + project_id restoration
         self.focus_manager.exit_fullscreen();
 
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Set focused terminal (for visual indicator)
@@ -151,7 +156,8 @@ impl Workspace {
         // Record project access time for recency sorting
         self.touch_project(&project_id);
 
-        cx.notify();
+        self.persist_focus_state();
+        self.notify_data(cx);
     }
 
     /// Clear focused terminal
@@ -171,6 +177,7 @@ impl Workspace {
     pub fn restore_focused_terminal(&mut self, cx: &mut Context<Self>) {
         // Use FocusManager to restore focus
         self.focus_manager.exit_modal();
+        self.persist_focus_state();
         cx.notify();
     }
 

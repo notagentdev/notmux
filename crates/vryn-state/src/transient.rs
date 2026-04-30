@@ -11,7 +11,7 @@ pub enum DropZone {
 }
 
 /// State for focused terminal (for visual indicator)
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FocusedTerminalState {
     pub project_id: String,
     pub layout_path: Vec<usize>,

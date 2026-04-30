@@ -180,6 +180,12 @@ impl FocusManager {
         self.focus_project_individual
     }
 
+    /// Restore focused project state from persisted workspace data.
+    pub fn restore_focused_project(&mut self, id: Option<String>, individual: bool) {
+        self.focused_project_id = id;
+        self.focus_project_individual = individual;
+    }
+
     // --- Fullscreen state queries ---
 
     /// Get fullscreen state as (project_id, terminal_id) if in fullscreen

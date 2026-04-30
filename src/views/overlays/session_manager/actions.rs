@@ -34,6 +34,10 @@ impl SessionManager {
         let data = self.workspace.read(cx).data().clone();
         match save_session(&name, &data) {
             Ok(()) => {
+                settings_entity(cx).update(cx, |state, cx| {
+                    state.settings.active_session = Some(name.clone());
+                    state.save_and_notify(cx);
+                });
                 self.new_session_input.update(cx, |input, cx| {
                     input.set_value("", cx);
                 });
@@ -51,6 +55,10 @@ impl SessionManager {
         let backend = settings_entity(cx).read(cx).settings.session_backend;
         match load_session(name, backend) {
             Ok(data) => {
+                settings_entity(cx).update(cx, |state, cx| {
+                    state.settings.active_session = Some(name.to_string());
+                    state.save_and_notify(cx);
+                });
                 // Emit event to notify parent to switch workspace
                 cx.emit(SessionManagerEvent::SwitchWorkspace(Box::new(data)));
                 self.error_message = None;
@@ -107,6 +115,13 @@ impl SessionManager {
             if new_name != old_name {
                 match rename_session(&old_name, &new_name) {
                     Ok(()) => {
+                        settings_entity(cx).update(cx, |state, cx| {
+                            if state.settings.active_session.as_deref() == Some(old_name.as_str())
+                            {
+                                state.settings.active_session = Some(new_name.clone());
+                                state.save_and_notify(cx);
+                            }
+                        });
                         self.refresh_sessions();
                         self.error_message = None;
                     }
@@ -133,6 +148,12 @@ impl SessionManager {
     pub(super) fn delete_session(&mut self, name: &str, cx: &mut Context<Self>) {
         match delete_session(name) {
             Ok(()) => {
+                settings_entity(cx).update(cx, |state, cx| {
+                    if state.settings.active_session.as_deref() == Some(name) {
+                        state.settings.active_session = None;
+                        state.save_and_notify(cx);
+                    }
+                });
                 self.show_delete_confirmation = None;
                 self.refresh_sessions();
                 self.error_message = None;
@@ -176,6 +197,10 @@ impl SessionManager {
 
         match import_workspace(std::path::Path::new(&path)) {
             Ok(data) => {
+                settings_entity(cx).update(cx, |state, cx| {
+                    state.settings.active_session = None;
+                    state.save_and_notify(cx);
+                });
                 cx.emit(SessionManagerEvent::SwitchWorkspace(Box::new(data)));
                 self.error_message = None;
             }

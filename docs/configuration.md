@@ -43,7 +43,7 @@ If the file contains invalid JSON, Vryn recovers as many fields as possible and 
   "scrollback_lines": 10000,
   "default_shell": "Default",
   "show_shell_selector": false,
-  "session_backend": "Auto",
+  "session_backend": "None",
   "file_opener": "",
   "show_focused_border": false,
   "sidebar": {
@@ -102,7 +102,7 @@ If the file contains invalid JSON, Vryn recovers as many fields as possible and 
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `session_backend` | string | `"Auto"` | Session persistence backend. Values: `"Auto"`, `"None"`, `"Tmux"`, `"Screen"`, `"Dtach"`. Auto prefers dtach, then tmux, then screen. Not supported on Windows. |
+| `session_backend` | string | `"None"` | Session persistence backend. Values: `"None"`, `"Auto"`, `"Tmux"`, `"Screen"`, `"Dtach"`. Auto prefers dtach, then tmux, then screen. Not supported on Windows. |
 
 #### Sidebar
 

@@ -1,6 +1,7 @@
 //! Persistent workspace data — projects, folders, layouts.
 
 use crate::hooks_config::HooksConfig;
+use crate::transient::FocusedTerminalState;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use vryn_core::theme::FolderColor;
@@ -40,6 +41,15 @@ pub struct WorkspaceData {
     /// Hook panel heights in pixels (project_id -> height)
     #[serde(default)]
     pub hook_panel_heights: HashMap<String, f32>,
+    /// Last focused project in the main/sidebar view.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_project_id: Option<String>,
+    /// Whether the focused project should be shown without worktree children.
+    #[serde(default)]
+    pub focus_project_individual: bool,
+    /// Last focused terminal pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_terminal: Option<FocusedTerminalState>,
 }
 
 impl WorkspaceData {
@@ -89,6 +99,17 @@ impl WorkspaceData {
                 .filter(|(id, _)| !remote_ids.contains(id.as_str()))
                 .map(|(k, v)| (k.clone(), *v))
                 .collect(),
+            focused_project_id: self
+                .focused_project_id
+                .as_ref()
+                .filter(|id| !remote_ids.contains(id.as_str()))
+                .cloned(),
+            focus_project_individual: self.focus_project_individual,
+            focused_terminal: self
+                .focused_terminal
+                .as_ref()
+                .filter(|state| !remote_ids.contains(state.project_id.as_str()))
+                .cloned(),
             folders: self
                 .folders
                 .iter()

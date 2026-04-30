@@ -50,7 +50,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(data: WorkspaceData) -> Self {
-        Self {
+        let mut workspace = Self {
             data,
             focus_manager: FocusManager::new(),
             lifecycle: ProjectLifecycleTracker::new(),
@@ -58,7 +58,9 @@ impl Workspace {
             access_history: ProjectAccessHistory::new(),
             data_version: 0,
             active_folder_filter: None,
-        }
+        };
+        workspace.restore_focus_from_data();
+        workspace
     }
 
     /// Current data version (incremented on persistent data mutations)
@@ -85,8 +87,41 @@ impl Workspace {
     pub fn replace_data(&mut self, data: WorkspaceData, cx: &mut Context<Self>) {
         self.data = data;
         self.focus_manager.clear_all();
+        self.restore_focus_from_data();
         self.active_folder_filter = None;
         cx.notify();
+    }
+
+    fn restore_focus_from_data(&mut self) {
+        let focused_project_id = self
+            .data
+            .focused_project_id
+            .as_ref()
+            .filter(|id| self.project(id).is_some())
+            .cloned();
+        let focus_project_individual = self.data.focus_project_individual;
+        self.focus_manager
+            .restore_focused_project(focused_project_id, focus_project_individual);
+
+        if let Some(focused_terminal) = self.data.focused_terminal.clone()
+            && self.focus_target_exists(&focused_terminal)
+        {
+            self.focus_manager
+                .focus_terminal(focused_terminal.project_id, focused_terminal.layout_path);
+        }
+    }
+
+    fn focus_target_exists(&self, focused: &FocusedTerminalState) -> bool {
+        self.project(&focused.project_id)
+            .and_then(|p| p.layout.as_ref())
+            .and_then(|layout| layout.get_at_path(&focused.layout_path))
+            .is_some_and(|node| matches!(node, LayoutNode::Terminal { .. }))
+    }
+
+    pub fn persist_focus_state(&mut self) {
+        self.data.focused_project_id = self.focus_manager.focused_project_id().cloned();
+        self.data.focus_project_individual = self.focus_manager.is_focus_individual();
+        self.data.focused_terminal = self.focus_manager.focused_terminal_state();
     }
 
     /// Record that a project was accessed (for sorting by recency)
@@ -565,6 +600,9 @@ mod workspace_tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: Vec::new(),
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         }
     }
 
@@ -1321,6 +1359,9 @@ mod gpui_tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         }
     }
 

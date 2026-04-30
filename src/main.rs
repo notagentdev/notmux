@@ -104,10 +104,15 @@ fn quit(_: &Quit, cx: &mut App) {
     }
 
     // Flush pending workspace save
-    if let Some(gw) = cx.try_global::<GlobalWorkspace>()
-        && let Err(e) = persistence::save_workspace(gw.0.read(cx).data())
-    {
-        log::error!("Failed to flush workspace on quit: {}", e);
+    if let Some(gw) = cx.try_global::<GlobalWorkspace>() {
+        let active_session = cx
+            .try_global::<GlobalSettings>()
+            .and_then(|gs| gs.0.read(cx).settings.active_session.clone());
+        if let Err(e) =
+            persistence::save_active_workspace(gw.0.read(cx).data(), active_session.as_deref())
+        {
+            log::error!("Failed to flush workspace on quit: {}", e);
+        }
     }
 
     cx.quit();
@@ -292,11 +297,24 @@ fn run_headless(listen_addr: IpAddr) {
 
         // Initialize global settings (must be before workspace load)
         let settings_entity = settings::init_settings(cx);
-        let app_settings = settings_entity.read(cx).get().clone();
+        let mut app_settings = settings_entity.read(cx).get().clone();
+        if let Some(active_session) = app_settings.active_session.clone()
+            && !persistence::session_exists(&active_session)
+        {
+            settings_entity.update(cx, |state, cx| {
+                state.settings.active_session = None;
+                state.save_and_notify(cx);
+            });
+            app_settings.active_session = None;
+        }
 
         // Load or create workspace
-        let workspace_data = persistence::load_workspace(app_settings.session_backend).unwrap_or_else(|e| {
+        let workspace_data = persistence::load_active_workspace(&app_settings).unwrap_or_else(|e| {
             log::error!("Failed to load workspace: {}. A backup may have been saved to {:?}. Using default workspace.", e, persistence::get_workspace_path().with_extension("json.bak"));
+            settings_entity.update(cx, |state, cx| {
+                state.settings.active_session = None;
+                state.save_and_notify(cx);
+            });
             persistence::default_workspace()
         });
 
@@ -543,11 +561,24 @@ fn main() {
 
         // Initialize global settings entity (must be before workspace load)
         let settings_entity = settings::init_settings(cx);
-        let app_settings = settings_entity.read(cx).get().clone();
+        let mut app_settings = settings_entity.read(cx).get().clone();
+        if let Some(active_session) = app_settings.active_session.clone()
+            && !persistence::session_exists(&active_session)
+        {
+            settings_entity.update(cx, |state, cx| {
+                state.settings.active_session = None;
+                state.save_and_notify(cx);
+            });
+            app_settings.active_session = None;
+        }
 
         // Load or create workspace
-        let workspace_data = persistence::load_workspace(app_settings.session_backend).unwrap_or_else(|e| {
+        let workspace_data = persistence::load_active_workspace(&app_settings).unwrap_or_else(|e| {
             log::error!("Failed to load workspace: {}. A backup may have been saved to {:?}. Using default workspace.", e, persistence::get_workspace_path().with_extension("json.bak"));
+            settings_entity.update(cx, |state, cx| {
+                state.settings.active_session = None;
+                state.save_and_notify(cx);
+            });
             let backup_path = persistence::get_workspace_path().with_extension("json.bak");
             ToastManager::post(
                 Toast::error(format!(
@@ -815,10 +846,17 @@ fn main() {
             }
 
             // Flush pending workspace save
-            if let Some(gw) = cx.try_global::<GlobalWorkspace>()
-                && let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
+            if let Some(gw) = cx.try_global::<GlobalWorkspace>() {
+                let active_session = cx
+                    .try_global::<GlobalSettings>()
+                    .and_then(|gs| gs.0.read(cx).settings.active_session.clone());
+                if let Err(e) = persistence::save_active_workspace(
+                    gw.0.read(cx).data(),
+                    active_session.as_deref(),
+                ) {
                     log::error!("Failed to flush workspace on quit: {}", e);
                 }
+            }
             async {}
         }).detach();
     });

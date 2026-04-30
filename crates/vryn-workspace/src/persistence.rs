@@ -380,6 +380,32 @@ pub fn load_workspace(backend: SessionBackend) -> Result<WorkspaceData> {
     }
 }
 
+/// Load the workspace that should be active for this app start.
+///
+/// If a named session is active, prefer that session. Falling back to the
+/// default workspace keeps startup resilient if the session file was deleted.
+pub fn load_active_workspace(settings: &AppSettings) -> Result<WorkspaceData> {
+    if let Some(session_name) = settings.active_session.as_deref()
+        && session_exists(session_name)
+    {
+        return load_session(session_name, settings.session_backend);
+    }
+
+    load_workspace(settings.session_backend)
+}
+
+/// Save workspace data to the currently active persistence target.
+///
+/// Named sessions are snapshots stored separately from `workspace.json`; when
+/// a session is active, writes must go back to that session file.
+pub fn save_active_workspace(data: &WorkspaceData, active_session: Option<&str>) -> Result<()> {
+    if let Some(session_name) = active_session {
+        save_session(session_name, data)
+    } else {
+        save_workspace(data)
+    }
+}
+
 /// Save workspace to disk using atomic write (write to temp file + rename).
 /// Remote projects are excluded. Refuses to save after a load failure.
 ///
@@ -497,6 +523,9 @@ pub fn default_workspace() -> WorkspaceData {
         project_widths: HashMap::new(),
         service_panel_heights: HashMap::new(),
         hook_panel_heights: HashMap::new(),
+        focused_project_id: None,
+        focus_project_individual: false,
+        focused_terminal: None,
         folders: Vec::new(),
     }
 }
@@ -540,6 +569,9 @@ mod tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders,
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         }
     }
 
@@ -747,6 +779,9 @@ mod tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         };
         let migrated = migrate_workspace(data);
         assert_eq!(migrated.version, 1);
@@ -762,6 +797,9 @@ mod tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         };
         let migrated = migrate_workspace(data);
         assert_eq!(migrated.version, WORKSPACE_VERSION);

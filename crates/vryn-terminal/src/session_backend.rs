@@ -18,6 +18,7 @@ fn user_shell() -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum SessionBackend {
     /// No persistence - direct shell
+    #[default]
     None,
     /// Use tmux for session persistence
     Tmux,
@@ -26,7 +27,6 @@ pub enum SessionBackend {
     /// Use dtach for minimal session persistence (no scrollback management)
     Dtach,
     /// Auto-detect: prefer dtach, fallback to tmux, screen, then none (default)
-    #[default]
     Auto,
 }
 
@@ -115,11 +115,11 @@ impl SessionBackend {
     /// Get all variants for UI dropdown
     pub fn all_variants() -> &'static [SessionBackend] {
         &[
+            SessionBackend::None,
             SessionBackend::Auto,
             SessionBackend::Dtach,
             SessionBackend::Tmux,
             SessionBackend::Screen,
-            SessionBackend::None,
         ]
     }
 }

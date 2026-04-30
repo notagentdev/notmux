@@ -887,6 +887,9 @@ mod tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         }
     }
 
@@ -982,6 +985,9 @@ mod gpui_tests {
             service_panel_heights: HashMap::new(),
             hook_panel_heights: HashMap::new(),
             folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
         }
     }
 

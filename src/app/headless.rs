@@ -6,6 +6,7 @@ use crate::remote::pty_broadcaster::PtyBroadcaster;
 use crate::remote::server::RemoteServer;
 use crate::remote::{GlobalRemoteInfo, RemoteInfo};
 use crate::services::manager::ServiceManager;
+use crate::settings::GlobalSettings;
 use crate::terminal::backend::TerminalBackend;
 use crate::terminal::pty_manager::{PtyEvent, PtyManager};
 use crate::views::root::TerminalsRegistry;
@@ -89,7 +90,17 @@ impl HeadlessApp {
                         let ws = workspace.read(cx);
                         (ws.data().clone(), ws.data_version())
                     });
-                    if let Err(e) = persistence::save_workspace(&data) {
+                    let active_session = cx.update(|cx| {
+                        cx.global::<GlobalSettings>()
+                            .0
+                            .read(cx)
+                            .settings
+                            .active_session
+                            .clone()
+                    });
+                    if let Err(e) =
+                        persistence::save_active_workspace(&data, active_session.as_deref())
+                    {
                         log::error!("Failed to save workspace: {}", e);
                     }
                     last_saved.store(version, Ordering::Relaxed);

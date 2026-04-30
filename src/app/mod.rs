@@ -179,7 +179,15 @@ impl Vryn {
                         let ws = workspace.read(cx);
                         (ws.data().clone(), ws.data_version())
                     });
-                    match persistence::save_workspace(&data) {
+                    let active_session = cx.update(|cx| {
+                        cx.global::<GlobalSettings>()
+                            .0
+                            .read(cx)
+                            .settings
+                            .active_session
+                            .clone()
+                    });
+                    match persistence::save_active_workspace(&data, active_session.as_deref()) {
                         Ok(()) => {
                             last_saved.store(version, Ordering::Relaxed);
                         }

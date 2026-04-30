@@ -210,7 +210,7 @@ impl Default for FileExplorerSettings {
 }
 
 /// Current settings schema version - increment when making breaking changes
-pub const SETTINGS_VERSION: u32 = 4;
+pub const SETTINGS_VERSION: u32 = 5;
 
 /// App settings (persisted separately from workspace)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -387,7 +387,7 @@ impl Default for AppSettings {
             persist_scrollback_lines: default_persist_scrollback_lines(),
             default_shell: ShellType::default(),
             show_shell_selector: false,
-            session_backend: SessionBackend::default(),
+            session_backend: SessionBackend::None,
             file_opener: default_file_opener(),
             hooks: HooksConfig::default(),
             diff_view_mode: DiffViewMode::default(),
@@ -704,6 +704,17 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
         settings.version = 4;
     }
 
+    // v4 -> v5: stop auto-enabling persistent terminal process restore.
+    // Auto was the old default, so most users did not explicitly opt into
+    // reviving previous dtach/tmux/screen sessions on startup.
+    if settings.version == 4 {
+        log::info!("Migrating settings from v4 to v5 (session backend default none)");
+        if settings.session_backend == SessionBackend::Auto {
+            settings.session_backend = SessionBackend::None;
+        }
+        settings.version = 5;
+    }
+
     // Ensure version is current
     if settings.version < SETTINGS_VERSION {
         log::warn!(
@@ -938,6 +949,24 @@ mod tests {
         let migrated = migrate_settings(settings);
         assert!(migrated.enabled_extensions.contains("claude-code"));
         assert!(migrated.enabled_extensions.contains("codex"));
+    }
+
+    #[test]
+    fn migrate_v4_auto_session_backend_to_none() {
+        let json = r#"{"version": 4, "session_backend": "Auto"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        let migrated = migrate_settings(settings);
+        assert_eq!(migrated.version, SETTINGS_VERSION);
+        assert_eq!(migrated.session_backend, SessionBackend::None);
+    }
+
+    #[test]
+    fn migrate_v4_explicit_session_backend_is_preserved() {
+        let json = r#"{"version": 4, "session_backend": "Dtach"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        let migrated = migrate_settings(settings);
+        assert_eq!(migrated.version, SETTINGS_VERSION);
+        assert_eq!(migrated.session_backend, SessionBackend::Dtach);
     }
 
     #[test]
