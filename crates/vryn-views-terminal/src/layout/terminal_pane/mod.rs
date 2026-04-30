@@ -630,8 +630,10 @@ fn replay_persisted_scrollback_raw(project_id: &str, layout_path: &[usize], term
             if snap.original_cols >= 2 && snap.original_rows >= 2 {
                 terminal.resize_grid_only(snap.original_cols, snap.original_rows);
             }
-            terminal.restore_scrollback_output(&snap.bytes);
-            terminal.process_output(history_restored_banner(&snap.bytes));
+            terminal.restore_scrollback_with_initial_text(
+                &snap.bytes,
+                history_restored_banner(&snap.bytes),
+            );
             vryn_terminal::scrollback_snapshot::clear(&dir, &key);
         }
         None => {
@@ -644,15 +646,9 @@ fn replay_persisted_scrollback_raw(project_id: &str, layout_path: &[usize], term
     }
 }
 
-fn history_restored_banner(previous_bytes: &[u8]) -> &'static [u8] {
-    if previous_bytes.ends_with(b"\n") || previous_bytes.ends_with(b"\r") {
-        HISTORY_RESTORED_BANNER_AT_LINE_START
-    } else {
-        HISTORY_RESTORED_BANNER_AFTER_TEXT
-    }
+fn history_restored_banner(_previous_bytes: &[u8]) -> &'static [u8] {
+    HISTORY_RESTORED_BANNER
 }
 
-const HISTORY_RESTORED_BANNER_AT_LINE_START: &[u8] =
-    b"\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n";
-const HISTORY_RESTORED_BANNER_AFTER_TEXT: &[u8] =
+const HISTORY_RESTORED_BANNER: &[u8] =
     b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n";

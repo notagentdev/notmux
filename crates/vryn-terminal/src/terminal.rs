@@ -295,9 +295,12 @@ pub struct Terminal {
     /// that fed the terminal emulator rather than reconstructing bytes from the
     /// already-rendered grid, which bakes stale column spacing into snapshots.
     replay_buffer: Mutex<Vec<u8>>,
-    /// Bytes loaded from a persisted snapshot during terminal revival. Kept
-    /// separate from live PTY output so replay can suppress shell responses
-    /// while still being included in the next persisted snapshot.
+    /// Raw bytes loaded from a persisted snapshot during terminal revival.
+    ///
+    /// Mirrors VS Code's `rawReviveBuffer`: while the terminal has only been
+    /// replayed and not interacted with, persistence writes this raw buffer
+    /// back instead of the visible buffer that includes restore UI text and a
+    /// freshly spawned shell prompt.
     restored_replay_buffer: Mutex<Vec<u8>>,
     /// True while replaying persisted bytes into the local emulator.
     suppress_pty_responses: Arc<AtomicBool>,
@@ -395,14 +398,24 @@ impl Terminal {
         max_lines: u32,
         cwd: Option<&str>,
     ) -> Vec<u8> {
-        let replay_bytes = self.replay_buffer.lock().clone();
         let restored_replay_bytes = self.restored_replay_buffer.lock().clone();
         let size = self.resize_state.lock().size;
+
+        if !restored_replay_bytes.is_empty() {
+            return crate::scrollback_snapshot::capture_raw(
+                &restored_replay_bytes,
+                size.cols,
+                size.rows,
+                max_lines,
+                cwd,
+            );
+        }
+        let replay_bytes = self.replay_buffer.lock().clone();
         crate::scrollback_snapshot::merge_existing_with_capture(
             crate::scrollback_snapshot::MergeCapture {
                 dir,
                 key,
-                restored_replay_bytes: &restored_replay_bytes,
+                restored_replay_bytes: &[],
                 replay_bytes: &replay_bytes,
                 cols: size.cols,
                 rows: size.rows,
@@ -432,7 +445,32 @@ impl Terminal {
             return;
         }
         self.restored_replay_buffer.lock().extend_from_slice(data);
+        self.record_replay_bytes(data);
         self.process_output_inner(data, false, true);
+    }
+
+    /// Restore raw scrollback plus visible revive text.
+    ///
+    /// The raw bytes are retained separately for replay-only persistence, while
+    /// the visible replay buffer is initialized with exactly what the user sees.
+    pub fn restore_scrollback_with_initial_text(&self, raw: &[u8], initial_text: &[u8]) {
+        if raw.is_empty() && initial_text.is_empty() {
+            return;
+        }
+
+        self.restored_replay_buffer.lock().extend_from_slice(raw);
+        {
+            let mut replay = self.replay_buffer.lock();
+            replay.extend_from_slice(raw);
+            replay.extend_from_slice(initial_text);
+            if replay.len() > REPLAY_BUFFER_MAX_BYTES {
+                let overflow = replay.len() - REPLAY_BUFFER_MAX_BYTES;
+                replay.drain(..overflow);
+            }
+        }
+
+        self.process_output_inner(raw, false, true);
+        self.process_output_inner(initial_text, false, true);
     }
 
     fn process_output_inner(&self, data: &[u8], record_replay: bool, suppress_replies: bool) {
@@ -467,6 +505,11 @@ impl Terminal {
             let overflow = buffer.len() - REPLAY_BUFFER_MAX_BYTES;
             buffer.drain(..overflow);
         }
+    }
+
+    fn mark_session_interaction(&self) {
+        self.had_user_input.store(true, Ordering::Relaxed);
+        self.restored_replay_buffer.lock().clear();
     }
 
     /// Enqueue output data for deferred processing.
@@ -512,7 +555,7 @@ impl Terminal {
     /// Send input to the PTY
     /// Automatically scrolls to bottom if scrolled into history
     pub fn send_input(&self, input: &str) {
-        self.had_user_input.store(true, Ordering::Relaxed);
+        self.mark_session_interaction();
         self.scroll_to_bottom();
         self.transport
             .send_input(&self.terminal_id, input.as_bytes());
@@ -522,7 +565,7 @@ impl Terminal {
     /// terminal application has enabled bracketed paste mode (DECSET 2004).
     /// This prevents shells from executing each line of a multi-line paste individually.
     pub fn send_paste(&self, text: &str) {
-        self.had_user_input.store(true, Ordering::Relaxed);
+        self.mark_session_interaction();
         self.scroll_to_bottom();
 
         let bracketed = self.term.lock().mode().contains(TermMode::BRACKETED_PASTE);
@@ -549,13 +592,14 @@ impl Terminal {
     /// Send raw bytes to the PTY
     /// Automatically scrolls to bottom if scrolled into history
     pub fn send_bytes(&self, data: &[u8]) {
-        self.had_user_input.store(true, Ordering::Relaxed);
+        self.mark_session_interaction();
         self.scroll_to_bottom();
         self.transport.send_input(&self.terminal_id, data);
     }
 
     /// Clear the terminal screen by sending the clear sequence
     pub fn clear(&self) {
+        self.mark_session_interaction();
         // Send ANSI escape sequence to clear screen and move cursor to home
         // \x1b[2J = clear entire screen
         // \x1b[H = move cursor to home position (0,0)
@@ -2253,6 +2297,138 @@ mod tests {
             "snapshot body should not encode simple spaces as cursor-forward escapes: {:?}",
             String::from_utf8_lossy(body)
         );
+    }
+
+    #[test]
+    fn restored_scrollback_without_user_input_discards_spawned_prompt_on_capture() {
+        let dir =
+            std::env::temp_dir().join(format!("vryn-terminal-replay-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.restore_scrollback_with_initial_text(
+            b"old output\r\n",
+            b"\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
+        );
+        terminal.process_output(b"fresh prompt % ");
+
+        let snapshot = terminal.capture_scrollback_merged(&dir, "term", 100, None);
+        let body = &snapshot[10..];
+
+        assert!(
+            body.windows(b"old output".len())
+                .any(|w| w == b"old output"),
+            "restored output should remain: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            !body.windows(b"History restored".len())
+                .any(|w| w == b"History restored"),
+            "restore marker should not be persisted before user input: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            !body.windows(b"fresh prompt".len())
+                .any(|w| w == b"fresh prompt"),
+            "spawned prompt should not be persisted before user input: {:?}",
+            String::from_utf8_lossy(body)
+        );
+
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn restored_scrollback_after_user_input_persists_visible_session_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "vryn-terminal-replay-interaction-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.restore_scrollback_with_initial_text(
+            b"old output\r\n",
+            b"\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
+        );
+        terminal.process_output(b"fresh prompt % ");
+        terminal.send_input("ls\r");
+        terminal.process_output(b"ls\r\n");
+
+        let snapshot = terminal.capture_scrollback_merged(&dir, "term", 100, None);
+        let body = &snapshot[10..];
+
+        for expected in [
+            b"old output" as &[u8],
+            b"History restored",
+            b"fresh prompt",
+            b"ls",
+        ] {
+            assert!(
+                body.windows(expected.len()).any(|w| w == expected),
+                "session state should be serialized after user input: {:?}",
+                String::from_utf8_lossy(body)
+            );
+        }
+
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn restored_scrollback_initial_text_appends_marker_after_raw_output() {
+        let dir = std::env::temp_dir().join(format!(
+            "vryn-terminal-replay-order-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.restore_scrollback_with_initial_text(
+            b"history output",
+            b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
+        );
+        terminal.send_input("x");
+        terminal.process_output(b"new output");
+
+        let snapshot = terminal.capture_scrollback_merged(&dir, "term", 100, None);
+        let body = &snapshot[10..];
+        let history = body
+            .windows(b"history output".len())
+            .position(|w| w == b"history output")
+            .expect("history output should be present");
+        let marker = body
+            .windows(b"History restored".len())
+            .position(|w| w == b"History restored")
+            .expect("restore marker should be present");
+        let new_output = body
+            .windows(b"new output".len())
+            .position(|w| w == b"new output")
+            .expect("new output should be present");
+
+        assert!(history < marker);
+        assert!(marker < new_output);
+
+        let _ = std::fs::remove_dir(dir);
     }
 
     #[test]

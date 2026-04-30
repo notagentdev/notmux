@@ -704,7 +704,8 @@ impl Render for RootView {
             // Handle show settings panel action
             .on_action(cx.listener({
                 let overlay_manager = overlay_manager.clone();
-                move |_this, _: &ShowSettings, _window, cx| {
+                move |this, _: &ShowSettings, _window, cx| {
+                    this.main_diff_viewer = None;
                     overlay_manager.update(cx, |om, cx| om.toggle_settings_panel(cx));
                 }
             }))

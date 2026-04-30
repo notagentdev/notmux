@@ -401,7 +401,7 @@ impl OverlayManager {
         self.settings_panel.is_some()
     }
 
-    fn close_settings_panel(&mut self, cx: &mut Context<Self>) {
+    pub fn close_settings_panel(&mut self, cx: &mut Context<Self>) {
         if self.settings_panel.take().is_some() {
             self.workspace
                 .update(cx, |ws, cx| ws.restore_focused_terminal(cx));

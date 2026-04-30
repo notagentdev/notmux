@@ -189,6 +189,7 @@ impl RootView {
                 }
             }
             OverlayManagerEvent::ConfigureHooks { project_id } => {
+                self.main_diff_viewer = None;
                 self.overlay_manager.update(cx, |om, cx| {
                     om.show_settings_for_project(project_id.clone(), cx);
                 });
@@ -1078,6 +1079,9 @@ impl RootView {
         let Some(provider) = self.build_git_provider(&request.project_id, cx) else {
             return;
         };
+
+        self.overlay_manager
+            .update(cx, |om, cx| om.close_settings_panel(cx));
 
         let viewer = cx.new(|cx| {
             vryn_views_git::diff_viewer::DiffViewer::new(
