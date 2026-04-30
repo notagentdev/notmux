@@ -1,14 +1,14 @@
 use crate::client::handler::MobileConnectionHandler;
 use crate::client::terminal_holder::TerminalHolder;
 
-use vryn_core::api::{ActionRequest, StateResponse};
-use vryn_core::client::{
-    make_prefixed_id, ConnectionEvent, ConnectionStatus, RemoteClient, RemoteConnectionConfig,
-    WsClientMessage,
-};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
+use vryn_core::api::{ActionRequest, StateResponse};
+use vryn_core::client::{
+    ConnectionEvent, ConnectionStatus, RemoteClient, RemoteConnectionConfig, WsClientMessage,
+    make_prefixed_id,
+};
 
 static MANAGER: OnceLock<ConnectionManager> = OnceLock::new();
 
@@ -65,12 +65,7 @@ impl ConnectionManager {
 
         let (event_tx, event_rx) = async_channel::bounded::<ConnectionEvent>(256);
 
-        let client = RemoteClient::new(
-            config,
-            self.runtime.clone(),
-            handler.clone(),
-            event_tx,
-        );
+        let client = RemoteClient::new(config, self.runtime.clone(), handler.clone(), event_tx);
 
         // Spawn event processor task
         let conn_id_clone = conn_id.clone();
@@ -88,10 +83,9 @@ impl ConnectionManager {
         self.connections.write().insert(conn_id.clone(), connection);
 
         // Spawn event processor
-        let event_task = self.runtime.spawn(Self::process_events(
-            conn_id_clone.clone(),
-            event_rx,
-        ));
+        let event_task = self
+            .runtime
+            .spawn(Self::process_events(conn_id_clone.clone(), event_rx));
 
         // Store the task handle
         if let Some(conn) = self.connections.write().get_mut(&conn_id) {
@@ -209,11 +203,7 @@ impl ConnectionManager {
     }
 
     /// Send an action to the remote server via POST /v1/actions.
-    pub async fn send_action(
-        &self,
-        conn_id: &str,
-        action: ActionRequest,
-    ) -> anyhow::Result<()> {
+    pub async fn send_action(&self, conn_id: &str, action: ActionRequest) -> anyhow::Result<()> {
         let (host, port, token) = {
             let connections = self.connections.read();
             let conn = connections
@@ -246,10 +236,7 @@ impl ConnectionManager {
     }
 
     /// Background task that drains the event channel and updates connection state.
-    async fn process_events(
-        conn_id: String,
-        event_rx: async_channel::Receiver<ConnectionEvent>,
-    ) {
+    async fn process_events(conn_id: String, event_rx: async_channel::Receiver<ConnectionEvent>) {
         while let Ok(event) = event_rx.recv().await {
             let mgr = match MANAGER.get() {
                 Some(m) => m,
@@ -290,10 +277,7 @@ impl ConnectionManager {
                 ConnectionEvent::SubscriptionMappings { mappings, .. } => {
                     conn.client.write().update_stream_mappings(mappings);
                 }
-                ConnectionEvent::GitStatusChanged {
-                    statuses,
-                    ..
-                } => {
+                ConnectionEvent::GitStatusChanged { statuses, .. } => {
                     if let Some(state) = conn.state_cache.write().as_mut() {
                         for project in &mut state.projects {
                             project.git_status = statuses.get(&project.id).cloned();

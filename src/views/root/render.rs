@@ -1,12 +1,21 @@
-use crate::keybindings::{ShowKeybindings, ShowSessionManager, ShowThemeSelector, ShowCommandPalette, ShowSettings, OpenSettingsFile, ShowFileSearch, ShowContentSearch, ShowProjectSwitcher, ShowDiffViewer, ShowHookLog, NewProject, ToggleSidebar, ToggleSidebarAutoHide, TogglePaneSwitcher, CreateWorktree, CheckForUpdates, InstallUpdate, FocusSidebar, FocusActiveProject, ShowPairingDialog, StartAllServices, StopAllServices, ClearFocus, EqualizeLayout, ToggleGitPanel, ToggleFileExplorer};
+use crate::keybindings::{
+    CheckForUpdates, ClearFocus, CreateWorktree, EqualizeLayout, FocusActiveProject, FocusSidebar,
+    InstallUpdate, NewProject, OpenSettingsFile, ShowCommandPalette, ShowContentSearch,
+    ShowDiffViewer, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowPairingDialog,
+    ShowProjectSwitcher, ShowSessionManager, ShowSettings, ShowThemeSelector, StartAllServices,
+    StopAllServices, ToggleFileExplorer, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar,
+    ToggleSidebarAutoHide,
+};
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::theme;
-use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
-use crate::views::layout::split_pane::{compute_resize, render_project_divider, render_sidebar_divider, DragState};
-use crate::workspace::requests::OverlayRequest;
 use crate::ui::tokens::{ui_text_md, ui_text_xl};
-use gpui::*;
+use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
+use crate::views::layout::split_pane::{
+    DragState, compute_resize, render_project_divider, render_sidebar_divider,
+};
+use crate::workspace::requests::OverlayRequest;
 use gpui::prelude::*;
+use gpui::*;
 use std::future::Future;
 
 use super::RootView;
@@ -27,13 +36,19 @@ impl RootView {
     fn to_pixel_widths(widths: &[f32], container_width: f32, min_col_width: f32) -> Vec<f32> {
         let num_dividers = widths.len().saturating_sub(1) as f32;
         let available_width = (container_width - num_dividers * 1.0).max(0.0);
-        widths.iter()
+        widths
+            .iter()
             .map(|w| (available_width * w / 100.0).max(min_col_width))
             .collect()
     }
 
     /// Scroll the projects grid horizontally to ensure the focused project column is visible.
-    pub(super) fn scroll_to_focused_project(&self, focused_id: Option<&str>, center: bool, cx: &Context<Self>) {
+    pub(super) fn scroll_to_focused_project(
+        &self,
+        focused_id: Option<&str>,
+        center: bool,
+        cx: &Context<Self>,
+    ) {
         let focused_id = match focused_id {
             Some(id) => id,
             None => return,
@@ -46,8 +61,11 @@ impl RootView {
             return;
         }
 
-        let visible_projects: Vec<String> = workspace.visible_projects()
-            .iter().map(|p| p.id.clone()).collect();
+        let visible_projects: Vec<String> = workspace
+            .visible_projects()
+            .iter()
+            .map(|p| p.id.clone())
+            .collect();
         let num_projects = visible_projects.len();
         if num_projects <= 1 {
             return;
@@ -62,11 +80,13 @@ impl RootView {
         let settings = settings_entity(cx).read(cx).settings.clone();
         let container_width = f32::from(self.projects_grid_bounds.borrow().size.width);
 
-        let raw_widths: Vec<f32> = visible_projects.iter()
+        let raw_widths: Vec<f32> = visible_projects
+            .iter()
             .map(|id| workspace.get_project_width(id, num_projects))
             .collect();
         let widths = Self::normalize_widths(&raw_widths);
-        let pixel_widths = Self::to_pixel_widths(&widths, container_width, settings.min_column_width);
+        let pixel_widths =
+            Self::to_pixel_widths(&widths, container_width, settings.min_column_width);
 
         // Compute the left edge (x offset) of the focused column
         let mut col_left: f32 = 0.0;
@@ -95,7 +115,8 @@ impl RootView {
 
         let max_offset = self.projects_scroll_handle.max_offset();
         let clamped = new_offset.clamp(-f32::from(max_offset.x), 0.0);
-        self.projects_scroll_handle.set_offset(point(px(clamped), px(0.0)));
+        self.projects_scroll_handle
+            .set_offset(point(px(clamped), px(0.0)));
     }
 
     pub(super) fn render_projects_grid(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -127,7 +148,11 @@ impl RootView {
             if let Some(pid) = workspace.focus_manager.fullscreen_project_id() {
                 vec![pid.to_string()]
             } else {
-                workspace.visible_projects().iter().map(|p| p.id.clone()).collect()
+                workspace
+                    .visible_projects()
+                    .iter()
+                    .map(|p| p.id.clone())
+                    .collect()
             }
         };
 
@@ -136,8 +161,8 @@ impl RootView {
         // Evict stale pane map entries for projects no longer rendered
         // (e.g. worktree columns hidden in overview mode)
         {
-            let visible_ids: std::collections::HashSet<&str> = visible_projects.iter()
-                .map(|s| s.as_str()).collect();
+            let visible_ids: std::collections::HashSet<&str> =
+                visible_projects.iter().map(|s| s.as_str()).collect();
             prune_pane_map(&visible_ids);
         }
 
@@ -187,7 +212,8 @@ impl RootView {
             vec![100.0; num_projects]
         } else {
             let workspace = self.workspace.read(cx);
-            let raw_widths: Vec<f32> = visible_projects.iter()
+            let raw_widths: Vec<f32> = visible_projects
+                .iter()
                 .map(|id| workspace.get_project_width(id, num_projects))
                 .collect();
             Self::normalize_widths(&raw_widths)
@@ -198,7 +224,8 @@ impl RootView {
 
         // Compute pixel widths from percentages, accounting for divider widths
         let container_width = f32::from(container_bounds.borrow().size.width);
-        let pixel_widths = Self::to_pixel_widths(&widths, container_width, settings.min_column_width);
+        let pixel_widths =
+            Self::to_pixel_widths(&widths, container_width, settings.min_column_width);
 
         // Build interleaved columns and dividers
         let mut elements: Vec<AnyElement> = Vec::new();
@@ -211,9 +238,7 @@ impl RootView {
                     .w(px(pixel_width))
                     .flex_shrink_0()
                     .h_full()
-                    .child(AnyView::from(col).cached(
-                        StyleRefinement::default().size_full()
-                    ))
+                    .child(AnyView::from(col).cached(StyleRefinement::default().size_full()))
                     .into_any_element();
 
                 elements.push(col_element);
@@ -249,26 +274,28 @@ impl RootView {
             .overflow_x_hidden()
             .relative()
             // Horizontal scrolling of project columns: shift+scroll or native touchpad horizontal scroll
-            .on_scroll_wheel(cx.listener(move |_this, event: &ScrollWheelEvent, _window, cx| {
-                let delta = event.delta.pixel_delta(px(17.0));
-                let scroll_amount = if event.modifiers.shift {
-                    // Shift+scroll: use horizontal delta if present, otherwise convert vertical
-                    if !delta.x.is_zero() { delta.x } else { delta.y }
-                } else if !delta.x.is_zero() {
-                    // Native touchpad horizontal scroll
-                    delta.x
-                } else {
-                    return;
-                };
-                let max_offset = scroll_handle_for_wheel.max_offset();
-                if max_offset.x <= px(2.0) {
-                    return;
-                }
-                let current = scroll_handle_for_wheel.offset();
-                let new_x = (current.x + scroll_amount).clamp(-max_offset.x, px(0.0));
-                scroll_handle_for_wheel.set_offset(point(new_x, current.y));
-                cx.notify();
-            }))
+            .on_scroll_wheel(
+                cx.listener(move |_this, event: &ScrollWheelEvent, _window, cx| {
+                    let delta = event.delta.pixel_delta(px(17.0));
+                    let scroll_amount = if event.modifiers.shift {
+                        // Shift+scroll: use horizontal delta if present, otherwise convert vertical
+                        if !delta.x.is_zero() { delta.x } else { delta.y }
+                    } else if !delta.x.is_zero() {
+                        // Native touchpad horizontal scroll
+                        delta.x
+                    } else {
+                        return;
+                    };
+                    let max_offset = scroll_handle_for_wheel.max_offset();
+                    if max_offset.x <= px(2.0) {
+                        return;
+                    }
+                    let current = scroll_handle_for_wheel.offset();
+                    let new_x = (current.x + scroll_amount).clamp(-max_offset.x, px(0.0));
+                    scroll_handle_for_wheel.set_offset(point(new_x, current.y));
+                    cx.notify();
+                }),
+            )
             .child(
                 div()
                     .id("projects-grid")
@@ -277,17 +304,21 @@ impl RootView {
                     .overflow_x_hidden()
                     .track_scroll(&self.projects_scroll_handle)
                     // Canvas to capture container bounds (updates persistent bounds for next render)
-                    .child(canvas(
-                        {
-                            let container_bounds = container_bounds.clone();
-                            move |bounds, _window, _cx| {
-                                *container_bounds.borrow_mut() = bounds;
-                            }
-                        },
-                        |_bounds, _prepaint, _window, _cx| {},
-                    ).absolute().size_full())
+                    .child(
+                        canvas(
+                            {
+                                let container_bounds = container_bounds.clone();
+                                move |bounds, _window, _cx| {
+                                    *container_bounds.borrow_mut() = bounds;
+                                }
+                            },
+                            |_bounds, _prepaint, _window, _cx| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
                     // Mouse handlers are on root div - no need to duplicate here
-                    .children(elements)
+                    .children(elements),
             )
             // Horizontal scrollbar overlay (absolute positioned at bottom)
             .child({
@@ -311,10 +342,12 @@ impl RootView {
                             // Jump to clicked position
                             if let Some(bounds) = *this.hscroll_bounds.borrow() {
                                 let track_width = f32::from(bounds.size.width);
-                                let relative_x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                                let relative_x =
+                                    f32::from(event.position.x) - f32::from(bounds.origin.x);
                                 let ratio = (relative_x / track_width).clamp(0.0, 1.0);
                                 let new_x = -ratio * f32::from(max_offset.x);
-                                this.projects_scroll_handle.set_offset(point(px(new_x), px(0.0)));
+                                this.projects_scroll_handle
+                                    .set_offset(point(px(new_x), px(0.0)));
                             }
                             cx.notify();
                         }),
@@ -329,10 +362,12 @@ impl RootView {
                         }
                         if let Some(bounds) = *this.hscroll_bounds.borrow() {
                             let track_width = f32::from(bounds.size.width);
-                            let relative_x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                            let relative_x =
+                                f32::from(event.position.x) - f32::from(bounds.origin.x);
                             let ratio = (relative_x / track_width).clamp(0.0, 1.0);
                             let new_x = -ratio * f32::from(max_offset.x);
-                            this.projects_scroll_handle.set_offset(point(px(new_x), px(0.0)));
+                            this.projects_scroll_handle
+                                .set_offset(point(px(new_x), px(0.0)));
                         }
                         cx.notify();
                     }))
@@ -345,36 +380,44 @@ impl RootView {
                             }
                         }),
                     )
-                    .child(canvas(
-                        {
-                            let hscroll_bounds = hscroll_bounds.clone();
-                            move |bounds, _window, _cx| {
-                                *hscroll_bounds.borrow_mut() = Some(bounds);
-                            }
-                        },
-                        move |bounds, _, window, _cx| {
-                            let max_scroll = scroll_handle.max_offset();
-                            if max_scroll.x <= px(2.0) {
-                                return;
-                            }
-                            let offset = scroll_handle.offset();
-                            let track_width = f32::from(bounds.size.width);
-                            let content_width = track_width + f32::from(max_scroll.x);
-                            let thumb_width = (track_width / content_width * track_width).max(30.0);
-                            let scroll_ratio = f32::from(-offset.x) / f32::from(max_scroll.x);
-                            let thumb_x = scroll_ratio * (track_width - thumb_width);
+                    .child(
+                        canvas(
+                            {
+                                let hscroll_bounds = hscroll_bounds.clone();
+                                move |bounds, _window, _cx| {
+                                    *hscroll_bounds.borrow_mut() = Some(bounds);
+                                }
+                            },
+                            move |bounds, _, window, _cx| {
+                                let max_scroll = scroll_handle.max_offset();
+                                if max_scroll.x <= px(2.0) {
+                                    return;
+                                }
+                                let offset = scroll_handle.offset();
+                                let track_width = f32::from(bounds.size.width);
+                                let content_width = track_width + f32::from(max_scroll.x);
+                                let thumb_width =
+                                    (track_width / content_width * track_width).max(30.0);
+                                let scroll_ratio = f32::from(-offset.x) / f32::from(max_scroll.x);
+                                let thumb_x = scroll_ratio * (track_width - thumb_width);
 
-                            let thumb_bounds = Bounds {
-                                origin: point(bounds.origin.x + px(thumb_x), bounds.origin.y + px(1.0)),
-                                size: size(px(thumb_width), px(4.0)),
-                            };
-                            window.paint_quad(fill(thumb_bounds, scrollbar_color).corner_radii(px(2.0)));
-                        },
-                    ).size_full())
+                                let thumb_bounds = Bounds {
+                                    origin: point(
+                                        bounds.origin.x + px(thumb_x),
+                                        bounds.origin.y + px(1.0),
+                                    ),
+                                    size: size(px(thumb_width), px(4.0)),
+                                };
+                                window.paint_quad(
+                                    fill(thumb_bounds, scrollbar_color).corner_radii(px(2.0)),
+                                );
+                            },
+                        )
+                        .size_full(),
+                    )
             })
             .into_any_element()
     }
-
 }
 
 impl Render for RootView {
@@ -396,6 +439,7 @@ impl Render for RootView {
         let has_color_picker = om.has_color_picker();
         let settings_panel = om.render_settings_panel();
         let _ = om;
+        let main_diff_viewer = self.main_diff_viewer.clone();
 
         // Get active drag for global mouse handling
         let active_drag = self.active_drag.clone();
@@ -437,10 +481,15 @@ impl Render for RootView {
                                 this.sidebar_ctrl.set_width(new_width);
                                 // Persist through global SettingsState (debounced)
                                 let width = this.sidebar_ctrl.width();
-                                settings_entity(cx).update(cx, |s, cx| s.set_sidebar_width(width, cx));
+                                settings_entity(cx)
+                                    .update(cx, |s, cx| s.set_sidebar_width(width, cx));
                                 cx.notify();
                             }
-                            DragState::ServicePanel { project_id, initial_mouse_y, initial_height } => {
+                            DragState::ServicePanel {
+                                project_id,
+                                initial_mouse_y,
+                                initial_height,
+                            } => {
                                 // Dragging up increases height, dragging down decreases
                                 let delta = initial_mouse_y - f32::from(event.position.y);
                                 let new_height = initial_height + delta;
@@ -451,7 +500,11 @@ impl Render for RootView {
                                     });
                                 }
                             }
-                            DragState::HookPanel { project_id, initial_mouse_y, initial_height } => {
+                            DragState::HookPanel {
+                                project_id,
+                                initial_mouse_y,
+                                initial_height,
+                            } => {
                                 let delta = initial_mouse_y - f32::from(event.position.y);
                                 let new_height = initial_height + delta;
                                 let project_id = project_id.clone();
@@ -467,7 +520,8 @@ impl Render for RootView {
                                 let new_width = window_width - f32::from(event.position.x);
                                 this.git_panel_ctrl.set_width(new_width);
                                 let width = this.git_panel_ctrl.width();
-                                settings_entity(cx).update(cx, |s, cx| s.set_git_panel_width(width, cx));
+                                settings_entity(cx)
+                                    .update(cx, |s, cx| s.set_git_panel_width(width, cx));
                                 cx.notify();
                             }
                             _ => {
@@ -492,9 +546,8 @@ impl Render for RootView {
             }))
             // Global mouse up handler to end resize (registered via window event
             // to reliably fire regardless of which child element the cursor is over)
-            .child(canvas(
-                |_bounds, _window, _cx| {},
-                {
+            .child(
+                canvas(|_bounds, _window, _cx| {}, {
                     let active_drag = active_drag.clone();
                     let terminals = self.terminals.clone();
                     let workspace = workspace.clone();
@@ -504,10 +557,8 @@ impl Render for RootView {
                         let workspace = workspace.clone();
                         window.on_mouse_event(move |e: &MouseUpEvent, phase, _window, cx| {
                             if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
-                                let was_split_drag = matches!(
-                                    *active_drag.borrow(),
-                                    Some(DragState::Split { .. })
-                                );
+                                let was_split_drag =
+                                    matches!(*active_drag.borrow(), Some(DragState::Split { .. }));
                                 let was_dragging = active_drag.borrow().is_some();
                                 *active_drag.borrow_mut() = None;
 
@@ -527,8 +578,10 @@ impl Render for RootView {
                             }
                         });
                     }
-                },
-            ).absolute().size_full())
+                })
+                .absolute()
+                .size_full(),
+            )
             // Handle sidebar toggle action from title bar
             .on_action(cx.listener(|this, _: &ToggleSidebar, _window, cx| {
                 this.toggle_sidebar(cx);
@@ -542,10 +595,15 @@ impl Render for RootView {
                 let workspace = workspace.clone();
                 move |this, _: &ToggleGitPanel, _window, cx| {
                     // Get focused or first visible project
-                    let project_id = workspace.read(cx).focus_manager.focused_terminal_state()
+                    let project_id = workspace
+                        .read(cx)
+                        .focus_manager
+                        .focused_terminal_state()
                         .map(|f| f.project_id.clone())
                         .or_else(|| {
-                            workspace.read(cx).visible_projects()
+                            workspace
+                                .read(cx)
+                                .visible_projects()
                                 .first()
                                 .map(|p| p.id.clone())
                         });
@@ -559,7 +617,8 @@ impl Render for RootView {
             // Handle toggle file-explorer action: swaps the sidebar between
             // the Projects list and the file-tree view.
             .on_action(cx.listener(|this, _: &ToggleFileExplorer, _window, cx| {
-                this.sidebar.update(cx, |sidebar, cx| sidebar.toggle_view(cx));
+                this.sidebar
+                    .update(cx, |sidebar, cx| sidebar.toggle_view(cx));
             }))
             // Handle clear focus action (show all projects)
             .on_action(cx.listener(|this, _: &ClearFocus, _window, cx| {
@@ -578,7 +637,10 @@ impl Render for RootView {
                         ws.set_folder_filter(None, cx);
                     });
                 } else {
-                    let project_id = this.workspace.read(cx).focus_manager
+                    let project_id = this
+                        .workspace
+                        .read(cx)
+                        .focus_manager
                         .focused_terminal_state()
                         .map(|state| state.project_id);
                     if let Some(project_id) = project_id {
@@ -686,7 +748,8 @@ impl Render for RootView {
                     let token = info.current_token();
                     cx.notify();
                     cx.spawn(async move |_this, cx| {
-                        match vryn_ext_updater::checker::check_for_update(info.app_version()).await {
+                        match vryn_ext_updater::checker::check_for_update(info.app_version()).await
+                        {
                             Ok(Some(release)) => {
                                 if info.is_homebrew() {
                                     info.set_status(vryn_ext_updater::UpdateStatus::BrewUpdate {
@@ -713,16 +776,25 @@ impl Render for RootView {
                                     let mut download = std::pin::pin!(download);
 
                                     let download_result: anyhow::Result<std::path::PathBuf> = loop {
-                                        let polled = std::future::poll_fn(|task_cx| {
-                                            match download.as_mut().poll(task_cx) {
-                                                std::task::Poll::Ready(r) => std::task::Poll::Ready(Some(r)),
-                                                std::task::Poll::Pending => std::task::Poll::Ready(None),
+                                        let polled = std::future::poll_fn(|task_cx| match download
+                                            .as_mut()
+                                            .poll(task_cx)
+                                        {
+                                            std::task::Poll::Ready(r) => {
+                                                std::task::Poll::Ready(Some(r))
                                             }
-                                        }).await;
+                                            std::task::Poll::Pending => {
+                                                std::task::Poll::Ready(None)
+                                            }
+                                        })
+                                        .await;
                                         match polled {
                                             Some(r) => break r,
                                             None => {
-                                                smol::Timer::after(std::time::Duration::from_millis(250)).await;
+                                                smol::Timer::after(
+                                                    std::time::Duration::from_millis(250),
+                                                )
+                                                .await;
                                                 let _ = _this.update(cx, |_, cx| cx.notify());
                                             }
                                         }
@@ -730,17 +802,21 @@ impl Render for RootView {
 
                                     match download_result {
                                         Ok(path) => {
-                                            info.set_status(vryn_ext_updater::UpdateStatus::Ready {
-                                                version: release.version,
-                                                path,
-                                            });
+                                            info.set_status(
+                                                vryn_ext_updater::UpdateStatus::Ready {
+                                                    version: release.version,
+                                                    path,
+                                                },
+                                            );
                                             let _ = _this.update(cx, |_, cx| cx.notify());
                                         }
                                         Err(e) => {
                                             log::error!("Download failed: {}", e);
-                                            info.set_status(vryn_ext_updater::UpdateStatus::Failed {
-                                                error: e.to_string(),
-                                            });
+                                            info.set_status(
+                                                vryn_ext_updater::UpdateStatus::Failed {
+                                                    error: e.to_string(),
+                                                },
+                                            );
                                             let _ = _this.update(cx, |_, cx| cx.notify());
                                         }
                                     }
@@ -776,12 +852,13 @@ impl Render for RootView {
                         cx.spawn(async move |_this, cx| {
                             let result = smol::unblock({
                                 move || vryn_ext_updater::installer::install_update(&path)
-                            }).await;
+                            })
+                            .await;
                             match result {
                                 Ok(_) => {
-                                    info.set_status(vryn_ext_updater::UpdateStatus::ReadyToRestart {
-                                        version,
-                                    });
+                                    info.set_status(
+                                        vryn_ext_updater::UpdateStatus::ReadyToRestart { version },
+                                    );
                                 }
                                 Err(e) => {
                                     log::error!("Install failed: {}", e);
@@ -791,7 +868,8 @@ impl Render for RootView {
                                 }
                             }
                             let _ = _this.update(cx, |_, cx| cx.notify());
-                        }).detach();
+                        })
+                        .detach();
                     }
                 }
             }))
@@ -816,7 +894,9 @@ impl Render for RootView {
                 let workspace = workspace.clone();
                 move |this, _: &StartAllServices, _window, cx| {
                     if let Some(ref sm) = this.service_manager {
-                        let project_id = workspace.read(cx).focus_manager
+                        let project_id = workspace
+                            .read(cx)
+                            .focus_manager
                             .focused_terminal_state()
                             .map(|f| f.project_id.clone());
                         if let Some(pid) = project_id {
@@ -833,7 +913,9 @@ impl Render for RootView {
                 let workspace = workspace.clone();
                 move |this, _: &StopAllServices, _window, cx| {
                     if let Some(ref sm) = this.service_manager {
-                        let project_id = workspace.read(cx).focus_manager
+                        let project_id = workspace
+                            .read(cx)
+                            .focus_manager
                             .focused_terminal_state()
                             .map(|f| f.project_id.clone());
                         if let Some(pid) = project_id {
@@ -846,10 +928,15 @@ impl Render for RootView {
             .on_action(cx.listener({
                 let workspace = workspace.clone();
                 move |this, _: &ShowFileSearch, _window, cx| {
-                    let project_id = workspace.read(cx).focus_manager.focused_terminal_state()
+                    let project_id = workspace
+                        .read(cx)
+                        .focus_manager
+                        .focused_terminal_state()
                         .map(|f| f.project_id.clone())
                         .or_else(|| {
-                            workspace.read(cx).visible_projects()
+                            workspace
+                                .read(cx)
+                                .visible_projects()
                                 .first()
                                 .map(|p| p.id.clone())
                         });
@@ -868,10 +955,15 @@ impl Render for RootView {
             .on_action(cx.listener({
                 let workspace = workspace.clone();
                 move |this, _: &ShowContentSearch, _window, cx| {
-                    let project_id = workspace.read(cx).focus_manager.focused_terminal_state()
+                    let project_id = workspace
+                        .read(cx)
+                        .focus_manager
+                        .focused_terminal_state()
                         .map(|f| f.project_id.clone())
                         .or_else(|| {
-                            workspace.read(cx).visible_projects()
+                            workspace
+                                .read(cx)
+                                .visible_projects()
                                 .first()
                                 .map(|p| p.id.clone())
                         });
@@ -898,17 +990,32 @@ impl Render for RootView {
                 let workspace = workspace.clone();
                 move |this, _: &ShowDiffViewer, _window, cx| {
                     // Get the focused or first visible project ID
-                    let project_id = workspace.read(cx).focus_manager.focused_terminal_state()
+                    let project_id = workspace
+                        .read(cx)
+                        .focus_manager
+                        .focused_terminal_state()
                         .map(|f| f.project_id.clone())
                         .or_else(|| {
-                            workspace.read(cx).visible_projects()
+                            workspace
+                                .read(cx)
+                                .visible_projects()
                                 .first()
                                 .map(|p| p.id.clone())
                         });
 
                     if let Some(project_id) = project_id {
                         this.request_broker.update(cx, |broker, cx| {
-                            broker.push_overlay_request(OverlayRequest::DiffViewer { project_id, file: None, mode: None, commit_message: None, commits: None, commit_index: None }, cx);
+                            broker.push_overlay_request(
+                                OverlayRequest::DiffViewer {
+                                    project_id,
+                                    file: None,
+                                    mode: None,
+                                    commit_message: None,
+                                    commits: None,
+                                    commit_index: None,
+                                },
+                                cx,
+                            );
                         });
                     }
                 }
@@ -930,24 +1037,32 @@ impl Render for RootView {
                     .min_w_0()
                     .relative()
                     // Auto-hide hover zone (invisible strip on the left edge)
-                    .when(self.sidebar_ctrl.is_auto_hide() && !self.sidebar_ctrl.is_open() && !self.sidebar_ctrl.is_hover_shown(), |d| {
-                        d.child(
-                            div()
-                                .id("sidebar-hover-zone")
-                                .absolute()
-                                .left_0()
-                                .top_0()
-                                .h_full()
-                                .w(px(8.0))
-                                .hover(|s| s.cursor_pointer())
-                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
-                                    this.show_sidebar_on_hover(cx);
-                                }))
-                                .on_mouse_move(cx.listener(|this, _, _window, cx| {
-                                    this.show_sidebar_on_hover(cx);
-                                }))
-                        )
-                    })
+                    .when(
+                        self.sidebar_ctrl.is_auto_hide()
+                            && !self.sidebar_ctrl.is_open()
+                            && !self.sidebar_ctrl.is_hover_shown(),
+                        |d| {
+                            d.child(
+                                div()
+                                    .id("sidebar-hover-zone")
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .h_full()
+                                    .w(px(8.0))
+                                    .hover(|s| s.cursor_pointer())
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _window, cx| {
+                                            this.show_sidebar_on_hover(cx);
+                                        }),
+                                    )
+                                    .on_mouse_move(cx.listener(|this, _, _window, cx| {
+                                        this.show_sidebar_on_hover(cx);
+                                    })),
+                            )
+                        },
+                    )
                     .child(
                         // Sidebar container - animated width
                         {
@@ -964,15 +1079,13 @@ impl Render for RootView {
                                 .when(show_sidebar, |d| {
                                     d.child(
                                         // Inner wrapper to maintain sidebar at full width for clipping effect
-                                        div()
-                                            .w(px(configured_width))
-                                            .h_full()
-                                            .child(AnyView::from(self.sidebar.clone()).cached(
-                                                StyleRefinement::default().size_full()
-                                            ))
+                                        div().w(px(configured_width)).h_full().child(
+                                            AnyView::from(self.sidebar.clone())
+                                                .cached(StyleRefinement::default().size_full()),
+                                        ),
                                     )
                                 })
-                        }
+                        },
                     )
                     // Sidebar resize divider (only when sidebar is visible)
                     .when(self.sidebar_ctrl.should_render(), |d| {
@@ -995,12 +1108,19 @@ impl Render for RootView {
                                     .min_h_0()
                                     .min_w_0()
                                     .when_some(settings_panel.clone(), |d, panel| {
-                                        d.child(AnyView::from(panel).cached(
-                                            StyleRefinement::default().size_full()
-                                        ))
+                                        d.child(
+                                            AnyView::from(panel)
+                                                .cached(StyleRefinement::default().size_full()),
+                                        )
                                     })
                                     .when(settings_panel.is_none(), |d| {
-                                        d.child(self.render_projects_grid(cx))
+                                        if let Some(viewer) = main_diff_viewer.clone() {
+                                            d.child(viewer.update(cx, |viewer, cx| {
+                                                viewer.render_embedded(window, cx)
+                                            }))
+                                        } else {
+                                            d.child(self.render_projects_grid(cx))
+                                        }
                                     }),
                             ),
                     )
@@ -1010,9 +1130,10 @@ impl Render for RootView {
             // Status bar at the bottom
             .child(self.status_bar.clone())
             // App menu dropdown (renders on top of everything, not on macOS where native menu is used)
-            .when(!cfg!(target_os = "macos") && self.title_bar.read(cx).is_menu_open(), |d| {
-                d.child(self.title_bar.update(cx, |tb, cx| tb.render_menu(cx)))
-            })
+            .when(
+                !cfg!(target_os = "macos") && self.title_bar.read(cx).is_menu_open(),
+                |d| d.child(self.title_bar.update(cx, |tb, cx| tb.render_menu(cx))),
+            )
             // Color picker popover (positioned popup, rendered at root for full-window backdrop)
             .when(has_color_picker, |d| {
                 d.children(self.overlay_manager.read(cx).render_color_picker())

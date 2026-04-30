@@ -58,4 +58,3 @@ impl RemoteInfo {
 pub struct GlobalRemoteInfo(pub RemoteInfo);
 
 impl gpui::Global for GlobalRemoteInfo {}
-

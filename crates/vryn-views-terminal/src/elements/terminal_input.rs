@@ -1,7 +1,7 @@
-use vryn_terminal::terminal::Terminal;
 use gpui::*;
 use std::ops::Range;
 use std::sync::Arc;
+use vryn_terminal::terminal::Terminal;
 
 /// ASCII DEL character - what terminals expect for backspace
 const DEL: u8 = 0x7f;

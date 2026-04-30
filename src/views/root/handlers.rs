@@ -10,6 +10,15 @@ use vryn_core::api::ActionRequest;
 
 use super::RootView;
 
+struct MainDiffViewerRequest {
+    project_id: String,
+    file: Option<String>,
+    mode: Option<vryn_core::types::DiffMode>,
+    commit_message: Option<String>,
+    commits: Option<Vec<crate::git::CommitLogEntry>>,
+    commit_index: Option<usize>,
+}
+
 impl RootView {
     /// Build an ActionDispatcher for the given project.
     /// Returns Remote variant if the project is a remote project,
@@ -24,7 +33,8 @@ impl RootView {
             &self.service_manager,
             &self.remote_manager,
             cx,
-        ).unwrap_or_else(|| ActionDispatcher::Local {
+        )
+        .unwrap_or_else(|| ActionDispatcher::Local {
             workspace: self.workspace.clone(),
             backend: self.backend.clone(),
             terminals: self.terminals.clone(),
@@ -53,16 +63,21 @@ impl RootView {
         &self,
         project_id: &str,
         cx: &Context<Self>,
-    ) -> Option<std::sync::Arc<dyn crate::views::overlays::diff_viewer::provider::GitProvider>> {
+    ) -> Option<std::sync::Arc<dyn crate::views::overlays::diff_viewer::provider::GitProvider>>
+    {
         use crate::views::overlays::diff_viewer::provider::{LocalGitProvider, RemoteGitProvider};
         let ws = self.workspace.read(cx);
         let project = ws.project(project_id)?;
         if project.is_remote {
             let conn_id = project.connection_id.as_ref()?;
             let (host, port, token, actual_id) = self.remote_params(project_id, conn_id, cx)?;
-            Some(std::sync::Arc::new(RemoteGitProvider::new(host, port, token, actual_id)))
+            Some(std::sync::Arc::new(RemoteGitProvider::new(
+                host, port, token, actual_id,
+            )))
         } else {
-            Some(std::sync::Arc::new(LocalGitProvider::new(project.path.clone())))
+            Some(std::sync::Arc::new(LocalGitProvider::new(
+                project.path.clone(),
+            )))
         }
     }
 
@@ -77,13 +92,19 @@ impl RootView {
         if project.is_remote {
             let conn_id = project.connection_id.as_ref()?;
             let (host, port, token, actual_id) = self.remote_params(project_id, conn_id, cx)?;
-            Some(std::sync::Arc::new(vryn_files::project_fs::RemoteProjectFs::new(
-                host, port, token, actual_id, project.name.clone(),
-            )))
+            Some(std::sync::Arc::new(
+                vryn_files::project_fs::RemoteProjectFs::new(
+                    host,
+                    port,
+                    token,
+                    actual_id,
+                    project.name.clone(),
+                ),
+            ))
         } else {
-            Some(std::sync::Arc::new(vryn_files::project_fs::LocalProjectFs::new(
-                project.path.clone(),
-            )))
+            Some(std::sync::Arc::new(
+                vryn_files::project_fs::LocalProjectFs::new(project.path.clone()),
+            ))
         }
     }
 }
@@ -103,29 +124,48 @@ impl RootView {
             OverlayManagerEvent::WorktreeCreated(new_project_id) => {
                 self.spawn_terminals_for_project(new_project_id.clone(), cx);
             }
-            OverlayManagerEvent::ShellSelected { shell_type, project_id, terminal_id } => {
+            OverlayManagerEvent::ShellSelected {
+                shell_type,
+                project_id,
+                terminal_id,
+            } => {
                 self.switch_terminal_shell(project_id, terminal_id, shell_type.clone(), cx);
             }
             OverlayManagerEvent::AddTerminal { project_id } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
-                dispatcher.dispatch(ActionRequest::CreateTerminal {
-                    project_id: project_id.clone(),
-                }, cx);
+                dispatcher.dispatch(
+                    ActionRequest::CreateTerminal {
+                        project_id: project_id.clone(),
+                    },
+                    cx,
+                );
             }
-            OverlayManagerEvent::CreateWorktree { project_id, project_path } => {
+            OverlayManagerEvent::CreateWorktree {
+                project_id,
+                project_path,
+            } => {
                 self.overlay_manager.update(cx, |om, cx| {
                     om.show_worktree_dialog(project_id.clone(), project_path.clone(), cx);
                 });
             }
-            OverlayManagerEvent::RenameProject { project_id, project_name } => {
+            OverlayManagerEvent::RenameProject {
+                project_id,
+                project_name,
+            } => {
                 self.request_broker.update(cx, |broker, cx| {
-                    broker.push_sidebar_request(SidebarRequest::RenameProject {
-                        project_id: project_id.clone(),
-                        project_name: project_name.clone(),
-                    }, cx);
+                    broker.push_sidebar_request(
+                        SidebarRequest::RenameProject {
+                            project_id: project_id.clone(),
+                            project_name: project_name.clone(),
+                        },
+                        cx,
+                    );
                 });
             }
-            OverlayManagerEvent::RenameDirectory { project_id, project_path } => {
+            OverlayManagerEvent::RenameDirectory {
+                project_id,
+                project_path,
+            } => {
                 self.overlay_manager.update(cx, |om, cx| {
                     om.show_rename_directory_dialog(project_id.clone(), project_path.clone(), cx);
                 });
@@ -137,7 +177,10 @@ impl RootView {
             }
             OverlayManagerEvent::DeleteProject { project_id } => {
                 // Collect hook terminal IDs before deleting so we can clean them from the registry
-                let hook_tids = self.workspace.read(cx).hook_terminal_ids_for_project(project_id);
+                let hook_tids = self
+                    .workspace
+                    .read(cx)
+                    .hook_terminal_ids_for_project(project_id);
                 self.workspace.update(cx, |ws, cx| {
                     ws.delete_project(project_id, &settings(cx).hooks, cx);
                 });
@@ -152,15 +195,21 @@ impl RootView {
             }
             OverlayManagerEvent::ReloadServices { project_id } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
-                dispatcher.dispatch(vryn_core::api::ActionRequest::ReloadServices {
-                    project_id: project_id.clone(),
-                }, cx);
+                dispatcher.dispatch(
+                    vryn_core::api::ActionRequest::ReloadServices {
+                        project_id: project_id.clone(),
+                    },
+                    cx,
+                );
             }
             OverlayManagerEvent::QuickCreateWorktree { project_id } => {
                 self.request_broker.update(cx, |broker, cx| {
-                    broker.push_sidebar_request(crate::workspace::requests::SidebarRequest::QuickCreateWorktree {
-                        project_id: project_id.clone(),
-                    }, cx);
+                    broker.push_sidebar_request(
+                        crate::workspace::requests::SidebarRequest::QuickCreateWorktree {
+                            project_id: project_id.clone(),
+                        },
+                        cx,
+                    );
                 });
             }
             OverlayManagerEvent::ProjectColorChanged { project_id, color } => {
@@ -169,7 +218,9 @@ impl RootView {
                 });
             }
             OverlayManagerEvent::FocusParent { project_id } => {
-                let parent_id = self.workspace.read(cx)
+                let parent_id = self
+                    .workspace
+                    .read(cx)
                     .project(project_id)
                     .and_then(|p| p.worktree_info.as_ref())
                     .map(|wt| wt.parent_project_id.clone());
@@ -199,12 +250,18 @@ impl RootView {
                     });
                 }
             }
-            OverlayManagerEvent::RemotePair { connection_id, connection_name } => {
+            OverlayManagerEvent::RemotePair {
+                connection_id,
+                connection_name,
+            } => {
                 self.overlay_manager.update(cx, |om, cx| {
                     om.show_remote_pair_dialog(connection_id.clone(), connection_name.clone(), cx);
                 });
             }
-            OverlayManagerEvent::RemotePaired { connection_id, code } => {
+            OverlayManagerEvent::RemotePaired {
+                connection_id,
+                code,
+            } => {
                 if let Some(ref rm) = self.remote_manager {
                     rm.update(cx, |rm, cx| {
                         rm.pair(connection_id, code, cx);
@@ -221,12 +278,14 @@ impl RootView {
             OverlayManagerEvent::TerminalCopy { terminal_id } => {
                 let terminals = self.terminals.lock();
                 if let Some(terminal) = terminals.get(terminal_id)
-                    && let Some(text) = terminal.get_selected_text() {
-                        cx.write_to_clipboard(ClipboardItem::new_string(text));
-                    }
+                    && let Some(text) = terminal.get_selected_text()
+                {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                }
             }
             OverlayManagerEvent::TerminalPaste { terminal_id } => {
-                let text = cx.read_from_clipboard()
+                let text = cx
+                    .read_from_clipboard()
                     .and_then(|item| item.text().map(|t| t.to_string()));
                 if let Some(text) = text {
                     let terminals = self.terminals.lock();
@@ -248,62 +307,99 @@ impl RootView {
                 }
                 cx.notify();
             }
-            OverlayManagerEvent::TerminalSplit { project_id, layout_path, direction } => {
+            OverlayManagerEvent::TerminalSplit {
+                project_id,
+                layout_path,
+                direction,
+            } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
-                dispatcher.dispatch(ActionRequest::SplitTerminal {
-                    project_id: project_id.clone(),
-                    path: layout_path.clone(),
-                    direction: *direction,
-                }, cx);
+                dispatcher.dispatch(
+                    ActionRequest::SplitTerminal {
+                        project_id: project_id.clone(),
+                        path: layout_path.clone(),
+                        direction: *direction,
+                    },
+                    cx,
+                );
             }
-            OverlayManagerEvent::TerminalClose { project_id, terminal_id } => {
+            OverlayManagerEvent::TerminalClose {
+                project_id,
+                terminal_id,
+            } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
-                dispatcher.dispatch(ActionRequest::CloseTerminal {
-                    project_id: project_id.clone(),
-                    terminal_id: terminal_id.clone(),
-                }, cx);
+                dispatcher.dispatch(
+                    ActionRequest::CloseTerminal {
+                        project_id: project_id.clone(),
+                        terminal_id: terminal_id.clone(),
+                    },
+                    cx,
+                );
             }
-            OverlayManagerEvent::TabClose { project_id, layout_path, tab_index } => {
-                let terminal_ids = collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
+            OverlayManagerEvent::TabClose {
+                project_id,
+                layout_path,
+                tab_index,
+            } => {
+                let terminal_ids =
+                    collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
                 if let Some(tid) = terminal_ids.get(*tab_index).cloned() {
                     let dispatcher = self.dispatcher_for_project(project_id, cx);
-                    dispatcher.dispatch(ActionRequest::CloseTerminal {
-                        project_id: project_id.clone(),
-                        terminal_id: tid,
-                    }, cx);
+                    dispatcher.dispatch(
+                        ActionRequest::CloseTerminal {
+                            project_id: project_id.clone(),
+                            terminal_id: tid,
+                        },
+                        cx,
+                    );
                 }
             }
-            OverlayManagerEvent::TabCloseOthers { project_id, layout_path, tab_index } => {
-                let terminal_ids = collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
-                let to_close: Vec<String> = terminal_ids.into_iter().enumerate()
+            OverlayManagerEvent::TabCloseOthers {
+                project_id,
+                layout_path,
+                tab_index,
+            } => {
+                let terminal_ids =
+                    collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
+                let to_close: Vec<String> = terminal_ids
+                    .into_iter()
+                    .enumerate()
                     .filter(|(i, _)| *i != *tab_index)
                     .map(|(_, id)| id)
                     .collect();
                 if !to_close.is_empty() {
                     let dispatcher = self.dispatcher_for_project(project_id, cx);
-                    dispatcher.dispatch(ActionRequest::CloseTerminals {
-                        project_id: project_id.clone(),
-                        terminal_ids: to_close,
-                    }, cx);
+                    dispatcher.dispatch(
+                        ActionRequest::CloseTerminals {
+                            project_id: project_id.clone(),
+                            terminal_ids: to_close,
+                        },
+                        cx,
+                    );
                 }
             }
-            OverlayManagerEvent::TabCloseToRight { project_id, layout_path, tab_index } => {
-                let terminal_ids = collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
+            OverlayManagerEvent::TabCloseToRight {
+                project_id,
+                layout_path,
+                tab_index,
+            } => {
+                let terminal_ids =
+                    collect_tab_terminal_ids(&self.workspace, project_id, layout_path, cx);
                 let to_close: Vec<String> = terminal_ids.into_iter().skip(tab_index + 1).collect();
                 if !to_close.is_empty() {
                     let dispatcher = self.dispatcher_for_project(project_id, cx);
-                    dispatcher.dispatch(ActionRequest::CloseTerminals {
-                        project_id: project_id.clone(),
-                        terminal_ids: to_close,
-                    }, cx);
+                    dispatcher.dispatch(
+                        ActionRequest::CloseTerminals {
+                            project_id: project_id.clone(),
+                            terminal_ids: to_close,
+                        },
+                        cx,
+                    );
                 }
             }
             OverlayManagerEvent::RemoteConnected { config } => {
                 if let Some(ref rm) = self.remote_manager {
                     let config_clone = config.clone();
-                    let result = rm.update(cx, |rm, cx| {
-                        rm.add_connection(config.clone(), cx)
-                    });
+                    let result = rm.update(cx, |rm, cx| rm.add_connection(config.clone(), cx));
                     if let Err(msg) = result {
                         crate::views::panels::toast::ToastManager::warning(msg, cx);
                         return;
@@ -316,7 +412,10 @@ impl RootView {
                     });
                 }
             }
-            OverlayManagerEvent::GitFileStage { project_id, file_path } => {
+            OverlayManagerEvent::GitFileStage {
+                project_id,
+                file_path,
+            } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
                     vryn_core::api::ActionRequest::GitStageFile {
@@ -327,7 +426,10 @@ impl RootView {
                 );
                 self.refresh_git_panel(project_id, cx);
             }
-            OverlayManagerEvent::GitFileUnstage { project_id, file_path } => {
+            OverlayManagerEvent::GitFileUnstage {
+                project_id,
+                file_path,
+            } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
                     vryn_core::api::ActionRequest::GitUnstageFile {
@@ -338,7 +440,11 @@ impl RootView {
                 );
                 self.refresh_git_panel(project_id, cx);
             }
-            OverlayManagerEvent::GitFileDiscard { project_id, file_path, is_untracked } => {
+            OverlayManagerEvent::GitFileDiscard {
+                project_id,
+                file_path,
+                is_untracked,
+            } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
                     vryn_core::api::ActionRequest::GitDiscardFile {
@@ -350,7 +456,10 @@ impl RootView {
                 );
                 self.refresh_git_panel(project_id, cx);
             }
-            OverlayManagerEvent::GitFileAddToGitignore { project_id, file_path } => {
+            OverlayManagerEvent::GitFileAddToGitignore {
+                project_id,
+                file_path,
+            } => {
                 self.append_to_gitignore(project_id, file_path, cx);
                 self.refresh_git_panel(project_id, cx);
             }
@@ -402,8 +511,9 @@ impl RootView {
                 let sidebar = self.sidebar.clone();
                 cx.spawn(async move |_this, cx| {
                     let p = path.clone();
-                    let result = smol::unblock(move || vryn_files::fs_ops::delete(&p, is_dir)).await;
-                    let _ = cx.update(|cx| {
+                    let result =
+                        smol::unblock(move || vryn_files::fs_ops::delete(&p, is_dir)).await;
+                    cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer delete failed: {msg}");
                         }
@@ -417,8 +527,9 @@ impl RootView {
             OverlayManagerEvent::ExplorerReveal { path } => {
                 let path = path.clone();
                 cx.spawn(async move |_this, _cx| {
-                    let _ = smol::unblock(move || vryn_files::fs_ops::reveal_in_file_manager(&path))
-                        .await;
+                    let _ =
+                        smol::unblock(move || vryn_files::fs_ops::reveal_in_file_manager(&path))
+                            .await;
                 })
                 .detach();
             }
@@ -447,7 +558,10 @@ impl RootView {
             }
             OverlayManagerEvent::ExplorerPaste { target_dir } => {
                 let target_dir = target_dir.clone();
-                let Some(cb) = cx.try_global::<vryn_files::clipboard::ExplorerClipboard>().cloned() else {
+                let Some(cb) = cx
+                    .try_global::<vryn_files::clipboard::ExplorerClipboard>()
+                    .cloned()
+                else {
                     return;
                 };
                 let (Some(src), Some(op)) = (cb.path.clone(), cb.op) else {
@@ -473,13 +587,14 @@ impl RootView {
                         }
                     })
                     .await;
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer paste failed: {msg}");
                         }
                         // Clear clipboard on Cut; keep on Copy.
                         if matches!(op, vryn_files::clipboard::ClipboardOp::Cut) {
-                            cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>().clear();
+                            cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>()
+                                .clear();
                         }
                         sidebar.update(cx, |sb, cx| {
                             sb.patch_explorers_for_path(&src_for_paths, cx);
@@ -595,7 +710,11 @@ impl RootView {
     }
 
     /// Handle workspace switch from session manager.
-    pub(super) fn handle_switch_workspace(&mut self, data: crate::workspace::state::WorkspaceData, cx: &mut Context<Self>) {
+    pub(super) fn handle_switch_workspace(
+        &mut self,
+        data: crate::workspace::state::WorkspaceData,
+        cx: &mut Context<Self>,
+    ) {
         // Kill all existing terminals
         {
             let terminals = self.terminals.lock();
@@ -624,33 +743,51 @@ impl RootView {
     /// Drains the overlay request queue and dispatches each request to the
     /// OverlayManager. Requests for already-open overlays are silently dropped.
     pub(super) fn process_pending_requests(&mut self, cx: &mut Context<Self>) {
-        let requests: Vec<_> = self.request_broker.update(cx, |broker, _cx| {
-            broker.drain_overlay_requests()
-        });
+        let requests: Vec<_> = self
+            .request_broker
+            .update(cx, |broker, _cx| broker.drain_overlay_requests());
 
         for request in requests {
             match request {
-                OverlayRequest::ContextMenu { project_id, position } => {
+                OverlayRequest::ContextMenu {
+                    project_id,
+                    position,
+                } => {
                     if !self.overlay_manager.read(cx).has_context_menu() {
                         self.overlay_manager.update(cx, |om, cx| {
                             om.show_context_menu(
-                                crate::workspace::requests::ContextMenuRequest { project_id, position },
+                                crate::workspace::requests::ContextMenuRequest {
+                                    project_id,
+                                    position,
+                                },
                                 cx,
                             );
                         });
                     }
                 }
-                OverlayRequest::FolderContextMenu { folder_id, folder_name, position } => {
+                OverlayRequest::FolderContextMenu {
+                    folder_id,
+                    folder_name,
+                    position,
+                } => {
                     if !self.overlay_manager.read(cx).has_folder_context_menu() {
                         self.overlay_manager.update(cx, |om, cx| {
                             om.show_folder_context_menu(
-                                crate::workspace::requests::FolderContextMenuRequest { folder_id, folder_name, position },
+                                crate::workspace::requests::FolderContextMenuRequest {
+                                    folder_id,
+                                    folder_name,
+                                    position,
+                                },
                                 cx,
                             );
                         });
                     }
                 }
-                OverlayRequest::ShellSelector { project_id, terminal_id, current_shell } => {
+                OverlayRequest::ShellSelector {
+                    project_id,
+                    terminal_id,
+                    current_shell,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_shell_selector(current_shell, project_id, terminal_id, cx);
                     });
@@ -661,12 +798,59 @@ impl RootView {
                         om.toggle_add_project_dialog(rm, cx);
                     });
                 }
-                OverlayRequest::DiffViewer { project_id, file, mode, commit_message, commits, commit_index } => {
-                    if let Some(provider) = self.build_git_provider(&project_id, cx) {
+                OverlayRequest::DiffViewer {
+                    project_id,
+                    file,
+                    mode,
+                    commit_message,
+                    commits,
+                    commit_index,
+                } => {
+                    if file.is_some() && mode.is_none() {
+                        self.show_main_diff_viewer(
+                            MainDiffViewerRequest {
+                                project_id,
+                                file,
+                                mode,
+                                commit_message,
+                                commits,
+                                commit_index,
+                            },
+                            cx,
+                        );
+                    } else if let Some(provider) = self.build_git_provider(&project_id, cx) {
                         self.overlay_manager.update(cx, |om, cx| {
-                            om.show_diff_viewer(provider, file, mode, commit_message, commits, commit_index, cx);
+                            om.show_diff_viewer(
+                                provider,
+                                file,
+                                mode,
+                                commit_message,
+                                commits,
+                                commit_index,
+                                cx,
+                            );
                         });
                     }
+                }
+                OverlayRequest::MainDiffViewer {
+                    project_id,
+                    file,
+                    mode,
+                    commit_message,
+                    commits,
+                    commit_index,
+                } => {
+                    self.show_main_diff_viewer(
+                        MainDiffViewerRequest {
+                            project_id,
+                            file,
+                            mode,
+                            commit_message,
+                            commits,
+                            commit_index,
+                        },
+                        cx,
+                    );
                 }
                 OverlayRequest::RemoteConnect => {
                     if let Some(ref rm) = self.remote_manager {
@@ -676,27 +860,72 @@ impl RootView {
                         });
                     }
                 }
-                OverlayRequest::RemoteConnectionContextMenu { connection_id, connection_name, is_pairing, position } => {
+                OverlayRequest::RemoteConnectionContextMenu {
+                    connection_id,
+                    connection_name,
+                    is_pairing,
+                    position,
+                } => {
                     if !self.overlay_manager.read(cx).has_remote_context_menu() {
                         self.overlay_manager.update(cx, |om, cx| {
-                            om.show_remote_context_menu(connection_id, connection_name, is_pairing, position, cx);
+                            om.show_remote_context_menu(
+                                connection_id,
+                                connection_name,
+                                is_pairing,
+                                position,
+                                cx,
+                            );
                         });
                     }
                 }
-                OverlayRequest::TerminalContextMenu { terminal_id, project_id, layout_path, position, has_selection, link_url } => {
+                OverlayRequest::TerminalContextMenu {
+                    terminal_id,
+                    project_id,
+                    layout_path,
+                    position,
+                    has_selection,
+                    link_url,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
-                        om.show_terminal_context_menu(terminal_id, project_id, layout_path, position, has_selection, link_url, cx);
+                        om.show_terminal_context_menu(
+                            terminal_id,
+                            project_id,
+                            layout_path,
+                            position,
+                            has_selection,
+                            link_url,
+                            cx,
+                        );
                     });
                 }
-                OverlayRequest::TabContextMenu { tab_index, num_tabs, project_id, layout_path, position } => {
+                OverlayRequest::TabContextMenu {
+                    tab_index,
+                    num_tabs,
+                    project_id,
+                    layout_path,
+                    position,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
-                        om.show_tab_context_menu(tab_index, num_tabs, project_id, layout_path, position, cx);
+                        om.show_tab_context_menu(
+                            tab_index,
+                            num_tabs,
+                            project_id,
+                            layout_path,
+                            position,
+                            cx,
+                        );
                     });
                 }
-                OverlayRequest::ShowServiceLog { project_id, service_name } => {
+                OverlayRequest::ShowServiceLog {
+                    project_id,
+                    service_name,
+                } => {
                     self.handle_show_service_log(project_id, service_name, cx);
                 }
-                OverlayRequest::ShowHookTerminal { project_id, terminal_id } => {
+                OverlayRequest::ShowHookTerminal {
+                    project_id,
+                    terminal_id,
+                } => {
                     if let Some(col) = self.project_columns.get(&project_id).cloned() {
                         col.update(cx, |col, cx| {
                             col.show_hook_terminal(&terminal_id, cx);
@@ -725,7 +954,10 @@ impl RootView {
                         });
                     }
                 }
-                OverlayRequest::ColorPicker { project_id, position } => {
+                OverlayRequest::ColorPicker {
+                    project_id,
+                    position,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
                             vryn_views_sidebar::ColorPickerTarget::Project { project_id },
@@ -734,7 +966,10 @@ impl RootView {
                         );
                     });
                 }
-                OverlayRequest::FolderColorPicker { folder_id, position } => {
+                OverlayRequest::FolderColorPicker {
+                    folder_id,
+                    position,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
                             vryn_views_sidebar::ColorPickerTarget::Folder { folder_id },
@@ -743,7 +978,10 @@ impl RootView {
                         );
                     });
                 }
-                OverlayRequest::WorktreeList { project_id, position } => {
+                OverlayRequest::WorktreeList {
+                    project_id,
+                    position,
+                } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_worktree_list(project_id, position, cx);
                     });
@@ -817,7 +1055,10 @@ impl RootView {
                         });
                     }
                 }
-                OverlayRequest::GitStashList { project_id, position } => {
+                OverlayRequest::GitStashList {
+                    project_id,
+                    position,
+                } => {
                     if self.overlay_manager.read(cx).has_git_stash_list() {
                         continue;
                     }
@@ -831,6 +1072,38 @@ impl RootView {
                 }
             }
         }
+    }
+
+    fn show_main_diff_viewer(&mut self, request: MainDiffViewerRequest, cx: &mut Context<Self>) {
+        let Some(provider) = self.build_git_provider(&request.project_id, cx) else {
+            return;
+        };
+
+        let viewer = cx.new(|cx| {
+            vryn_views_git::diff_viewer::DiffViewer::new(
+                provider,
+                request.file,
+                request.mode,
+                request.commit_message,
+                request.commits,
+                request.commit_index,
+                cx,
+            )
+        });
+
+        cx.subscribe(
+            &viewer,
+            |this, _, event: &vryn_views_git::diff_viewer::DiffViewerEvent, cx| {
+                if matches!(event, vryn_views_git::diff_viewer::DiffViewerEvent::Close) {
+                    this.main_diff_viewer = None;
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        self.main_diff_viewer = Some(viewer);
+        cx.notify();
     }
 
     /// Handle a ShowServiceLog request: delegate to the correct ProjectColumn.
@@ -870,15 +1143,16 @@ fn collect_tab_terminal_ids(
     };
     match node {
         LayoutNode::Tabs { children, .. } => {
-            children.iter().filter_map(|child| {
-                // For simple Terminal children, get the ID directly.
-                // For nested structures, get the first terminal ID.
-                child.collect_terminal_ids().into_iter().next()
-            }).collect()
+            children
+                .iter()
+                .filter_map(|child| {
+                    // For simple Terminal children, get the ID directly.
+                    // For nested structures, get the first terminal ID.
+                    child.collect_terminal_ids().into_iter().next()
+                })
+                .collect()
         }
-        LayoutNode::Terminal { terminal_id, .. } => {
-            terminal_id.iter().cloned().collect()
-        }
+        LayoutNode::Terminal { terminal_id, .. } => terminal_id.iter().cloned().collect(),
         _ => Vec::new(),
     }
 }

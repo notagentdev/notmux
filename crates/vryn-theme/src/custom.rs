@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use vryn_core::theme::{ThemeColors, ThemeInfo, DARK_THEME, LIGHT_THEME};
+use vryn_core::theme::{DARK_THEME, LIGHT_THEME, ThemeColors, ThemeInfo};
 
 use crate::{builtin_vscode, vscode};
 
@@ -201,82 +201,234 @@ pub struct CustomThemeColors {
 }
 
 // Default color functions for serde (based on dark theme)
-fn default_bg_primary() -> String { "#1e1e1e".to_string() }
-fn default_bg_secondary() -> String { "#252526".to_string() }
-fn default_bg_header() -> String { "#323233".to_string() }
-fn default_bg_selection() -> String { "#264f78".to_string() }
-fn default_bg_hover() -> String { "#2a2d2e".to_string() }
-fn default_border() -> String { "#252526".to_string() }
-fn default_border_active() -> String { "#007acc".to_string() }
-fn default_border_focused() -> String { "#569cd6".to_string() }
-fn default_border_bell() -> String { "#e69500".to_string() }
-fn default_border_idle() -> String { "#e5a100".to_string() }
-fn default_text_primary() -> String { "#cccccc".to_string() }
-fn default_text_secondary() -> String { "#808080".to_string() }
-fn default_text_muted() -> String { "#6a6a6a".to_string() }
-fn default_selection_bg() -> String { "#264f78".to_string() }
-fn default_selection_fg() -> String { "#ffffff".to_string() }
-fn default_search_match_bg() -> String { "#613214".to_string() }
-fn default_search_current_bg() -> String { "#a45a00".to_string() }
-fn default_term_black() -> String { "#000000".to_string() }
-fn default_term_red() -> String { "#cd3131".to_string() }
-fn default_term_green() -> String { "#0dbc79".to_string() }
-fn default_term_yellow() -> String { "#e5e510".to_string() }
-fn default_term_blue() -> String { "#2472c8".to_string() }
-fn default_term_magenta() -> String { "#bc3fbc".to_string() }
-fn default_term_cyan() -> String { "#11a8cd".to_string() }
-fn default_term_white() -> String { "#e5e5e5".to_string() }
-fn default_term_bright_black() -> String { "#666666".to_string() }
-fn default_term_bright_red() -> String { "#f14c4c".to_string() }
-fn default_term_bright_green() -> String { "#23d18b".to_string() }
-fn default_term_bright_yellow() -> String { "#f5f543".to_string() }
-fn default_term_bright_blue() -> String { "#3b8eea".to_string() }
-fn default_term_bright_magenta() -> String { "#d670d6".to_string() }
-fn default_term_bright_cyan() -> String { "#29b8db".to_string() }
-fn default_term_bright_white() -> String { "#ffffff".to_string() }
-fn default_term_dim_black() -> String { "#333333".to_string() }
-fn default_term_dim_red() -> String { "#8b2525".to_string() }
-fn default_term_dim_green() -> String { "#0b8c5a".to_string() }
-fn default_term_dim_yellow() -> String { "#aba90a".to_string() }
-fn default_term_dim_blue() -> String { "#1c5a9e".to_string() }
-fn default_term_dim_magenta() -> String { "#8b2e8b".to_string() }
-fn default_term_dim_cyan() -> String { "#0c84a2".to_string() }
-fn default_term_dim_white() -> String { "#999999".to_string() }
-fn default_term_foreground() -> String { "#cccccc".to_string() }
-fn default_term_bright_foreground() -> String { "#ffffff".to_string() }
-fn default_term_dim_foreground() -> String { "#808080".to_string() }
-fn default_term_background() -> String { "#1e1e1e".to_string() }
-fn default_term_background_unfocused() -> String { "#252526".to_string() }
-fn default_cursor() -> String { "#aeafad".to_string() }
-fn default_scrollbar() -> String { "#5a5a5a".to_string() }
-fn default_scrollbar_hover() -> String { "#7a7a7a".to_string() }
-fn default_success() -> String { "#4ec9b0".to_string() }
-fn default_warning() -> String { "#dcdcaa".to_string() }
-fn default_error() -> String { "#f44747".to_string() }
-fn default_button_primary_bg() -> String { "#007acc".to_string() }
-fn default_button_primary_fg() -> String { "#ffffff".to_string() }
-fn default_button_primary_hover() -> String { "#005a9e".to_string() }
-fn default_folder_default() -> String { "#8a9199".to_string() }
-fn default_folder_red() -> String { "#e06c75".to_string() }
-fn default_folder_orange() -> String { "#d19a66".to_string() }
-fn default_folder_yellow() -> String { "#e5c07b".to_string() }
-fn default_folder_lime() -> String { "#a3d955".to_string() }
-fn default_folder_green() -> String { "#98c379".to_string() }
-fn default_folder_teal() -> String { "#2fbda0".to_string() }
-fn default_folder_cyan() -> String { "#56d7e5".to_string() }
-fn default_folder_blue() -> String { "#61afef".to_string() }
-fn default_folder_indigo() -> String { "#818cf8".to_string() }
-fn default_folder_purple() -> String { "#c678dd".to_string() }
-fn default_folder_pink() -> String { "#e06c9f".to_string() }
-fn default_metric_normal() -> String { "#0dbc79".to_string() }
-fn default_metric_warning() -> String { "#e5e510".to_string() }
-fn default_metric_critical() -> String { "#cd3131".to_string() }
-fn default_diff_added_bg() -> String { "#1e3a1e".to_string() }
-fn default_diff_removed_bg() -> String { "#3a1e1e".to_string() }
-fn default_diff_added_fg() -> String { "#4ec9b0".to_string() }
-fn default_diff_removed_fg() -> String { "#f14c4c".to_string() }
-fn default_diff_hunk_header_bg() -> String { "#2d3748".to_string() }
-fn default_diff_hunk_header_fg() -> String { "#569cd6".to_string() }
+fn default_bg_primary() -> String {
+    "#1e1e1e".to_string()
+}
+fn default_bg_secondary() -> String {
+    "#252526".to_string()
+}
+fn default_bg_header() -> String {
+    "#323233".to_string()
+}
+fn default_bg_selection() -> String {
+    "#264f78".to_string()
+}
+fn default_bg_hover() -> String {
+    "#2a2d2e".to_string()
+}
+fn default_border() -> String {
+    "#252526".to_string()
+}
+fn default_border_active() -> String {
+    "#007acc".to_string()
+}
+fn default_border_focused() -> String {
+    "#569cd6".to_string()
+}
+fn default_border_bell() -> String {
+    "#e69500".to_string()
+}
+fn default_border_idle() -> String {
+    "#e5a100".to_string()
+}
+fn default_text_primary() -> String {
+    "#cccccc".to_string()
+}
+fn default_text_secondary() -> String {
+    "#808080".to_string()
+}
+fn default_text_muted() -> String {
+    "#6a6a6a".to_string()
+}
+fn default_selection_bg() -> String {
+    "#264f78".to_string()
+}
+fn default_selection_fg() -> String {
+    "#ffffff".to_string()
+}
+fn default_search_match_bg() -> String {
+    "#613214".to_string()
+}
+fn default_search_current_bg() -> String {
+    "#a45a00".to_string()
+}
+fn default_term_black() -> String {
+    "#000000".to_string()
+}
+fn default_term_red() -> String {
+    "#cd3131".to_string()
+}
+fn default_term_green() -> String {
+    "#0dbc79".to_string()
+}
+fn default_term_yellow() -> String {
+    "#e5e510".to_string()
+}
+fn default_term_blue() -> String {
+    "#2472c8".to_string()
+}
+fn default_term_magenta() -> String {
+    "#bc3fbc".to_string()
+}
+fn default_term_cyan() -> String {
+    "#11a8cd".to_string()
+}
+fn default_term_white() -> String {
+    "#e5e5e5".to_string()
+}
+fn default_term_bright_black() -> String {
+    "#666666".to_string()
+}
+fn default_term_bright_red() -> String {
+    "#f14c4c".to_string()
+}
+fn default_term_bright_green() -> String {
+    "#23d18b".to_string()
+}
+fn default_term_bright_yellow() -> String {
+    "#f5f543".to_string()
+}
+fn default_term_bright_blue() -> String {
+    "#3b8eea".to_string()
+}
+fn default_term_bright_magenta() -> String {
+    "#d670d6".to_string()
+}
+fn default_term_bright_cyan() -> String {
+    "#29b8db".to_string()
+}
+fn default_term_bright_white() -> String {
+    "#ffffff".to_string()
+}
+fn default_term_dim_black() -> String {
+    "#333333".to_string()
+}
+fn default_term_dim_red() -> String {
+    "#8b2525".to_string()
+}
+fn default_term_dim_green() -> String {
+    "#0b8c5a".to_string()
+}
+fn default_term_dim_yellow() -> String {
+    "#aba90a".to_string()
+}
+fn default_term_dim_blue() -> String {
+    "#1c5a9e".to_string()
+}
+fn default_term_dim_magenta() -> String {
+    "#8b2e8b".to_string()
+}
+fn default_term_dim_cyan() -> String {
+    "#0c84a2".to_string()
+}
+fn default_term_dim_white() -> String {
+    "#999999".to_string()
+}
+fn default_term_foreground() -> String {
+    "#cccccc".to_string()
+}
+fn default_term_bright_foreground() -> String {
+    "#ffffff".to_string()
+}
+fn default_term_dim_foreground() -> String {
+    "#808080".to_string()
+}
+fn default_term_background() -> String {
+    "#1e1e1e".to_string()
+}
+fn default_term_background_unfocused() -> String {
+    "#252526".to_string()
+}
+fn default_cursor() -> String {
+    "#aeafad".to_string()
+}
+fn default_scrollbar() -> String {
+    "#5a5a5a".to_string()
+}
+fn default_scrollbar_hover() -> String {
+    "#7a7a7a".to_string()
+}
+fn default_success() -> String {
+    "#4ec9b0".to_string()
+}
+fn default_warning() -> String {
+    "#dcdcaa".to_string()
+}
+fn default_error() -> String {
+    "#f44747".to_string()
+}
+fn default_button_primary_bg() -> String {
+    "#007acc".to_string()
+}
+fn default_button_primary_fg() -> String {
+    "#ffffff".to_string()
+}
+fn default_button_primary_hover() -> String {
+    "#005a9e".to_string()
+}
+fn default_folder_default() -> String {
+    "#8a9199".to_string()
+}
+fn default_folder_red() -> String {
+    "#e06c75".to_string()
+}
+fn default_folder_orange() -> String {
+    "#d19a66".to_string()
+}
+fn default_folder_yellow() -> String {
+    "#e5c07b".to_string()
+}
+fn default_folder_lime() -> String {
+    "#a3d955".to_string()
+}
+fn default_folder_green() -> String {
+    "#98c379".to_string()
+}
+fn default_folder_teal() -> String {
+    "#2fbda0".to_string()
+}
+fn default_folder_cyan() -> String {
+    "#56d7e5".to_string()
+}
+fn default_folder_blue() -> String {
+    "#61afef".to_string()
+}
+fn default_folder_indigo() -> String {
+    "#818cf8".to_string()
+}
+fn default_folder_purple() -> String {
+    "#c678dd".to_string()
+}
+fn default_folder_pink() -> String {
+    "#e06c9f".to_string()
+}
+fn default_metric_normal() -> String {
+    "#0dbc79".to_string()
+}
+fn default_metric_warning() -> String {
+    "#e5e510".to_string()
+}
+fn default_metric_critical() -> String {
+    "#cd3131".to_string()
+}
+fn default_diff_added_bg() -> String {
+    "#1e3a1e".to_string()
+}
+fn default_diff_removed_bg() -> String {
+    "#3a1e1e".to_string()
+}
+fn default_diff_added_fg() -> String {
+    "#4ec9b0".to_string()
+}
+fn default_diff_removed_fg() -> String {
+    "#f14c4c".to_string()
+}
+fn default_diff_hunk_header_bg() -> String {
+    "#2d3748".to_string()
+}
+fn default_diff_hunk_header_fg() -> String {
+    "#569cd6".to_string()
+}
 
 impl CustomThemeColors {
     /// Parse a hex color string (e.g., "#1e1e1e" or "1e1e1e") to u32
@@ -526,7 +678,11 @@ fn load_theme_file(path: &Path) -> Option<(ThemeInfo, ThemeColors)> {
                 return None;
             }
         };
-        let fallback = if vs.is_dark() { DARK_THEME } else { LIGHT_THEME };
+        let fallback = if vs.is_dark() {
+            DARK_THEME
+        } else {
+            LIGHT_THEME
+        };
         let colors = vscode::vscode_to_theme_colors(&vs, &fallback);
         let name = vs.name.clone().unwrap_or_else(|| theme_id.clone());
         let info = ThemeInfo {

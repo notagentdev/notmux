@@ -1,10 +1,10 @@
 //! Pane drag-and-drop types for terminal rearrangement.
 
+use gpui::*;
+use gpui_component::h_flex;
 use vryn_files::theme::theme;
 use vryn_ui::theme::with_alpha;
 use vryn_ui::tokens::ui_text_md;
-use gpui::*;
-use gpui_component::h_flex;
 
 /// Drag payload emitted from a terminal header.
 #[derive(Clone)]

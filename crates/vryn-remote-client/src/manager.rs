@@ -1,14 +1,12 @@
 use crate::connection::RemoteConnection;
-use vryn_terminal::backend::TerminalBackend;
-use vryn_workspace::toast::ToastManager;
 use vryn_terminal::TerminalsRegistry;
+use vryn_terminal::backend::TerminalBackend;
 use vryn_workspace::settings::{load_settings, update_remote_connections};
+use vryn_workspace::toast::ToastManager;
 
 use vryn_core::api::{ActionRequest, StateResponse};
-use vryn_core::client::{
-    ConnectionEvent, ConnectionStatus, RemoteConnectionConfig,
-};
 use vryn_core::client::connection::try_refresh_token;
+use vryn_core::client::{ConnectionEvent, ConnectionStatus, RemoteConnectionConfig};
 
 use gpui::*;
 use std::collections::HashMap;
@@ -25,7 +23,6 @@ pub struct RemoteConnectionManager {
 
     /// Channel for events coming from tokio tasks
     event_tx: async_channel::Sender<ConnectionEvent>,
-
 }
 
 impl RemoteConnectionManager {
@@ -189,12 +186,7 @@ impl RemoteConnectionManager {
     /// Send an action to a remote server via HTTP POST /v1/actions.
     ///
     /// Fire-and-forget: spawns on the tokio runtime, logs errors and shows toast on failure.
-    pub fn send_action(
-        &self,
-        connection_id: &str,
-        action: ActionRequest,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn send_action(&self, connection_id: &str, action: ActionRequest, cx: &mut Context<Self>) {
         let config = match self.connections.get(connection_id) {
             Some(conn) => conn.config().clone(),
             None => {
@@ -205,7 +197,10 @@ impl RemoteConnectionManager {
         let token = match config.saved_token {
             Some(ref t) => t.clone(),
             None => {
-                log::error!("send_action: no auth token for connection {}", connection_id);
+                log::error!(
+                    "send_action: no auth token for connection {}",
+                    connection_id
+                );
                 ToastManager::error("No auth token for remote connection".to_string(), cx);
                 return;
             }
@@ -328,11 +323,12 @@ impl RemoteConnectionManager {
                 statuses,
             } => {
                 if let Some(conn) = self.connections.get_mut(&connection_id)
-                    && let Some(state) = conn.remote_state_mut() {
-                        for project in &mut state.projects {
-                            project.git_status = statuses.get(&project.id).cloned();
-                        }
+                    && let Some(state) = conn.remote_state_mut()
+                {
+                    for project in &mut state.projects {
+                        project.git_status = statuses.get(&project.id).cloned();
                     }
+                }
                 cx.notify();
             }
             ConnectionEvent::ServerWarning {
@@ -420,12 +416,12 @@ fn now_unix_timestamp() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::RemoteConnectionManager;
-    use vryn_terminal::TerminalsRegistry;
     use gpui::AppContext as _;
-    use vryn_core::client::RemoteConnectionConfig;
     use parking_lot::Mutex as PMutex;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use vryn_core::client::RemoteConnectionConfig;
+    use vryn_terminal::TerminalsRegistry;
 
     fn make_config(host: &str, port: u16) -> RemoteConnectionConfig {
         RemoteConnectionConfig {

@@ -3,7 +3,6 @@ pub mod headless;
 mod remote_commands;
 
 use crate::git::watcher::GitStatusWatcher;
-use crate::workspace::worktree_sync::WorktreeSyncWatcher;
 use crate::remote::auth::AuthStore;
 use crate::remote::bridge;
 use crate::remote::pty_broadcaster::PtyBroadcaster;
@@ -12,20 +11,21 @@ use crate::remote::{GlobalRemoteInfo, RemoteInfo};
 use crate::remote_client::manager::RemoteConnectionManager;
 use crate::services::manager::ServiceManager;
 use crate::settings::{GlobalSettings, settings};
-use crate::views::panels::toast::ToastManager;
 use crate::terminal::pty_manager::{PtyEvent, PtyManager};
+use crate::views::panels::toast::ToastManager;
 use crate::views::root::{RootView, TerminalsRegistry};
 use crate::workspace::persistence;
 use crate::workspace::request_broker::RequestBroker;
 use crate::workspace::state::{GlobalWorkspace, Workspace, WorkspaceData};
+use crate::workspace::worktree_sync::WorktreeSyncWatcher;
 use async_channel::Receiver;
 use gpui::*;
-use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::watch as tokio_watch;
+use vryn_core::api::ApiGitStatus;
 
 /// Set up an observer that loads/unloads service configs when projects change.
 /// Handles deferred worktrees by skipping projects whose directory doesn't exist yet.
@@ -58,7 +58,9 @@ fn sync_services(
     service_manager: &Entity<ServiceManager>,
     cx: &mut impl AppContext,
 ) {
-    let current_ids: HashSet<String> = data.projects.iter()
+    let current_ids: HashSet<String> = data
+        .projects
+        .iter()
         .filter(|p| !p.is_remote)
         .map(|p| p.id.clone())
         .collect();
@@ -133,8 +135,12 @@ impl Vryn {
     ) -> Self {
         let force_remote = listen_addr.is_some();
         let listen_addr = listen_addr.unwrap_or_else(|| {
-            cx.global::<GlobalSettings>().0.read(cx).get()
-                .remote_listen_address.parse::<IpAddr>()
+            cx.global::<GlobalSettings>()
+                .0
+                .read(cx)
+                .get()
+                .remote_listen_address
+                .parse::<IpAddr>()
                 .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
         });
         // Create workspace entity
@@ -186,7 +192,8 @@ impl Vryn {
                         }
                     }
                 }
-            }).detach();
+            })
+            .detach();
         })
         .detach();
 
@@ -194,7 +201,12 @@ impl Vryn {
         let pty_manager_clone = pty_manager.clone();
         let request_broker_clone = request_broker.clone();
         let root_view = cx.new(|cx| {
-            RootView::new(workspace.clone(), request_broker_clone, pty_manager_clone, cx)
+            RootView::new(
+                workspace.clone(),
+                request_broker_clone,
+                pty_manager_clone,
+                cx,
+            )
         });
 
         // Get terminals registry from root view
@@ -202,10 +214,11 @@ impl Vryn {
 
         // Create service manager for project-scoped background processes
         let local_backend_for_services: Arc<dyn crate::terminal::backend::TerminalBackend> =
-            Arc::new(crate::terminal::backend::LocalBackend::new(pty_manager.clone()));
-        let service_manager = cx.new(|_cx| {
-            ServiceManager::new(local_backend_for_services.clone(), terminals.clone())
-        });
+            Arc::new(crate::terminal::backend::LocalBackend::new(
+                pty_manager.clone(),
+            ));
+        let service_manager = cx
+            .new(|_cx| ServiceManager::new(local_backend_for_services.clone(), terminals.clone()));
         root_view.update(cx, |rv, cx| {
             rv.set_service_manager(service_manager.clone(), cx);
         });
@@ -217,9 +230,7 @@ impl Vryn {
         ));
 
         // Create remote connection manager and wire to root view
-        let remote_manager = cx.new(|cx| {
-            RemoteConnectionManager::new(terminals.clone(), cx)
-        });
+        let remote_manager = cx.new(|cx| RemoteConnectionManager::new(terminals.clone(), cx));
         root_view.update(cx, |rv, cx| {
             rv.set_remote_manager(remote_manager.clone(), cx);
         });
@@ -312,8 +323,9 @@ impl Vryn {
         manager.start_pty_event_loop(pty_events, cx);
 
         // Start remote command bridge loop
-        let local_backend: Arc<dyn crate::terminal::backend::TerminalBackend> =
-            Arc::new(crate::terminal::backend::LocalBackend::new(manager.pty_manager.clone()));
+        let local_backend: Arc<dyn crate::terminal::backend::TerminalBackend> = Arc::new(
+            crate::terminal::backend::LocalBackend::new(manager.pty_manager.clone()),
+        );
         manager.start_remote_command_loop(bridge_rx, local_backend, cx);
 
         // Set up observer for detached terminals
@@ -331,7 +343,9 @@ impl Vryn {
             cx.observe(&service_manager, move |_this, service_manager, cx| {
                 let sm = service_manager.read(cx);
                 // Collect project IDs that have services
-                let project_ids: Vec<String> = sm.instances().keys()
+                let project_ids: Vec<String> = sm
+                    .instances()
+                    .keys()
                     .map(|(pid, _)| pid.clone())
                     .collect::<HashSet<_>>()
                     .into_iter()
@@ -370,20 +384,22 @@ impl Vryn {
             if enabled && !running {
                 // Update listen_addr from settings if not forced via CLI
                 if !this.force_remote
-                    && let Ok(addr) = s.remote_listen_address.parse::<IpAddr>() {
-                        this.listen_addr = addr;
-                    }
+                    && let Ok(addr) = s.remote_listen_address.parse::<IpAddr>()
+                {
+                    this.listen_addr = addr;
+                }
                 this.start_remote_server(bridge_tx_for_observer.clone());
             } else if !enabled && running {
                 this.stop_remote_server();
             } else if enabled && running && !this.force_remote {
                 // Check if address changed while server is running
                 if let Ok(new_addr) = s.remote_listen_address.parse::<IpAddr>()
-                    && new_addr != this.listen_addr {
-                        this.listen_addr = new_addr;
-                        this.stop_remote_server();
-                        this.start_remote_server(bridge_tx_for_observer.clone());
-                    }
+                    && new_addr != this.listen_addr
+                {
+                    this.listen_addr = new_addr;
+                    this.stop_remote_server();
+                    this.start_remote_server(bridge_tx_for_observer.clone());
+                }
             }
         })
         .detach();
@@ -433,11 +449,7 @@ impl Vryn {
     }
 
     /// Centralized PTY event loop - notifies all windows (main and detached)
-    fn start_pty_event_loop(
-        &mut self,
-        pty_events: Receiver<PtyEvent>,
-        cx: &mut Context<Self>,
-    ) {
+    fn start_pty_event_loop(&mut self, pty_events: Receiver<PtyEvent>, cx: &mut Context<Self>) {
         let terminals = self.terminals.clone();
         let pty_manager = self.pty_manager.clone();
 
@@ -461,7 +473,10 @@ impl Vryn {
                         }
                         dirty_terminal_ids.push(terminal_id.clone());
                     }
-                    PtyEvent::Exit { terminal_id, exit_code } => {
+                    PtyEvent::Exit {
+                        terminal_id,
+                        exit_code,
+                    } => {
                         // Clean up the PtyHandle (reader/writer threads) but don't
                         // remove the UI Terminal yet — service manager may keep it
                         // so users can see crash output.
@@ -480,7 +495,10 @@ impl Vryn {
                             }
                             dirty_terminal_ids.push(terminal_id.clone());
                         }
-                        PtyEvent::Exit { terminal_id, exit_code } => {
+                        PtyEvent::Exit {
+                            terminal_id,
+                            exit_code,
+                        } => {
                             pty_manager.cleanup_exited(terminal_id);
                             exit_events.push((terminal_id.clone(), *exit_code));
                         }
@@ -515,22 +533,37 @@ impl Vryn {
                             });
 
                         // Handle hook terminal exits (status updates, pending close, cleanup)
-                        let hook_tids = this.handle_hook_terminal_exits(&exit_events, &service_tids, cx);
+                        let hook_tids =
+                            this.handle_hook_terminal_exits(&exit_events, &service_tids, cx);
 
                         // Fire terminal.on_close hook for user terminals (not service, not hook)
                         let terminal_close_infos: Vec<_> = {
-                            let global_on_close = crate::settings::settings(cx).hooks.terminal.on_close.is_some();
+                            let global_on_close = crate::settings::settings(cx)
+                                .hooks
+                                .terminal
+                                .on_close
+                                .is_some();
                             let ws = this.workspace.read(cx);
-                            exit_events.iter()
-                                .filter(|(tid, _)| !service_tids.contains(tid) && !hook_tids.contains(tid))
+                            exit_events
+                                .iter()
+                                .filter(|(tid, _)| {
+                                    !service_tids.contains(tid) && !hook_tids.contains(tid)
+                                })
                                 .filter_map(|(tid, exit_code)| {
                                     ws.find_project_for_terminal(tid).and_then(|p| {
-                                        let parent_on_close = p.worktree_info.as_ref()
+                                        let parent_on_close = p
+                                            .worktree_info
+                                            .as_ref()
                                             .and_then(|wt| ws.project(&wt.parent_project_id))
                                             .and_then(|pp| pp.hooks.terminal.on_close.as_ref())
                                             .is_some();
-                                        if global_on_close || p.hooks.terminal.on_close.is_some() || parent_on_close {
-                                            let parent_hooks = p.worktree_info.as_ref()
+                                        if global_on_close
+                                            || p.hooks.terminal.on_close.is_some()
+                                            || parent_on_close
+                                        {
+                                            let parent_hooks = p
+                                                .worktree_info
+                                                .as_ref()
                                                 .and_then(|wt| ws.project(&wt.parent_project_id))
                                                 .map(|pp| pp.hooks.clone());
                                             let terminal_name = p.terminal_names.get(tid).cloned();
@@ -538,7 +571,19 @@ impl Vryn {
                                             let folder = ws.folder_for_project_or_parent(&p.id);
                                             let fid = folder.map(|f| f.id.clone());
                                             let fname = folder.map(|f| f.name.clone());
-                                            Some((p.hooks.clone(), parent_hooks, p.id.clone(), p.name.clone(), p.path.clone(), tid.clone(), terminal_name, is_worktree, *exit_code, fid, fname))
+                                            Some((
+                                                p.hooks.clone(),
+                                                parent_hooks,
+                                                p.id.clone(),
+                                                p.name.clone(),
+                                                p.path.clone(),
+                                                tid.clone(),
+                                                terminal_name,
+                                                is_worktree,
+                                                *exit_code,
+                                                fid,
+                                                fname,
+                                            ))
                                         } else {
                                             None
                                         }
@@ -546,11 +591,34 @@ impl Vryn {
                                 })
                                 .collect()
                         };
-                        for (project_hooks, parent_hooks, project_id, project_name, project_path, terminal_id, terminal_name, is_worktree, exit_code, folder_id, folder_name) in terminal_close_infos {
+                        for (
+                            project_hooks,
+                            parent_hooks,
+                            project_id,
+                            project_name,
+                            project_path,
+                            terminal_id,
+                            terminal_name,
+                            is_worktree,
+                            exit_code,
+                            folder_id,
+                            folder_name,
+                        ) in terminal_close_infos
+                        {
                             crate::workspace::hooks::fire_terminal_on_close(
-                                &project_hooks, parent_hooks.as_ref(), &project_id, &project_name,
-                                &project_path, &terminal_id, terminal_name.as_deref(), is_worktree, exit_code,
-                                folder_id.as_deref(), folder_name.as_deref(), &crate::settings::settings(cx).hooks, cx,
+                                &project_hooks,
+                                parent_hooks.as_ref(),
+                                &project_id,
+                                &project_name,
+                                &project_path,
+                                &terminal_id,
+                                terminal_name.as_deref(),
+                                is_worktree,
+                                exit_code,
+                                folder_id.as_deref(),
+                                folder_name.as_deref(),
+                                &crate::settings::settings(cx).hooks,
+                                cx,
                             );
                         }
 
@@ -561,7 +629,9 @@ impl Vryn {
                         {
                             let mut reg = this.terminals.lock();
                             for (terminal_id, _) in &exit_events {
-                                if !service_tids.contains(terminal_id) && !hook_tids.contains(terminal_id) {
+                                if !service_tids.contains(terminal_id)
+                                    && !hook_tids.contains(terminal_id)
+                                {
                                     this.pty_manager.kill(terminal_id);
                                     reg.remove(terminal_id);
                                 }
@@ -598,22 +668,28 @@ impl Vryn {
                     if !dirty_terminal_ids.is_empty() {
                         let terminals_guard = this.terminals.lock();
                         let ws = this.workspace.read(cx);
-                        let mut status_updates: Vec<(String, crate::workspace::state::HookTerminalStatus)> = Vec::new();
+                        let mut status_updates: Vec<(
+                            String,
+                            crate::workspace::state::HookTerminalStatus,
+                        )> = Vec::new();
                         for tid in &dirty_terminal_ids {
                             if ws.is_hook_terminal(tid).is_none() {
                                 continue;
                             }
                             if let Some(terminal) = terminals_guard.get(tid)
                                 && let Some(title) = terminal.title()
-                                    && let Some(code_str) = title.strip_prefix("__vryn_hook_exit:") {
-                                        let exit_code = code_str.parse::<i32>().unwrap_or(-1);
-                                        let status = if exit_code == 0 {
-                                            crate::workspace::state::HookTerminalStatus::Succeeded
-                                        } else {
-                                            crate::workspace::state::HookTerminalStatus::Failed { exit_code }
-                                        };
-                                        status_updates.push((tid.clone(), status));
+                                && let Some(code_str) = title.strip_prefix("__vryn_hook_exit:")
+                            {
+                                let exit_code = code_str.parse::<i32>().unwrap_or(-1);
+                                let status = if exit_code == 0 {
+                                    crate::workspace::state::HookTerminalStatus::Succeeded
+                                } else {
+                                    crate::workspace::state::HookTerminalStatus::Failed {
+                                        exit_code,
                                     }
+                                };
+                                status_updates.push((tid.clone(), status));
+                            }
                         }
                         drop(terminals_guard);
                         if !status_updates.is_empty() {
@@ -646,7 +722,8 @@ impl Vryn {
     ) -> std::collections::HashSet<String> {
         let hook_tids: std::collections::HashSet<String> = {
             let ws = self.workspace.read(cx);
-            exit_events.iter()
+            exit_events
+                .iter()
                 .filter(|(tid, _)| !service_tids.contains(tid))
                 .filter(|(tid, _)| ws.is_hook_terminal(tid).is_some())
                 .map(|(tid, _)| tid.clone())
@@ -682,23 +759,53 @@ impl Vryn {
                 let folder = ws.folder_for_project_or_parent(&pending.project_id);
                 let hook_folder_id = folder.map(|f| f.id.clone());
                 let hook_folder_name = folder.map(|f| f.name.clone());
-                let (project_path_for_git, hook_info) = ws.project(&pending.project_id)
-                    .map(|p| (Some(p.path.clone()), Some((p.hooks.clone(), p.name.clone(), p.path.clone()))))
+                let (project_path_for_git, hook_info) = ws
+                    .project(&pending.project_id)
+                    .map(|p| {
+                        (
+                            Some(p.path.clone()),
+                            Some((p.hooks.clone(), p.name.clone(), p.path.clone())),
+                        )
+                    })
                     .unwrap_or((None, None));
                 if success {
                     ws.remove_hook_terminal(&tid, cx);
                     // Collect remaining hook terminal IDs before deleting the project
                     let remaining_hook_tids = ws.hook_terminal_ids_for_project(&pending.project_id);
                     ws.delete_project(&pending.project_id, &settings(cx).hooks, cx);
-                    Some((pending, project_path_for_git, hook_info, remaining_hook_tids, hook_folder_id, hook_folder_name))
+                    Some((
+                        pending,
+                        project_path_for_git,
+                        hook_info,
+                        remaining_hook_tids,
+                        hook_folder_id,
+                        hook_folder_name,
+                    ))
                 } else {
                     ws.finish_closing_project(&pending.project_id);
                     None
                 }
             });
 
-            if let Some((pending, project_path_for_git, hook_info, remaining_hook_tids, folder_id, folder_name)) = pending_data {
-                self.handle_pending_close_result(&tid, pending, project_path_for_git, hook_info, remaining_hook_tids, folder_id, folder_name, cx);
+            if let Some((
+                pending,
+                project_path_for_git,
+                hook_info,
+                remaining_hook_tids,
+                folder_id,
+                folder_name,
+            )) = pending_data
+            {
+                self.handle_pending_close_result(
+                    &tid,
+                    pending,
+                    project_path_for_git,
+                    hook_info,
+                    remaining_hook_tids,
+                    folder_id,
+                    folder_name,
+                    cx,
+                );
             }
             // Hook terminal persists — no auto-cleanup. User can dismiss manually or rerun.
         }
@@ -719,7 +826,10 @@ impl Vryn {
         folder_name: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        log::info!("Pending worktree close: hook succeeded, removing project {}", pending.project_id);
+        log::info!(
+            "Pending worktree close: hook succeeded, removing project {}",
+            pending.project_id
+        );
 
         let global_hooks = crate::settings::settings(cx).hooks;
         let monitor = crate::workspace::hooks::try_monitor(cx);
@@ -778,7 +888,8 @@ impl Vryn {
                         &std::path::PathBuf::from(&path_clone),
                         &std::path::PathBuf::from(&main_repo),
                     )
-                }).await;
+                })
+                .await;
                 if let Err(e) = result {
                     log::error!("Background worktree remove failed: {}", e);
                 }
@@ -788,9 +899,9 @@ impl Vryn {
                     });
                 });
             }
-        }).detach();
+        })
+        .detach();
     }
-
 }
 
 impl Render for Vryn {
@@ -798,4 +909,3 @@ impl Render for Vryn {
         div().size_full().child(self.root_view.clone())
     }
 }
-

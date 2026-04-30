@@ -3,14 +3,16 @@
 //! Also contains shared rendering helpers, constants, and methods used by
 //! both the unified and side-by-side diff views.
 
-use super::types::{DisplayItem, DisplayLine, ExpanderRow, HighlightedSpan};
 use super::DiffViewer;
-use vryn_git::DiffLineType;
-use vryn_core::theme::ThemeColors;
-use vryn_files::code_view::{build_styled_text_with_backgrounds, find_word_boundaries, selection_bg_ranges};
+use super::types::{DisplayItem, DisplayLine, ExpanderRow, HighlightedSpan};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
+use vryn_core::theme::ThemeColors;
+use vryn_files::code_view::{
+    build_styled_text_with_backgrounds, find_word_boundaries, selection_bg_ranges,
+};
+use vryn_git::DiffLineType;
 
 // ── Shared constants ────────────────────────────────────────────────────
 
@@ -270,40 +272,41 @@ impl DiffViewer {
             .h(px(line_height))
             .text_size(px(font_size))
             .font_family("monospace")
-            .when(line_bg.is_some(), |d| d.bg(line_bg.expect("guarded by is_some() in when()")))
-            .on_mouse_down(
-                MouseButton::Left,
-                {
-                    let text_layout = text_layout.clone();
-                    let plain_text = plain_text.clone();
-                    cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                        let col = text_layout.index_for_position(event.position)
-                            .unwrap_or_else(|ix| ix)
-                            .min(line_len);
-                        if event.click_count >= 3 {
-                            this.selection.start = Some((line_index, 0));
-                            this.selection.end = Some((line_index, line_len));
-                            this.selection.finish();
-                        } else if event.click_count == 2 {
-                            let (start, end) = find_word_boundaries(&plain_text, col);
-                            this.selection.start = Some((line_index, start));
-                            this.selection.end = Some((line_index, end));
-                            this.selection.finish();
-                        } else {
-                            this.selection.start = Some((line_index, col));
-                            this.selection.end = Some((line_index, col));
-                            this.selection.is_selecting = true;
-                        }
-                        this.selection_side = None;
-                        cx.notify();
-                    })
-                },
-            )
+            .when(line_bg.is_some(), |d| {
+                d.bg(line_bg.expect("guarded by is_some() in when()"))
+            })
+            .on_mouse_down(MouseButton::Left, {
+                let text_layout = text_layout.clone();
+                let plain_text = plain_text.clone();
+                cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                    let col = text_layout
+                        .index_for_position(event.position)
+                        .unwrap_or_else(|ix| ix)
+                        .min(line_len);
+                    if event.click_count >= 3 {
+                        this.selection.start = Some((line_index, 0));
+                        this.selection.end = Some((line_index, line_len));
+                        this.selection.finish();
+                    } else if event.click_count == 2 {
+                        let (start, end) = find_word_boundaries(&plain_text, col);
+                        this.selection.start = Some((line_index, start));
+                        this.selection.end = Some((line_index, end));
+                        this.selection.finish();
+                    } else {
+                        this.selection.start = Some((line_index, col));
+                        this.selection.end = Some((line_index, col));
+                        this.selection.is_selecting = true;
+                    }
+                    this.selection_side = None;
+                    cx.notify();
+                })
+            })
             .on_mouse_move({
                 let text_layout = text_layout.clone();
                 cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
                     if this.selection.is_selecting {
-                        let col = text_layout.index_for_position(event.position)
+                        let col = text_layout
+                            .index_for_position(event.position)
                             .unwrap_or_else(|ix| ix)
                             .min(line_len);
                         this.selection.end = Some((line_index, col));
@@ -376,12 +379,12 @@ impl DiffViewer {
         range
             .filter_map(|i| {
                 file.items.get(i).map(|item| match item {
-                    DisplayItem::Line(line) => {
-                        self.render_line(i, line, t, gutter_width, cx).into_any_element()
-                    }
-                    DisplayItem::Expander(expander) => {
-                        self.render_expander_row(i, expander, t, cx).into_any_element()
-                    }
+                    DisplayItem::Line(line) => self
+                        .render_line(i, line, t, gutter_width, cx)
+                        .into_any_element(),
+                    DisplayItem::Expander(expander) => self
+                        .render_expander_row(i, expander, t, cx)
+                        .into_any_element(),
                 })
             })
             .collect()

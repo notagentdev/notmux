@@ -1,13 +1,13 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
-use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_md};
+use crate::ui::tokens::{ui_text, ui_text_md, ui_text_sm};
 use crate::views::components::simple_input::SimpleInput;
-use gpui::*;
 use gpui::prelude::*;
+use gpui::*;
 use gpui_component::v_flex;
 
-use super::components::*;
 use super::SettingsPanel;
+use super::components::*;
 
 impl SettingsPanel {
     pub(super) fn render_general(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -72,39 +72,43 @@ impl SettingsPanel {
             .child(section)
             .child(section_header("File Opener", &t, cx))
             .child(
-                section_container(&t)
-                    .child(
-                        div()
-                            .px(px(12.0))
-                            .py(px(8.0))
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.0))
-                            .child(
-                                v_flex()
-                                    .gap(px(2.0))
-                                    .child(
-                                        div()
-                                            .text_size(ui_text(13.0, cx))
-                                            .text_color(rgb(t.text_primary))
-                                            .child("Editor Command"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(ui_text_sm(cx))
-                                            .text_color(rgb(t.text_muted))
-                                            .child("Command to open file paths (empty = system default)"),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .bg(rgb(t.bg_secondary))
-                                    .border_1()
-                                    .border_color(rgb(t.border))
-                                    .rounded(px(4.0))
-                                    .child(SimpleInput::new(&self.file_opener_input).text_size(ui_text_md(cx))),
-                            ),
-                    ),
+                section_container(&t).child(
+                    div()
+                        .px(px(12.0))
+                        .py(px(8.0))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.0))
+                        .child(
+                            v_flex()
+                                .gap(px(2.0))
+                                .child(
+                                    div()
+                                        .text_size(ui_text(13.0, cx))
+                                        .text_color(rgb(t.text_primary))
+                                        .child("Editor Command"),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(ui_text_sm(cx))
+                                        .text_color(rgb(t.text_muted))
+                                        .child(
+                                            "Command to open file paths (empty = system default)",
+                                        ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .bg(rgb(t.bg_secondary))
+                                .border_1()
+                                .border_color(rgb(t.border))
+                                .rounded(px(4.0))
+                                .child(
+                                    SimpleInput::new(&self.file_opener_input)
+                                        .text_size(ui_text_md(cx)),
+                                ),
+                        ),
+                ),
             )
     }
 }

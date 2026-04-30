@@ -5,11 +5,11 @@
 
 use std::collections::BTreeMap;
 
+use gpui::prelude::*;
+use gpui::*;
 use vryn_core::theme::ThemeColors;
 use vryn_ui::file_icon::file_icon;
 use vryn_ui::tokens::ui_text;
-use gpui::prelude::*;
-use gpui::*;
 
 /// A node in the file tree.
 #[derive(Default, Clone)]
@@ -60,7 +60,11 @@ pub fn expandable_folder_row(
         // Chevron
         .child(
             svg()
-                .path(if is_expanded { "icons/chevron-down.svg" } else { "icons/chevron-right.svg" })
+                .path(if is_expanded {
+                    "icons/chevron-down.svg"
+                } else {
+                    "icons/chevron-right.svg"
+                })
                 .size(px(14.0))
                 .text_color(rgb(t.text_muted))
                 .mr(px(4.0))
@@ -153,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_build_file_tree_flat_files() {
-        let files = vec!["a.rs", "b.rs", "c.rs"];
+        let files = ["a.rs", "b.rs", "c.rs"];
         let tree = build_file_tree(files.iter().enumerate().map(|(i, f)| (i, *f)));
         assert_eq!(tree.files, vec![0, 1, 2]);
         assert!(tree.children.is_empty());
@@ -161,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_build_file_tree_nested_dirs() {
-        let files = vec!["src/main.rs", "src/lib.rs", "README.md"];
+        let files = ["src/main.rs", "src/lib.rs", "README.md"];
         let tree = build_file_tree(files.iter().enumerate().map(|(i, f)| (i, *f)));
         assert_eq!(tree.files, vec![2]); // README.md at root
         assert!(tree.children.contains_key("src"));
@@ -171,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_build_file_tree_multi_level() {
-        let files = vec![
+        let files = [
             "src/views/mod.rs",
             "src/views/render.rs",
             "src/main.rs",

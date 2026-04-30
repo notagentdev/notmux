@@ -140,10 +140,8 @@ pub fn clear_selection(conn_id: String, terminal_id: String) {
 #[flutter_rust_bridge::frb(sync)]
 pub fn get_selected_text(conn_id: String, terminal_id: String) -> Option<String> {
     let mgr = ConnectionManager::get();
-    mgr.with_terminal(&conn_id, &terminal_id, |holder| {
-        holder.get_selected_text()
-    })
-    .flatten()
+    mgr.with_terminal(&conn_id, &terminal_id, |holder| holder.get_selected_text())
+        .flatten()
 }
 
 /// Get selection bounds for rendering.
@@ -151,12 +149,14 @@ pub fn get_selected_text(conn_id: String, terminal_id: String) -> Option<String>
 pub fn get_selection_bounds(conn_id: String, terminal_id: String) -> Option<SelectionBounds> {
     let mgr = ConnectionManager::get();
     mgr.with_terminal(&conn_id, &terminal_id, |holder| {
-        holder.selection_bounds().map(|((sc, sr), (ec, er))| SelectionBounds {
-            start_col: sc as u16,
-            start_row: sr,
-            end_col: ec as u16,
-            end_row: er,
-        })
+        holder
+            .selection_bounds()
+            .map(|((sc, sr), (ec, er))| SelectionBounds {
+                start_col: sc as u16,
+                start_row: sr,
+                end_col: ec as u16,
+                end_row: er,
+            })
     })
     .flatten()
 }
@@ -164,24 +164,13 @@ pub fn get_selection_bounds(conn_id: String, terminal_id: String) -> Option<Sele
 /// Send text input to a terminal.
 pub async fn send_text(conn_id: String, terminal_id: String, text: String) -> anyhow::Result<()> {
     let mgr = ConnectionManager::get();
-    mgr.send_ws_message(
-        &conn_id,
-        WsClientMessage::SendText {
-            terminal_id,
-            text,
-        },
-    );
+    mgr.send_ws_message(&conn_id, WsClientMessage::SendText { terminal_id, text });
     Ok(())
 }
 
 /// Resize a terminal.
 #[flutter_rust_bridge::frb(sync)]
-pub fn resize_terminal(
-    conn_id: String,
-    terminal_id: String,
-    cols: u16,
-    rows: u16,
-) {
+pub fn resize_terminal(conn_id: String, terminal_id: String, cols: u16, rows: u16) {
     let mgr = ConnectionManager::get();
     mgr.resize_terminal(&conn_id, &terminal_id, cols, rows);
 }

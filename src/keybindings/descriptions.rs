@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use super::types::ActionDescription;
 use super::{
-    AddTab, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy,
-    CreateWorktree, FocusActiveProject, FocusDown, FocusLeft, FocusNextTerminal, FocusPrevTerminal, FocusRight,
-    FocusSidebar, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal, InstallUpdate,
-    MinimizeTerminal, NewProject, OpenSettingsFile, Paste, ResetZoom, ScrollDown, ScrollUp,
-    Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette, ShowDiffViewer,
-    ShowContentSearch, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowProjectSwitcher, ShowSessionManager,
-    ShowSettings, ShowThemeSelector, SplitHorizontal, SplitVertical, StartAllServices,
-    StopAllServices, ToggleFileExplorer, ToggleFullscreen, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
-    ZoomIn, ZoomOut, EqualizeLayout,
+    AddTab, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy, CreateWorktree,
+    EqualizeLayout, FocusActiveProject, FocusDown, FocusLeft, FocusNextTerminal, FocusPrevTerminal,
+    FocusRight, FocusSidebar, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
+    InstallUpdate, MinimizeTerminal, NewProject, OpenSettingsFile, Paste, ResetZoom, ScrollDown,
+    ScrollUp, Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette, ShowContentSearch,
+    ShowDiffViewer, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowProjectSwitcher,
+    ShowSessionManager, ShowSettings, ShowThemeSelector, SplitHorizontal, SplitVertical,
+    StartAllServices, StopAllServices, ToggleFileExplorer, ToggleFullscreen, ToggleGitPanel,
+    TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide, ZoomIn, ZoomOut,
 };
 
 /// Get human-readable descriptions for all actions

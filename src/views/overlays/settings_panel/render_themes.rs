@@ -1,12 +1,14 @@
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
-use crate::views::overlays::theme_selector::{apply_theme_entry, selected_theme_index, theme_entries, ThemeEntry};
-use gpui::*;
+use crate::views::overlays::theme_selector::{
+    ThemeEntry, apply_theme_entry, selected_theme_index, theme_entries,
+};
 use gpui::prelude::*;
+use gpui::*;
 use gpui_component::h_flex;
 
-use super::components::*;
 use super::SettingsPanel;
+use super::components::*;
 
 impl SettingsPanel {
     pub(super) fn render_themes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -51,13 +53,18 @@ impl SettingsPanel {
             .items_center()
             .gap(px(12.0))
             .cursor_pointer()
-            .when(index + 1 < theme_entries().len(), |d| d.border_b_1().border_color(rgb(t.border)))
+            .when(index + 1 < theme_entries().len(), |d| {
+                d.border_b_1().border_color(rgb(t.border))
+            })
             .when(is_selected, |d| d.bg(rgb(t.bg_secondary)))
             .hover(|s| s.bg(rgb(t.bg_hover)))
-            .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
-                apply_theme_entry(&entry_for_click, cx);
-                cx.notify();
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |_this, _, _, cx| {
+                    apply_theme_entry(&entry_for_click, cx);
+                    cx.notify();
+                }),
+            )
             .child(Self::render_theme_preview(colors, cx))
             .child(
                 div()
@@ -128,9 +135,27 @@ impl SettingsPanel {
                     .items_center()
                     .gap(px(2.0))
                     .px(px(2.0))
-                    .child(div().w(px(4.0)).h(px(4.0)).rounded_full().bg(rgb(colors.term_red)))
-                    .child(div().w(px(4.0)).h(px(4.0)).rounded_full().bg(rgb(colors.term_yellow)))
-                    .child(div().w(px(4.0)).h(px(4.0)).rounded_full().bg(rgb(colors.term_green))),
+                    .child(
+                        div()
+                            .w(px(4.0))
+                            .h(px(4.0))
+                            .rounded_full()
+                            .bg(rgb(colors.term_red)),
+                    )
+                    .child(
+                        div()
+                            .w(px(4.0))
+                            .h(px(4.0))
+                            .rounded_full()
+                            .bg(rgb(colors.term_yellow)),
+                    )
+                    .child(
+                        div()
+                            .w(px(4.0))
+                            .h(px(4.0))
+                            .rounded_full()
+                            .bg(rgb(colors.term_green)),
+                    ),
             )
             .child(
                 h_flex()

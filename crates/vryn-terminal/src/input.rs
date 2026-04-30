@@ -31,10 +31,12 @@ pub fn key_to_bytes(event: &KeyEvent, app_cursor_mode: bool) -> Option<Vec<u8>> 
     if mods.control && !mods.shift && !mods.alt && !mods.platform {
         let key = event.key.as_str();
         if let Some(c) = key.chars().next()
-            && key.len() == 1 && c.is_ascii_alphabetic() {
-                let ctrl_char = (c.to_ascii_lowercase() as u8) - b'a' + 1;
-                return Some(vec![ctrl_char]);
-            }
+            && key.len() == 1
+            && c.is_ascii_alphabetic()
+        {
+            let ctrl_char = (c.to_ascii_lowercase() as u8) - b'a' + 1;
+            return Some(vec![ctrl_char]);
+        }
     }
 
     // Handle Tab with modifiers

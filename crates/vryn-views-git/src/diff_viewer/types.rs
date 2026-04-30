@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use vryn_git::{DiffLineType, FileDiff};
-pub use vryn_files::syntax::HighlightedSpan;
 pub use vryn_core::types::DiffViewMode;
+pub use vryn_files::syntax::HighlightedSpan;
+use vryn_git::{DiffLineType, FileDiff};
 
 pub use vryn_files::file_tree::FileTreeNode;
 

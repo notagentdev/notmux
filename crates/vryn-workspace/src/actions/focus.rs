@@ -16,7 +16,8 @@ impl Workspace {
         self.focus_manager.clear_fullscreen_without_restore();
 
         // Set the focused project via FocusManager (controls main view zoom)
-        self.focus_manager.set_focused_project_id(project_id.clone());
+        self.focus_manager
+            .set_focused_project_id(project_id.clone());
 
         // Focus the first terminal in the project
         if let Some(ref pid) = project_id {
@@ -28,9 +29,14 @@ impl Workspace {
 
     /// Set focused project in individual mode (show only this project, not its worktree children).
     /// Used when clicking a "main worktree" entry in the sidebar.
-    pub fn set_focused_project_individual(&mut self, project_id: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_focused_project_individual(
+        &mut self,
+        project_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.focus_manager.clear_fullscreen_without_restore();
-        self.focus_manager.set_focused_project_id_individual(project_id.clone());
+        self.focus_manager
+            .set_focused_project_id_individual(project_id.clone());
 
         if let Some(ref pid) = project_id {
             self.focus_first_terminal_in(pid);
@@ -48,7 +54,11 @@ impl Workspace {
             // Clear project focus so all visible folder projects show
             self.focus_manager.set_focused_project_id(None);
             // Focus the first project's terminal
-            if let Some(first_pid) = self.folder(folder_id).and_then(|f| f.project_ids.first()).cloned() {
+            if let Some(first_pid) = self
+                .folder(folder_id)
+                .and_then(|f| f.project_ids.first())
+                .cloned()
+            {
                 self.focus_first_terminal_in(&first_pid);
             }
         } else {
@@ -63,16 +73,21 @@ impl Workspace {
     /// the first worktree child that has a terminal.
     fn focus_first_terminal_in(&mut self, project_id: &str) {
         // Try the project itself first, then its worktree children
-        let candidates = std::iter::once(project_id.to_string())
-            .chain(self.worktree_child_ids(project_id));
+        let candidates =
+            std::iter::once(project_id.to_string()).chain(self.worktree_child_ids(project_id));
         for id in candidates {
             if let Some(project) = self.project(&id)
-                && project.layout.is_some() {
-                    // Focus the currently visible terminal (follows active tabs)
-                    let path = project.layout.as_ref().expect("guarded by layout.is_some() above").find_visible_terminal_path();
-                    self.focus_manager.focus_terminal(id, path);
-                    return;
-                }
+                && project.layout.is_some()
+            {
+                // Focus the currently visible terminal (follows active tabs)
+                let path = project
+                    .layout
+                    .as_ref()
+                    .expect("guarded by layout.is_some() above")
+                    .find_visible_terminal_path();
+                self.focus_manager.focus_terminal(id, path);
+                return;
+            }
         }
     }
 
@@ -83,10 +98,15 @@ impl Workspace {
         terminal_id: String,
         cx: &mut Context<Self>,
     ) {
-        log::info!("set_fullscreen_terminal called with project_id={}, terminal_id={}", project_id, terminal_id);
+        log::info!(
+            "set_fullscreen_terminal called with project_id={}, terminal_id={}",
+            project_id,
+            terminal_id
+        );
 
         // Find the layout path for this terminal
-        let layout_path = self.project(&project_id)
+        let layout_path = self
+            .project(&project_id)
             .and_then(|p| p.layout.as_ref())
             .and_then(|l| l.find_terminal_path(&terminal_id))
             .unwrap_or_default();
@@ -94,9 +114,13 @@ impl Workspace {
         log::info!("layout_path for terminal: {:?}", layout_path);
 
         // Use FocusManager for fullscreen entry (saves current state + sets focused_project_id)
-        self.focus_manager.enter_fullscreen(project_id, layout_path, terminal_id.clone());
+        self.focus_manager
+            .enter_fullscreen(project_id, layout_path, terminal_id.clone());
 
-        log::info!("fullscreen_terminal set via FocusManager with terminal_id={}", terminal_id);
+        log::info!(
+            "fullscreen_terminal set via FocusManager with terminal_id={}",
+            terminal_id
+        );
 
         cx.notify();
     }
@@ -121,7 +145,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         // Update FocusManager
-        self.focus_manager.focus_terminal(project_id.clone(), layout_path.clone());
+        self.focus_manager
+            .focus_terminal(project_id.clone(), layout_path.clone());
 
         // Record project access time for recency sorting
         self.touch_project(&project_id);
@@ -160,15 +185,17 @@ impl Workspace {
     ) {
         if let Some(project) = self.project(project_id)
             && let Some(ref layout) = project.layout
-                && let Some(path) = layout.find_terminal_path(terminal_id) {
-                    // Activate any tabs along the path so the terminal becomes visible
-                    if let Some(project_mut) = self.project_mut(project_id)
-                        && let Some(ref mut layout) = project_mut.layout {
-                            layout.activate_tabs_along_path(&path);
-                        }
-                    self.notify_data(cx);
-                    // Focus the terminal without changing which projects are shown
-                    self.set_focused_terminal(project_id.to_string(), path, cx);
-                }
+            && let Some(path) = layout.find_terminal_path(terminal_id)
+        {
+            // Activate any tabs along the path so the terminal becomes visible
+            if let Some(project_mut) = self.project_mut(project_id)
+                && let Some(ref mut layout) = project_mut.layout
+            {
+                layout.activate_tabs_along_path(&path);
+            }
+            self.notify_data(cx);
+            // Focus the terminal without changing which projects are shown
+            self.set_focused_terminal(project_id.to_string(), path, cx);
+        }
     }
 }

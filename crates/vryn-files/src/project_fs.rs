@@ -92,11 +92,26 @@ pub struct RemoteProjectFs {
 }
 
 impl RemoteProjectFs {
-    pub fn new(host: String, port: u16, token: String, project_id: String, project_name: String) -> Self {
-        Self { host, port, token, project_id, project_name }
+    pub fn new(
+        host: String,
+        port: u16,
+        token: String,
+        project_id: String,
+        project_name: String,
+    ) -> Self {
+        Self {
+            host,
+            port,
+            token,
+            project_id,
+            project_name,
+        }
     }
 
-    fn post_action(&self, action: vryn_core::api::ActionRequest) -> Result<Option<serde_json::Value>, String> {
+    fn post_action(
+        &self,
+        action: vryn_core::api::ActionRequest,
+    ) -> Result<Option<serde_json::Value>, String> {
         vryn_core::remote_action::post_action(&self.host, self.port, &self.token, action)
     }
 }
@@ -123,12 +138,11 @@ impl ProjectFs for RemoteProjectFs {
             relative_path: relative_path.to_string(),
         };
         match self.post_action(action)? {
-            Some(value) => {
-                value.get("content")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .ok_or_else(|| "Missing content in response".to_string())
-            }
+            Some(value) => value
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or_else(|| "Missing content in response".to_string()),
             None => Err("Empty response".to_string()),
         }
     }
@@ -139,11 +153,10 @@ impl ProjectFs for RemoteProjectFs {
             relative_path: relative_path.to_string(),
         };
         match self.post_action(action)? {
-            Some(value) => {
-                value.get("size")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| "Missing size in response".to_string())
-            }
+            Some(value) => value
+                .get("size")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| "Missing size in response".to_string()),
             None => Err("Empty response".to_string()),
         }
     }
@@ -170,10 +183,11 @@ impl ProjectFs for RemoteProjectFs {
             context_lines: config.context_lines,
         };
         if let Ok(Some(value)) = self.post_action(action) {
-            let results: Vec<FileSearchResult> = serde_json::from_value(value).unwrap_or_else(|e| {
-                log::warn!("Failed to deserialize search results: {}", e);
-                Vec::new()
-            });
+            let results: Vec<FileSearchResult> =
+                serde_json::from_value(value).unwrap_or_else(|e| {
+                    log::warn!("Failed to deserialize search results: {}", e);
+                    Vec::new()
+                });
             for result in results {
                 if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
                     break;

@@ -20,23 +20,15 @@ pub fn diff_states(old: &StateResponse, new: &StateResponse) -> StateDiff {
     let old_terminals = collect_all_terminal_ids(old);
     let new_terminals = collect_all_terminal_ids(new);
 
-    let added_terminals: Vec<String> = new_terminals
-        .difference(&old_terminals)
-        .cloned()
-        .collect();
+    let added_terminals: Vec<String> = new_terminals.difference(&old_terminals).cloned().collect();
 
-    let removed_terminals: Vec<String> = old_terminals
-        .difference(&new_terminals)
-        .cloned()
-        .collect();
+    let removed_terminals: Vec<String> =
+        old_terminals.difference(&new_terminals).cloned().collect();
 
     // Detect projects with layout changes by comparing serialized layouts
     let mut changed_projects = Vec::new();
-    let old_projects: std::collections::HashMap<&str, _> = old
-        .projects
-        .iter()
-        .map(|p| (p.id.as_str(), p))
-        .collect();
+    let old_projects: std::collections::HashMap<&str, _> =
+        old.projects.iter().map(|p| (p.id.as_str(), p)).collect();
 
     for new_proj in &new.projects {
         let changed = match old_projects.get(new_proj.id.as_str()) {

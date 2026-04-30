@@ -7,10 +7,8 @@ use vryn_core::process::{command, safe_output};
 /// Returns None if the path is not inside a git repository.
 pub fn get_repo_root(path: &Path) -> Option<PathBuf> {
     let path_str = path.to_str()?;
-    let output = safe_output(
-        command("git").args(["-C", path_str, "rev-parse", "--show-toplevel"]),
-    )
-    .ok()?;
+    let output =
+        safe_output(command("git").args(["-C", path_str, "rev-parse", "--show-toplevel"])).ok()?;
 
     if output.status.success() {
         let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -29,27 +27,26 @@ pub(crate) fn get_worktree_branches(path: &Path) -> Vec<String> {
         None => return vec![],
     };
 
-    let output = safe_output(
-        command("git").args(["-C", path_str, "worktree", "list", "--porcelain"]),
-    )
-    .ok();
+    let output =
+        safe_output(command("git").args(["-C", path_str, "worktree", "list", "--porcelain"])).ok();
 
     let mut branches = Vec::new();
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.starts_with("branch ") {
-                    let branch = line.strip_prefix("branch refs/heads/").unwrap_or(
-                        line.strip_prefix("branch ").unwrap_or("")
-                    );
-                    if !branch.is_empty() {
-                        branches.push(branch.to_string());
-                    }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("branch ") {
+                let branch = line
+                    .strip_prefix("branch refs/heads/")
+                    .unwrap_or(line.strip_prefix("branch ").unwrap_or(""));
+                if !branch.is_empty() {
+                    branches.push(branch.to_string());
                 }
             }
         }
+    }
 
     branches
 }
@@ -64,22 +61,22 @@ fn clean_stale_worktree_dir(repo_path: &Path, target_path: &Path) -> Result<(), 
 
     // Ask git which paths are active worktrees
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "worktree", "list", "--porcelain"]),
-    )
-    .map_err(|e| format!("Failed to list worktrees: {}", e))?;
+    let output =
+        safe_output(command("git").args(["-C", repo_str, "worktree", "list", "--porcelain"]))
+            .map_err(|e| format!("Failed to list worktrees: {}", e))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let target_normalized = normalize_path(target_path);
         for line in stdout.lines() {
             if let Some(wt_path) = line.strip_prefix("worktree ")
-                && normalize_path(Path::new(wt_path)) == target_normalized {
-                    return Err(format!(
-                        "Directory '{}' is already an active worktree",
-                        target_path.display()
-                    ));
-                }
+                && normalize_path(Path::new(wt_path)) == target_normalized
+            {
+                return Err(format!(
+                    "Directory '{}' is already an active worktree",
+                    target_path.display()
+                ));
+            }
         }
     }
 
@@ -88,8 +85,13 @@ fn clean_stale_worktree_dir(repo_path: &Path, target_path: &Path) -> Result<(), 
         "Removing stale worktree directory: {}",
         target_path.display()
     );
-    std::fs::remove_dir_all(target_path)
-        .map_err(|e| format!("Failed to remove stale directory '{}': {}", target_path.display(), e))?;
+    std::fs::remove_dir_all(target_path).map_err(|e| {
+        format!(
+            "Failed to remove stale directory '{}': {}",
+            target_path.display(),
+            e
+        )
+    })?;
 
     let _ = safe_output(command("git").args(["-C", repo_str, "worktree", "prune"]));
 
@@ -98,7 +100,12 @@ fn clean_stale_worktree_dir(repo_path: &Path, target_path: &Path) -> Result<(), 
 
 /// Create a new worktree
 /// Returns Ok(()) on success, Err(error_message) on failure
-pub fn create_worktree(repo_path: &Path, branch: &str, target_path: &Path, create_branch: bool) -> Result<(), String> {
+pub fn create_worktree(
+    repo_path: &Path,
+    branch: &str,
+    target_path: &Path,
+    create_branch: bool,
+) -> Result<(), String> {
     crate::validate_git_ref(branch)?;
     clean_stale_worktree_dir(repo_path, target_path)?;
 
@@ -116,7 +123,13 @@ pub fn create_worktree(repo_path: &Path, branch: &str, target_path: &Path, creat
         args.push(branch);
         args.push(target_str);
         if let Some(default_branch) = get_default_branch(repo_path) {
-            let _ = safe_output(command("git").args(["-C", repo_str, "fetch", "origin", &default_branch]));
+            let _ = safe_output(command("git").args([
+                "-C",
+                repo_str,
+                "fetch",
+                "origin",
+                &default_branch,
+            ]));
             start_point = format!("origin/{}", default_branch);
             args.push(&start_point);
         }
@@ -233,31 +246,36 @@ pub fn list_branches(path: &Path) -> Vec<String> {
         None => return vec![],
     };
 
-    let output = safe_output(
-        command("git").args(["-C", path_str, "branch", "-a", "--format=%(refname:short)"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "branch",
+        "-a",
+        "--format=%(refname:short)",
+    ]))
     .ok();
 
     let mut branches = Vec::new();
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let branch = line.trim();
-                if !branch.is_empty() {
-                    // Skip remote tracking branches that duplicate local ones
-                    if branch.starts_with("origin/") {
-                        let local_name = branch.strip_prefix("origin/").unwrap_or(branch);
-                        if !branches.contains(&local_name.to_string()) {
-                            branches.push(branch.to_string());
-                        }
-                    } else {
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let branch = line.trim();
+            if !branch.is_empty() {
+                // Skip remote tracking branches that duplicate local ones
+                if branch.starts_with("origin/") {
+                    let local_name = branch.strip_prefix("origin/").unwrap_or(branch);
+                    if !branches.contains(&local_name.to_string()) {
                         branches.push(branch.to_string());
                     }
+                } else {
+                    branches.push(branch.to_string());
                 }
             }
         }
+    }
 
     branches
 }
@@ -265,7 +283,8 @@ pub fn list_branches(path: &Path) -> Vec<String> {
 /// Get branches that don't have a worktree yet
 pub fn get_available_branches_for_worktree(path: &Path) -> Vec<String> {
     let all_branches = list_branches(path);
-    let used_branches: std::collections::HashSet<_> = get_worktree_branches(path).into_iter().collect();
+    let used_branches: std::collections::HashSet<_> =
+        get_worktree_branches(path).into_iter().collect();
 
     all_branches
         .into_iter()
@@ -277,9 +296,12 @@ pub fn get_available_branches_for_worktree(path: &Path) -> Vec<String> {
 /// Returns None if not a git repository.
 pub fn get_status(path: &Path) -> Option<GitStatus> {
     // Check if we're in a git repo
-    let output = safe_output(
-        command("git").args(["-C", path.to_str()?, "rev-parse", "--is-inside-work-tree"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path.to_str()?,
+        "rev-parse",
+        "--is-inside-work-tree",
+    ]))
     .ok()?;
 
     if !output.status.success() {
@@ -323,10 +345,9 @@ pub fn get_current_branch(path: &Path) -> Option<String> {
     let path_str = path.to_str()?;
 
     // Try to get branch name
-    let output = safe_output(
-        command("git").args(["-C", path_str, "symbolic-ref", "--short", "HEAD"]),
-    )
-    .ok()?;
+    let output =
+        safe_output(command("git").args(["-C", path_str, "symbolic-ref", "--short", "HEAD"]))
+            .ok()?;
 
     if output.status.success() {
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -336,10 +357,8 @@ pub fn get_current_branch(path: &Path) -> Option<String> {
     }
 
     // Detached HEAD - get short commit hash
-    let output = safe_output(
-        command("git").args(["-C", path_str, "rev-parse", "--short", "HEAD"]),
-    )
-    .ok()?;
+    let output =
+        safe_output(command("git").args(["-C", path_str, "rev-parse", "--short", "HEAD"])).ok()?;
 
     if output.status.success() {
         let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -359,49 +378,61 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
     };
 
     // Get diff stats for staged + unstaged changes
-    let output = safe_output(
-        command("git").args(["-C", path_str, "diff", "--numstat", "--no-color", "--no-ext-diff", "HEAD"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "diff",
+        "--numstat",
+        "--no-color",
+        "--no-ext-diff",
+        "HEAD",
+    ]))
     .ok();
 
     let (mut added, mut removed) = (0usize, 0usize);
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 2 {
-                    // Binary files show "-" instead of numbers
-                    if let Ok(a) = parts[0].parse::<usize>() {
-                        added += a;
-                    }
-                    if let Ok(r) = parts[1].parse::<usize>() {
-                        removed += r;
-                    }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 2 {
+                // Binary files show "-" instead of numbers
+                if let Ok(a) = parts[0].parse::<usize>() {
+                    added += a;
+                }
+                if let Ok(r) = parts[1].parse::<usize>() {
+                    removed += r;
                 }
             }
         }
+    }
 
     // Also include untracked files (count lines)
-    let output = safe_output(
-        command("git").args(["-C", path_str, "ls-files", "--others", "--exclude-standard"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ]))
     .ok();
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for file in stdout.lines() {
-                if !file.is_empty() {
-                    // Count lines in untracked file
-                    let file_path = path.join(file);
-                    if let Ok(content) = std::fs::read_to_string(&file_path) {
-                        added += content.lines().count();
-                    }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for file in stdout.lines() {
+            if !file.is_empty() {
+                // Count lines in untracked file
+                let file_path = path.join(file);
+                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                    added += content.lines().count();
                 }
             }
         }
+    }
 
     (added, removed)
 }
@@ -422,9 +453,10 @@ pub fn get_default_branch(repo_path: &Path) -> Option<String> {
         let refname = String::from_utf8_lossy(&output.stdout).trim().to_string();
         // refs/remotes/origin/main -> main
         if let Some(branch) = refname.strip_prefix("refs/remotes/origin/")
-            && !branch.is_empty() {
-                return Some(branch.to_string());
-            }
+            && !branch.is_empty()
+        {
+            return Some(branch.to_string());
+        }
     }
 
     // Fallback: check if main or master branch exists
@@ -434,9 +466,10 @@ pub fn get_default_branch(repo_path: &Path) -> Option<String> {
             .output()
             .ok();
         if let Some(output) = output
-            && output.status.success() {
-                return Some(candidate.to_string());
-            }
+            && output.status.success()
+        {
+            return Some(candidate.to_string());
+        }
     }
 
     None
@@ -501,10 +534,9 @@ pub fn stash_pop(path: &Path) -> Result<(), String> {
 /// Stash all changes including untracked files (`git stash push -u`).
 pub fn stash_all_including_untracked(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "stash", "push", "--include-untracked"]),
-    )
-    .map_err(|e| format!("Failed to stash: {}", e))?;
+    let output =
+        safe_output(command("git").args(["-C", repo_str, "stash", "push", "--include-untracked"]))
+            .map_err(|e| format!("Failed to stash: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -516,10 +548,9 @@ pub fn stash_all_including_untracked(repo_path: &Path) -> Result<(), String> {
 pub fn stash_apply(repo_path: &Path, index: usize) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
     let stash_ref = format!("stash@{{{}}}", index);
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "stash", "apply", "--index", &stash_ref]),
-    )
-    .map_err(|e| format!("Failed to apply stash: {}", e))?;
+    let output =
+        safe_output(command("git").args(["-C", repo_str, "stash", "apply", "--index", &stash_ref]))
+            .map_err(|e| format!("Failed to apply stash: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -531,10 +562,8 @@ pub fn stash_apply(repo_path: &Path, index: usize) -> Result<(), String> {
 pub fn stash_drop(repo_path: &Path, index: usize) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
     let stash_ref = format!("stash@{{{}}}", index);
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "stash", "drop", &stash_ref]),
-    )
-    .map_err(|e| format!("Failed to drop stash: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "stash", "drop", &stash_ref]))
+        .map_err(|e| format!("Failed to drop stash: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -546,10 +575,9 @@ pub fn stash_drop(repo_path: &Path, index: usize) -> Result<(), String> {
 pub fn stash_show_patch(repo_path: &Path, index: usize) -> Result<String, String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
     let stash_ref = format!("stash@{{{}}}", index);
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "stash", "show", "-p", &stash_ref]),
-    )
-    .map_err(|e| format!("Failed to show stash: {}", e))?;
+    let output =
+        safe_output(command("git").args(["-C", repo_str, "stash", "show", "-p", &stash_ref]))
+            .map_err(|e| format!("Failed to show stash: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -563,15 +591,13 @@ pub fn stash_show_patch(repo_path: &Path, index: usize) -> Result<String, String
 /// tab-separated output into [`StashEntry`] values.
 pub fn stash_list(repo_path: &Path) -> Result<Vec<StashEntry>, String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args([
-            "-C",
-            repo_str,
-            "stash",
-            "list",
-            "--format=%gd%x09%H%x09%gs%x09%ct",
-        ]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        repo_str,
+        "stash",
+        "list",
+        "--format=%gd%x09%H%x09%gs%x09%ct",
+    ]))
     .map_err(|e| format!("Failed to list stashes: {}", e))?;
 
     if !output.status.success() {
@@ -759,12 +785,10 @@ pub fn count_unpushed_commits(path: &Path) -> usize {
         .output()
         .ok();
     match output {
-        Some(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse::<usize>()
-                .unwrap_or(0)
-        }
+        Some(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<usize>()
+            .unwrap_or(0),
         _ => 0,
     }
 }
@@ -782,18 +806,20 @@ pub fn list_git_worktrees(repo_path: &Path) -> Vec<(String, String)> {
         .ok();
     let mut result = Vec::new();
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let mut current_path = String::new();
-            for line in stdout.lines() {
-                if let Some(wt_path) = line.strip_prefix("worktree ") {
-                    current_path = wt_path.to_string();
-                } else if let Some(branch_ref) = line.strip_prefix("branch refs/heads/")
-                    && !current_path.is_empty() {
-                        result.push((current_path.clone(), branch_ref.to_string()));
-                    }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut current_path = String::new();
+        for line in stdout.lines() {
+            if let Some(wt_path) = line.strip_prefix("worktree ") {
+                current_path = wt_path.to_string();
+            } else if let Some(branch_ref) = line.strip_prefix("branch refs/heads/")
+                && !current_path.is_empty()
+            {
+                result.push((current_path.clone(), branch_ref.to_string()));
             }
         }
+    }
     result
 }
 
@@ -804,7 +830,14 @@ pub fn get_pr_info(path: &Path) -> Option<super::PrInfo> {
 
     let output = safe_output(
         command("gh")
-            .args(["pr", "view", "--json", "url,state,isDraft,number", "--jq", "[.url, .state, .isDraft, .number] | @tsv"])
+            .args([
+                "pr",
+                "view",
+                "--json",
+                "url,state,isDraft,number",
+                "--jq",
+                "[.url, .state, .isDraft, .number] | @tsv",
+            ])
             .current_dir(path_str),
     )
     .ok()?;
@@ -830,7 +863,12 @@ pub fn get_pr_info(path: &Path) -> Option<super::PrInfo> {
                     }
                 }
             };
-            return Some(super::PrInfo { url, state, number, ci_checks: None });
+            return Some(super::PrInfo {
+                url,
+                state,
+                number,
+                ci_checks: None,
+            });
         }
     }
 
@@ -871,7 +909,13 @@ pub(crate) fn parse_ci_checks(json_str: &str) -> Option<super::CiCheckSummary> {
         super::CiStatus::Success
     };
 
-    Some(super::CiCheckSummary { status, passed, failed, pending, total })
+    Some(super::CiCheckSummary {
+        status,
+        passed,
+        failed,
+        pending,
+        total,
+    })
 }
 
 /// Get CI check status for the current branch's PR.
@@ -900,7 +944,9 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::ParentDir => { result.pop(); }
+            Component::ParentDir => {
+                result.pop();
+            }
             Component::CurDir => {}
             other => result.push(other),
         }
@@ -915,11 +961,11 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 /// Both paths are normalized before `strip_prefix` to handle symlinks,
 /// trailing slashes, and `..` components.
 pub fn resolve_git_root_and_subdir(project_path: &Path) -> (PathBuf, PathBuf) {
-    let git_root = get_repo_root(project_path)
-        .unwrap_or_else(|| project_path.to_path_buf());
+    let git_root = get_repo_root(project_path).unwrap_or_else(|| project_path.to_path_buf());
     let norm_project = normalize_path(project_path);
     let norm_root = normalize_path(&git_root);
-    let subdir = norm_project.strip_prefix(&norm_root)
+    let subdir = norm_project
+        .strip_prefix(&norm_root)
         .unwrap_or(Path::new(""))
         .to_path_buf();
     (git_root, subdir)
@@ -946,7 +992,8 @@ pub fn compute_target_paths(
     template: &str,
     branch: &str,
 ) -> (String, String) {
-    let repo_name = git_root.file_name()
+    let repo_name = git_root
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("repo");
     let safe_branch = branch.replace('/', "-");
@@ -971,7 +1018,6 @@ pub fn compute_target_paths(
     (worktree_path, project_path)
 }
 
-
 /// Get commit graph with topology (railways) for a repository.
 ///
 /// Uses `git log --graph` to get lane positions, producing both commit rows
@@ -984,7 +1030,10 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
     };
 
     let mut args = vec![
-        "-C".to_string(), path_str.to_string(), "log".to_string(), "--graph".to_string(),
+        "-C".to_string(),
+        path_str.to_string(),
+        "log".to_string(),
+        "--graph".to_string(),
         format!("--format=%x00%h%x01%s%x01%an%x01%at%x01%P%x01%D"),
         format!("-n{}", limit),
         "--no-color".to_string(),
@@ -993,10 +1042,8 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
         args.push(b.to_string());
     }
 
-    let output = safe_output(
-        command("git").args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
-    )
-    .ok();
+    let output =
+        safe_output(command("git").args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>())).ok();
 
     match output {
         Some(o) if o.status.success() => {
@@ -1031,7 +1078,8 @@ pub(crate) fn parse_commit_graph_output(stdout: &str) -> Vec<super::GraphRow> {
             let author = parts[2].to_string();
             let timestamp = parts[3].parse::<i64>().unwrap_or(0);
             let is_merge = parts.get(4).is_some_and(|p| p.contains(' '));
-            let refs: Vec<String> = parts.get(5)
+            let refs: Vec<String> = parts
+                .get(5)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.split(", ").map(|r| r.to_string()).collect())
                 .unwrap_or_default();
@@ -1193,9 +1241,9 @@ fn add_numstat_counts(status: &mut WorkingTreeStatus, path: &Path) {
     let mut counts: HashMap<String, (usize, usize)> = HashMap::new();
 
     // Staged changes
-    if let Ok(output) = safe_output(
-        command("git").args(["-C", path_str, "diff", "--cached", "--numstat"]),
-    ) && output.status.success()
+    if let Ok(output) =
+        safe_output(command("git").args(["-C", path_str, "diff", "--cached", "--numstat"]))
+        && output.status.success()
     {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let mut parts = line.split('\t');
@@ -1210,9 +1258,8 @@ fn add_numstat_counts(status: &mut WorkingTreeStatus, path: &Path) {
     }
 
     // Unstaged changes
-    if let Ok(output) = safe_output(
-        command("git").args(["-C", path_str, "diff", "--numstat"]),
-    ) && output.status.success()
+    if let Ok(output) = safe_output(command("git").args(["-C", path_str, "diff", "--numstat"]))
+        && output.status.success()
     {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let mut parts = line.split('\t');
@@ -1244,16 +1291,14 @@ pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
         None => return WorkingTreeStatus::default(),
     };
 
-    let output = match safe_output(
-        command("git").args([
-            "-C",
-            path_str,
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "--untracked-files=all",
-        ]),
-    ) {
+    let output = match safe_output(command("git").args([
+        "-C",
+        path_str,
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "--untracked-files=all",
+    ])) {
         Ok(o) if o.status.success() => o,
         _ => return WorkingTreeStatus::default(),
     };
@@ -1303,7 +1348,12 @@ pub fn get_file_statuses(repo_root: &Path, rel_paths: &[String]) -> Vec<FileStat
     }
 
     let mut args: Vec<&str> = vec![
-        "-C", path_str, "status", "--porcelain=v2", "--untracked-files=all", "--",
+        "-C",
+        path_str,
+        "status",
+        "--porcelain=v2",
+        "--untracked-files=all",
+        "--",
     ];
     for p in rel_paths {
         args.push(p.as_str());
@@ -1348,10 +1398,8 @@ pub fn get_file_statuses(repo_root: &Path, rel_paths: &[String]) -> Vec<FileStat
 /// Stage a single file (`git add <path>`).
 pub fn stage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "add", "--", file_path]),
-    )
-    .map_err(|e| format!("Failed to stage file: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "add", "--", file_path]))
+        .map_err(|e| format!("Failed to stage file: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1362,10 +1410,8 @@ pub fn stage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
 /// Stage all changes (`git add -A`).
 pub fn stage_all(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "add", "-A"]),
-    )
-    .map_err(|e| format!("Failed to stage all: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "add", "-A"]))
+        .map_err(|e| format!("Failed to stage all: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1376,10 +1422,9 @@ pub fn stage_all(repo_path: &Path) -> Result<(), String> {
 /// Unstage a single file (`git restore --staged <path>`).
 pub fn unstage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "restore", "--staged", "--", file_path]),
-    )
-    .map_err(|e| format!("Failed to unstage file: {}", e))?;
+    let output =
+        safe_output(command("git").args(["-C", repo_str, "restore", "--staged", "--", file_path]))
+            .map_err(|e| format!("Failed to unstage file: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1390,10 +1435,8 @@ pub fn unstage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
 /// Unstage all files (`git reset`).
 pub fn unstage_all(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "reset"]),
-    )
-    .map_err(|e| format!("Failed to unstage all: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "reset"]))
+        .map_err(|e| format!("Failed to unstage all: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1414,9 +1457,15 @@ pub fn discard_file(repo_path: &Path, file_path: &str, is_untracked: bool) -> Re
     }
 
     // Restore both staged and unstaged changes
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "restore", "--staged", "--worktree", "--", file_path]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        repo_str,
+        "restore",
+        "--staged",
+        "--worktree",
+        "--",
+        file_path,
+    ]))
     .map_err(|e| format!("Failed to discard file: {}", e))?;
 
     if !output.status.success() {
@@ -1426,12 +1475,7 @@ pub fn discard_file(repo_path: &Path, file_path: &str, is_untracked: bool) -> Re
 }
 
 /// Create a commit with the given message and options.
-pub fn commit(
-    repo_path: &Path,
-    message: &str,
-    amend: bool,
-    signoff: bool,
-) -> Result<(), String> {
+pub fn commit(repo_path: &Path, message: &str, amend: bool, signoff: bool) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
     let mut args = vec!["-C", repo_str, "commit", "-m", message];
     if amend {
@@ -1441,8 +1485,8 @@ pub fn commit(
         args.push("--signoff");
     }
 
-    let output = safe_output(command("git").args(&args))
-        .map_err(|e| format!("Failed to commit: {}", e))?;
+    let output =
+        safe_output(command("git").args(&args)).map_err(|e| format!("Failed to commit: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1453,10 +1497,8 @@ pub fn commit(
 /// Undo the last commit but keep changes staged (`git reset --soft HEAD~1`).
 pub fn uncommit(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "reset", "--soft", "HEAD~1"]),
-    )
-    .map_err(|e| format!("Failed to uncommit: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "reset", "--soft", "HEAD~1"]))
+        .map_err(|e| format!("Failed to uncommit: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1467,10 +1509,8 @@ pub fn uncommit(repo_path: &Path) -> Result<(), String> {
 /// Pull from the upstream remote (`git pull`).
 pub fn pull(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "pull", "--ff-only"]),
-    )
-    .map_err(|e| format!("Failed to pull: {}", e))?;
+    let output = safe_output(command("git").args(["-C", repo_str, "pull", "--ff-only"]))
+        .map_err(|e| format!("Failed to pull: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1654,7 +1694,8 @@ mod tests {
     fn target_path_simple_repo() {
         let git_root = PathBuf::from("/projects/myrepo");
         let subdir = Path::new("");
-        let (wt, proj) = compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "feature");
+        let (wt, proj) =
+            compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "feature");
         let expected = PathBuf::from("/projects").join("myrepo-wt").join("feature");
         assert_paths_eq(&wt, &expected);
         assert_paths_eq(&proj, &expected);
@@ -1664,8 +1705,11 @@ mod tests {
     fn target_path_monorepo() {
         let git_root = PathBuf::from("/projects/monorepo");
         let subdir = Path::new("app-in-monorepo");
-        let (wt, proj) = compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "feature");
-        let expected_wt = PathBuf::from("/projects").join("monorepo-wt").join("feature");
+        let (wt, proj) =
+            compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "feature");
+        let expected_wt = PathBuf::from("/projects")
+            .join("monorepo-wt")
+            .join("feature");
         assert_paths_eq(&wt, &expected_wt);
         assert_paths_eq(&proj, &expected_wt.join("app-in-monorepo"));
     }
@@ -1674,8 +1718,11 @@ mod tests {
     fn target_path_nested_monorepo_subdir() {
         let git_root = PathBuf::from("/projects/monorepo");
         let subdir = Path::new("packages/app");
-        let (wt, proj) = compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "fix-bug");
-        let expected_wt = PathBuf::from("/projects").join("monorepo-wt").join("fix-bug");
+        let (wt, proj) =
+            compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "fix-bug");
+        let expected_wt = PathBuf::from("/projects")
+            .join("monorepo-wt")
+            .join("fix-bug");
         assert_paths_eq(&wt, &expected_wt);
         assert_paths_eq(&proj, &expected_wt.join("packages").join("app"));
     }
@@ -1684,8 +1731,12 @@ mod tests {
     fn target_path_absolute_template() {
         let git_root = PathBuf::from("/projects/monorepo");
         let subdir = Path::new("app");
-        let (wt, proj) = compute_target_paths(&git_root, subdir, "/tmp/worktrees/{repo}/{branch}", "main");
-        let expected_wt = PathBuf::from("/tmp").join("worktrees").join("monorepo").join("main");
+        let (wt, proj) =
+            compute_target_paths(&git_root, subdir, "/tmp/worktrees/{repo}/{branch}", "main");
+        let expected_wt = PathBuf::from("/tmp")
+            .join("worktrees")
+            .join("monorepo")
+            .join("main");
         assert_paths_eq(&wt, &expected_wt);
         assert_paths_eq(&proj, &expected_wt.join("app"));
     }
@@ -1694,8 +1745,15 @@ mod tests {
     fn target_path_branch_with_slashes() {
         let git_root = PathBuf::from("/projects/repo");
         let subdir = Path::new("");
-        let (wt, proj) = compute_target_paths(&git_root, subdir, "../{repo}-wt/{branch}", "feature/my-branch");
-        let expected = PathBuf::from("/projects").join("repo-wt").join("feature-my-branch");
+        let (wt, proj) = compute_target_paths(
+            &git_root,
+            subdir,
+            "../{repo}-wt/{branch}",
+            "feature/my-branch",
+        );
+        let expected = PathBuf::from("/projects")
+            .join("repo-wt")
+            .join("feature-my-branch");
         assert_paths_eq(&wt, &expected);
         assert_paths_eq(&proj, &expected);
     }

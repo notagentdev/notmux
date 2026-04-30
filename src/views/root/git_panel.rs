@@ -2,7 +2,7 @@ use crate::settings::settings_entity;
 use crate::theme::theme;
 use crate::ui::tokens::ui_text_md;
 use crate::views::layout::split_pane::render_git_panel_divider;
-use crate::views::sidebar_controller::{AnimationTarget, SidebarController, FRAME_TIME_MS};
+use crate::views::sidebar_controller::{AnimationTarget, FRAME_TIME_MS, SidebarController};
 use gpui::*;
 
 use super::RootView;
@@ -13,11 +13,13 @@ impl RootView {
     /// - If the panel is open for this project, close it.
     /// - If it's closed or showing a different project, open for this project.
     pub(super) fn toggle_git_panel(&mut self, project_id: &str, cx: &mut Context<Self>) {
-        if self.git_panel_ctrl.is_open() && self.git_panel_project_id.as_deref() == Some(project_id) {
+        if self.git_panel_ctrl.is_open() && self.git_panel_project_id.as_deref() == Some(project_id)
+        {
             // Close the panel
             let target = self.git_panel_ctrl.toggle();
             settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(false, cx));
-            self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(false, cx));
+            self.title_bar
+                .update(cx, |tb, cx| tb.set_git_panel_open(false, cx));
             self.animate_git_panel_to(target, cx);
 
             // Close the commit log in the git header
@@ -47,10 +49,12 @@ impl RootView {
             if !self.git_panel_ctrl.is_open() {
                 let target = self.git_panel_ctrl.toggle();
                 settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(true, cx));
-                self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
+                self.title_bar
+                    .update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
                 self.animate_git_panel_to(target, cx);
             } else {
-                self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
+                self.title_bar
+                    .update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
                 cx.notify();
             }
         }
@@ -62,7 +66,8 @@ impl RootView {
         let target = self.git_panel_ctrl.toggle();
         let is_open = self.git_panel_ctrl.is_open();
         settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(is_open, cx));
-        self.title_bar.update(cx, |tb, cx| tb.set_git_panel_open(is_open, cx));
+        self.title_bar
+            .update(cx, |tb, cx| tb.set_git_panel_open(is_open, cx));
         self.animate_git_panel_to(target, cx);
     }
 
@@ -104,7 +109,9 @@ impl RootView {
                 .into_any_element();
         }
 
-        let has_content = self.git_panel_project_id.as_ref()
+        let has_content = self
+            .git_panel_project_id
+            .as_ref()
             .and_then(|pid| self.project_columns.get(pid))
             .is_some();
 
@@ -113,10 +120,18 @@ impl RootView {
         let t = theme(cx);
 
         let content: AnyElement = if has_content {
-            let pid = self.git_panel_project_id.clone().expect("has_content guard verified Some");
-            let col = self.project_columns.get(&pid).cloned().expect("has_content guard verified column exists");
+            let pid = self
+                .git_panel_project_id
+                .clone()
+                .expect("has_content guard verified Some");
+            let col = self
+                .project_columns
+                .get(&pid)
+                .cloned()
+                .expect("has_content guard verified column exists");
             let gh = col.read(cx).git_header();
-            gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx)).into_any_element()
+            gh.update(cx, |gh, cx| gh.render_commit_log_panel(&t, cx))
+                .into_any_element()
         } else {
             div()
                 .size_full()
@@ -186,6 +201,7 @@ impl RootView {
                 this.git_panel_ctrl.set_animation(target);
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 }

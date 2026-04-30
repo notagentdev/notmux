@@ -1,11 +1,11 @@
 //! Persistent workspace data — projects, folders, layouts.
 
 use crate::hooks_config::HooksConfig;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use vryn_core::theme::FolderColor;
 use vryn_layout::LayoutNode;
 use vryn_terminal::shell_config::ShellType;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// A folder that groups projects in the sidebar
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -46,7 +46,9 @@ impl WorkspaceData {
     /// Return a copy with all remote projects, remote folders, and their
     /// associated widths/heights stripped out (for saving to disk).
     pub fn without_remote_projects(&self) -> Self {
-        let remote_ids: HashSet<&str> = self.projects.iter()
+        let remote_ids: HashSet<&str> = self
+            .projects
+            .iter()
             .filter(|p| p.is_remote)
             .map(|p| p.id.as_str())
             .collect();
@@ -57,22 +59,42 @@ impl WorkspaceData {
 
         Self {
             version: self.version,
-            projects: self.projects.iter().filter(|p| !p.is_remote).cloned().collect(),
-            project_order: self.project_order.iter()
+            projects: self
+                .projects
+                .iter()
+                .filter(|p| !p.is_remote)
+                .cloned()
+                .collect(),
+            project_order: self
+                .project_order
+                .iter()
                 .filter(|id| !id.starts_with("remote:") && !remote_ids.contains(id.as_str()))
-                .cloned().collect(),
-            project_widths: self.project_widths.iter()
+                .cloned()
+                .collect(),
+            project_widths: self
+                .project_widths
+                .iter()
                 .filter(|(id, _)| !remote_ids.contains(id.as_str()))
-                .map(|(k, v)| (k.clone(), *v)).collect(),
-            service_panel_heights: self.service_panel_heights.iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            service_panel_heights: self
+                .service_panel_heights
+                .iter()
                 .filter(|(id, _)| !remote_ids.contains(id.as_str()))
-                .map(|(k, v)| (k.clone(), *v)).collect(),
-            hook_panel_heights: self.hook_panel_heights.iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            hook_panel_heights: self
+                .hook_panel_heights
+                .iter()
                 .filter(|(id, _)| !remote_ids.contains(id.as_str()))
-                .map(|(k, v)| (k.clone(), *v)).collect(),
-            folders: self.folders.iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            folders: self
+                .folders
+                .iter()
                 .filter(|f| !f.id.starts_with("remote:"))
-                .cloned().collect(),
+                .cloned()
+                .collect(),
         }
     }
 }
@@ -179,9 +201,10 @@ impl ProjectData {
             return custom_name.clone();
         }
         if let Some(ref title) = osc_title
-            && !is_bash_prompt_title(title) {
-                return title.clone();
-            }
+            && !is_bash_prompt_title(title)
+        {
+            return title.clone();
+        }
         self.directory_name()
     }
 
@@ -249,14 +272,19 @@ mod tests {
 
     #[test]
     fn directory_name_from_path() {
-        assert_eq!(make_project("/home/user/myproject").directory_name(), "myproject");
+        assert_eq!(
+            make_project("/home/user/myproject").directory_name(),
+            "myproject"
+        );
         assert_eq!(make_project("/").directory_name(), "Terminal");
     }
 
     #[test]
     fn terminal_display_name_prefers_custom_name() {
         let mut project = make_project("/home/user/myproject");
-        project.terminal_names.insert("t1".to_string(), "My Terminal".to_string());
+        project
+            .terminal_names
+            .insert("t1".to_string(), "My Terminal".to_string());
         assert_eq!(
             project.terminal_display_name("t1", Some("osc-title".to_string())),
             "My Terminal"
@@ -275,17 +303,17 @@ mod tests {
     #[test]
     fn terminal_display_name_falls_back_to_directory() {
         let project = make_project("/home/user/myproject");
-        assert_eq!(
-            project.terminal_display_name("t1", None),
-            "myproject"
-        );
+        assert_eq!(project.terminal_display_name("t1", None), "myproject");
     }
 
     #[test]
     fn terminal_display_name_ignores_bash_prompt_title() {
         let project = make_project("/home/user/myproject");
         assert_eq!(
-            project.terminal_display_name("t1", Some("matej21@matej21-hp: ~/projects/myproject".to_string())),
+            project.terminal_display_name(
+                "t1",
+                Some("matej21@matej21-hp: ~/projects/myproject".to_string())
+            ),
             "myproject"
         );
         assert_eq!(
@@ -341,8 +369,14 @@ mod tests {
         assert!(project.layout.is_none());
         // Legacy hooks should be mapped to the new grouped layout.
         assert_eq!(project.hooks.project.on_open.as_deref(), Some("init.sh"));
-        assert_eq!(project.hooks.worktree.pre_merge.as_deref(), Some("check.sh"));
-        assert_eq!(project.hooks.worktree.after_remove.as_deref(), Some("cleanup.sh"));
+        assert_eq!(
+            project.hooks.worktree.pre_merge.as_deref(),
+            Some("check.sh")
+        );
+        assert_eq!(
+            project.hooks.worktree.after_remove.as_deref(),
+            Some("cleanup.sh")
+        );
         // Untouched fields remain default.
         assert!(project.hooks.project.on_close.is_none());
         assert!(project.hooks.worktree.on_create.is_none());
@@ -364,9 +398,15 @@ mod tests {
         let saved = serde_json::to_string(&project).unwrap();
 
         // After saving the migrated config, no legacy keys should remain.
-        assert!(!saved.contains("\"on_project_open\""), "legacy key must not survive a save");
+        assert!(
+            !saved.contains("\"on_project_open\""),
+            "legacy key must not survive a save"
+        );
         // The grouped key should be present.
-        assert!(saved.contains("\"project\""), "expected grouped project key");
+        assert!(
+            saved.contains("\"project\""),
+            "expected grouped project key"
+        );
 
         let reloaded: ProjectData = serde_json::from_str(&saved).unwrap();
         assert_eq!(reloaded.hooks.project.on_open.as_deref(), Some("init.sh"));

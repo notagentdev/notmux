@@ -3,11 +3,11 @@
 use crate::file_search::Cancel;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use std::ops::Range;
 use vryn_core::theme::ThemeColors;
 use vryn_ui::icon_button::icon_button_sized;
 use vryn_ui::simple_input::{InputChangedEvent, SimpleInput, SimpleInputState};
 use vryn_ui::tokens::ui_text_md;
-use std::ops::Range;
 
 use super::FileViewer;
 
@@ -146,13 +146,12 @@ impl FileViewer {
             }
         }
 
-        let current_match_index = if matches.is_empty() {
-            None
-        } else {
-            Some(0)
-        };
+        let current_match_index = if matches.is_empty() { None } else { Some(0) };
 
-        let state = self.search_state.as_mut().expect("search_state verified Some at function entry");
+        let state = self
+            .search_state
+            .as_mut()
+            .expect("search_state verified Some at function entry");
         state.matches = matches;
         state.current_match_index = current_match_index;
 
@@ -209,11 +208,12 @@ impl FileViewer {
             None => return,
         };
         if let Some(idx) = state.current_match_index
-            && let Some(m) = state.matches.get(idx) {
-                self.active_tab()
-                    .source_scroll_handle
-                    .scroll_to_item(m.line, ScrollStrategy::Top);
-            }
+            && let Some(m) = state.matches.get(idx)
+        {
+            self.active_tab()
+                .source_scroll_handle
+                .scroll_to_item(m.line, ScrollStrategy::Top);
+        }
     }
 
     /// Toggle case sensitivity and re-run search.
@@ -254,7 +254,10 @@ impl FileViewer {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let state = self.search_state.as_ref().expect("render_search_bar only called when search is active");
+        let state = self
+            .search_state
+            .as_ref()
+            .expect("render_search_bar only called when search is active");
         let match_count = state.matches.len();
         let current_idx = state.current_match_index.map(|i| i + 1).unwrap_or(0);
         let match_text = if match_count > 0 {
@@ -290,11 +293,9 @@ impl FileViewer {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    .on_action(
-                        cx.listener(|this, _: &Cancel, window, cx| {
-                            this.close_search(window, cx);
-                        }),
-                    )
+                    .on_action(cx.listener(|this, _: &Cancel, window, cx| {
+                        this.close_search(window, cx);
+                    }))
                     .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
                         cx.stop_propagation();
                         if event.keystroke.key.as_str() == "enter" {
@@ -344,13 +345,19 @@ impl FileViewer {
                     .child(match_text),
             )
             .child(
-                icon_button_sized("file-search-prev-btn", "icons/chevron-up.svg", 24.0, 14.0, t)
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.prev_search_match(cx);
-                    })),
+                icon_button_sized(
+                    "file-search-prev-btn",
+                    "icons/chevron-up.svg",
+                    24.0,
+                    14.0,
+                    t,
+                )
+                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.prev_search_match(cx);
+                })),
             )
             .child(
                 icon_button_sized(
@@ -379,7 +386,12 @@ impl FileViewer {
                     .justify_center()
                     .rounded(px(3.0))
                     .hover(|s| s.bg(gpui::rgba(0xf14c4c99)))
-                    .child(svg().path("icons/close.svg").size(px(14.0)).text_color(rgb(t.text_secondary)))
+                    .child(
+                        svg()
+                            .path("icons/close.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(t.text_secondary)),
+                    )
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })

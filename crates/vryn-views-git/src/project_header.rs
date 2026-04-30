@@ -4,18 +4,17 @@
 //! reused without depending on the full view entity.
 
 use vryn_core::theme::ThemeColors;
-use vryn_git::{
-    CiStatus, CommitLogEntry, FileDiffSummary, GitStatus, GraphRow,
-    PrState,
+use vryn_files::file_tree::{
+    FileTreeNode, build_file_tree, expandable_file_row, expandable_folder_row,
 };
-use vryn_files::file_tree::{build_file_tree, expandable_folder_row, expandable_file_row, FileTreeNode};
+use vryn_git::{CiStatus, CommitLogEntry, FileDiffSummary, GitStatus, GraphRow, PrState};
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::h_flex;
-use vryn_ui::tokens::{ui_text_sm, ui_text_ms, ui_text_md};
+use gpui_component::tooltip::Tooltip;
 use std::sync::Arc;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 
 // ── Theme-dependent color traits ────────────────────────────────────────────
 
@@ -118,9 +117,7 @@ pub fn render_graph_column(
     };
 
     // X coordinate of the rail's left edge for a given column position
-    let rail_x = |pos: usize| -> f32 {
-        pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - RAIL_W) / 2.0
-    };
+    let rail_x = |pos: usize| -> f32 { pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - RAIL_W) / 2.0 };
 
     let mid_y = (row_h - RAIL_W) / 2.0;
     let row_center_y = row_h / 2.0;
@@ -131,35 +128,31 @@ pub fn render_graph_column(
     // small dots along `[y_start, y_end)` using the full lane color so the
     // trail stays visible against the background but doesn't drown out the
     // more prominent commit circles.
-    let push_dotted_rail = |elements: &mut Vec<AnyElement>,
-                            pos: usize,
-                            color: u32,
-                            y_start: f32,
-                            y_end: f32| {
-        if y_end <= y_start + 0.01 {
-            return;
-        }
-        let rail_center_x =
-            pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - RAIL_DOT_SIZE) / 2.0;
-        // Align dots to a stable grid so consecutive rows render a
-        // continuous dashed line instead of shifting per row.
-        let first_y = (y_start / RAIL_DOT_PITCH).ceil() * RAIL_DOT_PITCH;
-        let mut y = first_y;
-        while y + RAIL_DOT_SIZE <= y_end + 0.01 {
-            elements.push(
-                div()
-                    .absolute()
-                    .left(px(rail_center_x))
-                    .top(px(y))
-                    .w(px(RAIL_DOT_SIZE))
-                    .h(px(RAIL_DOT_SIZE))
-                    .rounded(px(RAIL_DOT_SIZE / 2.0))
-                    .bg(rgb(color))
-                    .into_any_element(),
-            );
-            y += RAIL_DOT_PITCH;
-        }
-    };
+    let push_dotted_rail =
+        |elements: &mut Vec<AnyElement>, pos: usize, color: u32, y_start: f32, y_end: f32| {
+            if y_end <= y_start + 0.01 {
+                return;
+            }
+            let rail_center_x = pos as f32 * GRAPH_CELL_W + (GRAPH_CELL_W - RAIL_DOT_SIZE) / 2.0;
+            // Align dots to a stable grid so consecutive rows render a
+            // continuous dashed line instead of shifting per row.
+            let first_y = (y_start / RAIL_DOT_PITCH).ceil() * RAIL_DOT_PITCH;
+            let mut y = first_y;
+            while y + RAIL_DOT_SIZE <= y_end + 0.01 {
+                elements.push(
+                    div()
+                        .absolute()
+                        .left(px(rail_center_x))
+                        .top(px(y))
+                        .w(px(RAIL_DOT_SIZE))
+                        .h(px(RAIL_DOT_SIZE))
+                        .rounded(px(RAIL_DOT_SIZE / 2.0))
+                        .bg(rgb(color))
+                        .into_any_element(),
+                );
+                y += RAIL_DOT_PITCH;
+            }
+        };
 
     // Clip the full-row range `[0, row_h]` to the visible portion based on
     // the current row's top/bottom clipping flags (first/last row in view).
@@ -614,11 +607,15 @@ fn render_diff_tree_node(
     let mut elements: Vec<AnyElement> = Vec::new();
 
     for (name, child) in &node.children {
-        elements.push(
-            expandable_folder_row(name, depth, true, t, cx)
-                .into_any_element(),
-        );
-        elements.extend(render_diff_tree_node(child, depth + 1, summaries, on_file_click, t, cx));
+        elements.push(expandable_folder_row(name, depth, true, t, cx).into_any_element());
+        elements.extend(render_diff_tree_node(
+            child,
+            depth + 1,
+            summaries,
+            on_file_click,
+            t,
+            cx,
+        ));
     }
 
     for &file_index in &node.files {

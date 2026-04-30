@@ -416,8 +416,12 @@ pub enum ActionRequest {
     },
 }
 
-fn default_search_mode() -> String { "literal".to_string() }
-fn default_max_results() -> usize { 1000 }
+fn default_search_mode() -> String {
+    "literal".to_string()
+}
+fn default_max_results() -> usize {
+    1000
+}
 
 /// POST /v1/pair request
 #[derive(Serialize, Deserialize)]
@@ -534,7 +538,10 @@ mod tests {
         let parsed: StateResponse = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.project_order.len(), 0);
         assert_eq!(parsed.folders.len(), 0);
-        assert!(matches!(parsed.projects[0].folder_color, FolderColor::Default));
+        assert!(matches!(
+            parsed.projects[0].folder_color,
+            FolderColor::Default
+        ));
     }
 
     #[test]

@@ -11,7 +11,11 @@ use super::RootView;
 impl RootView {
     /// Spawn terminals for all layout slots in a project that have terminal_id: None
     /// Used after creating a worktree project to immediately populate terminals
-    pub(super) fn spawn_terminals_for_project(&mut self, project_id: String, cx: &mut Context<Self>) {
+    pub(super) fn spawn_terminals_for_project(
+        &mut self,
+        project_id: String,
+        cx: &mut Context<Self>,
+    ) {
         let backend = self.backend.clone();
         let terminals = self.terminals.clone();
         self.workspace.update(cx, |ws, cx| {
@@ -39,10 +43,18 @@ impl RootView {
                     return;
                 }
             };
-            let layout_path = match project.layout.as_ref().and_then(|l| l.find_terminal_path(old_terminal_id)) {
+            let layout_path = match project
+                .layout
+                .as_ref()
+                .and_then(|l| l.find_terminal_path(old_terminal_id))
+            {
                 Some(p) => p,
                 None => {
-                    log::error!("switch_terminal_shell: Terminal {} not found in project {}", old_terminal_id, project_id);
+                    log::error!(
+                        "switch_terminal_shell: Terminal {} not found in project {}",
+                        old_terminal_id,
+                        project_id
+                    );
                     return;
                 }
             };
@@ -50,7 +62,10 @@ impl RootView {
         };
 
         // Get current shell to check if it's actually changing
-        let current_shell = self.workspace.read(cx).get_terminal_shell(project_id, &layout_path);
+        let current_shell = self
+            .workspace
+            .read(cx)
+            .get_terminal_shell(project_id, &layout_path);
         if current_shell.as_ref() == Some(&shell_type) {
             log::info!("switch_terminal_shell: Shell type unchanged, skipping");
             return;
@@ -67,7 +82,10 @@ impl RootView {
 
         // Determine the actual shell to use (resolve Default → project default → global default)
         let mut actual_shell = shell_type.resolve_default(
-            self.workspace.read(cx).project(project_id).and_then(|p| p.default_shell.as_ref()),
+            self.workspace
+                .read(cx)
+                .project(project_id)
+                .and_then(|p| p.default_shell.as_ref()),
             &settings(cx).default_shell,
         );
 
@@ -88,23 +106,44 @@ impl RootView {
             (name, hooks_cfg, parent, is_wt, fid, fname)
         };
 
-        let env = hooks::terminal_hook_env(project_id, &project_name, &project_path, is_worktree, folder_id.as_deref(), folder_name.as_deref());
+        let env = hooks::terminal_hook_env(
+            project_id,
+            &project_name,
+            &project_path,
+            is_worktree,
+            folder_id.as_deref(),
+            folder_name.as_deref(),
+        );
 
         // Apply shell_wrapper if configured
         let global_hooks = settings(cx).hooks;
-        if let Some(wrapper) = hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks) {
+        if let Some(wrapper) =
+            hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks)
+        {
             actual_shell = hooks::apply_shell_wrapper(&actual_shell, &wrapper, &env);
         }
 
         // Apply on_create: wrap shell to run command first, then exec into shell
-        if let Some(cmd) = hooks::resolve_terminal_on_create(&project_hooks, parent_hooks.as_ref(), &settings(cx).hooks, cx) {
+        if let Some(cmd) = hooks::resolve_terminal_on_create(
+            &project_hooks,
+            parent_hooks.as_ref(),
+            &settings(cx).hooks,
+            cx,
+        ) {
             actual_shell = hooks::apply_on_create(&actual_shell, &cmd, &env);
         }
 
         // Create new terminal with the new shell
-        match self.backend.create_terminal(&project_path, Some(&actual_shell)) {
+        match self
+            .backend
+            .create_terminal(&project_path, Some(&actual_shell))
+        {
             Ok(new_terminal_id) => {
-                log::info!("switch_terminal_shell: Switched to {:?}, new terminal_id: {}", actual_shell, new_terminal_id);
+                log::info!(
+                    "switch_terminal_shell: Switched to {:?}, new terminal_id: {}",
+                    actual_shell,
+                    new_terminal_id
+                );
 
                 // Update terminal_id in workspace state
                 self.workspace.update(cx, |ws, cx| {
@@ -122,7 +161,10 @@ impl RootView {
                 self.terminals.lock().insert(new_terminal_id, terminal);
             }
             Err(e) => {
-                log::error!("switch_terminal_shell: Failed to create terminal with new shell: {}", e);
+                log::error!(
+                    "switch_terminal_shell: Failed to create terminal with new shell: {}",
+                    e
+                );
                 ToastManager::error(format!("Failed to create terminal: {}", e), cx);
             }
         }
@@ -133,13 +175,13 @@ impl RootView {
         // Get the focused project ID and info
         let project_info = {
             let ws = self.workspace.read(cx);
-            let project_id = ws.focus_manager.focused_terminal_state()
+            let project_id = ws
+                .focus_manager
+                .focused_terminal_state()
                 .map(|f| f.project_id.clone())
                 .or_else(|| {
                     // Fallback: use the first visible project
-                    ws.visible_projects()
-                        .first()
-                        .map(|p| p.id.clone())
+                    ws.visible_projects().first().map(|p| p.id.clone())
                 });
 
             project_id.and_then(|id| {
@@ -158,7 +200,9 @@ impl RootView {
                     om.show_worktree_dialog(project_id, project_path, cx);
                 });
             } else {
-                log::info!("Cannot create worktree: project is not a git repo or is already a worktree");
+                log::info!(
+                    "Cannot create worktree: project is not a git repo or is already a worktree"
+                );
             }
         }
     }

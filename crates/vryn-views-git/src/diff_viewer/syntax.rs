@@ -1,17 +1,17 @@
 //! Syntax highlighting for the diff viewer.
 
 use super::types::{DiffDisplayFile, DisplayItem, DisplayLine, ExpanderRow, HighlightedSpan};
-use vryn_git::{DiffLineType, FileDiff};
-use vryn_git::diff::DiffHunk;
-use vryn_files::syntax::{
-    default_text_color_for, get_syntax_for_path, highlight_line, load_syntax_theme,
-};
-use vryn_core::theme::ThemeColors;
 use gpui::Rgba;
 use std::collections::HashMap;
 use syntect::easy::HighlightLines;
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
+use vryn_core::theme::ThemeColors;
+use vryn_files::syntax::{
+    default_text_color_for, get_syntax_for_path, highlight_line, load_syntax_theme,
+};
+use vryn_git::diff::DiffHunk;
+use vryn_git::{DiffLineType, FileDiff};
 
 /// Pre-highlight an entire file and return a map of line number -> spans.
 /// Line numbers are 1-based to match git diff line numbers.
@@ -73,14 +73,22 @@ pub fn process_file(
         Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
         None => HashMap::new(),
     };
-    log::debug!("[process_file] highlight old: {:?}, lines: {}", t1.elapsed(), old_highlighted.len());
+    log::debug!(
+        "[process_file] highlight old: {:?}, lines: {}",
+        t1.elapsed(),
+        old_highlighted.len()
+    );
 
     let t2 = std::time::Instant::now();
     let new_highlighted = match new_content.as_ref() {
         Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
         None => HashMap::new(),
     };
-    log::debug!("[process_file] highlight new: {:?}, lines: {}", t2.elapsed(), new_highlighted.len());
+    log::debug!(
+        "[process_file] highlight new: {:?}, lines: {}",
+        t2.elapsed(),
+        new_highlighted.len()
+    );
 
     let old_line_count = old_content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
     let new_line_count = new_content.as_ref().map(|c| c.lines().count()).unwrap_or(0);
@@ -157,7 +165,10 @@ pub fn process_file(
     }
 
     // Pre-compute per-hunk last line numbers (before draining)
-    let hunk_last_lines: Vec<(usize, usize)> = file.hunks.iter().enumerate()
+    let hunk_last_lines: Vec<(usize, usize)> = file
+        .hunks
+        .iter()
+        .enumerate()
         .map(|(idx, hunk)| last_line_nums(&hunk_items[idx], hunk))
         .collect();
 
@@ -210,7 +221,12 @@ pub fn process_file(
         }
     }
 
-    log::debug!("[process_file] total: {:?}, display items: {}, file: {}", t_total.elapsed(), items.len(), path);
+    log::debug!(
+        "[process_file] total: {:?}, display items: {}, file: {}",
+        t_total.elapsed(),
+        items.len(),
+        path
+    );
     DiffDisplayFile {
         items,
         old_highlighted,

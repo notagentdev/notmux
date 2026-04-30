@@ -2,8 +2,8 @@
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use super::types::{Inline, Node};
 use super::MarkdownDocument;
+use super::types::{Inline, Node};
 
 impl MarkdownDocument {
     /// Parse markdown content into a document.
@@ -192,13 +192,18 @@ impl MarkdownDocument {
                 Event::End(TagEnd::Link) => {
                     let mut children = inline_stack.pop().unwrap_or_default();
                     // Extract URL from marker
-                    let url = children.iter().find_map(|c| {
-                        if let Inline::Text(t) = c
-                            && t.starts_with("\x00LINK:") && t.ends_with("\x00") {
-                                return Some(t[6..t.len()-1].to_string());
+                    let url = children
+                        .iter()
+                        .find_map(|c| {
+                            if let Inline::Text(t) = c
+                                && t.starts_with("\x00LINK:")
+                                && t.ends_with("\x00")
+                            {
+                                return Some(t[6..t.len() - 1].to_string());
                             }
-                        None
-                    }).unwrap_or_default();
+                            None
+                        })
+                        .unwrap_or_default();
                     children.retain(|c| {
                         if let Inline::Text(t) = c {
                             !t.starts_with("\x00LINK:")
@@ -207,7 +212,10 @@ impl MarkdownDocument {
                         }
                     });
                     if let Some(last) = inline_stack.last_mut() {
-                        last.push(Inline::Link { _url: url, children });
+                        last.push(Inline::Link {
+                            _url: url,
+                            children,
+                        });
                     }
                 }
                 Event::Code(text) => {
@@ -248,9 +256,9 @@ impl MarkdownDocument {
     /// Convert a node to flat text (in characters, not bytes).
     pub(crate) fn node_to_flat_text(node: &Node, text: &mut String) {
         match node {
-            Node::Heading { children, .. } |
-            Node::Paragraph { children } |
-            Node::Blockquote { children } => {
+            Node::Heading { children, .. }
+            | Node::Paragraph { children }
+            | Node::Blockquote { children } => {
                 Self::inlines_to_flat_text(children, text);
                 text.push('\n');
             }
@@ -268,13 +276,17 @@ impl MarkdownDocument {
             }
             Node::Table { headers, rows } => {
                 for (i, header) in headers.iter().enumerate() {
-                    if i > 0 { text.push('\t'); }
+                    if i > 0 {
+                        text.push('\t');
+                    }
                     Self::inlines_to_flat_text(header, text);
                 }
                 text.push('\n');
                 for row in rows {
                     for (i, cell) in row.iter().enumerate() {
-                        if i > 0 { text.push('\t'); }
+                        if i > 0 {
+                            text.push('\t');
+                        }
                         Self::inlines_to_flat_text(cell, text);
                     }
                     text.push('\n');

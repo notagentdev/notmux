@@ -1,7 +1,7 @@
-use vryn_core::process;
 use crate::manager::ServiceStatus;
 use serde::Deserialize;
 use std::time::Duration;
+use vryn_core::process;
 
 /// Timeout for Docker CLI commands.  When the Docker daemon is not running the
 /// CLI can hang for many seconds waiting for a connection; this cap prevents it
@@ -68,9 +68,7 @@ fn parse_compose_config_services(json: &str) -> Result<Vec<String>, String> {
     Ok(config
         .services
         .into_iter()
-        .filter(|(_, svc)| {
-            !matches!(svc.deploy, Some(DeployConfig { replicas: Some(0) }))
-        })
+        .filter(|(_, svc)| !matches!(svc.deploy, Some(DeployConfig { replicas: Some(0) })))
         .map(|(name, _)| name)
         .collect())
 }
@@ -128,10 +126,21 @@ struct Publisher {
 }
 
 /// Poll status of all services in the compose project.
-pub fn poll_status(project_path: &str, compose_file: &str) -> Result<Vec<DockerServiceStatus>, String> {
+pub fn poll_status(
+    project_path: &str,
+    compose_file: &str,
+) -> Result<Vec<DockerServiceStatus>, String> {
     let mut cmd = process::command("docker");
-    cmd.args(["compose", "-f", compose_file, "ps", "--format", "json", "-a"])
-        .current_dir(project_path);
+    cmd.args([
+        "compose",
+        "-f",
+        compose_file,
+        "ps",
+        "--format",
+        "json",
+        "-a",
+    ])
+    .current_dir(project_path);
 
     let output = process::safe_output_with_timeout(&mut cmd, DOCKER_TIMEOUT)
         .map_err(|e| format!("docker compose ps failed: {}", e))?;
@@ -169,23 +178,26 @@ pub fn parse_docker_ps_output(output: &str) -> Result<Vec<DockerServiceStatus>, 
             .collect::<Result<Vec<_>, _>>()?
     };
 
-    Ok(entries.into_iter().map(|e| {
-        let ports = extract_ports(&e.publishers);
-        let name = e.service_name
-            .or(e.container_name)
-            .unwrap_or_default();
-        DockerServiceStatus {
-            name,
-            state: e.state.unwrap_or_else(|| "unknown".to_string()),
-            exit_code: e.exit_code,
-            ports,
-        }
-    }).collect())
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let ports = extract_ports(&e.publishers);
+            let name = e.service_name.or(e.container_name).unwrap_or_default();
+            DockerServiceStatus {
+                name,
+                state: e.state.unwrap_or_else(|| "unknown".to_string()),
+                exit_code: e.exit_code,
+                ports,
+            }
+        })
+        .collect())
 }
 
 /// Extract published host ports from the Publishers array.
 fn extract_ports(publishers: &Option<Vec<Publisher>>) -> Vec<u16> {
-    let Some(pubs) = publishers else { return Vec::new() };
+    let Some(pubs) = publishers else {
+        return Vec::new();
+    };
     let mut ports: Vec<u16> = pubs
         .iter()
         .filter_map(|p| p.published_port)
@@ -261,7 +273,10 @@ mod tests {
     fn test_map_docker_state() {
         assert_eq!(map_docker_state("running", None), ServiceStatus::Running);
         assert_eq!(map_docker_state("Running", None), ServiceStatus::Running);
-        assert_eq!(map_docker_state("restarting", None), ServiceStatus::Restarting);
+        assert_eq!(
+            map_docker_state("restarting", None),
+            ServiceStatus::Restarting
+        );
         assert_eq!(map_docker_state("paused", None), ServiceStatus::Running);
         assert_eq!(map_docker_state("created", None), ServiceStatus::Stopped);
         assert_eq!(map_docker_state("exited", Some(0)), ServiceStatus::Stopped);
@@ -275,19 +290,34 @@ mod tests {
         );
         assert_eq!(
             map_docker_state("dead", Some(137)),
-            ServiceStatus::Crashed { exit_code: Some(137) }
+            ServiceStatus::Crashed {
+                exit_code: Some(137)
+            }
         );
-        assert_eq!(map_docker_state("unknown_state", None), ServiceStatus::Stopped);
+        assert_eq!(
+            map_docker_state("unknown_state", None),
+            ServiceStatus::Stopped
+        );
     }
 
     #[test]
     fn test_parse_publishers_ports() {
         let pubs = vec![
-            Publisher { published_port: Some(8080) },
-            Publisher { published_port: Some(0) },
-            Publisher { published_port: None },
-            Publisher { published_port: Some(3000) },
-            Publisher { published_port: Some(8080) }, // duplicate
+            Publisher {
+                published_port: Some(8080),
+            },
+            Publisher {
+                published_port: Some(0),
+            },
+            Publisher {
+                published_port: None,
+            },
+            Publisher {
+                published_port: Some(3000),
+            },
+            Publisher {
+                published_port: Some(8080),
+            }, // duplicate
         ];
         let ports = extract_ports(&Some(pubs));
         assert_eq!(ports, vec![3000, 8080]);

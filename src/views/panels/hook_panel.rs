@@ -58,7 +58,9 @@ impl HookPanel {
         initial_height: f32,
         cx: &mut Context<Self>,
     ) -> Self {
-        let initial_count = workspace.read(cx).project(&project_id)
+        let initial_count = workspace
+            .read(cx)
+            .project(&project_id)
             .map(|p| p.hook_terminals.len())
             .unwrap_or(0);
 
@@ -70,22 +72,24 @@ impl HookPanel {
 
             if current_count > this.last_hook_count {
                 // New hook terminal(s) appeared — auto-open with the latest one
-                if let Some(newest_tid) = project
-                    .and_then(|p| {
-                        p.hook_terminals.keys()
-                            .find(|k| this.active_terminal_id.as_ref().is_none_or(|a| a != *k))
-                            .or_else(|| p.hook_terminals.keys().last())
-                            .cloned()
-                    })
-                {
+                if let Some(newest_tid) = project.and_then(|p| {
+                    p.hook_terminals
+                        .keys()
+                        .find(|k| this.active_terminal_id.as_ref().is_none_or(|a| a != *k))
+                        .or_else(|| p.hook_terminals.keys().last())
+                        .cloned()
+                }) {
                     this.auto_opened = true;
                     this.show_hook(&newest_tid, cx);
                 }
             } else if this.panel_open && this.auto_opened && current_count > 0 {
                 // Auto-close when all hooks succeeded (stay open on failures)
                 let all_succeeded = project
-                    .map(|p| p.hook_terminals.values()
-                        .all(|e| e.status == HookTerminalStatus::Succeeded))
+                    .map(|p| {
+                        p.hook_terminals
+                            .values()
+                            .all(|e| e.status == HookTerminalStatus::Succeeded)
+                    })
                     .unwrap_or(false);
                 if all_succeeded {
                     this.close(cx);
@@ -94,7 +98,8 @@ impl HookPanel {
 
             this.last_hook_count = current_count;
             cx.notify();
-        }).detach();
+        })
+        .detach();
 
         Self {
             project_id,
@@ -123,7 +128,10 @@ impl HookPanel {
         self.active_terminal_id = Some(terminal_id.to_string());
         self.panel_open = true;
 
-        let project_path = self.workspace.read(cx).project(&self.project_id)
+        let project_path = self
+            .workspace
+            .read(cx)
+            .project(&self.project_id)
             .map(|p| p.path.clone())
             .unwrap_or_default();
 
@@ -161,7 +169,10 @@ impl HookPanel {
             self.close(cx);
         } else {
             // Open with the first hook terminal, or just open empty
-            let first_tid = self.workspace.read(cx).project(&self.project_id)
+            let first_tid = self
+                .workspace
+                .read(cx)
+                .project(&self.project_id)
                 .and_then(|p| p.hook_terminals.keys().next().cloned());
             if let Some(tid) = first_tid {
                 self.show_hook(&tid, cx);
@@ -194,9 +205,12 @@ impl HookPanel {
 
     /// Get the hook terminals for this project.
     fn get_hook_list(&self, cx: &Context<Self>) -> Vec<(String, HookTerminalEntry)> {
-        self.workspace.read(cx).project(&self.project_id)
+        self.workspace
+            .read(cx)
+            .project(&self.project_id)
             .map(|p| {
-                p.hook_terminals.iter()
+                p.hook_terminals
+                    .iter()
                     .map(|(id, entry)| (id.clone(), entry.clone()))
                     .collect()
             })
@@ -205,7 +219,10 @@ impl HookPanel {
 
     /// Rerun a hook by killing the old PTY and creating a new one.
     fn rerun_hook(&mut self, terminal_id: &str, command: &str, cwd: &str, cx: &mut Context<Self>) {
-        let Some(runner) = cx.try_global::<crate::workspace::hooks::HookRunner>().cloned() else {
+        let Some(runner) = cx
+            .try_global::<crate::workspace::hooks::HookRunner>()
+            .cloned()
+        else {
             log::warn!("Cannot rerun hook: no HookRunner available");
             return;
         };
@@ -242,7 +259,11 @@ impl HookPanel {
                 // Switch the panel to the new terminal
                 self.show_hook(&new_terminal_id, cx);
 
-                log::info!("Hook rerun: replaced {} with {}", terminal_id, new_terminal_id);
+                log::info!(
+                    "Hook rerun: replaced {} with {}",
+                    terminal_id,
+                    new_terminal_id
+                );
             }
             Err(e) => {
                 log::error!("Failed to rerun hook terminal: {}", e);
@@ -263,7 +284,10 @@ impl HookPanel {
 
         // If we just dismissed the active terminal, switch to another or close
         if self.active_terminal_id.as_deref() == Some(terminal_id) {
-            let next = self.workspace.read(cx).project(&self.project_id)
+            let next = self
+                .workspace
+                .read(cx)
+                .project(&self.project_id)
                 .and_then(|p| p.hook_terminals.keys().next().cloned());
             if let Some(next_tid) = next {
                 self.show_hook(&next_tid, cx);
@@ -275,7 +299,8 @@ impl HookPanel {
 
     /// Dismiss all hooks that are not currently running.
     fn dismiss_finished_hooks(&mut self, cx: &mut Context<Self>) {
-        let finished: Vec<String> = self.get_hook_list(cx)
+        let finished: Vec<String> = self
+            .get_hook_list(cx)
             .into_iter()
             .filter(|(_, e)| e.status != HookTerminalStatus::Running)
             .map(|(id, _)| id)
@@ -296,9 +321,15 @@ impl HookPanel {
         }
 
         // Compute aggregate status color
-        let has_failed = hooks.iter().any(|(_, e)| matches!(e.status, HookTerminalStatus::Failed { .. }));
-        let has_running = hooks.iter().any(|(_, e)| e.status == HookTerminalStatus::Running);
-        let all_succeeded = hooks.iter().all(|(_, e)| e.status == HookTerminalStatus::Succeeded);
+        let has_failed = hooks
+            .iter()
+            .any(|(_, e)| matches!(e.status, HookTerminalStatus::Failed { .. }));
+        let has_running = hooks
+            .iter()
+            .any(|(_, e)| e.status == HookTerminalStatus::Running);
+        let all_succeeded = hooks
+            .iter()
+            .all(|(_, e)| e.status == HookTerminalStatus::Succeeded);
 
         let dot_color = if has_failed {
             t.term_red
@@ -310,7 +341,11 @@ impl HookPanel {
             t.text_muted
         };
 
-        let tooltip_text = format!("{} hook{}", hooks.len(), if hooks.len() == 1 { "" } else { "s" });
+        let tooltip_text = format!(
+            "{} hook{}",
+            hooks.len(),
+            if hooks.len() == 1 { "" } else { "s" }
+        );
         let entity = cx.entity().downgrade();
 
         div()
@@ -367,44 +402,40 @@ impl HookPanel {
             .h(px(panel_height))
             .flex_shrink_0()
             // Resize handle
-            .child(
-                ResizeHandle::new(
-                    true,
-                    t.border,
-                    t.border_active,
-                    move |mouse_pos, _cx| {
-                        *active_drag.borrow_mut() = Some(DragState::HookPanel {
-                            project_id: project_id.clone(),
-                            initial_mouse_y: f32::from(mouse_pos.y),
-                            initial_height: panel_height,
-                        });
-                    },
-                ),
-            )
+            .child(ResizeHandle::new(
+                true,
+                t.border,
+                t.border_active,
+                move |mouse_pos, _cx| {
+                    *active_drag.borrow_mut() = Some(DragState::HookPanel {
+                        project_id: project_id.clone(),
+                        initial_mouse_y: f32::from(mouse_pos.y),
+                        initial_height: panel_height,
+                    });
+                },
+            ))
             // Tab header
             .child(self.render_header(&hooks, active_tid.as_deref(), t, cx))
             // Content
-            .child(
-                if self.terminal_pane.is_some() {
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .children(self.terminal_pane.clone())
-                        .into_any_element()
-                } else {
-                    div()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(ui_text_ms(cx))
-                        .text_color(rgb(t.text_muted))
-                        .child("Select a hook to view its output")
-                        .into_any_element()
-                },
-            )
+            .child(if self.terminal_pane.is_some() {
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .children(self.terminal_pane.clone())
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(ui_text_ms(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child("Select a hook to view its output")
+                    .into_any_element()
+            })
             .into_any_element()
     }
 
@@ -434,58 +465,59 @@ impl HookPanel {
                     .min_w_0()
                     .flex()
                     .overflow_x_scroll()
-                    .children(
-                        hooks.iter().map(|(tid, entry)| {
-                            let is_active = active_tid == Some(tid.as_str());
-                            let status_color = match &entry.status {
-                                HookTerminalStatus::Running => t.term_yellow,
-                                HookTerminalStatus::Succeeded => t.success,
-                                HookTerminalStatus::Failed { .. } => t.error,
-                            };
+                    .children(hooks.iter().map(|(tid, entry)| {
+                        let is_active = active_tid == Some(tid.as_str());
+                        let status_color = match &entry.status {
+                            HookTerminalStatus::Running => t.term_yellow,
+                            HookTerminalStatus::Succeeded => t.success,
+                            HookTerminalStatus::Failed { .. } => t.error,
+                        };
 
-                            let tid_for_click = tid.clone();
-                            let entity_for_click = entity.clone();
+                        let tid_for_click = tid.clone();
+                        let entity_for_click = entity.clone();
 
-                            div()
-                                .id(ElementId::Name(format!("hook-tab-{}", tid).into()))
-                                .cursor_pointer()
-                                .h(px(34.0))
-                                .px(px(12.0))
-                                .flex()
-                                .items_center()
-                                .flex_shrink_0()
-                                .gap(px(6.0))
-                                .text_size(ui_text_md(cx))
-                                .when(is_active, |d| {
-                                    d.bg(rgb(t.bg_primary))
-                                        .text_color(rgb(t.text_primary))
-                                })
-                                .when(!is_active, |d| {
-                                    d.text_color(rgb(t.text_secondary))
-                                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                                })
-                                .child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .w(px(7.0))
-                                        .h(px(7.0))
-                                        .rounded(px(3.5))
-                                        .bg(rgb(status_color)),
-                                )
-                                .child(entry.label.clone())
-                                .on_click(move |_, _window, cx| {
-                                    if let Some(e) = entity_for_click.upgrade() {
-                                        e.update(cx, |this, cx| {
-                                            this.show_hook(&tid_for_click, cx);
-                                        });
-                                    }
-                                })
-                        }),
-                    ),
+                        div()
+                            .id(ElementId::Name(format!("hook-tab-{}", tid).into()))
+                            .cursor_pointer()
+                            .h(px(34.0))
+                            .px(px(12.0))
+                            .flex()
+                            .items_center()
+                            .flex_shrink_0()
+                            .gap(px(6.0))
+                            .text_size(ui_text_md(cx))
+                            .when(is_active, |d| {
+                                d.bg(rgb(t.bg_primary)).text_color(rgb(t.text_primary))
+                            })
+                            .when(!is_active, |d| {
+                                d.text_color(rgb(t.text_secondary))
+                                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                            })
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .w(px(7.0))
+                                    .h(px(7.0))
+                                    .rounded(px(3.5))
+                                    .bg(rgb(status_color)),
+                            )
+                            .child(entry.label.clone())
+                            .on_click(move |_, _window, cx| {
+                                if let Some(e) = entity_for_click.upgrade() {
+                                    e.update(cx, |this, cx| {
+                                        this.show_hook(&tid_for_click, cx);
+                                    });
+                                }
+                            })
+                    })),
             )
             // "Clear finished" link (when 2+ hooks are done)
             .when(
-                hooks.iter().filter(|(_, e)| e.status != HookTerminalStatus::Running).count() >= 2,
+                hooks
+                    .iter()
+                    .filter(|(_, e)| e.status != HookTerminalStatus::Running)
+                    .count()
+                    >= 2,
                 |d| {
                     let entity_clear = entity.clone();
                     d.child(
@@ -515,7 +547,10 @@ impl HookPanel {
             // Action buttons for active hook
             .child({
                 let active_entry = active_tid.and_then(|tid| {
-                    hooks.iter().find(|(id, _)| id == tid).map(|(id, e)| (id.clone(), e.clone()))
+                    hooks
+                        .iter()
+                        .find(|(id, _)| id == tid)
+                        .map(|(id, e)| (id.clone(), e.clone()))
                 });
 
                 let mut actions = div()
@@ -550,30 +585,28 @@ impl HookPanel {
                     let tid_rerun = tid.clone();
                     let command = entry.command.clone();
                     let cwd = entry.cwd.clone();
-                    let mut rerun_btn = icon_button_sized(
-                        "hook-panel-rerun", "icons/refresh.svg", 22.0, 12.0, t,
-                    );
+                    let mut rerun_btn =
+                        icon_button_sized("hook-panel-rerun", "icons/refresh.svg", 22.0, 12.0, t);
                     if is_running {
-                        rerun_btn = rerun_btn
-                            .opacity(0.3)
-                            .cursor_default();
+                        rerun_btn = rerun_btn.opacity(0.3).cursor_default();
                     } else {
-                        rerun_btn = rerun_btn
-                            .on_click(move |_, _window, cx| {
-                                cx.stop_propagation();
-                                if let Some(e) = entity_rerun.upgrade() {
-                                    e.update(cx, |this, cx| {
-                                        this.rerun_hook(&tid_rerun, &command, &cwd, cx);
-                                    });
-                                }
-                            });
+                        rerun_btn = rerun_btn.on_click(move |_, _window, cx| {
+                            cx.stop_propagation();
+                            if let Some(e) = entity_rerun.upgrade() {
+                                e.update(cx, |this, cx| {
+                                    this.rerun_hook(&tid_rerun, &command, &cwd, cx);
+                                });
+                            }
+                        });
                     }
-                    actions = actions.child(
-                        rerun_btn.tooltip(move |_window, cx| {
-                            Tooltip::new(if is_running { "Running\u{2026}" } else { "Rerun Hook" })
-                                .build(_window, cx)
-                        }),
-                    );
+                    actions = actions.child(rerun_btn.tooltip(move |_window, cx| {
+                        Tooltip::new(if is_running {
+                            "Running\u{2026}"
+                        } else {
+                            "Rerun Hook"
+                        })
+                        .build(_window, cx)
+                    }));
 
                     // Dismiss button (trash icon, red)
                     let entity_dismiss = entity.clone();
@@ -604,9 +637,7 @@ impl HookPanel {
                                     });
                                 }
                             })
-                            .tooltip(|_window, cx| {
-                                Tooltip::new("Dismiss Hook").build(_window, cx)
-                            }),
+                            .tooltip(|_window, cx| Tooltip::new("Dismiss Hook").build(_window, cx)),
                     );
                 }
 
@@ -643,9 +674,7 @@ impl HookPanel {
                                     e.update(cx, |this, cx| this.close(cx));
                                 }
                             })
-                            .tooltip(|_window, cx| {
-                                Tooltip::new("Hide Panel").build(_window, cx)
-                            })
+                            .tooltip(|_window, cx| Tooltip::new("Hide Panel").build(_window, cx))
                     }),
             )
     }

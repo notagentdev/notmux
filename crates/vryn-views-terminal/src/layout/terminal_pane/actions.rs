@@ -1,9 +1,9 @@
 //! Terminal pane action handlers.
 
 use crate::ActionDispatch;
+use gpui::*;
 use vryn_core::api::ActionRequest;
 use vryn_workspace::state::SplitDirection;
-use gpui::*;
 
 use super::TerminalPane;
 
@@ -58,9 +58,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
     pub(super) fn handle_copy(&mut self, cx: &mut Context<Self>) {
         if let Some(ref terminal) = self.terminal
-            && let Some(text) = terminal.get_selected_text() {
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
-            }
+            && let Some(text) = terminal.get_selected_text()
+        {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
     }
 
     pub(super) fn handle_paste(&mut self, cx: &mut Context<Self>) {
@@ -139,8 +140,8 @@ fn shell_escape_path(path: &std::path::Path) -> String {
 
     for c in path_str.chars() {
         match c {
-            ' ' | '(' | ')' | '[' | ']' | '{' | '}' | '\'' | '"' | '`' | '$' | '&' | '|'
-            | ';' | '<' | '>' | '*' | '?' | '!' | '#' | '~' | '\\' => {
+            ' ' | '(' | ')' | '[' | ']' | '{' | '}' | '\'' | '"' | '`' | '$' | '&' | '|' | ';'
+            | '<' | '>' | '*' | '?' | '!' | '#' | '~' | '\\' => {
                 escaped.push('\\');
                 escaped.push(c);
             }

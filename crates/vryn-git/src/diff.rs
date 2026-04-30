@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
+use serde::{Deserialize, Serialize};
 use vryn_core::process::{command, safe_output};
-use serde::{Serialize, Deserialize};
 
 /// Type of a diff line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,7 +77,6 @@ impl FileDiff {
             .or(self.old_path.as_deref())
             .unwrap_or("unknown")
     }
-
 }
 
 pub use vryn_core::types::DiffMode;
@@ -314,18 +313,39 @@ pub fn get_diff_with_options(
     let range_str;
     let mut args = match mode {
         DiffMode::WorkingTree => vec!["-C", path_str, "diff", "--no-color", "--no-ext-diff"],
-        DiffMode::Staged => vec!["-C", path_str, "diff", "--cached", "--no-color", "--no-ext-diff"],
+        DiffMode::Staged => vec![
+            "-C",
+            path_str,
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+        ],
         DiffMode::Commit(ref hash) => {
             crate::validate_git_ref(hash)?;
             range_str = format!("{}^..{}", hash, hash);
-            vec!["-C", path_str, "diff", &range_str, "--no-color", "--no-ext-diff"]
+            vec![
+                "-C",
+                path_str,
+                "diff",
+                &range_str,
+                "--no-color",
+                "--no-ext-diff",
+            ]
         }
         DiffMode::BranchCompare { ref base, ref head } => {
             crate::validate_git_ref(base)?;
             crate::validate_git_ref(head)?;
             // Three-dot diff: changes on head since it diverged from base
             range_str = format!("{}...{}", base, head);
-            vec!["-C", path_str, "diff", &range_str, "--no-color", "--no-ext-diff"]
+            vec![
+                "-C",
+                path_str,
+                "diff",
+                &range_str,
+                "--no-color",
+                "--no-ext-diff",
+            ]
         }
     };
 
@@ -337,12 +357,19 @@ pub fn get_diff_with_options(
     let t0 = std::time::Instant::now();
     let output = safe_output(command("git").args(&args))
         .map_err(|e| format!("Failed to execute git: {}", e))?;
-    log::debug!("[get_diff_with_options] git diff command: {:?}, stdout: {} bytes", t0.elapsed(), output.stdout.len());
+    log::debug!(
+        "[get_diff_with_options] git diff command: {:?}, stdout: {} bytes",
+        t0.elapsed(),
+        output.stdout.len()
+    );
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let msg = if stderr.is_empty() {
-            format!("git diff failed with exit code {}", output.status.code().unwrap_or(-1))
+            format!(
+                "git diff failed with exit code {}",
+                output.status.code().unwrap_or(-1)
+            )
         } else {
             stderr
         };
@@ -352,13 +379,21 @@ pub fn get_diff_with_options(
     let t1 = std::time::Instant::now();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut result = parse_unified_diff(&stdout);
-    log::debug!("[get_diff_with_options] parse_unified_diff: {:?}, files: {}", t1.elapsed(), result.files.len());
+    log::debug!(
+        "[get_diff_with_options] parse_unified_diff: {:?}, files: {}",
+        t1.elapsed(),
+        result.files.len()
+    );
 
     // For unstaged mode, also include untracked files
     if matches!(mode, DiffMode::WorkingTree) {
         let t2 = std::time::Instant::now();
         let untracked = get_untracked_files(path);
-        log::debug!("[get_diff_with_options] get_untracked_files: {:?}, count: {}", t2.elapsed(), untracked.len());
+        log::debug!(
+            "[get_diff_with_options] get_untracked_files: {:?}, count: {}",
+            t2.elapsed(),
+            untracked.len()
+        );
         for file_path in untracked {
             if let Some(file_diff) = create_untracked_file_diff(path, &file_path) {
                 result.files.push(file_diff);
@@ -377,19 +412,21 @@ fn get_untracked_files(path: &Path) -> Vec<String> {
         None => return vec![],
     };
 
-    let output = safe_output(
-        command("git").args(["-C", path_str, "ls-files", "--others", "--exclude-standard"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ]))
     .ok();
 
     match output {
-        Some(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-                .collect()
-        }
+        Some(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
         _ => vec![],
     }
 }
@@ -472,9 +509,10 @@ pub fn is_git_repo(path: &Path) -> bool {
         let guard = GIT_REPO_CACHE.lock();
         if let Some(ref cache) = *guard
             && let Some(&(result, ts)) = cache.get(&path_buf)
-                && ts.elapsed() < GIT_REPO_TTL {
-                    return result;
-                }
+            && ts.elapsed() < GIT_REPO_TTL
+        {
+            return result;
+        }
     }
 
     let path_str = match path.to_str() {
@@ -482,11 +520,10 @@ pub fn is_git_repo(path: &Path) -> bool {
         None => return false,
     };
 
-    let result = safe_output(
-        command("git").args(["-C", path_str, "rev-parse", "--is-inside-work-tree"]),
-    )
-    .map(|o| o.status.success())
-    .unwrap_or(false);
+    let result =
+        safe_output(command("git").args(["-C", path_str, "rev-parse", "--is-inside-work-tree"]))
+            .map(|o| o.status.success())
+            .unwrap_or(false);
 
     // Store in cache and evict stale entries
     {
@@ -504,7 +541,6 @@ pub fn is_git_repo(path: &Path) -> bool {
 
     result
 }
-
 
 /// Get the full content of a file from git at a specific revision.
 ///
@@ -525,10 +561,7 @@ pub fn get_file_from_git(repo_path: &Path, revision: &str, file_path: &str) -> O
         format!("{}:{}", revision, file_path)
     };
 
-    let output = safe_output(
-        command("git").args(["-C", repo_str, "show", &object]),
-    )
-    .ok()?;
+    let output = safe_output(command("git").args(["-C", repo_str, "show", &object])).ok()?;
 
     if output.status.success() {
         String::from_utf8(output.stdout).ok()
@@ -597,7 +630,11 @@ pub fn get_file_contents_for_diff(
             (old, new)
         }
     };
-    log::debug!("[get_file_contents_for_diff] {:?}, file: {}", t0.elapsed(), file_path);
+    log::debug!(
+        "[get_file_contents_for_diff] {:?}, file: {}",
+        t0.elapsed(),
+        file_path
+    );
     result
 }
 
@@ -610,7 +647,10 @@ mod tests {
         assert_eq!(parse_hunk_header("@@ -1,5 +1,7 @@ fn main()"), (1, 1));
         assert_eq!(parse_hunk_header("@@ -10,3 +15,5 @@"), (10, 15));
         assert_eq!(parse_hunk_header("@@ -1 +1 @@"), (1, 1));
-        assert_eq!(parse_hunk_header("@@ -100,20 +95,15 @@ impl Foo"), (100, 95));
+        assert_eq!(
+            parse_hunk_header("@@ -100,20 +95,15 @@ impl Foo"),
+            (100, 95)
+        );
     }
 
     #[test]
@@ -802,7 +842,11 @@ diff --git a/b.rs b/b.rs
 
         let result = safe_repo_path(dir.path(), "src/main.rs");
         assert!(result.is_some());
-        assert!(result.unwrap().starts_with(dir.path().canonicalize().unwrap()));
+        assert!(
+            result
+                .unwrap()
+                .starts_with(dir.path().canonicalize().unwrap())
+        );
     }
 
     #[test]

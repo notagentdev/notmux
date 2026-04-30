@@ -1,14 +1,14 @@
 //! Hook terminal list rendering for the sidebar
 
+use gpui::prelude::*;
+use gpui::*;
+use vryn_ui::icon_button::icon_button;
 use vryn_ui::theme::theme;
 use vryn_ui::tokens::ui_text_md;
 use vryn_workspace::state::HookTerminalStatus;
-use gpui::*;
-use gpui::prelude::*;
-use vryn_ui::icon_button::icon_button;
 
-use crate::sidebar::{Sidebar, SidebarProjectInfo, SidebarHookInfo, GroupKind};
 use crate::item_widgets::sidebar_group_header;
+use crate::sidebar::{GroupKind, Sidebar, SidebarHookInfo, SidebarProjectInfo};
 
 impl Sidebar {
     /// Render the "Hooks" group header with collapse chevron.
@@ -60,7 +60,9 @@ impl Sidebar {
         };
 
         div()
-            .id(ElementId::Name(format!("hook-item-{}-{}", project_id, terminal_id).into()))
+            .id(ElementId::Name(
+                format!("hook-item-{}-{}", project_id, terminal_id).into(),
+            ))
             .group("hook-item")
             .h(px(32.0))
             .pl(px(left_padding))
@@ -70,7 +72,9 @@ impl Sidebar {
             .gap(px(4.0))
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
-            .when(is_cursor, |d| d.border_l_2().border_color(rgb(t.border_active)))
+            .when(is_cursor, |d| {
+                d.border_l_2().border_color(rgb(t.border_active))
+            })
             .on_click(cx.listener({
                 let project_id = project_id.clone();
                 let terminal_id = terminal_id.clone();
@@ -128,24 +132,28 @@ impl Sidebar {
                         let project_id = project_id.clone();
                         let command = hook.command.clone();
                         let cwd = hook.cwd.clone();
-                        |el| el.child(
-                            icon_button(
-                                ElementId::Name(format!("hook-rerun-{}", terminal_id).into()),
-                                "icons/refresh.svg",
-                                &t,
-                            )
+                        |el| {
+                            el.child(
+                                icon_button(
+                                    ElementId::Name(format!("hook-rerun-{}", terminal_id).into()),
+                                    "icons/refresh.svg",
+                                    &t,
+                                )
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .on_click(cx.listener(move |this, _, _window, cx| {
-                                    cx.stop_propagation();
-                                    this.rerun_hook_terminal(
-                                        &project_id,
-                                        &terminal_id,
-                                        &command,
-                                        &cwd,
-                                        cx,
-                                    );
-                                })),
-                        )
+                                .on_click(cx.listener(
+                                    move |this, _, _window, cx| {
+                                        cx.stop_propagation();
+                                        this.rerun_hook_terminal(
+                                            &project_id,
+                                            &terminal_id,
+                                            &command,
+                                            &cwd,
+                                            cx,
+                                        );
+                                    },
+                                )),
+                            )
+                        }
                     })
                     // Dismiss button
                     .child(
@@ -154,22 +162,24 @@ impl Sidebar {
                             "icons/close.svg",
                             &t,
                         )
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(cx.listener({
-                                let terminal_id = terminal_id.clone();
-                                move |this, _, _window, cx| {
-                                    cx.stop_propagation();
-                                    if let Some(monitor) = cx.try_global::<vryn_workspace::hook_monitor::HookMonitor>() {
-                                        monitor.notify_exit(&terminal_id, None);
-                                    }
-                                    this.workspace.update(cx, |ws, cx| {
-                                        ws.cancel_pending_worktree_close(&terminal_id);
-                                        ws.remove_hook_terminal(&terminal_id, cx);
-                                    });
-                                    let terminals = this.terminals.clone();
-                                    terminals.lock().remove(&terminal_id);
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener({
+                            let terminal_id = terminal_id.clone();
+                            move |this, _, _window, cx| {
+                                cx.stop_propagation();
+                                if let Some(monitor) =
+                                    cx.try_global::<vryn_workspace::hook_monitor::HookMonitor>()
+                                {
+                                    monitor.notify_exit(&terminal_id, None);
                                 }
-                            })),
+                                this.workspace.update(cx, |ws, cx| {
+                                    ws.cancel_pending_worktree_close(&terminal_id);
+                                    ws.remove_hook_terminal(&terminal_id, cx);
+                                });
+                                let terminals = this.terminals.clone();
+                                terminals.lock().remove(&terminal_id);
+                            }
+                        })),
                     ),
             )
     }
@@ -183,7 +193,10 @@ impl Sidebar {
         cwd: &str,
         cx: &mut Context<Self>,
     ) {
-        let Some(runner) = cx.try_global::<vryn_workspace::hooks::HookRunner>().cloned() else {
+        let Some(runner) = cx
+            .try_global::<vryn_workspace::hooks::HookRunner>()
+            .cloned()
+        else {
             log::warn!("Cannot rerun hook: no HookRunner available");
             return;
         };
@@ -219,7 +232,11 @@ impl Sidebar {
                 let cmd_with_newline = format!("{}\n", command);
                 transport.send_input(&new_terminal_id, cmd_with_newline.as_bytes());
 
-                log::info!("Hook rerun: replaced {} with {}", terminal_id, new_terminal_id);
+                log::info!(
+                    "Hook rerun: replaced {} with {}",
+                    terminal_id,
+                    new_terminal_id
+                );
             }
             Err(e) => {
                 log::error!("Failed to rerun hook terminal: {}", e);

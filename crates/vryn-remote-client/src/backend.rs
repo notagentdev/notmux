@@ -1,10 +1,10 @@
+use anyhow::Result;
+use std::path::PathBuf;
+use std::sync::Arc;
+use vryn_core::client::{WsClientMessage, make_prefixed_id, strip_prefix};
 use vryn_terminal::backend::TerminalBackend;
 use vryn_terminal::shell_config::ShellType;
 use vryn_terminal::terminal::TerminalTransport;
-use anyhow::Result;
-use vryn_core::client::{make_prefixed_id, strip_prefix, WsClientMessage};
-use std::path::PathBuf;
-use std::sync::Arc;
 
 /// Transport implementation for remote terminals.
 ///

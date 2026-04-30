@@ -2,9 +2,9 @@
 
 use super::{FileViewerTab, MAX_FILE_SIZE, MAX_LINES};
 use crate::syntax::highlight_content;
-use vryn_markdown::MarkdownDocument;
 use std::path::Path;
 use syntect::parsing::SyntaxSet;
+use vryn_markdown::MarkdownDocument;
 
 impl FileViewerTab {
     /// Check if a file is a markdown file based on extension.
@@ -94,11 +94,7 @@ impl FileViewerTab {
 
     /// Check if the file was modified externally and reload if so.
     /// Returns true if the file was reloaded.
-    pub(super) fn reload_if_changed(
-        &mut self,
-        syntax_set: &SyntaxSet,
-        is_dark: bool,
-    ) -> bool {
+    pub(super) fn reload_if_changed(&mut self, syntax_set: &SyntaxSet, is_dark: bool) -> bool {
         let Some(old_mtime) = self.modified_at else {
             return false;
         };

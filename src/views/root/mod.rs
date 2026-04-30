@@ -8,17 +8,17 @@ mod terminal_actions;
 use crate::git::watcher::GitStatusWatcher;
 use crate::remote_client::manager::RemoteConnectionManager;
 use crate::services::manager::ServiceManager;
-use crate::terminal::backend::{TerminalBackend, LocalBackend};
+use crate::settings::settings;
+use crate::terminal::backend::{LocalBackend, TerminalBackend};
 use crate::terminal::pty_manager::PtyManager;
+use crate::views::chrome::title_bar::TitleBar;
+use crate::views::layout::split_pane::{ActiveDrag, new_active_drag};
 use crate::views::overlay_manager::OverlayManager;
 use crate::views::panels::project_column::ProjectColumn;
-use crate::views::sidebar_controller::SidebarController;
 use crate::views::panels::sidebar::Sidebar;
-use crate::views::layout::split_pane::{new_active_drag, ActiveDrag};
 use crate::views::panels::status_bar::StatusBar;
 use crate::views::panels::toast::ToastOverlay;
-use crate::views::chrome::title_bar::TitleBar;
-use crate::settings::settings;
+use crate::views::sidebar_controller::SidebarController;
 use crate::workspace::request_broker::RequestBroker;
 use crate::workspace::state::Workspace;
 use gpui::*;
@@ -33,7 +33,8 @@ pub use vryn_terminal::TerminalsRegistry;
 
 /// Registry mapping terminal_id → WeakEntity<TerminalContent> for direct
 /// dirty notification from PTY event loop (avoids per-pane polling).
-pub type ContentPaneRegistry = Arc<Mutex<HashMap<String, WeakEntity<super::layout::terminal_pane::TerminalContent>>>>;
+pub type ContentPaneRegistry =
+    Arc<Mutex<HashMap<String, WeakEntity<super::layout::terminal_pane::TerminalContent>>>>;
 
 /// Global content pane registry instance.
 static CONTENT_PANE_REGISTRY: std::sync::OnceLock<ContentPaneRegistry> = std::sync::OnceLock::new();
@@ -96,6 +97,8 @@ pub struct RootView {
     git_panel_ctrl: SidebarController,
     /// Project ID whose git log is shown in the git panel
     git_panel_project_id: Option<String>,
+    /// Diff viewer shown in the central project area from the git changes list.
+    main_diff_viewer: Option<Entity<vryn_views_git::diff_viewer::DiffViewer>>,
     /// Pending debounced full-refresh tasks per project (for `.git/` event
     /// storms during rebase/checkout). Dropping the task cancels it.
     pending_git_internal_refresh: HashMap<String, Task<()>>,
@@ -121,9 +124,15 @@ impl RootView {
             app_settings.git_panel.width,
         );
 
-
         // Create sidebar entity once to preserve state
-        let sidebar = cx.new(|cx| Sidebar::new(workspace.clone(), request_broker.clone(), terminals.clone(), cx));
+        let sidebar = cx.new(|cx| {
+            Sidebar::new(
+                workspace.clone(),
+                request_broker.clone(),
+                terminals.clone(),
+                cx,
+            )
+        });
 
         // Create title bar entity (sync initial sidebar + git-panel state)
         let sidebar_initially_open = sidebar_ctrl.is_open();
@@ -145,20 +154,23 @@ impl RootView {
         });
 
         // Create overlay manager
-        let overlay_manager = cx.new(|_cx| OverlayManager::new(workspace.clone(), request_broker.clone()));
+        let overlay_manager =
+            cx.new(|_cx| OverlayManager::new(workspace.clone(), request_broker.clone()));
 
         // Create toast overlay
         let toast_overlay = cx.new(ToastOverlay::new);
 
         // Subscribe to overlay manager events
-        cx.subscribe(&overlay_manager, Self::handle_overlay_manager_event).detach();
+        cx.subscribe(&overlay_manager, Self::handle_overlay_manager_event)
+            .detach();
 
         // Observe RequestBroker to process overlay requests outside of render()
         cx.observe(&request_broker, |this, _broker, cx| {
             if this.request_broker.read(cx).has_overlay_requests() {
                 this.process_pending_requests(cx);
             }
-        }).detach();
+        })
+        .detach();
 
         // Create focus handle for global keybindings
         let focus_handle = cx.focus_handle();
@@ -215,7 +227,10 @@ impl RootView {
             projects_scroll_handle: ScrollHandle::new(),
             projects_grid_bounds: Rc::new(RefCell::new(Bounds {
                 origin: Point::default(),
-                size: Size { width: px(800.0), height: px(600.0) },
+                size: Size {
+                    width: px(800.0),
+                    height: px(600.0),
+                },
             })),
             hscroll_dragging: false,
             hscroll_bounds: Rc::new(RefCell::new(None)),
@@ -230,6 +245,7 @@ impl RootView {
             pending_center_scroll: None,
             git_panel_ctrl,
             git_panel_project_id: None,
+            main_diff_viewer: None,
             pending_git_internal_refresh: HashMap::new(),
         };
 
@@ -239,12 +255,18 @@ impl RootView {
             let (is_project_focused, focused_terminal_project, git_context) = {
                 let ws = workspace.read(cx);
                 let focused_project = ws.focus_manager.focused_project_id().cloned();
-                let focused_terminal_project = ws.focus_manager
+                let focused_terminal_project = ws
+                    .focus_manager
                     .focused_terminal_state()
                     .map(|f| f.project_id.clone());
-                let git_context = focused_project.clone()
+                let git_context = focused_project
+                    .clone()
                     .or_else(|| focused_terminal_project.clone());
-                (focused_project.is_some(), focused_terminal_project, git_context)
+                (
+                    focused_project.is_some(),
+                    focused_terminal_project,
+                    git_context,
+                )
             };
 
             // When project zoom is cleared, defer centering until after next layout pass
@@ -253,7 +275,9 @@ impl RootView {
                 this.pending_center_scroll = focused_terminal_project;
             }
             // When the active terminal changes project, ensure it's visible
-            else if focused_terminal_project != this.last_scroll_project && focused_terminal_project.is_some() {
+            else if focused_terminal_project != this.last_scroll_project
+                && focused_terminal_project.is_some()
+            {
                 this.last_scroll_project = focused_terminal_project.clone();
                 this.scroll_to_focused_project(focused_terminal_project.as_deref(), false, cx);
             }
@@ -269,7 +293,8 @@ impl RootView {
                     sidebar.update(cx, |sb, cx| sb.refresh_file_explorer(&pid, cx));
                 }
             }
-        }).detach();
+        })
+        .detach();
 
         // Initialize project columns
         view.sync_project_columns(cx);
@@ -323,63 +348,72 @@ impl RootView {
         // file explorer + git header can incrementally patch without a full
         // rebuild. `.git/` events route to a 500ms-debounced full refresh so
         // `git rebase` / `git checkout` storms coalesce into one refresh.
-        cx.subscribe(&watcher, |this, _watcher, event: &crate::git::watcher::FsChangeEvent, cx| {
-            let pid = event.project_id.clone();
-            let files = event.files.clone();
-            let is_git_internal = event.is_git_internal;
+        cx.subscribe(
+            &watcher,
+            |this, _watcher, event: &crate::git::watcher::FsChangeEvent, cx| {
+                let pid = event.project_id.clone();
+                let files = event.files.clone();
+                let is_git_internal = event.is_git_internal;
 
-            if is_git_internal {
-                this.schedule_git_internal_refresh(pid, cx);
-                return;
-            }
-
-            // File Explorer — incremental
-            {
-                let sidebar = this.sidebar.clone();
-                let files_for_fe = files.clone();
-                let pid_for_fe = pid.clone();
-                sidebar.update(cx, |sb, cx| {
-                    sb.patch_file_explorer_paths(&pid_for_fe, &files_for_fe, cx);
-                });
-            }
-
-            // Git Header — incremental
-            if let Some(col) = this.project_columns.get(&pid).cloned() {
-                let gh = col.read(cx).git_header();
-                let repo_root = gh.read(cx).local_repo_root();
-                let Some(root) = repo_root else {
-                    return;
-                };
-                let rel_paths: Vec<String> = files
-                    .iter()
-                    .filter_map(|p| p.strip_prefix(&root).ok())
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                    .collect();
-                if rel_paths.is_empty() {
+                if is_git_internal {
+                    this.schedule_git_internal_refresh(pid, cx);
                     return;
                 }
-                gh.update(cx, |gh, cx| {
-                    gh.patch_files(rel_paths, cx);
-                });
-            }
-        })
+
+                // File Explorer — incremental
+                {
+                    let sidebar = this.sidebar.clone();
+                    let files_for_fe = files.clone();
+                    let pid_for_fe = pid.clone();
+                    sidebar.update(cx, |sb, cx| {
+                        sb.patch_file_explorer_paths(&pid_for_fe, &files_for_fe, cx);
+                    });
+                }
+
+                // Git Header — incremental
+                if let Some(col) = this.project_columns.get(&pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    let repo_root = gh.read(cx).local_repo_root();
+                    let Some(root) = repo_root else {
+                        return;
+                    };
+                    let rel_paths: Vec<String> = files
+                        .iter()
+                        .filter_map(|p| p.strip_prefix(&root).ok())
+                        .map(|p| p.to_string_lossy().replace('\\', "/"))
+                        .collect();
+                    if rel_paths.is_empty() {
+                        return;
+                    }
+                    gh.update(cx, |gh, cx| {
+                        gh.patch_files(rel_paths, cx);
+                    });
+                }
+            },
+        )
         .detach();
 
         self.git_watcher = Some(watcher);
         // Drop existing local columns so they get recreated with the watcher
-        self.project_columns.retain(|id, _| id.starts_with("remote:"));
+        self.project_columns
+            .retain(|id, _| id.starts_with("remote:"));
         self.sync_project_columns(cx);
     }
 
     /// Set the remote connection manager (called after creation by Vryn).
-    pub fn set_remote_manager(&mut self, manager: Entity<RemoteConnectionManager>, cx: &mut Context<Self>) {
+    pub fn set_remote_manager(
+        &mut self,
+        manager: Entity<RemoteConnectionManager>,
+        cx: &mut Context<Self>,
+    ) {
         // Observe remote manager and sync remote projects into workspace
         let workspace = self.workspace.clone();
         cx.observe(&manager, move |this, rm, cx| {
             Self::sync_remote_projects_into_workspace(&workspace, &rm, cx);
             this.sync_project_columns(cx);
             cx.notify();
-        }).detach();
+        })
+        .detach();
 
         // Wire up remote callbacks on sidebar
         {
@@ -389,12 +423,17 @@ impl RootView {
             self.sidebar.update(cx, |sidebar, _cx| {
                 // Get remote connections callback
                 sidebar.set_remote_connections(Box::new(move |cx| {
-                    rm_for_connections.read(cx).connections().iter().map(|(config, status, _state)| {
-                        vryn_views_sidebar::RemoteConnectionSnapshot {
-                            config: (*config).clone(),
-                            status: (*status).clone(),
-                        }
-                    }).collect()
+                    rm_for_connections
+                        .read(cx)
+                        .connections()
+                        .iter()
+                        .map(|(config, status, _state)| {
+                            vryn_views_sidebar::RemoteConnectionSnapshot {
+                                config: (*config).clone(),
+                                status: (*status).clone(),
+                            }
+                        })
+                        .collect()
                 }));
 
                 // Send remote action callback
@@ -406,12 +445,19 @@ impl RootView {
 
                 // Get remote folder callback
                 sidebar.set_get_remote_folder(Box::new(move |conn_id, prefixed_project_id, cx| {
-                    let server_project_id = vryn_core::client::strip_prefix(prefixed_project_id, conn_id);
-                    rm_for_folder.read(cx).connections().iter()
+                    let server_project_id =
+                        vryn_core::client::strip_prefix(prefixed_project_id, conn_id);
+                    rm_for_folder
+                        .read(cx)
+                        .connections()
+                        .iter()
                         .find(|(config, _, _)| config.id == conn_id)
                         .and_then(|(_, _, state)| state.as_ref())
                         .and_then(|state| {
-                            state.folders.iter().find(|f| f.project_ids.contains(&server_project_id))
+                            state
+                                .folders
+                                .iter()
+                                .find(|f| f.project_ids.contains(&server_project_id))
                                 .map(|f| f.id.clone())
                         })
                 }));
@@ -421,7 +467,8 @@ impl RootView {
             let sidebar_for_observe = self.sidebar.clone();
             cx.observe(&manager, move |_this, _rm, cx| {
                 sidebar_for_observe.update(cx, |_, cx| cx.notify());
-            }).detach();
+            })
+            .detach();
         }
 
         self.remote_manager = Some(manager);
@@ -434,7 +481,8 @@ impl RootView {
     pub fn set_service_manager(&mut self, manager: Entity<ServiceManager>, cx: &mut Context<Self>) {
         cx.observe(&manager, |_this, _sm, cx| {
             cx.notify();
-        }).detach();
+        })
+        .detach();
 
         self.sidebar.update(cx, |sidebar, cx| {
             sidebar.set_service_manager(manager.clone(), cx);
@@ -483,8 +531,8 @@ impl RootView {
         rm: &Entity<RemoteConnectionManager>,
         cx: &mut Context<Self>,
     ) {
-        use crate::workspace::state::{FolderData, ProjectData, LayoutNode};
         use crate::workspace::settings::HooksConfig;
+        use crate::workspace::state::{FolderData, LayoutNode, ProjectData};
         use vryn_core::client::RemoteConnectionConfig;
 
         // Snapshot all connection data into owned structures to release the borrow on cx
@@ -494,28 +542,37 @@ impl RootView {
         }
         let snapshots: Vec<ConnSnapshot> = {
             let rm_read = rm.read(cx);
-            rm_read.connections().iter().map(|(config, _status, state)| {
-                ConnSnapshot {
+            rm_read
+                .connections()
+                .iter()
+                .map(|(config, _status, state)| ConnSnapshot {
                     config: (*config).clone(),
                     state: state.cloned(),
-                }
-            }).collect()
+                })
+                .collect()
         };
 
-        let mut expected_remote_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let active_conn_ids: std::collections::HashSet<String> = snapshots.iter()
-            .map(|s| s.config.id.clone()).collect();
+        let mut expected_remote_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let active_conn_ids: std::collections::HashSet<String> =
+            snapshots.iter().map(|s| s.config.id.clone()).collect();
 
         // Collect old terminal IDs for projects pending focus, so we can detect new ones after sync.
-        let old_terminal_ids: std::collections::HashMap<String, Vec<String>> = workspace.update(cx, |ws, _cx| {
-            ws.remote_sync.pending_focus().iter().map(|pid| {
-                let ids = ws.project(pid)
-                    .and_then(|p| p.layout.as_ref())
-                    .map(|l| l.collect_terminal_ids())
-                    .unwrap_or_default();
-                (pid.clone(), ids)
-            }).collect()
-        });
+        let old_terminal_ids: std::collections::HashMap<String, Vec<String>> =
+            workspace.update(cx, |ws, _cx| {
+                ws.remote_sync
+                    .pending_focus()
+                    .iter()
+                    .map(|pid| {
+                        let ids = ws
+                            .project(pid)
+                            .and_then(|p| p.layout.as_ref())
+                            .map(|l| l.collect_terminal_ids())
+                            .unwrap_or_default();
+                        (pid.clone(), ids)
+                    })
+                    .collect()
+            });
 
         for snap in &snapshots {
             let conn_id = &snap.config.id;
@@ -534,7 +591,9 @@ impl RootView {
                         if let Some(sf) = server_folder_map.get(order_id.as_str()) {
                             // This is a folder — create a prefixed FolderData
                             let prefixed_folder_id = format!("remote:{}:{}", conn_id, sf.id);
-                            let prefixed_project_ids: Vec<String> = sf.project_ids.iter()
+                            let prefixed_project_ids: Vec<String> = sf
+                                .project_ids
+                                .iter()
                                 .map(|pid| format!("remote:{}:{}", conn_id, pid))
                                 .collect();
                             remote_folders.push(FolderData {
@@ -561,11 +620,14 @@ impl RootView {
                     let prefixed_id = format!("remote:{}:{}", conn_id, api_project.id);
                     expected_remote_ids.insert(prefixed_id.clone());
 
-                    let layout = api_project.layout.as_ref().map(|l| {
-                        LayoutNode::from_api_prefixed(l, &format!("remote:{}", conn_id))
-                    });
+                    let layout = api_project
+                        .layout
+                        .as_ref()
+                        .map(|l| LayoutNode::from_api_prefixed(l, &format!("remote:{}", conn_id)));
 
-                    let terminal_names: std::collections::HashMap<String, String> = api_project.terminal_names.iter()
+                    let terminal_names: std::collections::HashMap<String, String> = api_project
+                        .terminal_names
+                        .iter()
                         .map(|(k, v)| (format!("remote:{}:{}", conn_id, k), v.clone()))
                         .collect();
 
@@ -573,17 +635,25 @@ impl RootView {
                     let conn_id_owned = conn_id.clone();
 
                     // Build remote services with prefixed terminal IDs
-                    let remote_services: Vec<vryn_core::api::ApiServiceInfo> = api_project.services.iter().map(|s| {
-                        let mut svc = s.clone();
-                        svc.terminal_id = s.terminal_id.as_ref()
-                            .map(|tid| format!("remote:{}:{}", conn_id, tid));
-                        svc
-                    }).collect();
+                    let remote_services: Vec<vryn_core::api::ApiServiceInfo> = api_project
+                        .services
+                        .iter()
+                        .map(|s| {
+                            let mut svc = s.clone();
+                            svc.terminal_id = s
+                                .terminal_id
+                                .as_ref()
+                                .map(|tid| format!("remote:{}:{}", conn_id, tid));
+                            svc
+                        })
+                        .collect();
                     let remote_host = Some(snap.config.host.clone());
                     let remote_git_status = api_project.git_status.clone();
 
                     workspace.update(cx, |ws, _cx| {
-                        if let Some(existing) = ws.data.projects.iter_mut().find(|p| p.id == prefixed_id) {
+                        if let Some(existing) =
+                            ws.data.projects.iter_mut().find(|p| p.id == prefixed_id)
+                        {
                             existing.name = api_project.name.clone();
                             existing.path = api_project.path.clone();
                             // Merge server layout with locally-preserved visual state
@@ -598,14 +668,19 @@ impl RootView {
                             existing.folder_color = project_color;
                             existing.worktree_info = api_project.worktree_info.as_ref().map(|wt| {
                                 crate::workspace::state::WorktreeMetadata {
-                                    parent_project_id: format!("remote:{}:{}", conn_id, wt.parent_project_id),
+                                    parent_project_id: format!(
+                                        "remote:{}:{}",
+                                        conn_id, wt.parent_project_id
+                                    ),
                                     color_override: wt.color_override,
                                     main_repo_path: String::new(),
                                     worktree_path: String::new(),
                                     branch_name: String::new(),
                                 }
                             });
-                            existing.worktree_ids = api_project.worktree_ids.iter()
+                            existing.worktree_ids = api_project
+                                .worktree_ids
+                                .iter()
                                 .map(|id| format!("remote:{}:{}", conn_id, id))
                                 .collect();
                             // Don't overwrite show_in_overview — it's client-side state
@@ -613,14 +688,19 @@ impl RootView {
                         } else {
                             let worktree_info = api_project.worktree_info.as_ref().map(|wt| {
                                 crate::workspace::state::WorktreeMetadata {
-                                    parent_project_id: format!("remote:{}:{}", conn_id, wt.parent_project_id),
+                                    parent_project_id: format!(
+                                        "remote:{}:{}",
+                                        conn_id, wt.parent_project_id
+                                    ),
                                     color_override: wt.color_override,
                                     main_repo_path: String::new(),
                                     worktree_path: String::new(),
                                     branch_name: String::new(),
                                 }
                             });
-                            let worktree_ids: Vec<String> = api_project.worktree_ids.iter()
+                            let worktree_ids: Vec<String> = api_project
+                                .worktree_ids
+                                .iter()
                                 .map(|id| format!("remote:{}:{}", conn_id, id))
                                 .collect();
                             ws.data.projects.push(ProjectData {
@@ -654,9 +734,13 @@ impl RootView {
                 let remote_prefix = format!("remote:{}:", conn_id);
                 workspace.update(cx, |ws, _cx| {
                     // Remove old remote folders for this connection
-                    ws.data.folders.retain(|f| !f.id.starts_with(&remote_prefix));
+                    ws.data
+                        .folders
+                        .retain(|f| !f.id.starts_with(&remote_prefix));
                     // Remove old remote entries from project_order for this connection
-                    ws.data.project_order.retain(|id| !id.starts_with(&remote_prefix));
+                    ws.data
+                        .project_order
+                        .retain(|id| !id.starts_with(&remote_prefix));
 
                     // Add new remote folders
                     for rf in remote_folders {
@@ -698,10 +782,16 @@ impl RootView {
                     true
                 }
             });
-            let valid_ids: std::collections::HashSet<&str> = ws.data.projects.iter().map(|p| p.id.as_str())
+            let valid_ids: std::collections::HashSet<&str> = ws
+                .data
+                .projects
+                .iter()
+                .map(|p| p.id.as_str())
                 .chain(ws.data.folders.iter().map(|f| f.id.as_str()))
                 .collect();
-            ws.data.project_order.retain(|id| valid_ids.contains(id.as_str()));
+            ws.data
+                .project_order
+                .retain(|id| valid_ids.contains(id.as_str()));
         });
 
         // Focus newly appeared terminals for projects that had a pending CreateTerminal.
@@ -721,12 +811,13 @@ impl RootView {
                     let old_set: std::collections::HashSet<&str> =
                         old_ids.iter().map(|s| s.as_str()).collect();
                     if let Some(new_tid) = new_ids.iter().find(|id| !old_set.contains(id.as_str()))
-                        && let Some(path) = ws.project(&pid)
+                        && let Some(path) = ws
+                            .project(&pid)
                             .and_then(|p| p.layout.as_ref())
                             .and_then(|l| l.find_terminal_path(new_tid))
-                        {
-                            ws.set_focused_terminal(pid.clone(), path, cx);
-                        }
+                    {
+                        ws.set_focused_terminal(pid.clone(), path, cx);
+                    }
                 }
             });
         }
@@ -741,13 +832,15 @@ impl RootView {
     pub(super) fn sync_project_columns(&mut self, cx: &mut Context<Self>) {
         let visible_projects: Vec<(String, bool, Option<String>)> = {
             let ws = self.workspace.read(cx);
-            ws.visible_projects().iter().map(|p| {
-                (p.id.clone(), p.is_remote, p.connection_id.clone())
-            }).collect()
+            ws.visible_projects()
+                .iter()
+                .map(|p| (p.id.clone(), p.is_remote, p.connection_id.clone()))
+                .collect()
         };
 
         // Clean up columns for projects that no longer exist
-        let visible_ids: std::collections::HashSet<&str> = visible_projects.iter()
+        let visible_ids: std::collections::HashSet<&str> = visible_projects
+            .iter()
             .map(|(id, _, _)| id.as_str())
             .collect();
         self.project_columns.retain(|id, _| {
@@ -791,7 +884,9 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Option<Entity<ProjectColumn>> {
         let conn_id = connection_id?;
-        let backend = self.remote_manager.as_ref()
+        let backend = self
+            .remote_manager
+            .as_ref()
             .and_then(|rm| rm.read(cx).backend_for(conn_id))?;
 
         let workspace_clone = self.workspace.clone();
@@ -852,7 +947,10 @@ impl RootView {
             Some(p) => p,
             None => {
                 log::warn!("Cannot build git provider for project {}", project_id);
-                let path = self.workspace.read(cx).project(project_id)
+                let path = self
+                    .workspace
+                    .read(cx)
+                    .project(project_id)
                     .map(|p| p.path.clone())
                     .unwrap_or_default();
                 Arc::new(vryn_views_git::diff_viewer::provider::LocalGitProvider::new(path))
@@ -871,14 +969,12 @@ impl RootView {
                 git_provider,
                 cx,
             );
-            col.set_action_dispatcher(Some(
-                crate::action_dispatch::ActionDispatcher::Local {
-                    workspace: workspace_for_dispatch,
-                    backend: backend_for_dispatch,
-                    terminals: terminals_for_dispatch,
-                    service_manager: None, // set later via set_service_manager
-                },
-            ));
+            col.set_action_dispatcher(Some(crate::action_dispatch::ActionDispatcher::Local {
+                workspace: workspace_for_dispatch,
+                backend: backend_for_dispatch,
+                terminals: terminals_for_dispatch,
+                service_manager: None, // set later via set_service_manager
+            }));
             col
         });
         if let Some(ref sm) = self.service_manager {

@@ -1,10 +1,10 @@
+use super::observe_project_services;
 use crate::git::watcher::GitStatusWatcher;
 use crate::remote::auth::AuthStore;
 use crate::remote::bridge;
 use crate::remote::pty_broadcaster::PtyBroadcaster;
 use crate::remote::server::RemoteServer;
 use crate::remote::{GlobalRemoteInfo, RemoteInfo};
-use super::observe_project_services;
 use crate::services::manager::ServiceManager;
 use crate::terminal::backend::TerminalBackend;
 use crate::terminal::pty_manager::{PtyEvent, PtyManager};
@@ -13,13 +13,13 @@ use crate::workspace::persistence;
 use crate::workspace::state::{GlobalWorkspace, Workspace, WorkspaceData};
 use async_channel::Receiver;
 use gpui::*;
-use vryn_core::api::ApiGitStatus;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::watch as tokio_watch;
+use vryn_core::api::ApiGitStatus;
 
 use crate::terminal::backend::LocalBackend;
 
@@ -134,9 +134,8 @@ impl HeadlessApp {
         // Create service manager for project-scoped background processes
         let local_backend_for_services: Arc<dyn TerminalBackend> =
             Arc::new(LocalBackend::new(pty_manager.clone()));
-        let service_manager = cx.new(|_cx| {
-            ServiceManager::new(local_backend_for_services, terminals.clone())
-        });
+        let service_manager =
+            cx.new(|_cx| ServiceManager::new(local_backend_for_services, terminals.clone()));
 
         // Bump state_version on service manager changes
         let sv = state_version.clone();
@@ -153,7 +152,9 @@ impl HeadlessApp {
             let workspace_for_svc = workspace.clone();
             cx.observe(&service_manager, move |_this, service_manager, cx| {
                 let sm = service_manager.read(cx);
-                let project_ids: Vec<String> = sm.instances().keys()
+                let project_ids: Vec<String> = sm
+                    .instances()
+                    .keys()
                     .map(|(pid, _)| pid.clone())
                     .collect::<HashSet<_>>()
                     .into_iter()
@@ -199,8 +200,7 @@ impl HeadlessApp {
         app.start_pty_event_loop(pty_events, cx);
 
         // Start remote command bridge loop (shared with GUI)
-        let local_backend: Arc<dyn TerminalBackend> =
-            Arc::new(LocalBackend::new(pty_manager));
+        let local_backend: Arc<dyn TerminalBackend> = Arc::new(LocalBackend::new(pty_manager));
         cx.spawn({
             let workspace = workspace.clone();
             let terminals = terminals.clone();
@@ -209,9 +209,16 @@ impl HeadlessApp {
             let service_manager = service_manager.clone();
             async move |_this: WeakEntity<HeadlessApp>, cx: &mut AsyncApp| {
                 remote_command_loop(
-                    bridge_rx, local_backend, workspace, terminals,
-                    state_version, git_status_tx, service_manager, cx,
-                ).await;
+                    bridge_rx,
+                    local_backend,
+                    workspace,
+                    terminals,
+                    state_version,
+                    git_status_tx,
+                    service_manager,
+                    cx,
+                )
+                .await;
             }
         })
         .detach();
@@ -261,11 +268,7 @@ impl HeadlessApp {
 
     /// PTY event loop — processes terminal data and broadcasts to web clients.
     /// Handles service exit events via ServiceManager, matching the GUI version.
-    fn start_pty_event_loop(
-        &mut self,
-        pty_events: Receiver<PtyEvent>,
-        cx: &mut Context<Self>,
-    ) {
+    fn start_pty_event_loop(&mut self, pty_events: Receiver<PtyEvent>, cx: &mut Context<Self>) {
         let terminals = self.terminals.clone();
         let pty_manager = self.pty_manager.clone();
         let service_manager = self.service_manager.clone();
@@ -289,7 +292,10 @@ impl HeadlessApp {
                             terminal.process_output(data);
                         }
                     }
-                    PtyEvent::Exit { terminal_id, exit_code } => {
+                    PtyEvent::Exit {
+                        terminal_id,
+                        exit_code,
+                    } => {
                         pty_manager.cleanup_exited(terminal_id);
                         exit_events.push((terminal_id.clone(), *exit_code));
                     }
@@ -304,7 +310,10 @@ impl HeadlessApp {
                                 terminal.process_output(data);
                             }
                         }
-                        PtyEvent::Exit { terminal_id, exit_code } => {
+                        PtyEvent::Exit {
+                            terminal_id,
+                            exit_code,
+                        } => {
                             pty_manager.cleanup_exited(terminal_id);
                             exit_events.push((terminal_id.clone(), *exit_code));
                         }
@@ -314,16 +323,15 @@ impl HeadlessApp {
                 if !exit_events.is_empty() {
                     cx.update(|cx| {
                         // Let service manager handle service terminals
-                        let service_tids: HashSet<String> =
-                            service_manager.update(cx, |sm, cx| {
-                                let mut handled = HashSet::new();
-                                for (terminal_id, exit_code) in &exit_events {
-                                    if sm.handle_service_exit(terminal_id, *exit_code, cx) {
-                                        handled.insert(terminal_id.clone());
-                                    }
+                        let service_tids: HashSet<String> = service_manager.update(cx, |sm, cx| {
+                            let mut handled = HashSet::new();
+                            for (terminal_id, exit_code) in &exit_events {
+                                if sm.handle_service_exit(terminal_id, *exit_code, cx) {
+                                    handled.insert(terminal_id.clone());
                                 }
-                                handled
-                            });
+                            }
+                            handled
+                        });
 
                         // Remove UI Terminals for non-service terminals
                         {

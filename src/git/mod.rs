@@ -4,4 +4,3 @@ pub use vryn_git::*;
 
 // Watcher re-exported from vryn-views-git crate
 pub use vryn_views_git::watcher;
-

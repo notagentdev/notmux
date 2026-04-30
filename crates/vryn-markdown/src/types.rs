@@ -3,12 +3,28 @@
 /// A node in the markdown AST.
 #[derive(Clone)]
 pub(crate) enum Node {
-    Heading { level: u8, children: Vec<Inline> },
-    Paragraph { children: Vec<Inline> },
-    CodeBlock { language: Option<String>, code: String },
-    List { ordered: bool, items: Vec<Vec<Inline>> },
-    Table { headers: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
-    Blockquote { children: Vec<Inline> },
+    Heading {
+        level: u8,
+        children: Vec<Inline>,
+    },
+    Paragraph {
+        children: Vec<Inline>,
+    },
+    CodeBlock {
+        language: Option<String>,
+        code: String,
+    },
+    List {
+        ordered: bool,
+        items: Vec<Vec<Inline>>,
+    },
+    Table {
+        headers: Vec<Vec<Inline>>,
+        rows: Vec<Vec<Vec<Inline>>>,
+    },
+    Blockquote {
+        children: Vec<Inline>,
+    },
     HorizontalRule,
 }
 

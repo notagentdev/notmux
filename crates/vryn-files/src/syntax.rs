@@ -4,7 +4,6 @@
 //! across different viewers (file viewer, diff viewer, etc.).
 
 use gpui::Rgba;
-use vryn_core::theme::ThemeColors;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -14,6 +13,7 @@ use syntect::highlighting::{
 };
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
+use vryn_core::theme::ThemeColors;
 
 /// Global cached syntax set with extended syntaxes (including TypeScript/TSX).
 static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
@@ -107,7 +107,11 @@ pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
     // but in practice these are disjoint TextMate scopes.
     let scope_map: &[(&str, &str, u32)] = &[
         // Comments
-        ("comment", "comment, punctuation.definition.comment", colors.text_muted),
+        (
+            "comment",
+            "comment, punctuation.definition.comment",
+            colors.text_muted,
+        ),
         // Strings
         (
             "string",
@@ -120,11 +124,7 @@ pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
             colors.term_bright_green,
         ),
         // Numbers, language constants (true/false/null/nil)
-        (
-            "constant.numeric",
-            "constant.numeric",
-            colors.term_cyan,
-        ),
+        ("constant.numeric", "constant.numeric", colors.term_cyan),
         (
             "constant.language",
             "constant.language, constant.character, support.constant",
@@ -189,11 +189,7 @@ pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
         // Diff markers (used inside markdown / diff syntax)
         ("diff.added", "markup.inserted", colors.diff_added_fg),
         ("diff.removed", "markup.deleted", colors.diff_removed_fg),
-        (
-            "diff.changed",
-            "markup.changed",
-            colors.term_yellow,
-        ),
+        ("diff.changed", "markup.changed", colors.term_yellow),
         // Markdown headings / emphasis
         (
             "heading",
@@ -433,12 +429,12 @@ pub fn highlight_content(
                     // Try to merge with previous span if same color
                     if let Some(last) = merged.last_mut()
                         && (last.color.r - color.r).abs() < 0.01
-                            && (last.color.g - color.g).abs() < 0.01
-                            && (last.color.b - color.b).abs() < 0.01
-                        {
-                            last.text.push_str(&processed);
-                            continue;
-                        }
+                        && (last.color.g - color.g).abs() < 0.01
+                        && (last.color.b - color.b).abs() < 0.01
+                    {
+                        last.text.push_str(&processed);
+                        continue;
+                    }
 
                     merged.push(HighlightedSpan {
                         color,

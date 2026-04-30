@@ -1,5 +1,7 @@
 use gpui::*;
-use vryn_core::theme::{ThemeColors, ThemeMode, DARK_THEME, LIGHT_THEME, PASTEL_DARK_THEME, HIGH_CONTRAST_THEME};
+use vryn_core::theme::{
+    DARK_THEME, HIGH_CONTRAST_THEME, LIGHT_THEME, PASTEL_DARK_THEME, ThemeColors, ThemeMode,
+};
 
 /// Global theme state
 pub struct AppTheme {
@@ -24,7 +26,11 @@ impl AppTheme {
         }
     }
 
-    fn colors_for_mode(mode: ThemeMode, system_is_dark: bool, custom: Option<ThemeColors>) -> ThemeColors {
+    fn colors_for_mode(
+        mode: ThemeMode,
+        system_is_dark: bool,
+        custom: Option<ThemeColors>,
+    ) -> ThemeColors {
         match mode {
             ThemeMode::Dark => DARK_THEME,
             ThemeMode::Light => LIGHT_THEME,
@@ -63,7 +69,11 @@ impl AppTheme {
 
     /// Set preview colors temporarily (for live preview)
     pub fn set_preview(&mut self, mode: ThemeMode) {
-        self.preview_colors = Some(Self::colors_for_mode(mode, self.system_is_dark, self.custom_colors));
+        self.preview_colors = Some(Self::colors_for_mode(
+            mode,
+            self.system_is_dark,
+            self.custom_colors,
+        ));
     }
 
     /// Set preview colors directly (for custom themes)

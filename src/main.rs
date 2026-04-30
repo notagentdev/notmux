@@ -16,20 +16,20 @@ mod services;
 mod settings;
 #[cfg(target_os = "linux")]
 mod simple_root;
+#[cfg(test)]
+mod smoke_tests;
 mod terminal;
 mod theme;
 mod ui;
 mod views;
 mod workspace;
-#[cfg(test)]
-mod smoke_tests;
 
-use gpui::*;
-use gpui_component::theme::{Theme as GpuiComponentTheme, ThemeMode as GpuiThemeMode};
-#[cfg(not(target_os = "linux"))]
-use gpui_component::Root;
 #[cfg(target_os = "linux")]
 use crate::simple_root::SimpleRoot as Root;
+use gpui::*;
+#[cfg(not(target_os = "linux"))]
+use gpui_component::Root;
+use gpui_component::theme::{Theme as GpuiComponentTheme, ThemeMode as GpuiThemeMode};
 use std::sync::Arc;
 
 use std::net::IpAddr;
@@ -56,7 +56,9 @@ impl std::io::Write for TeeWriter {
 use crate::app::Vryn;
 use crate::app::headless::HeadlessApp;
 use crate::assets::{Assets, embedded_fonts};
-use crate::keybindings::{About, Quit, ShowSettings, ShowCommandPalette, ShowThemeSelector, ShowKeybindings};
+use crate::keybindings::{
+    About, Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector,
+};
 use crate::settings::GlobalSettings;
 use crate::terminal::pty_manager::PtyManager;
 use crate::theme::{AppTheme, GlobalTheme, ThemeMode};
@@ -76,7 +78,10 @@ fn collect_terminal_keys(
     out: &mut Vec<(String, String)>,
 ) {
     match node {
-        vryn_workspace::state::LayoutNode::Terminal { terminal_id: Some(tid), .. } => {
+        vryn_workspace::state::LayoutNode::Terminal {
+            terminal_id: Some(tid),
+            ..
+        } => {
             let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, path);
             out.push((key, tid.clone()));
         }
@@ -100,9 +105,10 @@ fn quit(_: &Quit, cx: &mut App) {
 
     // Flush pending workspace save
     if let Some(gw) = cx.try_global::<GlobalWorkspace>()
-        && let Err(e) = persistence::save_workspace(gw.0.read(cx).data()) {
-            log::error!("Failed to flush workspace on quit: {}", e);
-        }
+        && let Err(e) = persistence::save_workspace(gw.0.read(cx).data())
+    {
+        log::error!("Failed to flush workspace on quit: {}", e);
+    }
 
     cx.quit();
 }
@@ -129,10 +135,20 @@ fn about(_: &About, _cx: &mut App) {
         fn msg_id(obj: *mut c_void, sel: *mut c_void, a: *mut c_void) -> *mut c_void;
 
         #[link_name = "objc_msgSend"]
-        fn msg_id2(obj: *mut c_void, sel: *mut c_void, a: *mut c_void, b: *mut c_void) -> *mut c_void;
+        fn msg_id2(
+            obj: *mut c_void,
+            sel: *mut c_void,
+            a: *mut c_void,
+            b: *mut c_void,
+        ) -> *mut c_void;
 
         #[link_name = "objc_msgSend"]
-        fn msg_bytes_len(obj: *mut c_void, sel: *mut c_void, bytes: *const u8, len: usize) -> *mut c_void;
+        fn msg_bytes_len(
+            obj: *mut c_void,
+            sel: *mut c_void,
+            bytes: *const u8,
+            len: usize,
+        ) -> *mut c_void;
     }
 
     unsafe {
@@ -141,9 +157,8 @@ fn about(_: &About, _cx: &mut App) {
         let ns_string = objc_getClass(c"NSString".as_ptr());
 
         // Helper: create NSString from null-terminated bytes
-        let nsstring = |s: &[u8]| -> *mut c_void {
-            msg_str(msg(ns_string, alloc), init_utf8, s.as_ptr())
-        };
+        let nsstring =
+            |s: &[u8]| -> *mut c_void { msg_str(msg(ns_string, alloc), init_utf8, s.as_ptr()) };
 
         // Build options dictionary with version
         let dict = msg(
@@ -327,9 +342,8 @@ fn main() {
         })))
     })();
 
-    let mut builder = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    );
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
     if let Some(target) = log_target {
         builder.target(target);
     }
@@ -375,7 +389,8 @@ fn main() {
     // 2. Auto-detect on Linux: --listen provided but no DISPLAY/WAYLAND_DISPLAY
     let explicit_headless = args.iter().any(|a| a == "--headless");
     let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-    let headless = explicit_headless || (cfg!(target_os = "linux") && listen_addr.is_some() && !has_display);
+    let headless =
+        explicit_headless || (cfg!(target_os = "linux") && listen_addr.is_some() && !has_display);
 
     // Acquire instance lock to prevent multiple Vryn processes from
     // clobbering each other's workspace.json.
@@ -758,7 +773,13 @@ fn main() {
                             let cwd = term
                                 .shell_pid()
                                 .and_then(vryn_terminal::process::read_process_cwd);
-                            captures.push((key, term.capture_scrollback(max_lines, cwd.as_deref())));
+                            let bytes = term.capture_scrollback_merged(
+                                &dir,
+                                &key,
+                                max_lines,
+                                cwd.as_deref(),
+                            );
+                            captures.push((key, bytes));
                         }
                     }
                     drop(registry_map);

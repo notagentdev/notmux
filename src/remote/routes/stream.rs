@@ -1,8 +1,8 @@
 use crate::remote::bridge::{BridgeMessage, CommandResult, RemoteCommand};
 use crate::remote::routes::AppState;
 use crate::remote::types::{
-    ActionRequest, WsInbound, WsOutbound, build_binary_frame, build_pty_frame, parse_binary_frame,
-    FRAME_TYPE_INPUT, FRAME_TYPE_SNAPSHOT,
+    ActionRequest, FRAME_TYPE_INPUT, FRAME_TYPE_SNAPSHOT, WsInbound, WsOutbound,
+    build_binary_frame, build_pty_frame, parse_binary_frame,
 };
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
@@ -404,12 +404,13 @@ async fn send_snapshots(
                 })
                 .await
                 .is_ok()
-                && let Ok(CommandResult::OkBytes(snapshot)) = reply_rx.await {
-                    let frame = build_binary_frame(FRAME_TYPE_SNAPSHOT, stream_id, &snapshot);
-                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
-                        return Err(());
-                    }
+                && let Ok(CommandResult::OkBytes(snapshot)) = reply_rx.await
+            {
+                let frame = build_binary_frame(FRAME_TYPE_SNAPSHOT, stream_id, &snapshot);
+                if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                    return Err(());
                 }
+            }
         }
     }
     Ok(())

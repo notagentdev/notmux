@@ -8,9 +8,9 @@ use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
+use std::path::PathBuf;
 use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 use vryn_workspace::requests::ExplorerKind;
-use std::path::PathBuf;
 
 /// Event emitted by ExplorerContextMenu.
 pub enum ExplorerContextMenuEvent {
@@ -171,30 +171,28 @@ impl Render for ExplorerContextMenu {
             panel = panel.child(menu_separator(&t));
         }
         panel = panel.child(
-            menu_item(
-                "ecm-reveal",
-                "icons/folder.svg",
-                reveal_label(),
-                &t,
-            )
-            .on_click(cx.listener({
-                let p = path.clone();
-                move |_this, _, _window, cx| {
-                    cx.emit(ExplorerContextMenuEvent::RevealInFinder { path: p.clone() });
-                }
-            })),
+            menu_item("ecm-reveal", "icons/folder.svg", reveal_label(), &t).on_click(cx.listener(
+                {
+                    let p = path.clone();
+                    move |_this, _, _window, cx| {
+                        cx.emit(ExplorerContextMenuEvent::RevealInFinder { path: p.clone() });
+                    }
+                },
+            )),
         );
 
         // Rename / Delete / Copy Path — File + Folder
         if matches!(kind, ExplorerKind::File | ExplorerKind::Folder) {
             panel = panel
                 .child(
-                    menu_item("ecm-rename", "icons/edit.svg", "Rename", &t).on_click(cx.listener({
-                        let p = path.clone();
-                        move |_this, _, _window, cx| {
-                            cx.emit(ExplorerContextMenuEvent::Rename { target: p.clone() });
-                        }
-                    })),
+                    menu_item("ecm-rename", "icons/edit.svg", "Rename", &t).on_click(cx.listener(
+                        {
+                            let p = path.clone();
+                            move |_this, _, _window, cx| {
+                                cx.emit(ExplorerContextMenuEvent::Rename { target: p.clone() });
+                            }
+                        },
+                    )),
                 )
                 .child(
                     menu_item_with_color(
@@ -229,15 +227,16 @@ impl Render for ExplorerContextMenu {
             // Files only: Add to .gitignore
             if matches!(kind, ExplorerKind::File) {
                 panel = panel.child(
-                    menu_item("ecm-gitignore", "icons/file.svg", "Add to .gitignore", &t)
-                        .on_click(cx.listener({
+                    menu_item("ecm-gitignore", "icons/file.svg", "Add to .gitignore", &t).on_click(
+                        cx.listener({
                             let p = path.clone();
                             move |_this, _, _window, cx| {
                                 cx.emit(ExplorerContextMenuEvent::AddToGitignore {
                                     path: p.clone(),
                                 });
                             }
-                        })),
+                        }),
+                    ),
                 );
             }
         }

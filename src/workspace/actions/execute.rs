@@ -4,20 +4,20 @@
 //! the desktop UI and the remote API to eliminate code duplication
 //! and ensure consistent behavior.
 
-use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::{Column, Line, Point};
 use crate::remote::bridge::CommandResult;
 use crate::remote::types::ActionRequest;
 use crate::settings::settings;
 use crate::terminal::backend::TerminalBackend;
 use crate::terminal::shell_config::ShellType;
 use crate::terminal::terminal::{Terminal, TerminalSize};
-use crate::workspace::state::DropZone;
-use vryn_terminal::TerminalsRegistry;
 use crate::workspace::hooks;
+use crate::workspace::state::DropZone;
 use crate::workspace::state::{LayoutNode, Workspace};
+use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line, Point};
 use gpui::*;
 use std::sync::Arc;
+use vryn_terminal::TerminalsRegistry;
 
 /// Result of executing an action.
 pub enum ActionResult {
@@ -230,7 +230,14 @@ pub fn execute_action(
             target_project_id,
         } => {
             let target_pid = target_project_id.as_deref().unwrap_or(&project_id);
-            ws.move_terminal_to_tab_group(&project_id, &terminal_id, target_pid, &target_path, position, cx);
+            ws.move_terminal_to_tab_group(
+                &project_id,
+                &terminal_id,
+                target_pid,
+                &target_path,
+                position,
+                cx,
+            );
             ActionResult::Ok(None)
         }
         ActionRequest::MovePaneTo {
@@ -248,251 +255,301 @@ pub fn execute_action(
                 "center" => DropZone::Center,
                 _ => return ActionResult::Err(format!("invalid drop zone: {}", zone)),
             };
-            ws.move_pane(&project_id, &terminal_id, &target_project_id, &target_terminal_id, drop_zone, cx);
+            ws.move_pane(
+                &project_id,
+                &terminal_id,
+                &target_project_id,
+                &target_terminal_id,
+                drop_zone,
+                cx,
+            );
             ActionResult::Ok(None)
         }
-        ActionRequest::GitStatus { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let status = crate::git::get_git_status(std::path::Path::new(&path));
-                    ActionResult::Ok(Some(serde_json::to_value(status).expect("BUG: GitStatus must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
+        ActionRequest::GitStatus { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let status = crate::git::get_git_status(std::path::Path::new(&path));
+                ActionResult::Ok(Some(
+                    serde_json::to_value(status).expect("BUG: GitStatus must serialize"),
+                ))
             }
-        }
-        ActionRequest::GitDiffSummary { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let summary = crate::git::get_diff_file_summary(std::path::Path::new(&path));
-                    ActionResult::Ok(Some(serde_json::to_value(summary).expect("BUG: FileDiffSummary must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitDiffSummary { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let summary = crate::git::get_diff_file_summary(std::path::Path::new(&path));
+                ActionResult::Ok(Some(
+                    serde_json::to_value(summary).expect("BUG: FileDiffSummary must serialize"),
+                ))
             }
-        }
-        ActionRequest::GitDiff { project_id, mode, ignore_whitespace } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    match crate::git::get_diff_with_options(std::path::Path::new(&path), mode, ignore_whitespace) {
-                        Ok(diff) => ActionResult::Ok(Some(serde_json::to_value(diff).expect("BUG: DiffResult must serialize"))),
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitDiff {
+            project_id,
+            mode,
+            ignore_whitespace,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                match crate::git::get_diff_with_options(
+                    std::path::Path::new(&path),
+                    mode,
+                    ignore_whitespace,
+                ) {
+                    Ok(diff) => ActionResult::Ok(Some(
+                        serde_json::to_value(diff).expect("BUG: DiffResult must serialize"),
+                    )),
+                    Err(e) => ActionResult::Err(e),
+                }
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitBranches { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let branches =
+                    crate::git::get_available_branches_for_worktree(std::path::Path::new(&path));
+                ActionResult::Ok(Some(
+                    serde_json::to_value(branches).expect("BUG: branches must serialize"),
+                ))
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitFileContents {
+            project_id,
+            file_path,
+            mode,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let repo_path = p.path.clone();
+                let (old, new) = crate::git::get_file_contents_for_diff(
+                    std::path::Path::new(&repo_path),
+                    &file_path,
+                    mode,
+                );
+                ActionResult::Ok(Some(serde_json::json!({
+                    "old_content": old,
+                    "new_content": new,
+                })))
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitCommitGraph {
+            project_id,
+            count,
+            branch,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let entries = crate::git::get_commit_graph(
+                    std::path::Path::new(&path),
+                    count,
+                    branch.as_deref(),
+                );
+                ActionResult::Ok(Some(
+                    serde_json::to_value(entries).expect("BUG: GraphRow must serialize"),
+                ))
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitListBranches { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let branches = crate::git::list_branches(std::path::Path::new(&path));
+                ActionResult::Ok(Some(
+                    serde_json::to_value(branches).expect("BUG: branches must serialize"),
+                ))
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitWorkingTreeStatus { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = p.path.clone();
+                let status = crate::git::get_working_tree_status(std::path::Path::new(&path));
+                ActionResult::Ok(Some(
+                    serde_json::to_value(status).expect("BUG: WorkingTreeStatus must serialize"),
+                ))
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitStageFile {
+            project_id,
+            file_path,
+        } => match ws.project(&project_id) {
+            Some(p) => match crate::git::stage_file(std::path::Path::new(&p.path), &file_path) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitUnstageFile {
+            project_id,
+            file_path,
+        } => match ws.project(&project_id) {
+            Some(p) => match crate::git::unstage_file(std::path::Path::new(&p.path), &file_path) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitStageAll { project_id } => match ws.project(&project_id) {
+            Some(p) => match crate::git::stage_all(std::path::Path::new(&p.path)) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitUnstageAll { project_id } => match ws.project(&project_id) {
+            Some(p) => match crate::git::unstage_all(std::path::Path::new(&p.path)) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitDiscardFile {
+            project_id,
+            file_path,
+            is_untracked,
+        } => match ws.project(&project_id) {
+            Some(p) => match crate::git::discard_file(
+                std::path::Path::new(&p.path),
+                &file_path,
+                is_untracked,
+            ) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitCommit {
+            project_id,
+            message,
+            amend,
+            signoff,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                match crate::git::commit(std::path::Path::new(&p.path), &message, amend, signoff) {
+                    Ok(()) => ActionResult::Ok(None),
+                    Err(e) => ActionResult::Err(e),
+                }
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitUncommit { project_id } => match ws.project(&project_id) {
+            Some(p) => match crate::git::uncommit(std::path::Path::new(&p.path)) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitFetch { project_id } => match ws.project(&project_id) {
+            Some(p) => match crate::git::fetch_all(std::path::Path::new(&p.path)) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitPull { project_id } => match ws.project(&project_id) {
+            Some(p) => match crate::git::pull(std::path::Path::new(&p.path)) {
+                Ok(()) => ActionResult::Ok(None),
+                Err(e) => ActionResult::Err(e),
+            },
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::GitPush { project_id } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = std::path::Path::new(&p.path);
+                match crate::git::get_current_branch(path) {
+                    Some(branch) => match crate::git::push_branch(path, &branch) {
+                        Ok(()) => ActionResult::Ok(None),
                         Err(e) => ActionResult::Err(e),
+                    },
+                    None => ActionResult::Err("No current branch (detached HEAD?)".to_string()),
+                }
+            }
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::ListFiles {
+            project_id,
+            show_ignored,
+            show_hidden,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let path = match std::path::Path::new(&p.path).canonicalize() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return ActionResult::Err(format!("Cannot resolve project path: {}", e));
                     }
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
+                };
+                let files = vryn_files::file_search::FileSearchDialog::scan_files(
+                    &path,
+                    show_ignored,
+                    show_hidden,
+                );
+                ActionResult::Ok(Some(
+                    serde_json::to_value(files).expect("BUG: FileEntry must serialize"),
+                ))
             }
-        }
-        ActionRequest::GitBranches { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let branches = crate::git::get_available_branches_for_worktree(std::path::Path::new(&path));
-                    ActionResult::Ok(Some(serde_json::to_value(branches).expect("BUG: branches must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitFileContents { project_id, file_path, mode } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let repo_path = p.path.clone();
-                    let (old, new) = crate::git::get_file_contents_for_diff(
-                        std::path::Path::new(&repo_path),
-                        &file_path,
-                        mode,
-                    );
-                    ActionResult::Ok(Some(serde_json::json!({
-                        "old_content": old,
-                        "new_content": new,
-                    })))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitCommitGraph { project_id, count, branch } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let entries = crate::git::get_commit_graph(
-                        std::path::Path::new(&path),
-                        count,
-                        branch.as_deref(),
-                    );
-                    ActionResult::Ok(Some(serde_json::to_value(entries).expect("BUG: GraphRow must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitListBranches { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let branches = crate::git::list_branches(std::path::Path::new(&path));
-                    ActionResult::Ok(Some(serde_json::to_value(branches).expect("BUG: branches must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitWorkingTreeStatus { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = p.path.clone();
-                    let status = crate::git::get_working_tree_status(std::path::Path::new(&path));
-                    ActionResult::Ok(Some(serde_json::to_value(status).expect("BUG: WorkingTreeStatus must serialize")))
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitStageFile { project_id, file_path } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::stage_file(std::path::Path::new(&p.path), &file_path) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitUnstageFile { project_id, file_path } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::unstage_file(std::path::Path::new(&p.path), &file_path) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitStageAll { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::stage_all(std::path::Path::new(&p.path)) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitUnstageAll { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::unstage_all(std::path::Path::new(&p.path)) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitDiscardFile { project_id, file_path, is_untracked } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::discard_file(std::path::Path::new(&p.path), &file_path, is_untracked) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitCommit { project_id, message, amend, signoff } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::commit(std::path::Path::new(&p.path), &message, amend, signoff) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitUncommit { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::uncommit(std::path::Path::new(&p.path)) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitFetch { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::fetch_all(std::path::Path::new(&p.path)) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitPull { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => match crate::git::pull(std::path::Path::new(&p.path)) {
-                    Ok(()) => ActionResult::Ok(None),
-                    Err(e) => ActionResult::Err(e),
-                },
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::GitPush { project_id } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = std::path::Path::new(&p.path);
-                    match crate::git::get_current_branch(path) {
-                        Some(branch) => match crate::git::push_branch(path, &branch) {
-                            Ok(()) => ActionResult::Ok(None),
-                            Err(e) => ActionResult::Err(e),
-                        },
-                        None => ActionResult::Err("No current branch (detached HEAD?)".to_string()),
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::ReadFile {
+            project_id,
+            relative_path,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let canonical = match resolve_project_file(&p.path, &relative_path) {
+                    Ok(c) => c,
+                    Err(e) => return ActionResult::Err(e),
+                };
+                match std::fs::read_to_string(&canonical) {
+                    Ok(content) => {
+                        ActionResult::Ok(Some(serde_json::json!({ "content": content })))
                     }
+                    Err(e) => ActionResult::Err(format!("Cannot read file: {}", e)),
                 }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
             }
-        }
-        ActionRequest::ListFiles { project_id, show_ignored, show_hidden } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let path = match std::path::Path::new(&p.path).canonicalize() {
-                        Ok(c) => c,
-                        Err(e) => return ActionResult::Err(format!("Cannot resolve project path: {}", e)),
-                    };
-                    let files = vryn_files::file_search::FileSearchDialog::scan_files(&path, show_ignored, show_hidden);
-                    ActionResult::Ok(Some(serde_json::to_value(files).expect("BUG: FileEntry must serialize")))
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::FileSize {
+            project_id,
+            relative_path,
+        } => match ws.project(&project_id) {
+            Some(p) => {
+                let canonical = match resolve_project_file(&p.path, &relative_path) {
+                    Ok(c) => c,
+                    Err(e) => return ActionResult::Err(e),
+                };
+                match std::fs::metadata(&canonical) {
+                    Ok(m) => ActionResult::Ok(Some(serde_json::json!({ "size": m.len() }))),
+                    Err(e) => ActionResult::Err(format!("Cannot read file: {}", e)),
                 }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
             }
-        }
-        ActionRequest::ReadFile { project_id, relative_path } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let canonical = match resolve_project_file(&p.path, &relative_path) {
-                        Ok(c) => c,
-                        Err(e) => return ActionResult::Err(e),
-                    };
-                    match std::fs::read_to_string(&canonical) {
-                        Ok(content) => ActionResult::Ok(Some(serde_json::json!({ "content": content }))),
-                        Err(e) => ActionResult::Err(format!("Cannot read file: {}", e)),
-                    }
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::FileSize { project_id, relative_path } => {
-            match ws.project(&project_id) {
-                Some(p) => {
-                    let canonical = match resolve_project_file(&p.path, &relative_path) {
-                        Ok(c) => c,
-                        Err(e) => return ActionResult::Err(e),
-                    };
-                    match std::fs::metadata(&canonical) {
-                        Ok(m) => ActionResult::Ok(Some(serde_json::json!({ "size": m.len() }))),
-                        Err(e) => ActionResult::Err(format!("Cannot read file: {}", e)),
-                    }
-                }
-                None => ActionResult::Err(format!("project not found: {}", project_id)),
-            }
-        }
-        ActionRequest::SearchContent { project_id, query, case_sensitive, mode, max_results, file_glob, context_lines } => {
+            None => ActionResult::Err(format!("project not found: {}", project_id)),
+        },
+        ActionRequest::SearchContent {
+            project_id,
+            query,
+            case_sensitive,
+            mode,
+            max_results,
+            file_glob,
+            context_lines,
+        } => {
             if let Some(ref glob) = file_glob
-                && (glob.contains("..") || glob.starts_with('/')) {
-                    return ActionResult::Err("file_glob must not contain '..' or start with '/'".to_string());
-                }
+                && (glob.contains("..") || glob.starts_with('/'))
+            {
+                return ActionResult::Err(
+                    "file_glob must not contain '..' or start with '/'".to_string(),
+                );
+            }
             match ws.project(&project_id) {
                 Some(p) => {
                     let path = match std::path::Path::new(&p.path).canonicalize() {
                         Ok(c) => c,
-                        Err(e) => return ActionResult::Err(format!("Cannot resolve project path: {}", e)),
+                        Err(e) => {
+                            return ActionResult::Err(format!("Cannot resolve project path: {}", e));
+                        }
                     };
                     let search_mode = match mode.as_str() {
                         "regex" => vryn_files::content_search::SearchMode::Regex,
@@ -511,9 +568,16 @@ pub fn execute_action(
                     let cancelled = std::sync::atomic::AtomicBool::new(false);
                     let mut results = Vec::new();
                     vryn_files::content_search::search_content(
-                        &path, &query, &config, &cancelled, &mut |result| results.push(result),
+                        &path,
+                        &query,
+                        &config,
+                        &cancelled,
+                        &mut |result| results.push(result),
                     );
-                    ActionResult::Ok(Some(serde_json::to_value(results).expect("BUG: FileSearchResult must serialize")))
+                    ActionResult::Ok(Some(
+                        serde_json::to_value(results)
+                            .expect("BUG: FileSearchResult must serialize"),
+                    ))
                 }
                 None => ActionResult::Err(format!("project not found: {}", project_id)),
             }
@@ -577,7 +641,11 @@ pub fn execute_action(
         | ActionRequest::ReloadServices { .. } => {
             ActionResult::Err("service actions must be handled via ServiceManager".to_string())
         }
-        ActionRequest::RenameFile { project_id, relative_path, new_name } => {
+        ActionRequest::RenameFile {
+            project_id,
+            relative_path,
+            new_name,
+        } => {
             if let Err(e) = validate_leaf_name(&new_name) {
                 return ActionResult::Err(e);
             }
@@ -602,7 +670,10 @@ pub fn execute_action(
                 Err(e) => ActionResult::Err(format!("Cannot rename: {}", e)),
             }
         }
-        ActionRequest::DeleteFile { project_id, relative_path } => {
+        ActionRequest::DeleteFile {
+            project_id,
+            relative_path,
+        } => {
             let project_path = match ws.project(&project_id) {
                 Some(p) => p.path.clone(),
                 None => return ActionResult::Err(format!("project not found: {}", project_id)),
@@ -628,7 +699,10 @@ pub fn execute_action(
                 Err(e) => ActionResult::Err(format!("Cannot delete: {}", e)),
             }
         }
-        ActionRequest::CreateFile { project_id, relative_path } => {
+        ActionRequest::CreateFile {
+            project_id,
+            relative_path,
+        } => {
             let project_path = match ws.project(&project_id) {
                 Some(p) => p.path.clone(),
                 None => return ActionResult::Err(format!("project not found: {}", project_id)),
@@ -640,12 +714,19 @@ pub fn execute_action(
             if target.exists() {
                 return ActionResult::Err("target already exists".to_string());
             }
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)
+            {
                 Ok(_) => ActionResult::Ok(None),
                 Err(e) => ActionResult::Err(format!("Cannot create file: {}", e)),
             }
         }
-        ActionRequest::CreateDirectory { project_id, relative_path } => {
+        ActionRequest::CreateDirectory {
+            project_id,
+            relative_path,
+        } => {
             let project_path = match ws.project(&project_id) {
                 Some(p) => p.path.clone(),
                 None => return ActionResult::Err(format!("project not found: {}", project_id)),
@@ -669,7 +750,10 @@ pub fn execute_action(
             ws.rename_project(&project_id, name, cx);
             ActionResult::Ok(None)
         }
-        ActionRequest::RenameProjectDirectory { project_id, new_name } => {
+        ActionRequest::RenameProjectDirectory {
+            project_id,
+            new_name,
+        } => {
             if let Err(e) = validate_leaf_name(&new_name) {
                 return ActionResult::Err(e);
             }
@@ -733,21 +817,32 @@ pub fn execute_action(
             ws.rename_folder(&folder_id, name, cx);
             ActionResult::Ok(None)
         }
-        ActionRequest::MoveProjectToFolder { project_id, folder_id, position } => {
+        ActionRequest::MoveProjectToFolder {
+            project_id,
+            folder_id,
+            position,
+        } => {
             if ws.project(&project_id).is_none() {
                 return ActionResult::Err(format!("project not found: {}", project_id));
             }
             ws.move_project_to_folder(&project_id, &folder_id, position, cx);
             ActionResult::Ok(None)
         }
-        ActionRequest::MoveProjectOutOfFolder { project_id, top_level_index } => {
+        ActionRequest::MoveProjectOutOfFolder {
+            project_id,
+            top_level_index,
+        } => {
             if ws.project(&project_id).is_none() {
                 return ActionResult::Err(format!("project not found: {}", project_id));
             }
             ws.move_project_out_of_folder(&project_id, top_level_index, cx);
             ActionResult::Ok(None)
         }
-        ActionRequest::CreateWorktree { project_id, branch, create_branch } => {
+        ActionRequest::CreateWorktree {
+            project_id,
+            branch,
+            create_branch,
+        } => {
             let project = match ws.project(&project_id) {
                 Some(p) => p,
                 None => return ActionResult::Err(format!("project not found: {}", project_id)),
@@ -755,13 +850,25 @@ pub fn execute_action(
             let project_path = std::path::PathBuf::from(&project.path);
             let (git_root, subdir) = vryn_git::resolve_git_root_and_subdir(&project_path);
             let path_template = settings(cx).worktree.path_template.clone();
-            let (worktree_path, wt_project_path) = vryn_git::compute_target_paths(&git_root, &subdir, &path_template, &branch);
+            let (worktree_path, wt_project_path) =
+                vryn_git::compute_target_paths(&git_root, &subdir, &path_template, &branch);
             let global_hooks = settings(cx).hooks.clone();
 
-            match ws.create_worktree_project(&project_id, &branch, &git_root, &worktree_path, &wt_project_path, create_branch, &global_hooks, cx) {
+            match ws.create_worktree_project(
+                &project_id,
+                &branch,
+                &git_root,
+                &worktree_path,
+                &wt_project_path,
+                create_branch,
+                &global_hooks,
+                cx,
+            ) {
                 Ok(new_project_id) => {
-                    let result = spawn_uninitialized_terminals(ws, &new_project_id, backend, terminals, cx);
-                    let terminal_id = ws.project(&new_project_id)
+                    let result =
+                        spawn_uninitialized_terminals(ws, &new_project_id, backend, terminals, cx);
+                    let terminal_id = ws
+                        .project(&new_project_id)
                         .and_then(|p| p.layout.as_ref())
                         .and_then(find_first_terminal_id);
                     match result {
@@ -796,10 +903,11 @@ pub fn ensure_terminal(
     let mut cwd = None;
     for project in &ws.data().projects {
         if let Some(layout) = &project.layout
-            && layout.find_terminal_path(terminal_id).is_some() {
-                cwd = Some(project.path.clone());
-                break;
-            }
+            && layout.find_terminal_path(terminal_id).is_some()
+        {
+            cwd = Some(project.path.clone());
+            break;
+        }
     }
     let cwd = cwd?;
 
@@ -850,7 +958,9 @@ pub fn spawn_uninitialized_terminals(
     let project_name = project.name.clone();
     let project_hooks = project.hooks.clone();
     let is_worktree = project.worktree_info.is_some();
-    let parent_hooks = project.worktree_info.as_ref()
+    let parent_hooks = project
+        .worktree_info
+        .as_ref()
         .and_then(|wt| ws.project(&wt.parent_project_id))
         .map(|p| p.hooks.clone());
     let project_default_shell = project.default_shell.clone();
@@ -858,19 +968,32 @@ pub fn spawn_uninitialized_terminals(
     if let Some(layout) = &project.layout {
         collect_uninitialized_terminals_with_shell(layout, vec![], &mut uninitialized);
     }
-    log::info!("spawn_uninitialized_terminals: project={}, uninitialized_count={}", project_id, uninitialized.len());
+    log::info!(
+        "spawn_uninitialized_terminals: project={}, uninitialized_count={}",
+        project_id,
+        uninitialized.len()
+    );
 
     let app_settings = settings(cx);
     let global_default = app_settings.default_shell.clone();
     let global_hooks = app_settings.hooks;
 
     // Resolve shell_wrapper and on_create once for all terminals in this project
-    let shell_wrapper = hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks);
-    let on_create_cmd = hooks::resolve_terminal_on_create(&project_hooks, parent_hooks.as_ref(), &global_hooks, cx);
+    let shell_wrapper =
+        hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks);
+    let on_create_cmd =
+        hooks::resolve_terminal_on_create(&project_hooks, parent_hooks.as_ref(), &global_hooks, cx);
     let folder = ws.folder_for_project_or_parent(project_id);
     let folder_id = folder.map(|f| f.id.as_str());
     let folder_name = folder.map(|f| f.name.as_str());
-    let env = hooks::terminal_hook_env(project_id, &project_name, &project_path, is_worktree, folder_id, folder_name);
+    let env = hooks::terminal_hook_env(
+        project_id,
+        &project_name,
+        &project_path,
+        is_worktree,
+        folder_id,
+        folder_name,
+    );
 
     let mut spawned_ids = Vec::new();
     for (path, shell_type) in uninitialized {
@@ -905,11 +1028,7 @@ pub fn spawn_uninitialized_terminals(
                 spawned_ids.push(terminal_id);
             }
             Err(e) => {
-                log::error!(
-                    "Failed to spawn terminal for project {}: {}",
-                    project_id,
-                    e
-                );
+                log::error!("Failed to spawn terminal for project {}: {}", project_id, e);
                 return ActionResult::Err(format!("failed to spawn terminal: {}", e));
             }
         }
@@ -943,7 +1062,10 @@ pub fn find_terminal_path(
 
 /// Canonicalize a relative path within a project directory and verify it doesn't
 /// escape the project root (path traversal protection).
-fn resolve_project_file(project_path: &str, relative_path: &str) -> Result<std::path::PathBuf, String> {
+fn resolve_project_file(
+    project_path: &str,
+    relative_path: &str,
+) -> Result<std::path::PathBuf, String> {
     let full_path = std::path::Path::new(project_path).join(relative_path);
     let canonical = full_path
         .canonicalize()
@@ -960,7 +1082,10 @@ fn resolve_project_file(project_path: &str, relative_path: &str) -> Result<std::
 /// Resolve a new (possibly non-existent) target path inside a project. The parent
 /// must exist and canonicalize inside the project root. The leaf filename is then
 /// joined back on — so the target itself does not need to exist yet.
-fn resolve_new_project_file(project_path: &str, relative_path: &str) -> Result<std::path::PathBuf, String> {
+fn resolve_new_project_file(
+    project_path: &str,
+    relative_path: &str,
+) -> Result<std::path::PathBuf, String> {
     if relative_path.is_empty() {
         return Err("relative_path must not be empty".to_string());
     }

@@ -32,9 +32,20 @@ pub struct FolderContextMenuRequest {
 /// Requests consumed by RootView::process_pending_requests()
 #[derive(Clone, Debug)]
 pub enum OverlayRequest {
-    ContextMenu { project_id: String, position: gpui::Point<gpui::Pixels> },
-    FolderContextMenu { folder_id: String, folder_name: String, position: gpui::Point<gpui::Pixels> },
-    ShellSelector { project_id: String, terminal_id: String, current_shell: vryn_terminal::shell_config::ShellType },
+    ContextMenu {
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    FolderContextMenu {
+        folder_id: String,
+        folder_name: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    ShellSelector {
+        project_id: String,
+        terminal_id: String,
+        current_shell: vryn_terminal::shell_config::ShellType,
+    },
     AddProjectDialog,
     DiffViewer {
         project_id: String,
@@ -46,8 +57,23 @@ pub enum OverlayRequest {
         /// Current index into the commits list.
         commit_index: Option<usize>,
     },
+    MainDiffViewer {
+        project_id: String,
+        file: Option<String>,
+        mode: Option<vryn_core::types::DiffMode>,
+        commit_message: Option<String>,
+        /// Commit list for navigation (prev/next) in the diff viewer.
+        commits: Option<Vec<vryn_git::CommitLogEntry>>,
+        /// Current index into the commits list.
+        commit_index: Option<usize>,
+    },
     RemoteConnect,
-    RemoteConnectionContextMenu { connection_id: String, connection_name: String, is_pairing: bool, position: gpui::Point<gpui::Pixels> },
+    RemoteConnectionContextMenu {
+        connection_id: String,
+        connection_name: String,
+        is_pairing: bool,
+        position: gpui::Point<gpui::Pixels>,
+    },
     TerminalContextMenu {
         terminal_id: String,
         project_id: String,
@@ -63,15 +89,38 @@ pub enum OverlayRequest {
         layout_path: Vec<usize>,
         position: gpui::Point<gpui::Pixels>,
     },
-    ShowServiceLog { project_id: String, service_name: String },
-    ShowHookTerminal { project_id: String, terminal_id: String },
-    FileSearch { project_id: String },
-    ContentSearch { project_id: String },
-    FileBrowser { project_id: String },
-    ColorPicker { project_id: String, position: gpui::Point<gpui::Pixels> },
-    FolderColorPicker { folder_id: String, position: gpui::Point<gpui::Pixels> },
-    WorktreeList { project_id: String, position: gpui::Point<gpui::Pixels> },
-    ToggleGitPanel { project_id: String },
+    ShowServiceLog {
+        project_id: String,
+        service_name: String,
+    },
+    ShowHookTerminal {
+        project_id: String,
+        terminal_id: String,
+    },
+    FileSearch {
+        project_id: String,
+    },
+    ContentSearch {
+        project_id: String,
+    },
+    FileBrowser {
+        project_id: String,
+    },
+    ColorPicker {
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    FolderColorPicker {
+        folder_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    WorktreeList {
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+    },
+    ToggleGitPanel {
+        project_id: String,
+    },
     GitFileContextMenu {
         project_id: String,
         file_path: String,
@@ -109,8 +158,16 @@ pub enum OverlayRequest {
 /// Requests consumed by Sidebar::render()
 #[derive(Clone, Debug)]
 pub enum SidebarRequest {
-    RenameProject { project_id: String, project_name: String },
-    RenameFolder { folder_id: String, folder_name: String },
+    RenameProject {
+        project_id: String,
+        project_name: String,
+    },
+    RenameFolder {
+        folder_id: String,
+        folder_name: String,
+    },
     CreateFolder,
-    QuickCreateWorktree { project_id: String },
+    QuickCreateWorktree {
+        project_id: String,
+    },
 }

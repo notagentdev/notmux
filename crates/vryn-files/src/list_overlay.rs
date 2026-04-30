@@ -138,9 +138,7 @@ pub struct ListOverlayState<T: Clone> {
 impl<T: Clone> ListOverlayState<T> {
     /// Create a new state with the given items and config.
     pub fn new(items: Vec<T>, config: ListOverlayConfig, cx: &mut App) -> Self {
-        let filtered: Vec<FilterResult> = (0..items.len())
-            .map(FilterResult::new)
-            .collect();
+        let filtered: Vec<FilterResult> = (0..items.len()).map(FilterResult::new).collect();
 
         Self {
             focus_handle: cx.focus_handle(),
@@ -154,7 +152,12 @@ impl<T: Clone> ListOverlayState<T> {
     }
 
     /// Create a new state with a pre-selected index.
-    pub fn with_selected(items: Vec<T>, config: ListOverlayConfig, selected_index: usize, cx: &mut App) -> Self {
+    pub fn with_selected(
+        items: Vec<T>,
+        config: ListOverlayConfig,
+        selected_index: usize,
+        cx: &mut App,
+    ) -> Self {
         let mut state = Self::new(items, config, cx);
         state.selected_index = selected_index.min(state.filtered.len().saturating_sub(1));
         state
@@ -295,7 +298,10 @@ pub fn handle_list_overlay_key<T: Clone>(
             }
         }
         key if key.len() == 1 && state.config.has_search() => {
-            let ch = key.chars().next().expect("key.len() == 1 guarantees a char");
+            let ch = key
+                .chars()
+                .next()
+                .expect("key.len() == 1 guarantees a char");
             if SEARCH_CHARS.contains(ch) {
                 state.push_search_char(ch);
                 ListOverlayAction::QueryChanged
@@ -413,12 +419,10 @@ pub fn file_filter_button(
         .text_size(ui_text_sm(cx))
         .font_weight(FontWeight::MEDIUM)
         .when(active_count > 0, |d: Stateful<Div>| {
-            d.bg(rgb(t.border_active))
-                .text_color(rgb(t.text_primary))
+            d.bg(rgb(t.border_active)).text_color(rgb(t.text_primary))
         })
         .when(active_count == 0, |d: Stateful<Div>| {
-            d.bg(rgb(t.bg_secondary))
-                .text_color(rgb(t.text_muted))
+            d.bg(rgb(t.bg_secondary)).text_color(rgb(t.text_muted))
         })
         .hover(|s: StyleRefinement| s.bg(rgb(t.bg_hover)))
         .on_mouse_down(MouseButton::Left, on_click)
@@ -448,20 +452,31 @@ pub fn file_filter_popover(
     let on_toggle2 = on_toggle.clone();
     deferred(
         anchored()
-            .position(point(bounds.origin.x, bounds.origin.y + bounds.size.height + px(2.0)))
+            .position(point(
+                bounds.origin.x,
+                bounds.origin.y + bounds.size.height + px(2.0),
+            ))
             .snap_to_window()
             .child(
                 popover_panel("filter-popover", t)
                     .min_w(px(180.0))
                     .py(px(4.0))
-                    .child(
-                        file_filter_option("ignored", "Include ignored", show_ignored, t, cx,
-                            move |_, window, cx| on_toggle("ignored", window, cx))
-                    )
-                    .child(
-                        file_filter_option("hidden", "Include hidden", show_hidden, t, cx,
-                            move |_, window, cx| on_toggle2("hidden", window, cx))
-                    )
+                    .child(file_filter_option(
+                        "ignored",
+                        "Include ignored",
+                        show_ignored,
+                        t,
+                        cx,
+                        move |_, window, cx| on_toggle("ignored", window, cx),
+                    ))
+                    .child(file_filter_option(
+                        "hidden",
+                        "Include hidden",
+                        show_hidden,
+                        t,
+                        cx,
+                        move |_, window, cx| on_toggle2("hidden", window, cx),
+                    )),
             ),
     )
 }

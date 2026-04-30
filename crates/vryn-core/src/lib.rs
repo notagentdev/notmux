@@ -1,10 +1,10 @@
 pub mod api;
 #[cfg(feature = "client")]
 pub mod client;
-#[cfg(feature = "blocking-http")]
-pub mod remote_action;
 pub mod keys;
 pub mod process;
+#[cfg(feature = "blocking-http")]
+pub mod remote_action;
 pub mod selection;
 pub mod theme;
 pub mod types;

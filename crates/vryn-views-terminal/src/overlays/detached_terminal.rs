@@ -1,16 +1,17 @@
-use vryn_terminal::terminal::{Terminal, TerminalTransport};
-use vryn_terminal::TerminalsRegistry;
-use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text, ui_text_ms, ui_text_md};
 use crate::layout::terminal_pane::TerminalContent;
-use vryn_workspace::state::Workspace;
 use crate::overlays::terminal_overlay_utils::{
-    create_terminal_content, get_or_create_terminal, handle_pending_focus, handle_terminal_key_input,
+    create_terminal_content, get_or_create_terminal, handle_pending_focus,
+    handle_terminal_key_input,
 };
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
-use gpui::prelude::FluentBuilder;
 use std::sync::Arc;
+use vryn_terminal::TerminalsRegistry;
+use vryn_terminal::terminal::{Terminal, TerminalTransport};
+use vryn_ui::theme::theme;
+use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms};
+use vryn_workspace::state::Workspace;
 
 /// Detached terminal window view
 pub struct DetachedTerminalView {
@@ -44,12 +45,13 @@ impl DetachedTerminalView {
 
             for project in ws.projects() {
                 if let Some(layout) = &project.layout
-                    && let Some(path) = layout.find_terminal_path(&terminal_id) {
-                        found_project_id = project.id.clone();
-                        found_layout_path = path;
-                        found_project_path = project.path.clone();
-                        break;
-                    }
+                    && let Some(path) = layout.find_terminal_path(&terminal_id)
+                {
+                    found_project_id = project.id.clone();
+                    found_layout_path = path;
+                    found_project_path = project.path.clone();
+                    break;
+                }
             }
             (found_project_id, found_layout_path, found_project_path)
         };
@@ -154,8 +156,14 @@ impl Render for DetachedTerminalView {
         let terminal_name = {
             let ws = self.workspace.read(cx);
             let osc_title = self.terminal.title();
-            ws.projects().iter()
-                .find(|p| p.layout.as_ref().and_then(|l| l.find_terminal_path(&self.terminal_id)).is_some())
+            ws.projects()
+                .iter()
+                .find(|p| {
+                    p.layout
+                        .as_ref()
+                        .and_then(|l| l.find_terminal_path(&self.terminal_id))
+                        .is_some()
+                })
                 .map(|p| p.terminal_display_name(&self.terminal_id, osc_title.clone()))
                 .unwrap_or_else(|| osc_title.unwrap_or_else(|| "Terminal".to_string()))
         };
@@ -177,9 +185,12 @@ impl Render for DetachedTerminalView {
         div()
             .track_focus(&focus_handle)
             .key_context("DetachedTerminal")
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _event: &MouseDownEvent, window, cx| {
-                window.focus(&this.focus_handle, cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event: &MouseDownEvent, window, cx| {
+                    window.focus(&this.focus_handle, cx);
+                }),
+            )
             .on_key_down(cx.listener(|this, event, _window, cx| {
                 this.handle_key(event, cx);
             }))
@@ -232,7 +243,9 @@ impl Render for DetachedTerminalView {
                                     .text_size(ui_text_md(cx))
                                     .text_color(rgb(t.text_primary))
                                     .child("Re-attach")
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.handle_reattach(cx);
                                     })),
@@ -257,7 +270,9 @@ impl Render for DetachedTerminalView {
                                                 .text_color(rgb(t.text_secondary))
                                                 .hover(|s| s.bg(rgb(t.bg_hover)))
                                                 .child("─")
-                                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                    cx.stop_propagation()
+                                                })
                                                 .on_click(|_, window, cx| {
                                                     cx.stop_propagation();
                                                     window.minimize_window();
@@ -278,7 +293,9 @@ impl Render for DetachedTerminalView {
                                                 .text_color(rgb(t.text_secondary))
                                                 .hover(|s| s.bg(rgb(t.bg_hover)))
                                                 .child(if is_maximized { "❐" } else { "□" })
-                                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                    cx.stop_propagation()
+                                                })
                                                 .on_click(|_, window, cx| {
                                                     cx.stop_propagation();
                                                     window.zoom_window();
@@ -297,9 +314,13 @@ impl Render for DetachedTerminalView {
                                                 .rounded(px(4.0))
                                                 .text_size(ui_text_md(cx))
                                                 .text_color(rgb(t.text_secondary))
-                                                .hover(|s| s.bg(rgb(0xE81123)).text_color(rgb(0xffffff)))
+                                                .hover(|s| {
+                                                    s.bg(rgb(0xE81123)).text_color(rgb(0xffffff))
+                                                })
                                                 .child("✕")
-                                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                    cx.stop_propagation()
+                                                })
                                                 .on_click(cx.listener(|this, _, _window, cx| {
                                                     // Close = re-attach
                                                     this.handle_reattach(cx);
@@ -311,12 +332,10 @@ impl Render for DetachedTerminalView {
             )
             .child(
                 // Terminal content (reuses TerminalContent for selection, context menu, etc.)
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(AnyView::from(self.content.clone()).cached(
-                        StyleRefinement::default().size_full()
-                    )),
+                div().flex_1().min_h_0().child(
+                    AnyView::from(self.content.clone())
+                        .cached(StyleRefinement::default().size_full()),
+                ),
             )
             .id("detached-terminal-main")
             .on_click(cx.listener(|this, _, window, cx| {

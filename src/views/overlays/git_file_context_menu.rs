@@ -1,21 +1,43 @@
 //! Context menu for files in the git panel (right-click on a file entry).
 
 use crate::keybindings::Cancel;
-use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
+use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 
 /// Event emitted by GitFileContextMenu.
 pub enum GitFileContextMenuEvent {
     Close,
-    Stage { project_id: String, file_path: String },
-    Unstage { project_id: String, file_path: String },
-    Discard { project_id: String, file_path: String, is_untracked: bool },
-    OpenDiff { project_id: String, file_path: String },
-    OpenFile { project_id: String, #[allow(dead_code)] file_path: String },
-    AddToGitignore { project_id: String, file_path: String },
-    CopyPath { path: String },
+    Stage {
+        project_id: String,
+        file_path: String,
+    },
+    Unstage {
+        project_id: String,
+        file_path: String,
+    },
+    Discard {
+        project_id: String,
+        file_path: String,
+        is_untracked: bool,
+    },
+    OpenDiff {
+        project_id: String,
+        file_path: String,
+    },
+    OpenFile {
+        project_id: String,
+        #[allow(dead_code)]
+        file_path: String,
+    },
+    AddToGitignore {
+        project_id: String,
+        file_path: String,
+    },
+    CopyPath {
+        path: String,
+    },
 }
 
 impl vryn_ui::overlay::CloseEvent for GitFileContextMenuEvent {
@@ -89,129 +111,145 @@ impl Render for GitFileContextMenu {
             .absolute()
             .inset_0()
             .id("git-file-context-menu-backdrop")
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
-            .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
             .child(deferred(
-                anchored()
-                    .position(position)
-                    .snap_to_window()
-                    .child(
-                        context_menu_panel("git-file-context-menu", &t)
-                            // Stage / Unstage
-                            .child(
-                                if is_staged {
-                                    menu_item("gfcm-unstage", "icons/chevron-down.svg", "Unstage", &t)
-                                        .on_click(cx.listener({
-                                            let pid = project_id.clone();
-                                            let fp = file_path.clone();
-                                            move |_this, _, _window, cx| {
-                                                cx.emit(GitFileContextMenuEvent::Unstage {
-                                                    project_id: pid.clone(),
-                                                    file_path: fp.clone(),
-                                                });
-                                            }
-                                        }))
-                                } else {
-                                    menu_item("gfcm-stage", "icons/chevron-up.svg", "Stage", &t)
-                                        .on_click(cx.listener({
-                                            let pid = project_id.clone();
-                                            let fp = file_path.clone();
-                                            move |_this, _, _window, cx| {
-                                                cx.emit(GitFileContextMenuEvent::Stage {
-                                                    project_id: pid.clone(),
-                                                    file_path: fp.clone(),
-                                                });
-                                            }
-                                        }))
-                                },
+                anchored().position(position).snap_to_window().child(
+                    context_menu_panel("git-file-context-menu", &t)
+                        // Stage / Unstage
+                        .child(if is_staged {
+                            menu_item("gfcm-unstage", "icons/chevron-down.svg", "Unstage", &t)
+                                .on_click(cx.listener({
+                                    let pid = project_id.clone();
+                                    let fp = file_path.clone();
+                                    move |_this, _, _window, cx| {
+                                        cx.emit(GitFileContextMenuEvent::Unstage {
+                                            project_id: pid.clone(),
+                                            file_path: fp.clone(),
+                                        });
+                                    }
+                                }))
+                        } else {
+                            menu_item("gfcm-stage", "icons/chevron-up.svg", "Stage", &t).on_click(
+                                cx.listener({
+                                    let pid = project_id.clone();
+                                    let fp = file_path.clone();
+                                    move |_this, _, _window, cx| {
+                                        cx.emit(GitFileContextMenuEvent::Stage {
+                                            project_id: pid.clone(),
+                                            file_path: fp.clone(),
+                                        });
+                                    }
+                                }),
                             )
-                            // Discard / Trash (destructive)
-                            .child(
-                                menu_item_with_color(
-                                    "gfcm-discard",
-                                    "icons/trash.svg",
-                                    if is_untracked { "Trash File" } else { "Discard Changes" },
-                                    t.error,
-                                    t.error,
+                        })
+                        // Discard / Trash (destructive)
+                        .child(
+                            menu_item_with_color(
+                                "gfcm-discard",
+                                "icons/trash.svg",
+                                if is_untracked {
+                                    "Trash File"
+                                } else {
+                                    "Discard Changes"
+                                },
+                                t.error,
+                                t.error,
+                                &t,
+                            )
+                            .on_click(cx.listener({
+                                let pid = project_id.clone();
+                                let fp = file_path.clone();
+                                move |_this, _, _window, cx| {
+                                    cx.emit(GitFileContextMenuEvent::Discard {
+                                        project_id: pid.clone(),
+                                        file_path: fp.clone(),
+                                        is_untracked,
+                                    });
+                                }
+                            })),
+                        )
+                        // Add to .gitignore (only for untracked)
+                        .when(is_untracked, |d| {
+                            d.child(
+                                menu_item(
+                                    "gfcm-gitignore",
+                                    "icons/file.svg",
+                                    "Add to .gitignore",
                                     &t,
                                 )
                                 .on_click(cx.listener({
                                     let pid = project_id.clone();
                                     let fp = file_path.clone();
                                     move |_this, _, _window, cx| {
-                                        cx.emit(GitFileContextMenuEvent::Discard {
+                                        cx.emit(GitFileContextMenuEvent::AddToGitignore {
                                             project_id: pid.clone(),
                                             file_path: fp.clone(),
-                                            is_untracked,
                                         });
                                     }
                                 })),
                             )
-                            // Add to .gitignore (only for untracked)
-                            .when(is_untracked, |d| {
-                                d.child(
-                                    menu_item("gfcm-gitignore", "icons/file.svg", "Add to .gitignore", &t)
-                                        .on_click(cx.listener({
-                                            let pid = project_id.clone();
-                                            let fp = file_path.clone();
-                                            move |_this, _, _window, cx| {
-                                                cx.emit(GitFileContextMenuEvent::AddToGitignore {
-                                                    project_id: pid.clone(),
-                                                    file_path: fp.clone(),
-                                                });
-                                            }
-                                        })),
+                        })
+                        .child(menu_separator(&t))
+                        // Open Diff (not meaningful for untracked)
+                        .when(!is_untracked, |d| {
+                            d.child(
+                                menu_item(
+                                    "gfcm-open-diff",
+                                    "icons/git-commit.svg",
+                                    "Open Diff",
+                                    &t,
                                 )
-                            })
-                            .child(menu_separator(&t))
-                            // Open Diff (not meaningful for untracked)
-                            .when(!is_untracked, |d| {
-                                d.child(
-                                    menu_item("gfcm-open-diff", "icons/git-commit.svg", "Open Diff", &t)
-                                        .on_click(cx.listener({
-                                            let pid = project_id.clone();
-                                            let fp = file_path.clone();
-                                            move |_this, _, _window, cx| {
-                                                cx.emit(GitFileContextMenuEvent::OpenDiff {
-                                                    project_id: pid.clone(),
-                                                    file_path: fp.clone(),
-                                                });
-                                            }
-                                        })),
-                                )
-                            })
-                            // Open File
-                            .child(
-                                menu_item("gfcm-open-file", "icons/file.svg", "Open File", &t)
-                                    .on_click(cx.listener({
-                                        let pid = project_id.clone();
-                                        let fp = file_path.clone();
-                                        move |_this, _, _window, cx| {
-                                            cx.emit(GitFileContextMenuEvent::OpenFile {
-                                                project_id: pid.clone(),
-                                                file_path: fp.clone(),
-                                            });
-                                        }
-                                    })),
+                                .on_click(cx.listener({
+                                    let pid = project_id.clone();
+                                    let fp = file_path.clone();
+                                    move |_this, _, _window, cx| {
+                                        cx.emit(GitFileContextMenuEvent::OpenDiff {
+                                            project_id: pid.clone(),
+                                            file_path: fp.clone(),
+                                        });
+                                    }
+                                })),
                             )
-                            .child(menu_separator(&t))
-                            // Copy Path
-                            .child(
-                                menu_item("gfcm-copy-path", "icons/copy.svg", "Copy Path", &t)
-                                    .on_click(cx.listener({
-                                        let fp = file_path.clone();
-                                        move |_this, _, _window, cx| {
-                                            cx.emit(GitFileContextMenuEvent::CopyPath {
-                                                path: fp.clone(),
-                                            });
-                                        }
-                                    })),
-                            ),
-                    ),
+                        })
+                        // Open File
+                        .child(
+                            menu_item("gfcm-open-file", "icons/file.svg", "Open File", &t)
+                                .on_click(cx.listener({
+                                    let pid = project_id.clone();
+                                    let fp = file_path.clone();
+                                    move |_this, _, _window, cx| {
+                                        cx.emit(GitFileContextMenuEvent::OpenFile {
+                                            project_id: pid.clone(),
+                                            file_path: fp.clone(),
+                                        });
+                                    }
+                                })),
+                        )
+                        .child(menu_separator(&t))
+                        // Copy Path
+                        .child(
+                            menu_item("gfcm-copy-path", "icons/copy.svg", "Copy Path", &t)
+                                .on_click(cx.listener({
+                                    let fp = file_path.clone();
+                                    move |_this, _, _window, cx| {
+                                        cx.emit(GitFileContextMenuEvent::CopyPath {
+                                            path: fp.clone(),
+                                        });
+                                    }
+                                })),
+                        ),
+                ),
             ))
     }
 }

@@ -1,15 +1,15 @@
 //! Terminal content component.
 
 use crate::elements::terminal_element::{LinkKind, SearchMatch, TerminalElement};
-use crate::terminal_view_settings;
-use vryn_terminal::terminal::Terminal;
-use vryn_files::theme::theme;
-use vryn_ui::color_utils::tint_color;
 use crate::layout::navigation::register_pane_bounds;
-use vryn_workspace::state::Workspace;
+use crate::terminal_view_settings;
 use gpui::*;
 use std::sync::Arc;
 use std::time::Instant;
+use vryn_files::theme::theme;
+use vryn_terminal::terminal::Terminal;
+use vryn_ui::color_utils::tint_color;
+use vryn_workspace::state::Workspace;
 
 use super::scrollbar::Scrollbar;
 use super::url_detector::UrlDetector;
@@ -115,12 +115,7 @@ impl TerminalContent {
         });
     }
 
-    pub fn handle_scroll(
-        &mut self,
-        delta: f32,
-        position: Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn handle_scroll(&mut self, delta: f32, position: Point<Pixels>, cx: &mut Context<Self>) {
         if let Some(ref terminal) = self.terminal {
             let (cell_width, cell_height) = terminal.cell_dimensions();
 
@@ -167,7 +162,10 @@ impl TerminalContent {
 
     const TERMINAL_PADDING: f32 = 4.0;
 
-    fn pixel_to_cell(&self, pos: Point<Pixels>) -> Option<(usize, i32, alacritty_terminal::index::Side)> {
+    fn pixel_to_cell(
+        &self,
+        pos: Point<Pixels>,
+    ) -> Option<(usize, i32, alacritty_terminal::index::Side)> {
         let bounds = self.element_bounds?;
         let terminal = self.terminal.as_ref()?;
         let (cell_width, cell_height) = terminal.cell_dimensions();
@@ -192,7 +190,12 @@ impl TerminalContent {
         Some((col, row, side))
     }
 
-    fn pixel_to_cell_raw(&self, pos: Point<Pixels>, cell_width: f32, cell_height: f32) -> (usize, usize) {
+    fn pixel_to_cell_raw(
+        &self,
+        pos: Point<Pixels>,
+        cell_width: f32,
+        cell_height: f32,
+    ) -> (usize, usize) {
         if let Some(bounds) = self.element_bounds {
             let x = (f32::from(pos.x) - f32::from(bounds.origin.x)).max(0.0);
             let y = (f32::from(pos.y) - f32::from(bounds.origin.y)).max(0.0);
@@ -211,70 +214,76 @@ impl TerminalContent {
         window.focus(&self.focus_handle, cx);
 
         if let Some(ref terminal) = self.terminal
-            && let Some((col, row, side)) = self.pixel_to_cell(event.position) {
-                self.mouse_down_cell = Some((col, row));
+            && let Some((col, row, side)) = self.pixel_to_cell(event.position)
+        {
+            self.mouse_down_cell = Some((col, row));
 
-                if (event.modifiers.platform || event.modifiers.control)
-                    && let Some(url_match) = self.url_detector.find_at(col, row) {
-                        match &url_match.kind {
-                            LinkKind::Url => {
-                                UrlDetector::open_url(&url_match.url);
-                            }
-                            LinkKind::FilePath { line, col } => {
-                                let file_opener = terminal_view_settings(cx).file_opener.clone();
-                                UrlDetector::open_file(&url_match.url, *line, *col, &file_opener);
-                            }
-                        }
-                        self.mouse_down_cell = None;
-                        return;
+            if (event.modifiers.platform || event.modifiers.control)
+                && let Some(url_match) = self.url_detector.find_at(col, row)
+            {
+                match &url_match.kind {
+                    LinkKind::Url => {
+                        UrlDetector::open_url(&url_match.url);
                     }
-
-                if terminal.is_mouse_mode() {
-                    let mods = Self::mouse_modifier_bits(&event.modifiers);
-                    let button: u8 = 0; // left
-                    terminal.send_mouse_button(button, true, col, row as usize, mods);
-                    self.forwarded_button = Some((button, mods));
-                    self.mouse_down_cell = None;
-                    self.is_selecting = false;
-                    return;
+                    LinkKind::FilePath { line, col } => {
+                        let file_opener = terminal_view_settings(cx).file_opener.clone();
+                        UrlDetector::open_file(&url_match.url, *line, *col, &file_opener);
+                    }
                 }
+                self.mouse_down_cell = None;
+                return;
+            }
 
-                let now = Instant::now();
+            if terminal.is_mouse_mode() {
+                let mods = Self::mouse_modifier_bits(&event.modifiers);
+                let button: u8 = 0; // left
+                terminal.send_mouse_button(button, true, col, row as usize, mods);
+                self.forwarded_button = Some((button, mods));
+                self.mouse_down_cell = None;
+                self.is_selecting = false;
+                return;
+            }
 
-                let click_count = if let Some((last_time, last_col, last_row)) = self.last_click {
-                    let elapsed = now.duration_since(last_time).as_millis();
-                    let same_position =
-                        (col as i32 - last_col as i32).abs() <= 1 && (row - last_row).abs() <= 0;
-                    if elapsed < 400 && same_position {
-                        if self.click_count >= 3 { 1 } else { self.click_count + 1 }
-                    } else {
+            let now = Instant::now();
+
+            let click_count = if let Some((last_time, last_col, last_row)) = self.last_click {
+                let elapsed = now.duration_since(last_time).as_millis();
+                let same_position =
+                    (col as i32 - last_col as i32).abs() <= 1 && (row - last_row).abs() <= 0;
+                if elapsed < 400 && same_position {
+                    if self.click_count >= 3 {
                         1
+                    } else {
+                        self.click_count + 1
                     }
                 } else {
                     1
-                };
-
-                self.last_click = Some((now, col, row));
-                self.click_count = click_count;
-
-                terminal.clear_selection();
-
-                match click_count {
-                    2 => {
-                        terminal.start_word_selection(col, row);
-                        self.is_selecting = false;
-                    }
-                    3 => {
-                        terminal.start_line_selection(col, row);
-                        self.is_selecting = false;
-                    }
-                    _ => {
-                        terminal.start_selection(col, row, side);
-                        self.is_selecting = true;
-                    }
                 }
-                cx.notify();
+            } else {
+                1
+            };
+
+            self.last_click = Some((now, col, row));
+            self.click_count = click_count;
+
+            terminal.clear_selection();
+
+            match click_count {
+                2 => {
+                    terminal.start_word_selection(col, row);
+                    self.is_selecting = false;
+                }
+                3 => {
+                    terminal.start_line_selection(col, row);
+                    self.is_selecting = false;
+                }
+                _ => {
+                    terminal.start_selection(col, row, side);
+                    self.is_selecting = true;
+                }
             }
+            cx.notify();
+        }
     }
 
     fn handle_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
@@ -289,9 +298,10 @@ impl TerminalContent {
         if let Some((button, mods)) = self.forwarded_button {
             if let Some(ref terminal) = self.terminal
                 && terminal.supports_mouse_drag()
-                    && let Some((col, row, _side)) = self.pixel_to_cell(event.position) {
-                        terminal.send_mouse_drag(button, col, row as usize, mods);
-                    }
+                && let Some((col, row, _side)) = self.pixel_to_cell(event.position)
+            {
+                terminal.send_mouse_drag(button, col, row as usize, mods);
+            }
             return;
         }
 
@@ -300,7 +310,10 @@ impl TerminalContent {
                 if let Some(ref terminal) = self.terminal {
                     terminal.end_selection();
                     if !terminal.has_selection()
-                        || terminal.get_selected_text().map(|s| s.is_empty()).unwrap_or(true)
+                        || terminal
+                            .get_selected_text()
+                            .map(|s| s.is_empty())
+                            .unwrap_or(true)
                     {
                         terminal.clear_selection();
                     }
@@ -311,10 +324,11 @@ impl TerminalContent {
             }
 
             if let Some(ref terminal) = self.terminal
-                && let Some((col, row, side)) = self.pixel_to_cell(event.position) {
-                    terminal.update_selection(col, row, side);
-                    cx.notify();
-                }
+                && let Some((col, row, side)) = self.pixel_to_cell(event.position)
+            {
+                terminal.update_selection(col, row, side);
+                cx.notify();
+            }
         }
     }
 
@@ -331,25 +345,32 @@ impl TerminalContent {
         }
 
         if self.is_selecting
-            && let Some(ref terminal) = self.terminal {
-                terminal.end_selection();
-                self.is_selecting = false;
+            && let Some(ref terminal) = self.terminal
+        {
+            terminal.end_selection();
+            self.is_selecting = false;
 
-                let empty_selection = !terminal.has_selection()
-                    || terminal.get_selected_text().map(|s| s.is_empty()).unwrap_or(true);
+            let empty_selection = !terminal.has_selection()
+                || terminal
+                    .get_selected_text()
+                    .map(|s| s.is_empty())
+                    .unwrap_or(true);
 
-                if empty_selection {
-                    terminal.clear_selection();
+            if empty_selection {
+                terminal.clear_selection();
 
-                    // Click-to-cursor: on a clean single click (no drag), move cursor
-                    if self.click_count == 1
-                        && let Some((col, row)) = self.mouse_down_cell.take()
-                            && !terminal.is_mouse_mode() && !terminal.is_alt_screen() && !terminal.has_running_child() {
-                                terminal.move_cursor_to_click(col, row);
-                            }
+                // Click-to-cursor: on a clean single click (no drag), move cursor
+                if self.click_count == 1
+                    && let Some((col, row)) = self.mouse_down_cell.take()
+                    && !terminal.is_mouse_mode()
+                    && !terminal.is_alt_screen()
+                    && !terminal.has_running_child()
+                {
+                    terminal.move_cursor_to_click(col, row);
                 }
-                cx.notify();
             }
+            cx.notify();
+        }
         self.mouse_down_cell = None;
     }
 }
@@ -398,7 +419,10 @@ impl Render for TerminalContent {
 
         let terminal_clone = terminal.clone();
         let focus_handle = self.focus_handle.clone();
-        let zoom_level = self.workspace.read(cx).get_terminal_zoom(&self.project_id, &self.layout_path);
+        let zoom_level = self
+            .workspace
+            .read(cx)
+            .get_terminal_zoom(&self.project_id, &self.layout_path);
 
         let element_bounds_setter = {
             let entity = cx.entity().downgrade();
@@ -406,7 +430,12 @@ impl Render for TerminalContent {
             let layout_path = self.layout_path.clone();
             let fh = self.focus_handle.clone();
             move |bounds: Bounds<Pixels>, _window: &mut Window, cx: &mut App| {
-                register_pane_bounds(project_id.clone(), layout_path.clone(), bounds, Some(fh.clone()));
+                register_pane_bounds(
+                    project_id.clone(),
+                    layout_path.clone(),
+                    bounds,
+                    Some(fh.clone()),
+                );
 
                 if let Some(entity) = entity.upgrade() {
                     entity.update(cx, |this, _| {
@@ -458,7 +487,10 @@ impl Render for TerminalContent {
                 }
                 let delta = event.delta.pixel_delta(px(17.0));
                 if event.modifiers.control {
-                    let current_zoom = this.workspace.read(cx).get_terminal_zoom(&this.project_id, &this.layout_path);
+                    let current_zoom = this
+                        .workspace
+                        .read(cx)
+                        .get_terminal_zoom(&this.project_id, &this.layout_path);
                     let zoom_delta = if f32::from(delta.y) > 0.0 { 0.1 } else { -0.1 };
                     let new_zoom = (current_zoom + zoom_delta).clamp(0.5, 3.0);
                     let project_id = this.project_id.clone();
@@ -473,12 +505,19 @@ impl Render for TerminalContent {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(|this, event: &MouseDownEvent, _window, cx| {
-                    let has_selection = this.terminal.as_ref().map(|t| t.has_selection()).unwrap_or(false);
-                    let link_url = this.pixel_to_cell(event.position).and_then(|(col, row, _side)| {
-                        this.url_detector.find_at(col, row)
-                            .filter(|m| m.kind == LinkKind::Url)
-                            .map(|m| m.url)
-                    });
+                    let has_selection = this
+                        .terminal
+                        .as_ref()
+                        .map(|t| t.has_selection())
+                        .unwrap_or(false);
+                    let link_url =
+                        this.pixel_to_cell(event.position)
+                            .and_then(|(col, row, _side)| {
+                                this.url_detector
+                                    .find_at(col, row)
+                                    .filter(|m| m.kind == LinkKind::Url)
+                                    .map(|m| m.url)
+                            });
                     cx.emit(TerminalContentEvent::RequestContextMenu {
                         position: event.position,
                         has_selection,
@@ -486,24 +525,24 @@ impl Render for TerminalContent {
                     });
                 }),
             )
-            .child(canvas(element_bounds_setter, |_, _, _, _| {}).absolute().size_full())
             .child(
-                div()
-                    .size_full()
-                    .p(px(4.0))
-                    .bg(rgb(term_bg))
-                    .child(
-                        TerminalElement::new(terminal_clone, focus_handle)
-                            .with_zoom(zoom_level)
-                            .with_bg_tint(bg_tint)
-                            .with_search(self.search_matches.clone(), self.search_current_index)
-                            .with_urls(
-                                self.url_detector.matches_arc(),
-                                self.url_detector.hovered_group(),
-                            )
-                            .with_cursor_visible(self.cursor_visible)
-                            .with_cursor_style(render_settings.cursor_style),
-                    ),
+                canvas(element_bounds_setter, |_, _, _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
+            .child(
+                div().size_full().p(px(4.0)).bg(rgb(term_bg)).child(
+                    TerminalElement::new(terminal_clone, focus_handle)
+                        .with_zoom(zoom_level)
+                        .with_bg_tint(bg_tint)
+                        .with_search(self.search_matches.clone(), self.search_current_index)
+                        .with_urls(
+                            self.url_detector.matches_arc(),
+                            self.url_detector.hovered_group(),
+                        )
+                        .with_cursor_visible(self.cursor_visible)
+                        .with_cursor_style(render_settings.cursor_style),
+                ),
             )
             .child(self.scrollbar.clone())
             .into_any_element()

@@ -7,9 +7,8 @@ use crate::workspace::persistence::config_dir;
 pub fn register() -> Result<String, String> {
     // 1. Read the app secret
     let secret_path = auth::secret_path();
-    let secret = std::fs::read(&secret_path).map_err(|_| {
-        "No Vryn config found. Has Vryn been started at least once?".to_string()
-    })?;
+    let secret = std::fs::read(&secret_path)
+        .map_err(|_| "No Vryn config found. Has Vryn been started at least once?".to_string())?;
     if secret.len() != 32 {
         return Err("Invalid remote_secret (wrong size).".into());
     }
@@ -25,10 +24,8 @@ pub fn register() -> Result<String, String> {
 
     // 3. Compute HMAC
     let token_hmac = auth::compute_hmac(&secret, token.as_bytes());
-    let token_hmac_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &token_hmac,
-    );
+    let token_hmac_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_hmac);
 
     // 4. Load existing tokens, append new one
     let tokens_path = auth::tokens_path();
@@ -84,7 +81,10 @@ pub fn register() -> Result<String, String> {
             .send();
     }
 
-    eprintln!("Registered CLI access. Token saved to {}", config_dir().join("cli.json").display());
+    eprintln!(
+        "Registered CLI access. Token saved to {}",
+        config_dir().join("cli.json").display()
+    );
 
     Ok(token)
 }

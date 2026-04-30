@@ -7,30 +7,25 @@
 //! - Folder color customization
 //! - Organizing projects into collapsible folders
 
-use crate::{
-    SidebarConfirm, SidebarDown, SidebarEscape, SidebarToggleExpand, SidebarUp,
-};
+use crate::{SidebarConfirm, SidebarDown, SidebarEscape, SidebarToggleExpand, SidebarUp};
+use gpui::prelude::FluentBuilder;
+use gpui::*;
+use gpui_component::h_flex;
+use std::collections::{HashMap, HashSet};
 use vryn_core::api::ActionRequest;
 use vryn_core::client::{ConnectionStatus, RemoteConnectionConfig};
 use vryn_core::theme::FolderColor;
 use vryn_services::manager::ServiceManager;
 use vryn_terminal::TerminalsRegistry;
 use vryn_ui::click_detector::ClickDetector;
-use vryn_ui::rename_state::{
-    cancel_rename, finish_rename, start_rename_with_blur,
-    RenameState,
-};
+use vryn_ui::rename_state::{RenameState, cancel_rename, finish_rename, start_rename_with_blur};
 use vryn_ui::theme::theme;
 use vryn_ui::tokens::{ui_text_ms, ui_text_xl};
 use vryn_workspace::request_broker::RequestBroker;
 use vryn_workspace::requests::SidebarRequest;
 use vryn_workspace::state::{FolderData, ProjectData, Workspace};
-use gpui::*;
-use gpui::prelude::FluentBuilder;
-use gpui_component::h_flex;
-use std::collections::{HashMap, HashSet};
 
-use crate::drag::{ProjectDrag, FolderDrag};
+use crate::drag::{FolderDrag, ProjectDrag};
 use crate::file_explorer::FileExplorer;
 
 /// Which view the sidebar is showing. Toggled via a button in the
@@ -97,18 +92,41 @@ impl GroupKind {
 /// Identifies each visible row in the sidebar for keyboard cursor navigation.
 #[derive(Clone, Debug)]
 pub enum SidebarCursorItem {
-    Folder { folder_id: String },
-    Project { project_id: String },
-    WorktreeProject { project_id: String },
-    GroupHeader { project_id: String, group: GroupKind },
-    Terminal { project_id: String, terminal_id: String },
-    Service { project_id: String, service_name: String },
+    Folder {
+        folder_id: String,
+    },
+    Project {
+        project_id: String,
+    },
+    WorktreeProject {
+        project_id: String,
+    },
+    GroupHeader {
+        project_id: String,
+        group: GroupKind,
+    },
+    Terminal {
+        project_id: String,
+        terminal_id: String,
+    },
+    Service {
+        project_id: String,
+        service_name: String,
+    },
     #[allow(dead_code)]
-    Hook { project_id: String, terminal_id: String },
+    Hook {
+        project_id: String,
+        terminal_id: String,
+    },
     #[allow(dead_code)]
-    RemoteConnection { connection_id: String },
+    RemoteConnection {
+        connection_id: String,
+    },
     #[allow(dead_code)]
-    RemoteProject { connection_id: String, project_id: String },
+    RemoteProject {
+        connection_id: String,
+        project_id: String,
+    },
 }
 
 /// Sidebar view with project and terminal list
@@ -170,7 +188,12 @@ pub struct Sidebar {
 }
 
 impl Sidebar {
-    pub fn new(workspace: Entity<Workspace>, request_broker: Entity<RequestBroker>, terminals: TerminalsRegistry, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        workspace: Entity<Workspace>,
+        request_broker: Entity<RequestBroker>,
+        terminals: TerminalsRegistry,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // Observe RequestBroker to drain sidebar requests outside of render().
         // Requests are stored in pending_sidebar_requests and applied in render()
         // where Window access is available (needed for focus/rename).
@@ -178,12 +201,13 @@ impl Sidebar {
             if !this.request_broker.read(cx).has_sidebar_requests() {
                 return;
             }
-            let requests = this.request_broker.update(cx, |broker, _cx| {
-                broker.drain_sidebar_requests()
-            });
+            let requests = this
+                .request_broker
+                .update(cx, |broker, _cx| broker.drain_sidebar_requests());
             this.pending_sidebar_requests.extend(requests);
             cx.notify();
-        }).detach();
+        })
+        .detach();
 
         // Hook terminals are displayed in the dedicated HookPanel, so we no
         // longer auto-expand the sidebar project when hooks appear.
@@ -321,11 +345,7 @@ impl Sidebar {
     }
 
     /// Apply an FS patch to every explorer whose project contains `path`.
-    pub fn patch_explorers_for_path(
-        &mut self,
-        path: &std::path::Path,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn patch_explorers_for_path(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
         let parent = path
             .parent()
             .map(|p| p.to_path_buf())
@@ -337,7 +357,7 @@ impl Sidebar {
             .cloned()
             .collect();
         for fe in targets {
-            fe.update(cx, |fe, cx| fe.patch_paths(&[parent.clone()], cx));
+            fe.update(cx, |fe, cx| fe.patch_paths(std::slice::from_ref(&parent), cx));
         }
     }
 
@@ -367,7 +387,12 @@ impl Sidebar {
     }
 
     /// Dispatch an action for a project using the dispatch callback.
-    pub(crate) fn dispatch_action_for_project(&self, project_id: &str, action: ActionRequest, cx: &mut App) {
+    pub(crate) fn dispatch_action_for_project(
+        &self,
+        project_id: &str,
+        action: ActionRequest,
+        cx: &mut App,
+    ) {
         if let Some(ref dispatch) = self.dispatch_action {
             (dispatch)(project_id, action, cx);
         }
@@ -375,7 +400,10 @@ impl Sidebar {
 
     /// Get the current sidebar settings.
     pub(crate) fn sidebar_settings(&self, cx: &App) -> SidebarSettings {
-        self.get_settings.as_ref().map(|f| (f)(cx)).unwrap_or_default()
+        self.get_settings
+            .as_ref()
+            .map(|f| (f)(cx))
+            .unwrap_or_default()
     }
 
     /// Check for double-click on terminal and return true if detected
@@ -573,7 +601,8 @@ impl Sidebar {
     }
 
     pub(crate) fn is_group_collapsed(&self, project_id: &str, group: &GroupKind) -> bool {
-        self.collapsed_groups.contains(&(project_id.to_string(), group.clone()))
+        self.collapsed_groups
+            .contains(&(project_id.to_string(), group.clone()))
     }
 
     /// Render expanded children (terminals group + services group) for a project.
@@ -612,16 +641,18 @@ impl Sidebar {
                     this.toggle_group(&project_id, GroupKind::Terminals);
                     cx.notify();
                 }))
-                .into_any_element()
+                .into_any_element(),
             );
             *flat_idx += 1;
 
             if !is_collapsed {
                 let minimized_states: Vec<(String, bool)> = {
                     let ws = self.workspace.read(cx);
-                    project.terminal_ids.iter().map(|id| {
-                        (id.clone(), ws.is_terminal_minimized(&project.id, id))
-                    }).collect()
+                    project
+                        .terminal_ids
+                        .iter()
+                        .map(|id| (id.clone(), ws.is_terminal_minimized(&project.id, id)))
+                        .collect()
                 };
                 for (tid, is_minimized) in &minimized_states {
                     let is_cursor = cursor_index == Some(*flat_idx);
@@ -629,11 +660,18 @@ impl Sidebar {
                     let is_in_tab_group = project.tab_group_terminals.contains(tid.as_str());
                     flat_elements.push(
                         self.render_terminal_item(
-                            &project.id, tid, &project.terminal_names,
-                            *is_minimized, is_inactive_tab, is_in_tab_group,
-                            group_items_padding, id_prefix, is_cursor, cx,
+                            &project.id,
+                            tid,
+                            &project.terminal_names,
+                            *is_minimized,
+                            is_inactive_tab,
+                            is_in_tab_group,
+                            group_items_padding,
+                            id_prefix,
+                            is_cursor,
+                            cx,
                         )
-                        .into_any_element()
+                        .into_any_element(),
                     );
                     *flat_idx += 1;
                 }
@@ -645,8 +683,14 @@ impl Sidebar {
             let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Services);
             let is_cursor = cursor_index == Some(*flat_idx);
             flat_elements.push(
-                self.render_services_group_header(project, is_collapsed, is_cursor, group_header_padding, cx)
-                    .into_any_element()
+                self.render_services_group_header(
+                    project,
+                    is_collapsed,
+                    is_cursor,
+                    group_header_padding,
+                    cx,
+                )
+                .into_any_element(),
             );
             *flat_idx += 1;
 
@@ -654,8 +698,14 @@ impl Sidebar {
                 for service in &project.services {
                     let is_cursor = cursor_index == Some(*flat_idx);
                     flat_elements.push(
-                        self.render_service_item(project, service, group_items_padding, is_cursor, cx)
-                            .into_any_element()
+                        self.render_service_item(
+                            project,
+                            service,
+                            group_items_padding,
+                            is_cursor,
+                            cx,
+                        )
+                        .into_any_element(),
                     );
                     *flat_idx += 1;
                 }
@@ -667,8 +717,14 @@ impl Sidebar {
             let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Hooks);
             let is_cursor = cursor_index == Some(*flat_idx);
             flat_elements.push(
-                self.render_hooks_group_header(project, is_collapsed, is_cursor, group_header_padding, cx)
-                    .into_any_element()
+                self.render_hooks_group_header(
+                    project,
+                    is_collapsed,
+                    is_cursor,
+                    group_header_padding,
+                    cx,
+                )
+                .into_any_element(),
             );
             *flat_idx += 1;
 
@@ -677,7 +733,7 @@ impl Sidebar {
                     let is_cursor = cursor_index == Some(*flat_idx);
                     flat_elements.push(
                         self.render_hook_item(project, hook, group_items_padding, is_cursor, cx)
-                            .into_any_element()
+                            .into_any_element(),
                     );
                     *flat_idx += 1;
                 }
@@ -685,7 +741,14 @@ impl Sidebar {
         }
     }
 
-    pub fn start_rename(&mut self, project_id: String, terminal_id: String, current_name: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn start_rename(
+        &mut self,
+        project_id: String,
+        terminal_id: String,
+        current_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.terminal_rename = Some(start_rename_with_blur(
             (project_id, terminal_id),
             &current_name,
@@ -694,25 +757,34 @@ impl Sidebar {
             window,
             cx,
         ));
-        self.workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.clear_focused_terminal(cx));
         cx.notify();
     }
 
     pub fn finish_rename(&mut self, cx: &mut Context<Self>) {
-        if let Some(((project_id, terminal_id), new_name)) = finish_rename(&mut self.terminal_rename, cx) {
-            self.dispatch_action_for_project(&project_id, ActionRequest::RenameTerminal {
-                project_id: project_id.clone(),
-                terminal_id,
-                name: new_name,
-            }, cx);
+        if let Some(((project_id, terminal_id), new_name)) =
+            finish_rename(&mut self.terminal_rename, cx)
+        {
+            self.dispatch_action_for_project(
+                &project_id,
+                ActionRequest::RenameTerminal {
+                    project_id: project_id.clone(),
+                    terminal_id,
+                    name: new_name,
+                },
+                cx,
+            );
         }
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
     pub fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         cancel_rename(&mut self.terminal_rename);
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
@@ -721,7 +793,13 @@ impl Sidebar {
         self.project_click_detector.check(project_id.to_string())
     }
 
-    pub fn start_project_rename(&mut self, project_id: String, current_name: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn start_project_rename(
+        &mut self,
+        project_id: String,
+        current_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.project_rename = Some(start_rename_with_blur(
             project_id,
             &current_name,
@@ -730,7 +808,8 @@ impl Sidebar {
             window,
             cx,
         ));
-        self.workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.clear_focused_terminal(cx));
         cx.notify();
     }
 
@@ -740,56 +819,95 @@ impl Sidebar {
                 ws.rename_project(&project_id, new_name, cx);
             });
         }
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
     pub fn cancel_project_rename(&mut self, cx: &mut Context<Self>) {
         cancel_rename(&mut self.project_rename);
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
     /// Request to show color picker for a project (routed via OverlayManager).
-    pub fn show_color_picker(&mut self, project_id: String, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+    pub fn show_color_picker(
+        &mut self,
+        project_id: String,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         self.request_broker.update(cx, |broker, cx| {
-            broker.push_overlay_request(vryn_workspace::requests::OverlayRequest::ColorPicker {
-                project_id,
-                position,
-            }, cx);
+            broker.push_overlay_request(
+                vryn_workspace::requests::OverlayRequest::ColorPicker {
+                    project_id,
+                    position,
+                },
+                cx,
+            );
         });
     }
 
     /// Request to show color picker for a folder (routed via OverlayManager).
-    pub fn show_folder_color_picker(&mut self, folder_id: String, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+    pub fn show_folder_color_picker(
+        &mut self,
+        folder_id: String,
+        position: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         self.request_broker.update(cx, |broker, cx| {
-            broker.push_overlay_request(vryn_workspace::requests::OverlayRequest::FolderColorPicker {
-                folder_id,
-                position,
-            }, cx);
+            broker.push_overlay_request(
+                vryn_workspace::requests::OverlayRequest::FolderColorPicker {
+                    folder_id,
+                    position,
+                },
+                cx,
+            );
         });
     }
 
     /// Sync a project color change to remote server (called when color picker emits event).
-    pub fn sync_remote_color(&mut self, project_id: &str, color: FolderColor, cx: &mut Context<Self>) {
-        if let Some(conn_id) = self.workspace.read(cx).project(project_id)
+    pub fn sync_remote_color(
+        &mut self,
+        project_id: &str,
+        color: FolderColor,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(conn_id) = self
+            .workspace
+            .read(cx)
+            .project(project_id)
             .filter(|p| p.is_remote)
             .and_then(|p| p.connection_id.clone())
-            && let Some(ref send_action) = self.send_remote_action {
-                let server_id = vryn_core::client::strip_prefix(project_id, &conn_id);
-                (send_action)(&conn_id, ActionRequest::SetProjectColor {
+            && let Some(ref send_action) = self.send_remote_action
+        {
+            let server_id = vryn_core::client::strip_prefix(project_id, &conn_id);
+            (send_action)(
+                &conn_id,
+                ActionRequest::SetProjectColor {
                     project_id: server_id,
                     color,
-                }, cx);
-            }
+                },
+                cx,
+            );
+        }
     }
 
-    pub(crate) fn request_context_menu(&mut self, project_id: String, position: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(crate) fn request_context_menu(
+        &mut self,
+        project_id: String,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         self.request_broker.update(cx, |broker, cx| {
-            broker.push_overlay_request(vryn_workspace::requests::OverlayRequest::ContextMenu {
-                project_id,
-                position,
-            }, cx);
+            broker.push_overlay_request(
+                vryn_workspace::requests::OverlayRequest::ContextMenu {
+                    project_id,
+                    position,
+                },
+                cx,
+            );
         });
     }
 
@@ -798,7 +916,13 @@ impl Sidebar {
         self.folder_click_detector.check(folder_id.to_string())
     }
 
-    pub fn start_folder_rename(&mut self, folder_id: String, current_name: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn start_folder_rename(
+        &mut self,
+        folder_id: String,
+        current_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.folder_rename = Some(start_rename_with_blur(
             folder_id,
             &current_name,
@@ -807,7 +931,8 @@ impl Sidebar {
             window,
             cx,
         ));
-        self.workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.clear_focused_terminal(cx));
         cx.notify();
     }
 
@@ -817,20 +942,22 @@ impl Sidebar {
                 ws.rename_folder(&folder_id, new_name, cx);
             });
         }
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
     pub fn cancel_folder_rename(&mut self, cx: &mut Context<Self>) {
         cancel_rename(&mut self.folder_rename);
-        self.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
         cx.notify();
     }
 
     fn create_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let folder_id = self.workspace.update(cx, |ws, cx| {
-            ws.create_folder("New Folder".to_string(), cx)
-        });
+        let folder_id = self
+            .workspace
+            .update(cx, |ws, cx| ws.create_folder("New Folder".to_string(), cx));
         // Immediately start renaming the new folder
         self.start_folder_rename(folder_id, "New Folder".to_string(), window, cx);
     }
@@ -843,11 +970,11 @@ impl Sidebar {
     pub fn set_service_manager(&mut self, manager: Entity<ServiceManager>, cx: &mut Context<Self>) {
         cx.observe(&manager, |_this, _sm, cx| {
             cx.notify();
-        }).detach();
+        })
+        .detach();
         self.service_manager = Some(manager);
         cx.notify();
     }
-
 
     /// Initialize cursor to the focused project or first item
     pub fn activate_cursor(&mut self, cx: &mut Context<Self>) {
@@ -860,14 +987,15 @@ impl Sidebar {
         let focused_id = self.workspace.read(cx).focused_project_id().cloned();
         if let Some(ref focused_id) = focused_id
             && let Some(pos) = items.iter().position(|item| match item {
-                SidebarCursorItem::Project { project_id } |
-                SidebarCursorItem::WorktreeProject { project_id } => project_id == focused_id,
+                SidebarCursorItem::Project { project_id }
+                | SidebarCursorItem::WorktreeProject { project_id } => project_id == focused_id,
                 _ => false,
-            }) {
-                self.cursor_index = Some(pos);
-                cx.notify();
-                return;
-            }
+            })
+        {
+            self.cursor_index = Some(pos);
+            cx.notify();
+            return;
+        }
         self.cursor_index = Some(0);
         cx.notify();
     }
@@ -875,19 +1003,31 @@ impl Sidebar {
     /// Build a flat list of cursor items matching the visual render order
     fn build_cursor_items(&self, cx: &mut Context<Self>) -> Vec<SidebarCursorItem> {
         let workspace = self.workspace.read(cx);
-        let all_projects: HashMap<&str, &ProjectData> = workspace.data().projects.iter()
+        let all_projects: HashMap<&str, &ProjectData> = workspace
+            .data()
+            .projects
+            .iter()
             .map(|p| (p.id.as_str(), p))
             .collect();
-        let all_project_ids: HashSet<&str> = workspace.data().projects.iter()
-            .map(|p| p.id.as_str()).collect();
+        let all_project_ids: HashSet<&str> = workspace
+            .data()
+            .projects
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect();
 
         // Pre-collect service names per project (avoids borrow issues with cx)
-        let service_names: HashMap<String, Vec<String>> = if let Some(ref sm) = self.service_manager {
+        let service_names: HashMap<String, Vec<String>> = if let Some(ref sm) = self.service_manager
+        {
             let sm = sm.read(cx);
-            workspace.data().projects.iter()
+            workspace
+                .data()
+                .projects
+                .iter()
                 .filter(|p| sm.has_services(&p.id))
                 .map(|p| {
-                    let names = sm.services_for_project(&p.id)
+                    let names = sm
+                        .services_for_project(&p.id)
                         .into_iter()
                         .map(|inst| inst.definition.name.clone())
                         .collect();
@@ -899,7 +1039,10 @@ impl Sidebar {
         };
 
         // Pre-collect hook terminal IDs per project
-        let hook_terminal_ids: HashMap<String, Vec<String>> = workspace.data().projects.iter()
+        let hook_terminal_ids: HashMap<String, Vec<String>> = workspace
+            .data()
+            .projects
+            .iter()
             .filter(|p| !p.hook_terminals.is_empty())
             .map(|p| {
                 let ids = p.hook_terminals.keys().cloned().collect();
@@ -928,7 +1071,9 @@ impl Sidebar {
         for id in &workspace.data().project_order {
             // Check if this is a folder
             if let Some(folder) = workspace.data().folders.iter().find(|f| &f.id == id) {
-                cursor_items.push(SidebarCursorItem::Folder { folder_id: folder.id.clone() });
+                cursor_items.push(SidebarCursorItem::Folder {
+                    folder_id: folder.id.clone(),
+                });
 
                 if !folder.collapsed {
                     for pid in &folder.project_ids {
@@ -939,7 +1084,13 @@ impl Sidebar {
                             }) {
                                 continue;
                             }
-                            self.push_project_cursor_items(project, &worktree_children_map, &service_names, &hook_terminal_ids, &mut cursor_items);
+                            self.push_project_cursor_items(
+                                project,
+                                &worktree_children_map,
+                                &service_names,
+                                &hook_terminal_ids,
+                                &mut cursor_items,
+                            );
                         }
                     }
                 }
@@ -948,12 +1099,20 @@ impl Sidebar {
 
             // Top-level project (not a worktree child of another)
             if let Some(&project) = all_projects.get(id.as_str()) {
-                if project.worktree_info.as_ref().is_some_and(|w| {
-                    all_project_ids.contains(w.parent_project_id.as_str())
-                }) {
+                if project
+                    .worktree_info
+                    .as_ref()
+                    .is_some_and(|w| all_project_ids.contains(w.parent_project_id.as_str()))
+                {
                     continue;
                 }
-                self.push_project_cursor_items(project, &worktree_children_map, &service_names, &hook_terminal_ids, &mut cursor_items);
+                self.push_project_cursor_items(
+                    project,
+                    &worktree_children_map,
+                    &service_names,
+                    &hook_terminal_ids,
+                    &mut cursor_items,
+                );
             }
         }
 
@@ -969,38 +1128,66 @@ impl Sidebar {
         hook_terminal_ids: &HashMap<String, Vec<String>>,
         cursor_items: &mut Vec<SidebarCursorItem>,
     ) {
-        let has_worktrees = worktree_children_map.get(&project.id).is_some_and(|c| !c.is_empty());
+        let has_worktrees = worktree_children_map
+            .get(&project.id)
+            .is_some_and(|c| !c.is_empty());
         let is_orphan = project.worktree_info.is_some();
 
         if has_worktrees && !is_orphan {
             // Group header mode: Project = group header, WorktreeProject = main project child
-            cursor_items.push(SidebarCursorItem::Project { project_id: project.id.clone() });
+            cursor_items.push(SidebarCursorItem::Project {
+                project_id: project.id.clone(),
+            });
 
             let is_expanded = self.is_project_expanded(&project.id, true);
             if is_expanded {
                 // Main project as first child
-                cursor_items.push(SidebarCursorItem::WorktreeProject { project_id: project.id.clone() });
+                cursor_items.push(SidebarCursorItem::WorktreeProject {
+                    project_id: project.id.clone(),
+                });
 
                 if self.expanded_projects.contains(&project.id) {
-                    self.push_group_cursor_items(&project.id, &project.layout, service_names, hook_terminal_ids, cursor_items);
+                    self.push_group_cursor_items(
+                        &project.id,
+                        &project.layout,
+                        service_names,
+                        hook_terminal_ids,
+                        cursor_items,
+                    );
                 }
 
                 // Worktree children as siblings
                 if let Some(children) = worktree_children_map.get(&project.id) {
                     for child in children {
-                        cursor_items.push(SidebarCursorItem::WorktreeProject { project_id: child.id.clone() });
+                        cursor_items.push(SidebarCursorItem::WorktreeProject {
+                            project_id: child.id.clone(),
+                        });
                         if self.expanded_projects.contains(&child.id) {
-                            self.push_group_cursor_items(&child.id, &child.layout, service_names, hook_terminal_ids, cursor_items);
+                            self.push_group_cursor_items(
+                                &child.id,
+                                &child.layout,
+                                service_names,
+                                hook_terminal_ids,
+                                cursor_items,
+                            );
                         }
                     }
                 }
             }
         } else {
             // Standard mode: no worktrees
-            cursor_items.push(SidebarCursorItem::Project { project_id: project.id.clone() });
+            cursor_items.push(SidebarCursorItem::Project {
+                project_id: project.id.clone(),
+            });
 
             if self.expanded_projects.contains(&project.id) {
-                self.push_group_cursor_items(&project.id, &project.layout, service_names, hook_terminal_ids, cursor_items);
+                self.push_group_cursor_items(
+                    &project.id,
+                    &project.layout,
+                    service_names,
+                    hook_terminal_ids,
+                    cursor_items,
+                );
             }
         }
     }
@@ -1036,39 +1223,41 @@ impl Sidebar {
 
         // Services group
         if let Some(names) = service_names.get(project_id)
-            && !names.is_empty() {
-                cursor_items.push(SidebarCursorItem::GroupHeader {
-                    project_id: project_id.to_string(),
-                    group: GroupKind::Services,
-                });
+            && !names.is_empty()
+        {
+            cursor_items.push(SidebarCursorItem::GroupHeader {
+                project_id: project_id.to_string(),
+                group: GroupKind::Services,
+            });
 
-                if !self.is_group_collapsed(project_id, &GroupKind::Services) {
-                    for name in names {
-                        cursor_items.push(SidebarCursorItem::Service {
-                            project_id: project_id.to_string(),
-                            service_name: name.clone(),
-                        });
-                    }
+            if !self.is_group_collapsed(project_id, &GroupKind::Services) {
+                for name in names {
+                    cursor_items.push(SidebarCursorItem::Service {
+                        project_id: project_id.to_string(),
+                        service_name: name.clone(),
+                    });
                 }
             }
+        }
 
         // Hooks group
         if let Some(tids) = hook_terminal_ids.get(project_id)
-            && !tids.is_empty() {
-                cursor_items.push(SidebarCursorItem::GroupHeader {
-                    project_id: project_id.to_string(),
-                    group: GroupKind::Hooks,
-                });
+            && !tids.is_empty()
+        {
+            cursor_items.push(SidebarCursorItem::GroupHeader {
+                project_id: project_id.to_string(),
+                group: GroupKind::Hooks,
+            });
 
-                if !self.is_group_collapsed(project_id, &GroupKind::Hooks) {
-                    for tid in tids {
-                        cursor_items.push(SidebarCursorItem::Hook {
-                            project_id: project_id.to_string(),
-                            terminal_id: tid.clone(),
-                        });
-                    }
+            if !self.is_group_collapsed(project_id, &GroupKind::Hooks) {
+                for tid in tids {
+                    cursor_items.push(SidebarCursorItem::Hook {
+                        project_id: project_id.to_string(),
+                        terminal_id: tid.clone(),
+                    });
                 }
             }
+        }
     }
 
     /// Clamp cursor to valid range
@@ -1076,9 +1265,10 @@ impl Sidebar {
         if item_count == 0 {
             self.cursor_index = None;
         } else if let Some(ref mut idx) = self.cursor_index
-            && *idx >= item_count {
-                *idx = item_count - 1;
-            }
+            && *idx >= item_count
+        {
+            *idx = item_count - 1;
+        }
     }
 
     /// Check if any rename is active (blocks keyboard nav)
@@ -1089,9 +1279,13 @@ impl Sidebar {
     }
 
     fn handle_sidebar_up(&mut self, _: &SidebarUp, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_interactive_mode_active() { return; }
+        if self.is_interactive_mode_active() {
+            return;
+        }
         let items = self.build_cursor_items(cx);
-        if items.is_empty() { return; }
+        if items.is_empty() {
+            return;
+        }
         match self.cursor_index {
             Some(idx) if idx > 0 => self.cursor_index = Some(idx - 1),
             None => self.cursor_index = Some(items.len() - 1),
@@ -1101,10 +1295,19 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn handle_sidebar_down(&mut self, _: &SidebarDown, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_interactive_mode_active() { return; }
+    fn handle_sidebar_down(
+        &mut self,
+        _: &SidebarDown,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_interactive_mode_active() {
+            return;
+        }
         let items = self.build_cursor_items(cx);
-        if items.is_empty() { return; }
+        if items.is_empty() {
+            return;
+        }
         match self.cursor_index {
             Some(idx) if idx < items.len() - 1 => self.cursor_index = Some(idx + 1),
             None => self.cursor_index = Some(0),
@@ -1114,7 +1317,12 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn handle_sidebar_confirm(&mut self, _: &SidebarConfirm, window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_sidebar_confirm(
+        &mut self,
+        _: &SidebarConfirm,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.project_rename.is_some() {
             self.finish_project_rename(cx);
             return;
@@ -1127,7 +1335,9 @@ impl Sidebar {
             self.finish_rename(cx);
             return;
         }
-        if self.is_interactive_mode_active() { return; }
+        if self.is_interactive_mode_active() {
+            return;
+        }
         let items = self.build_cursor_items(cx);
         let Some(idx) = self.cursor_index else { return };
         let Some(item) = items.get(idx) else { return };
@@ -1135,7 +1345,11 @@ impl Sidebar {
         match item.clone() {
             SidebarCursorItem::Project { project_id } => {
                 // Project may be a group header (has worktrees) → non-individual focus
-                let has_worktrees = !self.workspace.read(cx).worktree_child_ids(&project_id).is_empty();
+                let has_worktrees = !self
+                    .workspace
+                    .read(cx)
+                    .worktree_child_ids(&project_id)
+                    .is_empty();
                 if has_worktrees {
                     self.workspace.update(cx, |ws, cx| {
                         ws.set_focused_project(Some(project_id.clone()), cx);
@@ -1161,7 +1375,10 @@ impl Sidebar {
                 }
                 self.saved_focus = None;
             }
-            SidebarCursorItem::Terminal { project_id, terminal_id } => {
+            SidebarCursorItem::Terminal {
+                project_id,
+                terminal_id,
+            } => {
                 self.workspace.update(cx, |ws, cx| {
                     ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
                 });
@@ -1179,15 +1396,18 @@ impl Sidebar {
             SidebarCursorItem::GroupHeader { project_id, group } => {
                 self.toggle_group(&project_id, group);
             }
-            SidebarCursorItem::Service { project_id, service_name } => {
+            SidebarCursorItem::Service {
+                project_id,
+                service_name,
+            } => {
                 // Toggle start/stop for the service
                 if let Some(ref sm) = self.service_manager {
                     sm.update(cx, |sm, cx| {
                         let key = (project_id.clone(), service_name.clone());
                         if let Some(inst) = sm.instances().get(&key) {
                             match inst.status {
-                                vryn_services::manager::ServiceStatus::Running |
-                                vryn_services::manager::ServiceStatus::Starting => {
+                                vryn_services::manager::ServiceStatus::Running
+                                | vryn_services::manager::ServiceStatus::Starting => {
                                     sm.stop_service(&project_id, &service_name, cx);
                                 }
                                 _ => {
@@ -1202,7 +1422,11 @@ impl Sidebar {
                 }
             }
             SidebarCursorItem::RemoteConnection { connection_id } => {
-                let collapsed = self.collapsed_connections.get(&connection_id).copied().unwrap_or(false);
+                let collapsed = self
+                    .collapsed_connections
+                    .get(&connection_id)
+                    .copied()
+                    .unwrap_or(false);
                 self.collapsed_connections.insert(connection_id, !collapsed);
             }
             SidebarCursorItem::RemoteProject { project_id, .. } => {
@@ -1216,7 +1440,10 @@ impl Sidebar {
                 }
                 self.saved_focus = None;
             }
-            SidebarCursorItem::Hook { project_id, terminal_id } => {
+            SidebarCursorItem::Hook {
+                project_id,
+                terminal_id,
+            } => {
                 self.workspace.update(cx, |ws, cx| {
                     ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
                 });
@@ -1230,8 +1457,15 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn handle_sidebar_toggle_expand(&mut self, _: &SidebarToggleExpand, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_interactive_mode_active() { return; }
+    fn handle_sidebar_toggle_expand(
+        &mut self,
+        _: &SidebarToggleExpand,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_interactive_mode_active() {
+            return;
+        }
         let items = self.build_cursor_items(cx);
         let Some(idx) = self.cursor_index else { return };
         let Some(item) = items.get(idx) else { return };
@@ -1245,8 +1479,11 @@ impl Sidebar {
             SidebarCursorItem::Project { project_id } => {
                 // Mirror mouse behavior: toggle worktree collapse for parent projects,
                 // terminal details for projects without worktrees
-                let has_worktrees = !self.workspace.read(cx)
-                    .worktree_child_ids(&project_id).is_empty();
+                let has_worktrees = !self
+                    .workspace
+                    .read(cx)
+                    .worktree_child_ids(&project_id)
+                    .is_empty();
                 if has_worktrees {
                     self.toggle_worktrees_collapsed(&project_id);
                 } else {
@@ -1259,9 +1496,15 @@ impl Sidebar {
             SidebarCursorItem::GroupHeader { project_id, group } => {
                 self.toggle_group(&project_id, group);
             }
-            SidebarCursorItem::Terminal { .. } | SidebarCursorItem::Service { .. } | SidebarCursorItem::Hook { .. } => {}
+            SidebarCursorItem::Terminal { .. }
+            | SidebarCursorItem::Service { .. }
+            | SidebarCursorItem::Hook { .. } => {}
             SidebarCursorItem::RemoteConnection { connection_id } => {
-                let collapsed = self.collapsed_connections.get(&connection_id).copied().unwrap_or(false);
+                let collapsed = self
+                    .collapsed_connections
+                    .get(&connection_id)
+                    .copied()
+                    .unwrap_or(false);
                 self.collapsed_connections.insert(connection_id, !collapsed);
             }
             SidebarCursorItem::RemoteProject { .. } => {}
@@ -1269,7 +1512,12 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn handle_sidebar_escape(&mut self, _: &SidebarEscape, window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_sidebar_escape(
+        &mut self,
+        _: &SidebarEscape,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.project_rename.is_some() {
             self.cancel_project_rename(cx);
             return;
@@ -1293,9 +1541,10 @@ impl Sidebar {
     /// Scroll the sidebar to keep the cursor item visible
     fn scroll_to_cursor(&self, item_count: usize) {
         if let Some(idx) = self.cursor_index
-            && item_count > 0 {
-                self.scroll_handle.scroll_to_item(idx);
-            }
+            && item_count > 0
+        {
+            self.scroll_handle.scroll_to_item(idx);
+        }
     }
 
     /// Top header bar — only contains the buttons that switch between
@@ -1436,8 +1685,13 @@ impl Sidebar {
     /// Count how many terminals from the given IDs are currently waiting for input
     pub fn count_waiting_terminals(&self, terminal_ids: &[String]) -> usize {
         let terminals = self.terminals.lock();
-        terminal_ids.iter()
-            .filter(|id| terminals.get(id.as_str()).is_some_and(|t| t.is_waiting_for_input()))
+        terminal_ids
+            .iter()
+            .filter(|id| {
+                terminals
+                    .get(id.as_str())
+                    .is_some_and(|t| t.is_waiting_for_input())
+            })
             .count()
     }
 
@@ -1559,17 +1813,22 @@ impl SidebarProjectInfo {
             terminal_names: project.terminal_names.clone(),
             is_orphan: false,
             worktree_count: 0,
-            parent_project_id: project.worktree_info.as_ref().map(|w| w.parent_project_id.clone()),
+            parent_project_id: project
+                .worktree_info
+                .as_ref()
+                .map(|w| w.parent_project_id.clone()),
             services: Vec::new(),
-            hook_terminals: project.hook_terminals.iter().map(|(tid, entry)| {
-                SidebarHookInfo {
+            hook_terminals: project
+                .hook_terminals
+                .iter()
+                .map(|(tid, entry)| SidebarHookInfo {
                     terminal_id: tid.clone(),
                     label: entry.label.clone(),
                     status: entry.status.clone(),
                     command: entry.command.clone(),
                     cwd: entry.cwd.clone(),
-                }
-            }).collect(),
+                })
+                .collect(),
             is_closing: false,
             is_creating: false,
             is_worktree: project.worktree_info.is_some(),
@@ -1600,10 +1859,16 @@ impl Render for Sidebar {
         let pending = std::mem::take(&mut self.pending_sidebar_requests);
         for request in pending {
             match request {
-                SidebarRequest::RenameProject { project_id, project_name } => {
+                SidebarRequest::RenameProject {
+                    project_id,
+                    project_name,
+                } => {
                     self.start_project_rename(project_id, project_name, window, cx);
                 }
-                SidebarRequest::RenameFolder { folder_id, folder_name } => {
+                SidebarRequest::RenameFolder {
+                    folder_id,
+                    folder_name,
+                } => {
                     self.start_folder_rename(folder_id, folder_name, window, cx);
                 }
                 SidebarRequest::CreateFolder => {
@@ -1615,7 +1880,6 @@ impl Render for Sidebar {
             }
         }
 
-
         // Clear cursor when sidebar loses focus
         if self.cursor_index.is_some() && !self.focus_handle.is_focused(window) {
             self.cursor_index = None;
@@ -1624,14 +1888,22 @@ impl Render for Sidebar {
         let workspace = self.workspace.read(cx);
 
         // Collect all projects for lookup
-        let all_projects: HashMap<&str, &ProjectData> = workspace.data().projects.iter()
+        let all_projects: HashMap<&str, &ProjectData> = workspace
+            .data()
+            .projects
+            .iter()
             .map(|p| (p.id.as_str(), p))
             .collect();
 
         // Build worktree children map using parent's worktree_ids for deterministic ordering
         // Build worktree children map using parent's worktree_ids for deterministic ordering
         let mut worktree_children_map: HashMap<String, Vec<SidebarProjectInfo>> = HashMap::new();
-        let all_project_ids: HashSet<&str> = workspace.data().projects.iter().map(|p| p.id.as_str()).collect();
+        let all_project_ids: HashSet<&str> = workspace
+            .data()
+            .projects
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect();
         for parent in &workspace.data().projects {
             if !parent.worktree_ids.is_empty() {
                 let mut children = Vec::new();
@@ -1652,45 +1924,62 @@ impl Render for Sidebar {
         }
 
         // Collect services from ServiceManager for all projects
-        let mut project_services: HashMap<String, Vec<SidebarServiceInfo>> = if let Some(ref sm) = self.service_manager {
-            let sm = sm.read(cx);
-            workspace.data().projects.iter()
-                .filter(|p| sm.has_services(&p.id))
-                .map(|p| {
-                    let services = sm.services_for_project(&p.id)
-                        .into_iter()
-                        .filter(|inst| !inst.is_extra)
-                        .map(|inst| SidebarServiceInfo {
-                            name: inst.definition.name.clone(),
-                            status: inst.status.clone(),
-                            ports: inst.detected_ports.clone(),
-                            port_host: "localhost".to_string(),
-                            is_docker: matches!(inst.kind, vryn_services::manager::ServiceKind::DockerCompose { .. }),
-                        })
-                        .collect();
-                    (p.id.clone(), services)
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
+        let mut project_services: HashMap<String, Vec<SidebarServiceInfo>> =
+            if let Some(ref sm) = self.service_manager {
+                let sm = sm.read(cx);
+                workspace
+                    .data()
+                    .projects
+                    .iter()
+                    .filter(|p| sm.has_services(&p.id))
+                    .map(|p| {
+                        let services = sm
+                            .services_for_project(&p.id)
+                            .into_iter()
+                            .filter(|inst| !inst.is_extra)
+                            .map(|inst| SidebarServiceInfo {
+                                name: inst.definition.name.clone(),
+                                status: inst.status.clone(),
+                                ports: inst.detected_ports.clone(),
+                                port_host: "localhost".to_string(),
+                                is_docker: matches!(
+                                    inst.kind,
+                                    vryn_services::manager::ServiceKind::DockerCompose { .. }
+                                ),
+                            })
+                            .collect();
+                        (p.id.clone(), services)
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
 
         // Also populate services from remote project data (for projects not covered by local ServiceManager)
         for project in &workspace.data().projects {
-            let Some(snapshot) = workspace.remote_snapshot(&project.id) else { continue };
+            let Some(snapshot) = workspace.remote_snapshot(&project.id) else {
+                continue;
+            };
             if !snapshot.services.is_empty() && !project_services.contains_key(&project.id) {
-                let port_host = snapshot.host.clone().unwrap_or_else(|| "localhost".to_string());
-                let services = snapshot.services.iter()
+                let port_host = snapshot
+                    .host
+                    .clone()
+                    .unwrap_or_else(|| "localhost".to_string());
+                let services = snapshot
+                    .services
+                    .iter()
                     .filter(|api_svc| !api_svc.is_extra)
-                    .map(|api_svc| {
-                        SidebarServiceInfo {
-                            name: api_svc.name.clone(),
-                            status: vryn_services::manager::ServiceStatus::from_api(&api_svc.status, api_svc.exit_code),
-                            ports: api_svc.ports.clone(),
-                            port_host: port_host.clone(),
-                            is_docker: api_svc.kind == "docker_compose",
-                        }
-                    }).collect();
+                    .map(|api_svc| SidebarServiceInfo {
+                        name: api_svc.name.clone(),
+                        status: vryn_services::manager::ServiceStatus::from_api(
+                            &api_svc.status,
+                            api_svc.exit_code,
+                        ),
+                        ports: api_svc.ports.clone(),
+                        port_host: port_host.clone(),
+                        is_docker: api_svc.kind == "docker_compose",
+                    })
+                    .collect();
                 project_services.insert(project.id.clone(), services);
             }
         }
@@ -1700,11 +1989,19 @@ impl Render for Sidebar {
         for (top_index, id) in workspace.data().project_order.iter().enumerate() {
             // Check if this is a folder
             if let Some(folder) = workspace.data().folders.iter().find(|f| &f.id == id) {
-                let mut folder_projects: Vec<SidebarProjectInfo> = folder.project_ids.iter()
+                let mut folder_projects: Vec<SidebarProjectInfo> = folder
+                    .project_ids
+                    .iter()
                     .filter_map(|pid| all_projects.get(pid.as_str()))
-                    .filter(|p| p.worktree_info.is_none() || !all_project_ids.contains(
-                        p.worktree_info.as_ref().map(|w| w.parent_project_id.as_str()).unwrap_or("")
-                    ))
+                    .filter(|p| {
+                        p.worktree_info.is_none()
+                            || !all_project_ids.contains(
+                                p.worktree_info
+                                    .as_ref()
+                                    .map(|w| w.parent_project_id.as_str())
+                                    .unwrap_or(""),
+                            )
+                    })
                     .map(|p| {
                         let mut info = SidebarProjectInfo::from_project(p);
                         info.is_orphan = p.worktree_info.as_ref().is_some_and(|wt| {
@@ -1715,7 +2012,8 @@ impl Render for Sidebar {
                         info
                     })
                     .collect();
-                let mut folder_wt_children: HashMap<String, Vec<SidebarProjectInfo>> = HashMap::new();
+                let mut folder_wt_children: HashMap<String, Vec<SidebarProjectInfo>> =
+                    HashMap::new();
                 for fp in &mut folder_projects {
                     if let Some(mut children) = worktree_children_map.remove(&fp.id) {
                         fp.worktree_count = children.len();
@@ -1742,15 +2040,19 @@ impl Render for Sidebar {
             // Check if this is a top-level project (not a worktree child)
             if let Some(&project) = all_projects.get(id.as_str()) {
                 if let Some(ref wt_info) = project.worktree_info
-                    && all_project_ids.contains(wt_info.parent_project_id.as_str()) {
-                        // This is a worktree child shown under its parent, skip
-                        continue;
-                    }
-                let mut wt_children = worktree_children_map.remove(&project.id).unwrap_or_default();
+                    && all_project_ids.contains(wt_info.parent_project_id.as_str())
+                {
+                    // This is a worktree child shown under its parent, skip
+                    continue;
+                }
+                let mut wt_children = worktree_children_map
+                    .remove(&project.id)
+                    .unwrap_or_default();
                 let mut project_info = SidebarProjectInfo::from_project(project);
-                project_info.is_orphan = project.worktree_info.as_ref().is_some_and(|wt| {
-                    !all_project_ids.contains(wt.parent_project_id.as_str())
-                });
+                project_info.is_orphan = project
+                    .worktree_info
+                    .as_ref()
+                    .is_some_and(|wt| !all_project_ids.contains(wt.parent_project_id.as_str()));
                 project_info.is_closing = workspace.is_project_closing(&project.id);
                 project_info.is_creating = workspace.is_creating_project(&project.id);
                 project_info.worktree_count = wt_children.len();
@@ -1784,7 +2086,10 @@ impl Render for Sidebar {
         // Determine which project is focused — only highlight when explicitly focused via sidebar click
         let (focused_project_id, focus_individual) = {
             let ws = self.workspace.read(cx);
-            (ws.focus_manager.focused_project_id().cloned(), ws.focus_manager.is_focus_individual())
+            (
+                ws.focus_manager.focused_project_id().cloned(),
+                ws.focus_manager.is_focus_individual(),
+            )
         };
 
         // Build flat elements with cursor tracking
@@ -1798,7 +2103,10 @@ impl Render for Sidebar {
                 .h(px(4.0))
                 .w_full()
                 .drag_over::<ProjectDrag>(move |style, _, _, _| {
-                    style.h(px(8.0)).border_b_2().border_color(rgb(t.border_active))
+                    style
+                        .h(px(8.0))
+                        .border_b_2()
+                        .border_color(rgb(t.border_active))
                 })
                 .on_drop(cx.listener(move |this, drag: &ProjectDrag, _window, cx| {
                     this.workspace.update(cx, |ws, cx| {
@@ -1806,29 +2114,50 @@ impl Render for Sidebar {
                     });
                 }))
                 .drag_over::<FolderDrag>(move |style, _, _, _| {
-                    style.h(px(8.0)).border_b_2().border_color(rgb(t.border_active))
+                    style
+                        .h(px(8.0))
+                        .border_b_2()
+                        .border_color(rgb(t.border_active))
                 })
                 .on_drop(cx.listener(move |this, drag: &FolderDrag, _window, cx| {
                     this.workspace.update(cx, |ws, cx| {
                         ws.move_item_in_order(&drag.folder_id, 0, cx);
                     });
                 }))
-                .into_any_element()
+                .into_any_element(),
         );
 
         for item in items {
             match item {
-                SidebarItem::Project { project, index, worktree_children } => {
+                SidebarItem::Project {
+                    project,
+                    index,
+                    worktree_children,
+                } => {
                     let has_worktrees = !worktree_children.is_empty();
 
                     if has_worktrees && !project.is_orphan {
                         // Group header mode: project becomes a group, main project is first child
                         let is_cursor = cursor_index == Some(flat_idx);
                         // Group header highlights when focused non-individual (showing all)
-                        let is_focused_group = focused_project_id.as_ref() == Some(&project.id) && !focus_individual;
-                        let all_hidden = !project.show_in_overview && worktree_children.iter().all(|c| !c.show_in_overview);
+                        let is_focused_group =
+                            focused_project_id.as_ref() == Some(&project.id) && !focus_individual;
+                        let all_hidden = !project.show_in_overview
+                            && worktree_children.iter().all(|c| !c.show_in_overview);
                         flat_elements.push(
-                            self.render_project_group_header(&project, 4.0, "gh", "group-header-item", crate::project_list::GroupHeaderDragConfig::TopLevel { index }, all_hidden, is_cursor, is_focused_group, window, cx).into_any_element()
+                            self.render_project_group_header(
+                                &project,
+                                4.0,
+                                "gh",
+                                "group-header-item",
+                                crate::project_list::GroupHeaderDragConfig::TopLevel { index },
+                                all_hidden,
+                                is_cursor,
+                                is_focused_group,
+                                window,
+                                cx,
+                            )
+                            .into_any_element(),
                         );
                         flat_idx += 1;
 
@@ -1836,27 +2165,67 @@ impl Render for Sidebar {
                         if is_expanded {
                             // Main project as first child — highlights when focused individual
                             let is_cursor = cursor_index == Some(flat_idx);
-                            let is_focused_project = focused_project_id.as_ref() == Some(&project.id) && focus_individual;
+                            let is_focused_project = focused_project_id.as_ref()
+                                == Some(&project.id)
+                                && focus_individual;
                             flat_elements.push(
-                                self.render_project_group_child(&project, 20.0, "gc", "group-child-item", is_cursor, is_focused_project, window, cx).into_any_element()
+                                self.render_project_group_child(
+                                    &project,
+                                    20.0,
+                                    "gc",
+                                    "group-child-item",
+                                    is_cursor,
+                                    is_focused_project,
+                                    window,
+                                    cx,
+                                )
+                                .into_any_element(),
                             );
                             flat_idx += 1;
 
                             if self.expanded_projects.contains(&project.id) {
-                                self.render_expanded_children(&project, 34.0, 48.0, "gm-", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                                self.render_expanded_children(
+                                    &project,
+                                    34.0,
+                                    48.0,
+                                    "gm-",
+                                    cursor_index,
+                                    &mut flat_idx,
+                                    &mut flat_elements,
+                                    cx,
+                                );
                             }
 
                             // Worktree children as siblings
                             for (wt_idx, child) in worktree_children.iter().enumerate() {
                                 let is_cursor = cursor_index == Some(flat_idx);
-                                let is_focused_project = focused_project_id.as_ref() == Some(&child.id);
+                                let is_focused_project =
+                                    focused_project_id.as_ref() == Some(&child.id);
                                 flat_elements.push(
-                                    self.render_worktree_item(child, 20.0, wt_idx, is_cursor, is_focused_project, window, cx).into_any_element()
+                                    self.render_worktree_item(
+                                        child,
+                                        20.0,
+                                        wt_idx,
+                                        is_cursor,
+                                        is_focused_project,
+                                        window,
+                                        cx,
+                                    )
+                                    .into_any_element(),
                                 );
                                 flat_idx += 1;
 
                                 if self.expanded_projects.contains(&child.id) {
-                                    self.render_expanded_children(child, 34.0, 48.0, "wt-", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                                    self.render_expanded_children(
+                                        child,
+                                        34.0,
+                                        48.0,
+                                        "wt-",
+                                        cursor_index,
+                                        &mut flat_idx,
+                                        &mut flat_elements,
+                                        cx,
+                                    );
                                 }
                             }
                         }
@@ -1866,35 +2235,85 @@ impl Render for Sidebar {
                         let is_focused_project = focused_project_id.as_ref() == Some(&project.id);
                         if project.is_orphan {
                             flat_elements.push(
-                                self.render_worktree_item(&project, 8.0, 0, is_cursor, is_focused_project, window, cx).into_any_element()
+                                self.render_worktree_item(
+                                    &project,
+                                    8.0,
+                                    0,
+                                    is_cursor,
+                                    is_focused_project,
+                                    window,
+                                    cx,
+                                )
+                                .into_any_element(),
                             );
                         } else {
                             flat_elements.push(
-                                self.render_project_item(&project, index, is_cursor, is_focused_project, window, cx).into_any_element()
+                                self.render_project_item(
+                                    &project,
+                                    index,
+                                    is_cursor,
+                                    is_focused_project,
+                                    window,
+                                    cx,
+                                )
+                                .into_any_element(),
                             );
                         }
                         flat_idx += 1;
 
                         let show_children = self.expanded_projects.contains(&project.id);
                         if show_children {
-                            self.render_expanded_children(&project, 20.0, 34.0, "", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                            self.render_expanded_children(
+                                &project,
+                                20.0,
+                                34.0,
+                                "",
+                                cursor_index,
+                                &mut flat_idx,
+                                &mut flat_elements,
+                                cx,
+                            );
                         }
                     }
                 }
-                SidebarItem::Folder { folder, index, projects, worktree_children } => {
+                SidebarItem::Folder {
+                    folder,
+                    index,
+                    projects,
+                    worktree_children,
+                } => {
                     let is_cursor = cursor_index == Some(flat_idx);
                     let idle_terminal_count = if folder.collapsed {
                         let terminals = self.terminals.lock();
-                        projects.iter()
+                        projects
+                            .iter()
                             .flat_map(|p| p.terminal_ids.iter())
-                            .filter(|id| terminals.get(id.as_str()).is_some_and(|t| t.is_waiting_for_input()))
+                            .filter(|id| {
+                                terminals
+                                    .get(id.as_str())
+                                    .is_some_and(|t| t.is_waiting_for_input())
+                            })
                             .count()
                     } else {
                         0
                     };
-                    let all_hidden = projects.iter().all(|p| !p.show_in_overview) && worktree_children.values().flat_map(|c| c.iter()).all(|c| !c.show_in_overview);
+                    let all_hidden = projects.iter().all(|p| !p.show_in_overview)
+                        && worktree_children
+                            .values()
+                            .flat_map(|c| c.iter())
+                            .all(|c| !c.show_in_overview);
                     flat_elements.push(
-                        self.render_folder_header(&folder, index, projects.len(), idle_terminal_count, all_hidden, is_cursor, window, cx).into_any_element()
+                        self.render_folder_header(
+                            &folder,
+                            index,
+                            projects.len(),
+                            idle_terminal_count,
+                            all_hidden,
+                            is_cursor,
+                            window,
+                            cx,
+                        )
+                        .into_any_element(),
                     );
                     flat_idx += 1;
 
@@ -1907,41 +2326,96 @@ impl Render for Sidebar {
                             if has_worktrees && !fp.is_orphan {
                                 // Group header mode within folder
                                 let is_cursor = cursor_index == Some(flat_idx);
-                                let is_focused_group = focused_project_id.as_ref() == Some(&fp.id) && !focus_individual;
-                                flat_elements.push(
-                                    {
-                                    let all_hidden = !fp.show_in_overview && fp_wt_children.is_none_or(|c| c.iter().all(|c| !c.show_in_overview));
-                                    self.render_project_group_header(fp, 20.0, "fgh", "fgh-item", crate::project_list::GroupHeaderDragConfig::InFolder { folder_id: folder.id.clone() }, all_hidden, is_cursor, is_focused_group, window, cx).into_any_element()
-                                    }
-                                );
+                                let is_focused_group = focused_project_id.as_ref() == Some(&fp.id)
+                                    && !focus_individual;
+                                flat_elements.push({
+                                    let all_hidden = !fp.show_in_overview
+                                        && fp_wt_children
+                                            .is_none_or(|c| c.iter().all(|c| !c.show_in_overview));
+                                    self.render_project_group_header(
+                                        fp,
+                                        20.0,
+                                        "fgh",
+                                        "fgh-item",
+                                        crate::project_list::GroupHeaderDragConfig::InFolder {
+                                            folder_id: folder.id.clone(),
+                                        },
+                                        all_hidden,
+                                        is_cursor,
+                                        is_focused_group,
+                                        window,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                });
                                 flat_idx += 1;
 
                                 let is_expanded = self.is_project_expanded(&fp.id, true);
                                 if is_expanded {
                                     // Main project as first child
                                     let is_cursor = cursor_index == Some(flat_idx);
-                                    let is_focused_project = focused_project_id.as_ref() == Some(&fp.id) && focus_individual;
+                                    let is_focused_project = focused_project_id.as_ref()
+                                        == Some(&fp.id)
+                                        && focus_individual;
                                     flat_elements.push(
-                                        self.render_project_group_child(fp, 36.0, "fgc", "fgc-item", is_cursor, is_focused_project, window, cx).into_any_element()
+                                        self.render_project_group_child(
+                                            fp,
+                                            36.0,
+                                            "fgc",
+                                            "fgc-item",
+                                            is_cursor,
+                                            is_focused_project,
+                                            window,
+                                            cx,
+                                        )
+                                        .into_any_element(),
                                     );
                                     flat_idx += 1;
 
                                     if self.expanded_projects.contains(&fp.id) {
-                                        self.render_expanded_children(fp, 50.0, 64.0, "gm-", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                                        self.render_expanded_children(
+                                            fp,
+                                            50.0,
+                                            64.0,
+                                            "gm-",
+                                            cursor_index,
+                                            &mut flat_idx,
+                                            &mut flat_elements,
+                                            cx,
+                                        );
                                     }
 
                                     // Worktree children as siblings
                                     if let Some(wt_children) = fp_wt_children {
                                         for (wt_idx, child) in wt_children.iter().enumerate() {
                                             let is_cursor = cursor_index == Some(flat_idx);
-                                            let is_focused_project = focused_project_id.as_ref() == Some(&child.id);
+                                            let is_focused_project =
+                                                focused_project_id.as_ref() == Some(&child.id);
                                             flat_elements.push(
-                                                self.render_worktree_item(child, 36.0, wt_idx, is_cursor, is_focused_project, window, cx).into_any_element()
+                                                self.render_worktree_item(
+                                                    child,
+                                                    36.0,
+                                                    wt_idx,
+                                                    is_cursor,
+                                                    is_focused_project,
+                                                    window,
+                                                    cx,
+                                                )
+                                                .into_any_element(),
                                             );
                                             flat_idx += 1;
 
                                             if self.expanded_projects.contains(&child.id) {
-                                                self.render_expanded_children(child, 50.0, 64.0, "wt-", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                                                self.render_expanded_children(
+                                                    child,
+                                                    50.0,
+                                                    64.0,
+                                                    "wt-",
+                                                    cursor_index,
+                                                    &mut flat_idx,
+                                                    &mut flat_elements,
+                                                    cx,
+                                                );
                                             }
                                         }
                                     }
@@ -1949,21 +2423,48 @@ impl Render for Sidebar {
                             } else {
                                 // No worktrees or orphan — standard folder project rendering
                                 let is_cursor = cursor_index == Some(flat_idx);
-                                let is_focused_project = focused_project_id.as_ref() == Some(&fp.id);
+                                let is_focused_project =
+                                    focused_project_id.as_ref() == Some(&fp.id);
                                 if fp.is_orphan {
                                     flat_elements.push(
-                                        self.render_worktree_item(fp, 20.0, 0, is_cursor, is_focused_project, window, cx).into_any_element()
+                                        self.render_worktree_item(
+                                            fp,
+                                            20.0,
+                                            0,
+                                            is_cursor,
+                                            is_focused_project,
+                                            window,
+                                            cx,
+                                        )
+                                        .into_any_element(),
                                     );
                                 } else {
                                     flat_elements.push(
-                                        self.render_folder_project_item(fp, &folder.id, is_cursor, is_focused_project, window, cx).into_any_element()
+                                        self.render_folder_project_item(
+                                            fp,
+                                            &folder.id,
+                                            is_cursor,
+                                            is_focused_project,
+                                            window,
+                                            cx,
+                                        )
+                                        .into_any_element(),
                                     );
                                 }
                                 flat_idx += 1;
 
                                 let show_children = self.expanded_projects.contains(&fp.id);
                                 if show_children {
-                                    self.render_expanded_children(fp, 36.0, 50.0, "", cursor_index, &mut flat_idx, &mut flat_elements, cx);
+                                    self.render_expanded_children(
+                                        fp,
+                                        36.0,
+                                        50.0,
+                                        "",
+                                        cursor_index,
+                                        &mut flat_idx,
+                                        &mut flat_elements,
+                                        cx,
+                                    );
                                 }
                             }
                         }
@@ -1995,7 +2496,7 @@ impl Render for Sidebar {
                         ws.move_item_in_order(&drag.folder_id, end_index, cx);
                     });
                 }))
-                .into_any_element()
+                .into_any_element(),
         );
 
         let root = div()
@@ -2028,9 +2529,7 @@ impl Render for Sidebar {
                         .child(self.render_remote_section(cx)),
                 )
                 .into_any_element(),
-            SidebarView::Files => root
-                .child(self.render_files_view(cx))
-                .into_any_element(),
+            SidebarView::Files => root.child(self.render_files_view(cx)).into_any_element(),
         }
     }
 }

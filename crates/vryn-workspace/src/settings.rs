@@ -1,8 +1,8 @@
 use vryn_core::client::RemoteConnectionConfig;
-use vryn_terminal::session_backend::SessionBackend;
-use vryn_terminal::shell_config::ShellType;
 use vryn_core::theme::ThemeMode;
 pub use vryn_core::types::DiffViewMode;
+use vryn_terminal::session_backend::SessionBackend;
+use vryn_terminal::shell_config::ShellType;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -140,8 +140,12 @@ fn default_git_panel_width() -> f32 {
 pub const DEFAULT_WINDOW_WIDTH: f32 = 1200.0;
 pub const DEFAULT_WINDOW_HEIGHT: f32 = 800.0;
 
-fn default_window_width() -> f32 { DEFAULT_WINDOW_WIDTH }
-fn default_window_height() -> f32 { DEFAULT_WINDOW_HEIGHT }
+fn default_window_width() -> f32 {
+    DEFAULT_WINDOW_WIDTH
+}
+fn default_window_height() -> f32 {
+    DEFAULT_WINDOW_HEIGHT
+}
 
 /// Persisted window bounds
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -475,7 +479,10 @@ pub fn load_settings() -> AppSettings {
     let path = get_settings_path();
 
     if !path.exists() {
-        log::info!("Settings file not found at {}, using defaults", path.display());
+        log::info!(
+            "Settings file not found at {}, using defaults",
+            path.display()
+        );
         return AppSettings::default();
     }
 
@@ -493,7 +500,11 @@ pub fn load_settings() -> AppSettings {
             let old_version = settings.version;
             settings = migrate_settings(settings);
             if settings.version != old_version {
-                log::info!("Settings migrated from v{} to v{}", old_version, settings.version);
+                log::info!(
+                    "Settings migrated from v{} to v{}",
+                    old_version,
+                    settings.version
+                );
                 if let Err(e) = save_settings(&settings) {
                     log::warn!("Failed to save migrated settings: {}", e);
                 }
@@ -501,7 +512,10 @@ pub fn load_settings() -> AppSettings {
             return settings;
         }
         Err(e) => {
-            log::warn!("Failed to parse settings directly: {}, attempting partial recovery", e);
+            log::warn!(
+                "Failed to parse settings directly: {}, attempting partial recovery",
+                e
+            );
         }
     }
 
@@ -530,10 +544,11 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     use anyhow::Context;
     use vryn_core::theme::ThemeMode;
 
-    let value: serde_json::Value = serde_json::from_str(content)
-        .context("Settings file is not valid JSON")?;
+    let value: serde_json::Value =
+        serde_json::from_str(content).context("Settings file is not valid JSON")?;
 
-    let obj = value.as_object()
+    let obj = value
+        .as_object()
         .context("Settings file root is not a JSON object")?;
 
     let mut settings = AppSettings::default();
@@ -552,9 +567,10 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     }
 
     if let Some(v) = obj.get("active_session")
-        && let Ok(session) = serde_json::from_value::<Option<String>>(v.clone()) {
-            settings.active_session = session;
-        }
+        && let Ok(session) = serde_json::from_value::<Option<String>>(v.clone())
+    {
+        settings.active_session = session;
+    }
 
     if let Some(v) = obj.get("sidebar") {
         if let Ok(sidebar) = serde_json::from_value::<SidebarSettings>(v.clone()) {
@@ -600,9 +616,10 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     }
 
     if let Some(v) = obj.get("cursor_style")
-        && let Ok(style) = serde_json::from_value::<CursorShape>(v.clone()) {
-            settings.cursor_style = style;
-        }
+        && let Ok(style) = serde_json::from_value::<CursorShape>(v.clone())
+    {
+        settings.cursor_style = style;
+    }
 
     if let Some(v) = obj.get("cursor_blink").and_then(|v| v.as_bool()) {
         settings.cursor_blink = v;
@@ -621,9 +638,10 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     }
 
     if let Some(v) = obj.get("worktree")
-        && let Ok(wt) = serde_json::from_value::<WorktreeConfig>(v.clone()) {
-            settings.worktree = wt;
-        }
+        && let Ok(wt) = serde_json::from_value::<WorktreeConfig>(v.clone())
+    {
+        settings.worktree = wt;
+    }
 
     Ok(settings)
 }
@@ -651,7 +669,9 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     if settings.version == 2 {
         log::info!("Migrating settings from v2 to v3 (extension system)");
         if settings.claude_code_integration {
-            settings.enabled_extensions.insert("claude-code".to_string());
+            settings
+                .enabled_extensions
+                .insert("claude-code".to_string());
         }
         if settings.codex_integration {
             settings.enabled_extensions.insert("codex".to_string());
@@ -709,9 +729,10 @@ fn save_settings_locked(settings: &AppSettings) -> Result<()> {
     // by update_remote_connections and not kept in SettingsState's in-memory copy).
     let mut to_save = settings.clone();
     if let Ok(content) = std::fs::read_to_string(&path)
-        && let Ok(on_disk) = serde_json::from_str::<AppSettings>(&content) {
-            to_save.remote_connections = on_disk.remote_connections;
-        }
+        && let Ok(on_disk) = serde_json::from_str::<AppSettings>(&content)
+    {
+        to_save.remote_connections = on_disk.remote_connections;
+    }
 
     let content = serde_json::to_string_pretty(&to_save)?;
 
@@ -744,7 +765,7 @@ where
 
     #[cfg(unix)]
     {
-        use std::io::{Read, Write, Seek};
+        use std::io::{Read, Seek, Write};
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -826,7 +847,10 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: HooksConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.project.on_open, Some("echo open".into()));
-        assert_eq!(deserialized.terminal.shell_wrapper, Some("devcontainer exec -- {shell}".into()));
+        assert_eq!(
+            deserialized.terminal.shell_wrapper,
+            Some("devcontainer exec -- {shell}".into())
+        );
         assert_eq!(deserialized.worktree.pre_merge, Some("lint".into()));
         assert_eq!(deserialized.worktree.after_remove, Some("log".into()));
     }
@@ -926,7 +950,9 @@ mod tests {
     #[test]
     fn enabled_extensions_not_serialized_with_legacy_fields() {
         let mut settings = AppSettings::default();
-        settings.enabled_extensions.insert("claude-code".to_string());
+        settings
+            .enabled_extensions
+            .insert("claude-code".to_string());
         let json = serde_json::to_string_pretty(&settings).unwrap();
         // Legacy bool fields should not appear in serialized output
         assert!(!json.contains("claude_code_integration"));

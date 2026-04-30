@@ -5,8 +5,8 @@
 
 use grep_matcher::Matcher;
 use grep_regex::RegexMatcherBuilder;
-use grep_searcher::sinks::UTF8;
 use grep_searcher::Searcher;
+use grep_searcher::sinks::UTF8;
 use ignore::WalkBuilder;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -183,19 +183,15 @@ fn add_context_lines(matches: &mut [ContentMatch], file_path: &Path, context_lin
         // Context before
         let start = line_idx.saturating_sub(context_lines);
         for i in start..line_idx {
-            m.context_before.push((
-                i + 1,
-                expand_tabs_simple(all_lines.get(i).unwrap_or(&"")),
-            ));
+            m.context_before
+                .push((i + 1, expand_tabs_simple(all_lines.get(i).unwrap_or(&""))));
         }
 
         // Context after
         let end = (line_idx + 1 + context_lines).min(all_lines.len());
         for i in (line_idx + 1)..end {
-            m.context_after.push((
-                i + 1,
-                expand_tabs_simple(all_lines.get(i).unwrap_or(&"")),
-            ));
+            m.context_after
+                .push((i + 1, expand_tabs_simple(all_lines.get(i).unwrap_or(&""))));
         }
     }
 }
@@ -218,7 +214,9 @@ pub fn search_content(
     }
 
     match config.mode {
-        SearchMode::Fuzzy => search_content_fuzzy(project_path, query, config, cancelled, on_result),
+        SearchMode::Fuzzy => {
+            search_content_fuzzy(project_path, query, config, cancelled, on_result)
+        }
         _ => search_content_grep(project_path, query, config, cancelled, on_result),
     }
 }
@@ -282,14 +280,16 @@ fn search_content_grep(
 
                 // Find match ranges within the line
                 let mut match_ranges = Vec::new();
-                matcher.find_iter(line_content.as_bytes(), |m| {
-                    let start = m.start();
-                    let end = m.end().min(line_trimmed.len());
-                    if start < line_trimmed.len() {
-                        match_ranges.push(start..end);
-                    }
-                    true
-                }).ok();
+                matcher
+                    .find_iter(line_content.as_bytes(), |m| {
+                        let start = m.start();
+                        let end = m.end().min(line_trimmed.len());
+                        if start < line_trimmed.len() {
+                            match_ranges.push(start..end);
+                        }
+                        true
+                    })
+                    .ok();
 
                 // Expand tabs to match syntax highlighter output
                 let (line_expanded, match_ranges) = expand_tabs(line_trimmed, &match_ranges);
@@ -407,13 +407,16 @@ fn search_content_fuzzy(
                 // Expand tabs to match syntax highlighter output
                 let (line_expanded, match_ranges) = expand_tabs(line, &match_ranges);
 
-                scored_matches.push((score, ContentMatch {
-                    line_number: line_idx + 1,
-                    line_content: line_expanded,
-                    match_ranges,
-                    context_before: Vec::new(),
-                    context_after: Vec::new(),
-                }));
+                scored_matches.push((
+                    score,
+                    ContentMatch {
+                        line_number: line_idx + 1,
+                        line_content: line_expanded,
+                        match_ranges,
+                        context_before: Vec::new(),
+                        context_after: Vec::new(),
+                    },
+                ));
             }
         }
 
@@ -422,10 +425,8 @@ fn search_content_fuzzy(
             scored_matches.sort_by(|a, b| b.0.cmp(&a.0));
 
             let best_score = scored_matches.first().map(|(s, _)| *s).unwrap_or(0);
-            let mut file_matches: Vec<ContentMatch> = scored_matches
-                .into_iter()
-                .map(|(_, m)| m)
-                .collect();
+            let mut file_matches: Vec<ContentMatch> =
+                scored_matches.into_iter().map(|(_, m)| m).collect();
 
             total_matches += file_matches.len();
 
@@ -485,8 +486,7 @@ fn escape_regex(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len() * 2);
     for c in s.chars() {
         match c {
-            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^'
-            | '$' => {
+            '\\' | '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' => {
                 escaped.push('\\');
                 escaped.push(c);
             }

@@ -1,16 +1,20 @@
 //! GitProvider trait and implementations for local and remote git operations.
 
+use std::path::Path;
 use vryn_git::{
     DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, GraphRow, StashEntry,
     WorkingTreeStatus,
 };
-use std::path::Path;
 
 /// Provides git data from either local git commands or a remote server.
 pub trait GitProvider: Send + Sync + 'static {
     fn is_git_repo(&self) -> bool;
     fn get_diff(&self, mode: DiffMode, ignore_whitespace: bool) -> Result<DiffResult, String>;
-    fn get_file_contents(&self, file_path: &str, mode: DiffMode) -> (Option<String>, Option<String>);
+    fn get_file_contents(
+        &self,
+        file_path: &str,
+        mode: DiffMode,
+    ) -> (Option<String>, Option<String>);
     fn get_diff_file_summary(&self) -> Vec<FileDiffSummary>;
     fn get_commit_graph(&self, count: usize, branch: Option<&str>) -> Vec<GraphRow>;
     fn list_branches(&self) -> Vec<String>;
@@ -92,7 +96,11 @@ impl GitProvider for LocalGitProvider {
         vryn_git::get_diff_with_options(std::path::Path::new(&self.path), mode, ignore_whitespace)
     }
 
-    fn get_file_contents(&self, file_path: &str, mode: DiffMode) -> (Option<String>, Option<String>) {
+    fn get_file_contents(
+        &self,
+        file_path: &str,
+        mode: DiffMode,
+    ) -> (Option<String>, Option<String>) {
         vryn_git::get_file_contents_for_diff(std::path::Path::new(&self.path), file_path, mode)
     }
 
@@ -202,10 +210,18 @@ pub struct RemoteGitProvider {
 
 impl RemoteGitProvider {
     pub fn new(host: String, port: u16, token: String, project_id: String) -> Self {
-        Self { host, port, token, project_id }
+        Self {
+            host,
+            port,
+            token,
+            project_id,
+        }
     }
 
-    fn post_action(&self, action: vryn_core::api::ActionRequest) -> Result<Option<serde_json::Value>, String> {
+    fn post_action(
+        &self,
+        action: vryn_core::api::ActionRequest,
+    ) -> Result<Option<serde_json::Value>, String> {
         vryn_core::remote_action::post_action(&self.host, self.port, &self.token, action)
     }
 }
@@ -223,12 +239,17 @@ impl GitProvider for RemoteGitProvider {
         };
         let result = self.post_action(action)?;
         match result {
-            Some(value) => serde_json::from_value(value).map_err(|e| format!("Failed to deserialize DiffResult: {}", e)),
+            Some(value) => serde_json::from_value(value)
+                .map_err(|e| format!("Failed to deserialize DiffResult: {}", e)),
             None => Ok(DiffResult::default()),
         }
     }
 
-    fn get_file_contents(&self, file_path: &str, mode: DiffMode) -> (Option<String>, Option<String>) {
+    fn get_file_contents(
+        &self,
+        file_path: &str,
+        mode: DiffMode,
+    ) -> (Option<String>, Option<String>) {
         let action = vryn_core::api::ActionRequest::GitFileContents {
             project_id: self.project_id.clone(),
             file_path: file_path.to_string(),
@@ -236,8 +257,14 @@ impl GitProvider for RemoteGitProvider {
         };
         match self.post_action(action) {
             Ok(Some(value)) => {
-                let old = value.get("old_content").and_then(|v| v.as_str()).map(String::from);
-                let new = value.get("new_content").and_then(|v| v.as_str()).map(String::from);
+                let old = value
+                    .get("old_content")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let new = value
+                    .get("new_content")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 (old, new)
             }
             _ => (None, None),

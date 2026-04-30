@@ -1,16 +1,16 @@
-use crate::session_backend::{ResolvedBackend, SessionBackend};
 #[cfg(not(windows))]
 use crate::session_backend::get_extended_path;
+use crate::session_backend::{ResolvedBackend, SessionBackend};
 use crate::shell_config::ShellType;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
@@ -145,7 +145,11 @@ impl PtyManager {
     }
 
     /// Create a new terminal with a specific shell type
-    pub fn create_terminal_with_shell(&self, cwd: &str, shell: Option<&ShellType>) -> Result<String> {
+    pub fn create_terminal_with_shell(
+        &self,
+        cwd: &str,
+        shell: Option<&ShellType>,
+    ) -> Result<String> {
         let terminal_id = uuid::Uuid::new_v4().to_string();
         self.create_terminal_with_id(&terminal_id, cwd, shell)?;
         Ok(terminal_id)
@@ -185,7 +189,12 @@ impl PtyManager {
     }
 
     /// Internal: create a terminal with a specific ID
-    fn create_terminal_with_id(&self, terminal_id: &str, cwd: &str, shell: Option<&ShellType>) -> Result<()> {
+    fn create_terminal_with_id(
+        &self,
+        terminal_id: &str,
+        cwd: &str,
+        shell: Option<&ShellType>,
+    ) -> Result<()> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
             rows: 24,
@@ -216,7 +225,10 @@ impl PtyManager {
         let reader_shutdown = Arc::clone(&shutdown);
         let output_sink = self.output_sink.lock().clone();
         let reader_handle = std::thread::Builder::new()
-            .name(format!("pty-reader-{}", &terminal_id[..8.min(terminal_id.len())]))
+            .name(format!(
+                "pty-reader-{}",
+                &terminal_id[..8.min(terminal_id.len())]
+            ))
             .spawn(move || {
                 let tx_panic = tx.clone();
                 let shutdown_panic = Arc::clone(&reader_shutdown);
@@ -239,13 +251,22 @@ impl PtyManager {
         let writer_event_tx = self.event_tx.clone();
         let writer_id = terminal_id.to_string();
         let writer_handle = std::thread::Builder::new()
-            .name(format!("pty-writer-{}", &terminal_id[..8.min(terminal_id.len())]))
+            .name(format!(
+                "pty-writer-{}",
+                &terminal_id[..8.min(terminal_id.len())]
+            ))
             .spawn(move || {
                 let tx_panic = writer_event_tx.clone();
                 let shutdown_panic = Arc::clone(&writer_shutdown);
                 let id_panic = writer_id.clone();
                 if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                    Self::write_loop(writer, input_rx, writer_shutdown, writer_event_tx, writer_id);
+                    Self::write_loop(
+                        writer,
+                        input_rx,
+                        writer_shutdown,
+                        writer_event_tx,
+                        writer_id,
+                    );
                 })) {
                     log::error!("PTY writer thread panicked: {}", format_panic(&*panic));
                     shutdown_panic.mark_broken();
@@ -280,20 +301,28 @@ impl PtyManager {
     /// On Unix, returns just the CommandBuilder.
     /// On Windows, also returns WSL distro/backend info for session persistence.
     #[cfg(unix)]
-    fn build_terminal_command(&self, terminal_id: &str, cwd: &str, shell: Option<&ShellType>) -> CommandBuilder {
+    fn build_terminal_command(
+        &self,
+        terminal_id: &str,
+        cwd: &str,
+        shell: Option<&ShellType>,
+    ) -> CommandBuilder {
         // Extract custom command from ShellType::Custom{path:<shell>, args:["-c"/"-ic", cmd]}
         // so it can be passed to the session backend
         let custom_command = match shell {
-            Some(ShellType::Custom { args, .. }) if args.len() == 2 && (args[0] == "-c" || args[0] == "-ic") => {
+            Some(ShellType::Custom { args, .. })
+                if args.len() == 2 && (args[0] == "-c" || args[0] == "-ic") =>
+            {
                 Some(args[1].as_str())
             }
             _ => None,
         };
 
-        let mut cmd = if let Some((program, args)) = self
-            .session_backend
-            .build_command(&self.session_backend.session_name(terminal_id), cwd, custom_command)
-        {
+        let mut cmd = if let Some((program, args)) = self.session_backend.build_command(
+            &self.session_backend.session_name(terminal_id),
+            cwd,
+            custom_command,
+        ) {
             let mut cmd = CommandBuilder::new(program);
             for arg in args {
                 cmd.arg(arg);
@@ -333,7 +362,9 @@ impl PtyManager {
 
         // Extract custom command from ShellType::Custom{path:<shell>, args:["-c"/"-ic", cmd]}
         let custom_command = match shell {
-            Some(ShellType::Custom { args, .. }) if args.len() == 2 && (args[0] == "-c" || args[0] == "-ic") => {
+            Some(ShellType::Custom { args, .. })
+                if args.len() == 2 && (args[0] == "-c" || args[0] == "-ic") =>
+            {
                 Some(args[1].as_str())
             }
             _ => None,
@@ -341,7 +372,8 @@ impl PtyManager {
 
         let (mut cmd, wsl_distro, wsl_backend) = match shell {
             Some(ShellType::Wsl { distro }) => {
-                let wsl_backend = resolve_for_wsl(distro.as_deref(), self.session_backend_preference);
+                let wsl_backend =
+                    resolve_for_wsl(distro.as_deref(), self.session_backend_preference);
                 let session_name = wsl_backend.session_name(terminal_id);
                 let wsl_cwd = windows_path_to_wsl(cwd);
 
@@ -358,7 +390,10 @@ impl PtyManager {
                     (cmd, distro.clone(), Some(wsl_backend))
                 } else {
                     (
-                        ShellType::Wsl { distro: distro.clone() }.build_command(cwd),
+                        ShellType::Wsl {
+                            distro: distro.clone(),
+                        }
+                        .build_command(cwd),
                         distro.clone(),
                         None,
                     )
@@ -432,16 +467,24 @@ impl PtyManager {
                         break;
                     }
                     let data = buf[..n].to_vec();
-                    log::debug!("PTY {} received {} bytes: {:?}", terminal_id, n, String::from_utf8_lossy(&data[..n.min(100)]));
+                    log::debug!(
+                        "PTY {} received {} bytes: {:?}",
+                        terminal_id,
+                        n,
+                        String::from_utf8_lossy(&data[..n.min(100)])
+                    );
                     // Broadcast to external consumers immediately (bypasses UI event loop)
                     if let Some(ref sink) = output_sink {
                         sink.publish(terminal_id.clone(), data.clone());
                     }
                     // send_blocking will block when channel is full (backpressure)
-                    if tx.send_blocking(PtyEvent::Data {
-                        terminal_id: terminal_id.clone(),
-                        data,
-                    }).is_err() {
+                    if tx
+                        .send_blocking(PtyEvent::Data {
+                            terminal_id: terminal_id.clone(),
+                            data,
+                        })
+                        .is_err()
+                    {
                         // Receiver dropped - app is shutting down
                         break;
                     }
@@ -506,9 +549,10 @@ impl PtyManager {
                 cols,
                 pixel_width: 0,
                 pixel_height: 0,
-            }) {
-                log::error!("Failed to resize PTY: {}", e);
-            }
+            })
+        {
+            log::error!("Failed to resize PTY: {}", e);
+        }
         // Notify remote clients about the resize so they can update their grids
         if let Some(sink) = self.output_sink.lock().as_ref() {
             sink.publish_resize(terminal_id.to_string(), cols, rows);
@@ -577,15 +621,17 @@ impl PtyManager {
 
         // 5. Join writer thread (should exit quickly after input_tx drop)
         if let Some(h) = handle.writer_handle.take()
-            && let Err(e) = h.join() {
-                log::warn!("PTY writer thread panicked on join: {}", format_panic(&*e));
-            }
+            && let Err(e) = h.join()
+        {
+            log::warn!("PTY writer thread panicked on join: {}", format_panic(&*e));
+        }
 
         // 6. Join reader thread (should exit after child kill + master drop)
         if let Some(h) = handle.reader_handle.take()
-            && let Err(e) = h.join() {
-                log::warn!("PTY reader thread panicked on join: {}", format_panic(&*e));
-            }
+            && let Err(e) = h.join()
+        {
+            log::warn!("PTY reader thread panicked on join: {}", format_panic(&*e));
+        }
     }
 
     /// Detach from all terminals without killing sessions
@@ -600,7 +646,9 @@ impl PtyManager {
 
     /// Get the shell process PID for a terminal
     pub fn get_shell_pid(&self, terminal_id: &str) -> Option<u32> {
-        self.terminals.lock().get(terminal_id)
+        self.terminals
+            .lock()
+            .get(terminal_id)
             .and_then(|h| h.child.process_id())
     }
 
@@ -615,7 +663,9 @@ impl PtyManager {
         {
             match self.session_backend {
                 ResolvedBackend::Dtach => {
-                    if let Some(daemon) = self.get_dtach_service_pids(terminal_id).into_iter().next() {
+                    if let Some(daemon) =
+                        self.get_dtach_service_pids(terminal_id).into_iter().next()
+                    {
                         return first_proc_child(daemon).or(Some(daemon));
                     }
                 }
@@ -684,10 +734,13 @@ impl PtyManager {
     #[cfg(unix)]
     fn get_tmux_service_pids(&self, terminal_id: &str) -> Vec<u32> {
         let session_name = self.session_backend.session_name(terminal_id);
-        let output = match crate::process::safe_output(
-            crate::process::command("tmux")
-                .args(["list-panes", "-t", &session_name, "-F", "#{pane_pid}"]),
-        ) {
+        let output = match crate::process::safe_output(crate::process::command("tmux").args([
+            "list-panes",
+            "-t",
+            &session_name,
+            "-F",
+            "#{pane_pid}",
+        ])) {
             Ok(o) if o.status.success() => o,
             _ => return self.get_shell_pid(terminal_id).into_iter().collect(),
         };
@@ -732,16 +785,16 @@ impl PtyManager {
         for &tid in terminal_ids {
             let session_name = self.session_backend.session_name(tid);
             if let Some(p) = self.session_backend.socket_path(&session_name)
-                && p.exists() {
-                    socket_to_terminal.insert(p, tid);
-                    attach_pids.insert(tid, self.get_shell_pid(tid));
-                }
+                && p.exists()
+            {
+                socket_to_terminal.insert(p, tid);
+                attach_pids.insert(tid, self.get_shell_pid(tid));
+            }
         }
 
         // Resolve PIDs for all sockets at once
-        let socket_pids = find_pids_for_unix_sockets(
-            &socket_to_terminal.keys().cloned().collect::<Vec<_>>(),
-        );
+        let socket_pids =
+            find_pids_for_unix_sockets(&socket_to_terminal.keys().cloned().collect::<Vec<_>>());
 
         // Build result map
         let mut result: HashMap<String, Vec<u32>> = HashMap::new();
@@ -816,7 +869,14 @@ impl PtyManager {
                         cmd.args(["-d", d]);
                     }
                     cmd.args([
-                        "--", "tmux", "capture-pane", "-t", &session_name, "-p", "-S", "-",
+                        "--",
+                        "tmux",
+                        "capture-pane",
+                        "-t",
+                        &session_name,
+                        "-p",
+                        "-S",
+                        "-",
                     ]);
                     return match crate::process::safe_output(&mut cmd) {
                         Ok(output) if output.status.success() => {
@@ -853,15 +913,20 @@ impl PtyManager {
         }
 
         let session_name = self.session_backend.session_name(terminal_id);
-        let output_path = std::env::temp_dir().join(format!("terminal-{}.txt", &terminal_id[..8.min(terminal_id.len())]));
+        let output_path = std::env::temp_dir().join(format!(
+            "terminal-{}.txt",
+            &terminal_id[..8.min(terminal_id.len())]
+        ));
 
         // Use tmux capture-pane to get the entire scrollback buffer
         let result = std::process::Command::new("tmux")
             .args([
                 "capture-pane",
-                "-t", &session_name,
-                "-p",      // output to stdout
-                "-S", "-", // start from beginning of scrollback
+                "-t",
+                &session_name,
+                "-p", // output to stdout
+                "-S",
+                "-", // start from beginning of scrollback
             ])
             .output();
 
@@ -879,7 +944,10 @@ impl PtyManager {
                 }
             }
             Ok(output) => {
-                log::error!("tmux capture-pane failed: {}", String::from_utf8_lossy(&output.stderr));
+                log::error!(
+                    "tmux capture-pane failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 None
             }
             Err(e) => {
@@ -1075,10 +1143,7 @@ fn find_pids_for_unix_sockets_linux(
             {
                 if let Ok(inode) = inode_str.parse::<u64>() {
                     if let Some(&socket_path) = inode_to_path.get(&inode) {
-                        result
-                            .entry(socket_path.clone())
-                            .or_default()
-                            .push(pid);
+                        result.entry(socket_path.clone()).or_default().push(pid);
                     }
                     // Early exit if we found all inodes
                     // (not worth the bookkeeping for a small set)
@@ -1131,12 +1196,13 @@ fn find_pids_for_unix_sockets_lsof(
         if let Some(pid_str) = line.strip_prefix('p') {
             current_pid = pid_str.parse().ok();
         } else if let Some(name) = line.strip_prefix('n')
-            && let Some(pid) = current_pid {
-                let path = std::path::PathBuf::from(name);
-                if socket_paths.contains(&path) {
-                    result.entry(path).or_default().push(pid);
-                }
+            && let Some(pid) = current_pid
+        {
+            let path = std::path::PathBuf::from(name);
+            if socket_paths.contains(&path) {
+                result.entry(path).or_default().push(pid);
             }
+        }
     }
 
     result
@@ -1148,7 +1214,10 @@ fn find_pids_for_unix_sockets_lsof(
 fn first_proc_child(pid: u32) -> Option<u32> {
     let path = format!("/proc/{}/task/{}/children", pid, pid);
     let contents = std::fs::read_to_string(path).ok()?;
-    contents.split_whitespace().next().and_then(|s| s.parse().ok())
+    contents
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
@@ -1170,4 +1239,3 @@ fn first_proc_child(pid: u32) -> Option<u32> {
 fn first_proc_child(_pid: u32) -> Option<u32> {
     None
 }
-

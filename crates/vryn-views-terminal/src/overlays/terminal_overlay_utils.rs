@@ -6,14 +6,14 @@
 //! - Key input handling
 //! - Focus management
 
-use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
-use vryn_terminal::terminal::{Terminal, TerminalSize, TerminalTransport};
-use vryn_terminal::TerminalsRegistry;
 use crate::layout::terminal_pane::TerminalContent;
 use crate::layout::terminal_pane::actions::paste_clipboard_into_terminal;
-use vryn_workspace::state::Workspace;
 use gpui::*;
 use std::sync::Arc;
+use vryn_terminal::TerminalsRegistry;
+use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
+use vryn_terminal::terminal::{Terminal, TerminalSize, TerminalTransport};
+use vryn_workspace::state::Workspace;
 
 /// Convert a GPUI key event to terminal input bytes.
 fn gpui_key_to_bytes(event: &KeyDownEvent, app_cursor_mode: bool) -> Option<Vec<u8>> {
@@ -77,13 +77,8 @@ pub fn create_terminal_content<V: 'static>(
     terminal: Arc<Terminal>,
 ) -> Entity<TerminalContent> {
     cx.new(|cx| {
-        let mut content = TerminalContent::new(
-            focus_handle,
-            project_id,
-            layout_path,
-            workspace,
-            cx,
-        );
+        let mut content =
+            TerminalContent::new(focus_handle, project_id, layout_path, workspace, cx);
         content.set_terminal(Some(terminal), cx);
         content
     })

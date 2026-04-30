@@ -2,21 +2,22 @@
 //!
 //! Actions for creating, modifying, and deleting projects.
 
-use vryn_core::theme::FolderColor;
 use crate::hooks;
 use crate::persistence::HooksConfig;
 use crate::state::{LayoutNode, ProjectData, Workspace};
 use gpui::*;
 use std::collections::HashMap;
+use vryn_core::theme::FolderColor;
 
 /// Expand `~` or `~/...` at the start of a path to the user's home directory.
 /// Does not expand `~user/...` syntax (other user's home directories).
 fn expand_tilde(path: &str) -> String {
     if (path == "~" || path.starts_with("~/"))
-        && let Some(home) = dirs::home_dir() {
-            let rest = &path[1..]; // "" or "/..."
-            return format!("{}{}", home.display(), rest);
-        }
+        && let Some(home) = dirs::home_dir()
+    {
+        let rest = &path[1..]; // "" or "/..."
+        return format!("{}{}", home.display(), rest);
+    }
     path.to_string()
 }
 
@@ -32,7 +33,9 @@ impl Workspace {
     /// Toggle project overview visibility (also toggles all worktree children)
     pub fn toggle_project_overview_visibility(&mut self, project_id: &str, cx: &mut Context<Self>) {
         let new_visible = self.project(project_id).map(|p| !p.show_in_overview);
-        let Some(new_visible) = new_visible else { return };
+        let Some(new_visible) = new_visible else {
+            return;
+        };
 
         self.with_project(project_id, cx, |project| {
             project.show_in_overview = new_visible;
@@ -42,14 +45,23 @@ impl Workspace {
 
     /// Add a new project
     /// If `with_terminal` is false, creates a bookmark project without a terminal layout.
-    pub fn add_project(&mut self, name: String, path: String, with_terminal: bool, global_hooks: &HooksConfig, cx: &mut Context<Self>) -> String {
+    pub fn add_project(
+        &mut self,
+        name: String,
+        path: String,
+        with_terminal: bool,
+        global_hooks: &HooksConfig,
+        cx: &mut Context<Self>,
+    ) -> String {
         let path = expand_tilde(&path);
 
         // Auto-detect WSL UNC paths and set default shell accordingly
         #[cfg(windows)]
-        let default_shell = vryn_terminal::shell_config::parse_wsl_unc_path(&path)
-            .map(|(distro, _)| vryn_terminal::shell_config::ShellType::Wsl {
-                distro: Some(distro),
+        let default_shell =
+            vryn_terminal::shell_config::parse_wsl_unc_path(&path).map(|(distro, _)| {
+                vryn_terminal::shell_config::ShellType::Wsl {
+                    distro: Some(distro),
+                }
             });
         #[cfg(not(windows))]
         let default_shell: Option<vryn_terminal::shell_config::ShellType> = None;
@@ -60,7 +72,11 @@ impl Workspace {
             name: name.clone(),
             path: path.clone(),
             show_in_overview: true,
-            layout: if with_terminal { Some(LayoutNode::new_terminal()) } else { None },
+            layout: if with_terminal {
+                Some(LayoutNode::new_terminal())
+            } else {
+                None
+            },
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,
@@ -81,7 +97,16 @@ impl Workspace {
         let folder = self.folder_for_project_or_parent(&id);
         let folder_id = folder.map(|f| f.id.as_str());
         let folder_name = folder.map(|f| f.name.as_str());
-        let hook_results = hooks::fire_on_project_open(&project_hooks, &id, &name, &path, folder_id, folder_name, global_hooks, cx);
+        let hook_results = hooks::fire_on_project_open(
+            &project_hooks,
+            &id,
+            &name,
+            &path,
+            folder_id,
+            folder_name,
+            global_hooks,
+            cx,
+        );
         self.register_hook_results(hook_results, cx);
         id
     }
@@ -104,7 +129,8 @@ impl Workspace {
         }
 
         // Focus the newly created terminal (terminal_id: None)
-        let new_path = self.project(project_id)
+        let new_path = self
+            .project(project_id)
             .and_then(|p| p.layout.as_ref())
             .and_then(|l| l.find_uninitialized_terminal_path());
         if let Some(path) = new_path {
@@ -145,7 +171,13 @@ impl Workspace {
     }
 
     /// Rename a project's directory path and update the project name to match
-    pub fn rename_project_directory(&mut self, project_id: &str, new_path: String, new_name: String, cx: &mut Context<Self>) {
+    pub fn rename_project_directory(
+        &mut self,
+        project_id: &str,
+        new_path: String,
+        new_name: String,
+        cx: &mut Context<Self>,
+    ) {
         self.with_project(project_id, cx, |project| {
             project.path = new_path;
             project.name = new_name;
@@ -154,8 +186,14 @@ impl Workspace {
     }
 
     /// Set the folder color for a project (also propagates to worktree children without overrides)
-    pub fn set_folder_color(&mut self, project_id: &str, color: FolderColor, cx: &mut Context<Self>) {
-        let is_worktree = self.project(project_id)
+    pub fn set_folder_color(
+        &mut self,
+        project_id: &str,
+        color: FolderColor,
+        cx: &mut Context<Self>,
+    ) {
+        let is_worktree = self
+            .project(project_id)
             .and_then(|p| p.worktree_info.as_ref())
             .is_some();
 
@@ -163,7 +201,8 @@ impl Workspace {
             self.set_worktree_color_override(project_id, Some(color), cx);
         } else {
             // Collect child IDs from the parent's worktree_ids to avoid a full scan
-            let child_ids: Vec<String> = self.project(project_id)
+            let child_ids: Vec<String> = self
+                .project(project_id)
                 .map(|p| p.worktree_ids.clone())
                 .unwrap_or_default();
 
@@ -175,7 +214,9 @@ impl Workspace {
             }
             for child_id in &child_ids {
                 if let Some(child) = self.project_mut(child_id) {
-                    let has_override = child.worktree_info.as_ref()
+                    let has_override = child
+                        .worktree_info
+                        .as_ref()
                         .and_then(|wt| wt.color_override)
                         .is_some();
                     if !has_override {
@@ -190,7 +231,12 @@ impl Workspace {
     }
 
     /// Set or clear the color override for a worktree project
-    pub fn set_worktree_color_override(&mut self, project_id: &str, color: Option<FolderColor>, cx: &mut Context<Self>) {
+    pub fn set_worktree_color_override(
+        &mut self,
+        project_id: &str,
+        color: Option<FolderColor>,
+        cx: &mut Context<Self>,
+    ) {
         self.with_project(project_id, cx, |project| {
             if let Some(ref mut wt) = project.worktree_info {
                 wt.color_override = color;
@@ -202,17 +248,28 @@ impl Workspace {
     }
 
     /// Delete a project
-    pub fn delete_project(&mut self, project_id: &str, global_hooks: &HooksConfig, cx: &mut Context<Self>) {
+    pub fn delete_project(
+        &mut self,
+        project_id: &str,
+        global_hooks: &HooksConfig,
+        cx: &mut Context<Self>,
+    ) {
         // Capture project info before removal for the hook
         let folder = self.folder_for_project_or_parent(project_id);
         let hook_folder_id = folder.map(|f| f.id.clone());
         let hook_folder_name = folder.map(|f| f.name.clone());
         let hook_info = self.project(project_id).map(|p| {
-            (p.hooks.clone(), p.id.clone(), p.name.clone(), p.path.clone())
+            (
+                p.hooks.clone(),
+                p.id.clone(),
+                p.name.clone(),
+                p.path.clone(),
+            )
         });
 
         // Collect orphaned worktree children (if deleting a parent)
-        let orphaned_worktrees: Vec<String> = self.project(project_id)
+        let orphaned_worktrees: Vec<String> = self
+            .project(project_id)
             .map(|p| p.worktree_ids.clone())
             .unwrap_or_default();
 
@@ -232,7 +289,9 @@ impl Workspace {
 
         // Re-home orphaned worktrees to project_order
         for wt_id in orphaned_worktrees {
-            if self.data.projects.iter().any(|p| p.id == wt_id) && !self.data.project_order.contains(&wt_id) {
+            if self.data.projects.iter().any(|p| p.id == wt_id)
+                && !self.data.project_order.contains(&wt_id)
+            {
                 self.data.project_order.push(wt_id);
             }
         }
@@ -252,7 +311,16 @@ impl Workspace {
         self.notify_data(cx);
 
         if let Some((project_hooks, id, name, path)) = hook_info {
-            hooks::fire_on_project_close(&project_hooks, &id, &name, &path, hook_folder_id.as_deref(), hook_folder_name.as_deref(), global_hooks, cx);
+            hooks::fire_on_project_close(
+                &project_hooks,
+                &id,
+                &name,
+                &path,
+                hook_folder_id.as_deref(),
+                hook_folder_name.as_deref(),
+                global_hooks,
+                cx,
+            );
         }
     }
 
@@ -305,19 +373,26 @@ impl Workspace {
     }
 
     /// Reorder a worktree within its parent's worktree_ids list
-    pub fn reorder_worktree(&mut self, parent_id: &str, worktree_id: &str, new_index: usize, cx: &mut Context<Self>) {
+    pub fn reorder_worktree(
+        &mut self,
+        parent_id: &str,
+        worktree_id: &str,
+        new_index: usize,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(parent) = self.data.projects.iter_mut().find(|p| p.id == parent_id)
-            && let Some(current_index) = parent.worktree_ids.iter().position(|id| id == worktree_id) {
-                let id = parent.worktree_ids.remove(current_index);
-                let target = if new_index > current_index {
-                    new_index.saturating_sub(1)
-                } else {
-                    new_index
-                };
-                let target = target.min(parent.worktree_ids.len());
-                parent.worktree_ids.insert(target, id);
-                self.notify_data(cx);
-            }
+            && let Some(current_index) = parent.worktree_ids.iter().position(|id| id == worktree_id)
+        {
+            let id = parent.worktree_ids.remove(current_index);
+            let target = if new_index > current_index {
+                new_index.saturating_sub(1)
+            } else {
+                new_index
+            };
+            let target = target.min(parent.worktree_ids.len());
+            parent.worktree_ids.insert(target, id);
+            self.notify_data(cx);
+        }
     }
 
     /// Update project column widths
@@ -327,20 +402,35 @@ impl Workspace {
     }
 
     /// Update service panel height for a project
-    pub fn update_service_panel_height(&mut self, project_id: &str, height: f32, cx: &mut Context<Self>) {
-        self.data.service_panel_heights.insert(project_id.to_string(), height);
+    pub fn update_service_panel_height(
+        &mut self,
+        project_id: &str,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) {
+        self.data
+            .service_panel_heights
+            .insert(project_id.to_string(), height);
         self.notify_data(cx);
     }
 
     /// Update hook panel height for a project
-    pub fn update_hook_panel_height(&mut self, project_id: &str, height: f32, cx: &mut Context<Self>) {
-        self.data.hook_panel_heights.insert(project_id.to_string(), height);
+    pub fn update_hook_panel_height(
+        &mut self,
+        project_id: &str,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) {
+        self.data
+            .hook_panel_heights
+            .insert(project_id.to_string(), height);
         self.notify_data(cx);
     }
 
     /// Get project width or default equal distribution
     pub fn get_project_width(&self, project_id: &str, visible_count: usize) -> f32 {
-        self.data.project_widths
+        self.data
+            .project_widths
             .get(project_id)
             .copied()
             .unwrap_or_else(|| 100.0 / visible_count as f32)
@@ -370,7 +460,15 @@ impl Workspace {
         vryn_git::create_worktree(repo_path, branch, &target, create_branch)?;
 
         // Register in workspace state
-        self.register_worktree_project(parent_project_id, branch, repo_path, worktree_path, project_path, global_hooks, cx)
+        self.register_worktree_project(
+            parent_project_id,
+            branch,
+            repo_path,
+            worktree_path,
+            project_path,
+            global_hooks,
+            cx,
+        )
     }
 
     /// Register a worktree project in workspace state.
@@ -389,7 +487,16 @@ impl Workspace {
         global_hooks: &HooksConfig,
         cx: &mut Context<Self>,
     ) -> Result<String, String> {
-        self.register_worktree_project_inner(parent_project_id, branch, repo_path, worktree_path, project_path, true, global_hooks, cx)
+        self.register_worktree_project_inner(
+            parent_project_id,
+            branch,
+            repo_path,
+            worktree_path,
+            project_path,
+            true,
+            global_hooks,
+            cx,
+        )
     }
 
     /// Same as `register_worktree_project` but defers on_worktree_create hooks.
@@ -405,7 +512,16 @@ impl Workspace {
         global_hooks: &HooksConfig,
         cx: &mut Context<Self>,
     ) -> Result<String, String> {
-        self.register_worktree_project_inner(parent_project_id, branch, repo_path, worktree_path, project_path, false, global_hooks, cx)
+        self.register_worktree_project_inner(
+            parent_project_id,
+            branch,
+            repo_path,
+            worktree_path,
+            project_path,
+            false,
+            global_hooks,
+            cx,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -421,7 +537,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Result<String, String> {
         // Get parent project info
-        let parent = self.project(parent_project_id)
+        let parent = self
+            .project(parent_project_id)
             .ok_or_else(|| "Parent project not found".to_string())?;
 
         let parent_layout = parent.layout.clone();
@@ -432,9 +549,7 @@ impl Workspace {
         let id = uuid::Uuid::new_v4().to_string();
         let project_name = branch.to_string();
 
-        let new_layout = parent_layout
-            .as_ref()
-            .map(|l| l.clone_structure());
+        let new_layout = parent_layout.as_ref().map(|l| l.clone_structure());
 
         let project = ProjectData {
             id: id.clone(),
@@ -468,7 +583,12 @@ impl Workspace {
         self.data.projects.push(project);
 
         // Add to parent's worktree_ids (not project_order)
-        if let Some(parent) = self.data.projects.iter_mut().find(|p| p.id == parent_project_id) {
+        if let Some(parent) = self
+            .data
+            .projects
+            .iter_mut()
+            .find(|p| p.id == parent_project_id)
+        {
             parent.worktree_ids.push(id.clone());
         }
 
@@ -497,8 +617,15 @@ impl Workspace {
 
     /// Finalize a deferred worktree: set the layout from the parent and fire hooks.
     /// Called once the worktree directory exists on disk.
-    pub fn fire_worktree_hooks(&mut self, project_id: &str, global_hooks: &HooksConfig, cx: &mut Context<Self>) {
-        let Some(project) = self.project(project_id) else { return };
+    pub fn fire_worktree_hooks(
+        &mut self,
+        project_id: &str,
+        global_hooks: &HooksConfig,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.project(project_id) else {
+            return;
+        };
         let hooks_config = project.hooks.clone();
         let name = project.name.clone();
         let path = project.path.clone();
@@ -508,7 +635,9 @@ impl Workspace {
 
         // If layout is still None (deferred creation), clone it from the parent
         if project.layout.is_none() {
-            let parent_layout = project.worktree_info.as_ref()
+            let parent_layout = project
+                .worktree_info
+                .as_ref()
                 .and_then(|wt| self.project(&wt.parent_project_id))
                 .and_then(|p| p.layout.as_ref())
                 .map(|l| l.clone_structure());
@@ -546,15 +675,20 @@ impl Workspace {
     ) -> Option<String> {
         // For monorepo projects, resolve the subdirectory offset so the
         // project path points to the right place inside the worktree.
-        let parent_path = self.project(parent_id)
+        let parent_path = self
+            .project(parent_id)
             .map(|p| p.path.clone())
             .unwrap_or_default();
-        let (_git_root, subdir) = vryn_git::resolve_git_root_and_subdir(
-            std::path::Path::new(&parent_path),
-        );
+        let (_git_root, subdir) =
+            vryn_git::resolve_git_root_and_subdir(std::path::Path::new(&parent_path));
         let project_path = vryn_git::repository::project_path_in_worktree(wt_path, &subdir);
 
-        if self.data.projects.iter().any(|p| p.path == project_path || p.path == wt_path) {
+        if self
+            .data
+            .projects
+            .iter()
+            .any(|p| p.path == project_path || p.path == wt_path)
+        {
             return None;
         }
 
@@ -592,7 +726,12 @@ impl Workspace {
 
         // Insert after parent in project_order
         self.data.projects.push(project);
-        if let Some(parent_index) = self.data.project_order.iter().position(|pid| pid == parent_id) {
+        if let Some(parent_index) = self
+            .data
+            .project_order
+            .iter()
+            .position(|pid| pid == parent_id)
+        {
             self.data.project_order.insert(parent_index + 1, id.clone());
         } else {
             self.data.project_order.push(id.clone());
@@ -605,9 +744,10 @@ impl Workspace {
     /// Also removes the worktree from project_order since it lives under its parent now.
     pub fn add_to_worktree_ids(&mut self, parent_id: &str, worktree_id: &str) {
         if let Some(parent) = self.data.projects.iter_mut().find(|p| p.id == parent_id)
-            && !parent.worktree_ids.iter().any(|id| id == worktree_id) {
-                parent.worktree_ids.push(worktree_id.to_string());
-            }
+            && !parent.worktree_ids.iter().any(|id| id == worktree_id)
+        {
+            parent.worktree_ids.push(worktree_id.to_string());
+        }
         // Worktrees in worktree_ids don't belong in project_order
         self.data.project_order.retain(|id| id != worktree_id);
         // Also remove from any folder's project_ids
@@ -625,7 +765,10 @@ impl Workspace {
         }
 
         // Only remove if it's actually a worktree project
-        let is_worktree = self.data.projects.iter()
+        let is_worktree = self
+            .data
+            .projects
+            .iter()
             .any(|p| p.id == project_id && p.worktree_info.is_some());
         if !is_worktree {
             return;
@@ -648,15 +791,19 @@ impl Workspace {
     ) -> Option<(String, Option<String>)> {
         let parent = self.project(parent_project_id)?;
         let main_repo = self.worktree_parent_path(parent_project_id);
-        Some((
-            parent.path.clone(),
-            main_repo,
-        ))
+        Some((parent.path.clone(), main_repo))
     }
 
     /// Remove a worktree project and its git worktree
-    pub fn remove_worktree_project(&mut self, project_id: &str, force: bool, global_hooks: &HooksConfig, cx: &mut Context<Self>) -> Result<(), String> {
-        let project = self.project(project_id)
+    pub fn remove_worktree_project(
+        &mut self,
+        project_id: &str,
+        force: bool,
+        global_hooks: &HooksConfig,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let project = self
+            .project(project_id)
             .ok_or_else(|| "Project not found".to_string())?;
 
         // Ensure it's a worktree project
@@ -674,14 +821,23 @@ impl Workspace {
         // For monorepos the project path is a subdirectory inside the worktree checkout.
         // Resolve the actual worktree root via git so `git worktree remove` gets the right path.
         let project_pathbuf = std::path::PathBuf::from(&project_path);
-        let worktree_path = vryn_git::get_repo_root(&project_pathbuf)
-            .unwrap_or(project_pathbuf);
+        let worktree_path = vryn_git::get_repo_root(&project_pathbuf).unwrap_or(project_pathbuf);
 
         // Resolve branch BEFORE removal (git worktree remove deletes the checkout)
         let branch = vryn_git::get_current_branch(&worktree_path).unwrap_or_default();
 
         // Fire on_worktree_close hook BEFORE removal so the hook has a valid CWD
-        hooks::fire_on_worktree_close(&project_hooks, project_id, &project_name, &project_path, &branch, hook_folder_id.as_deref(), hook_folder_name.as_deref(), global_hooks, cx);
+        hooks::fire_on_worktree_close(
+            &project_hooks,
+            project_id,
+            &project_name,
+            &project_path,
+            &branch,
+            hook_folder_id.as_deref(),
+            hook_folder_name.as_deref(),
+            global_hooks,
+            cx,
+        );
 
         // Remove the git worktree
         vryn_git::remove_worktree(&worktree_path, force)?;
@@ -696,10 +852,10 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::expand_tilde;
-    use crate::state::*;
     use crate::settings::HooksConfig;
-    use vryn_core::theme::FolderColor;
+    use crate::state::*;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
 
     fn make_project(id: &str) -> ProjectData {
         ProjectData {
@@ -811,11 +967,11 @@ mod tests {
 
 #[cfg(test)]
 mod gpui_tests {
-    use gpui::AppContext as _;
-    use crate::state::{LayoutNode, ProjectData, Workspace, WorkspaceData};
     use crate::settings::HooksConfig;
-    use vryn_core::theme::FolderColor;
+    use crate::state::{LayoutNode, ProjectData, Workspace, WorkspaceData};
+    use gpui::AppContext as _;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
 
     fn make_workspace_data() -> WorkspaceData {
         WorkspaceData {
@@ -855,7 +1011,13 @@ mod gpui_tests {
         let workspace = cx.new(|_cx| Workspace::new(make_workspace_data()));
 
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_project("Test".to_string(), "/tmp/test".to_string(), true, &HooksConfig::default(), cx);
+            ws.add_project(
+                "Test".to_string(),
+                "/tmp/test".to_string(),
+                true,
+                &HooksConfig::default(),
+                cx,
+            );
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
@@ -873,7 +1035,13 @@ mod gpui_tests {
         let workspace = cx.new(|_cx| Workspace::new(make_workspace_data()));
 
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_project("Bookmark".to_string(), "/tmp/bm".to_string(), false, &HooksConfig::default(), cx);
+            ws.add_project(
+                "Bookmark".to_string(),
+                "/tmp/bm".to_string(),
+                false,
+                &HooksConfig::default(),
+                cx,
+            );
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
@@ -932,7 +1100,11 @@ mod gpui_tests {
         let mut parent = make_project("parent");
         parent.worktree_ids = vec!["wt1".to_string(), "wt2".to_string()];
         let mut data = make_workspace_data();
-        data.projects = vec![parent, make_worktree_project("wt1", "parent"), make_worktree_project("wt2", "parent")];
+        data.projects = vec![
+            parent,
+            make_worktree_project("wt1", "parent"),
+            make_worktree_project("wt2", "parent"),
+        ];
         data.project_order = vec!["parent".to_string()];
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -952,7 +1124,11 @@ mod gpui_tests {
         let mut parent = make_project("parent");
         parent.worktree_ids = vec!["wt1".to_string(), "wt2".to_string()];
         let mut data = make_workspace_data();
-        data.projects = vec![parent, make_worktree_project("wt1", "parent"), make_worktree_project("wt2", "parent")];
+        data.projects = vec![
+            parent,
+            make_worktree_project("wt1", "parent"),
+            make_worktree_project("wt2", "parent"),
+        ];
         data.project_order = vec!["parent".to_string()];
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -973,7 +1149,12 @@ mod gpui_tests {
         let mut parent = make_project("parent");
         parent.worktree_ids = vec!["wt1".to_string(), "wt2".to_string(), "wt3".to_string()];
         let mut data = make_workspace_data();
-        data.projects = vec![parent, make_worktree_project("wt1", "parent"), make_worktree_project("wt2", "parent"), make_worktree_project("wt3", "parent")];
+        data.projects = vec![
+            parent,
+            make_worktree_project("wt1", "parent"),
+            make_worktree_project("wt2", "parent"),
+            make_worktree_project("wt3", "parent"),
+        ];
         data.project_order = vec!["parent".to_string()];
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -1020,7 +1201,10 @@ mod gpui_tests {
 
         ws.remove_stale_worktree("wt1");
 
-        assert!(ws.project("wt1").is_some(), "closing project should not be removed");
+        assert!(
+            ws.project("wt1").is_some(),
+            "closing project should not be removed"
+        );
     }
 
     #[test]
@@ -1034,7 +1218,10 @@ mod gpui_tests {
 
         ws.remove_stale_worktree("wt1");
 
-        assert!(ws.project("wt1").is_some(), "creating project should not be removed");
+        assert!(
+            ws.project("wt1").is_some(),
+            "creating project should not be removed"
+        );
     }
 
     #[test]
@@ -1047,6 +1234,9 @@ mod gpui_tests {
 
         ws.remove_stale_worktree("wt1");
 
-        assert!(ws.project("wt1").is_none(), "unmanaged stale worktree should be removed");
+        assert!(
+            ws.project("wt1").is_none(),
+            "unmanaged stale worktree should be removed"
+        );
     }
 }

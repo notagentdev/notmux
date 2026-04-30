@@ -1,10 +1,10 @@
 use crate::keybindings::Cancel;
 use crate::remote::auth::AuthStore;
 use crate::theme::theme;
-use crate::views::components::{modal_backdrop, modal_content, modal_header};
 use crate::ui::tokens::{ui_text, ui_text_md};
-use gpui::*;
+use crate::views::components::{modal_backdrop, modal_content, modal_header};
 use gpui::prelude::*;
+use gpui::*;
 use std::sync::Arc;
 
 pub struct PairingDialog {
@@ -89,9 +89,12 @@ impl Render for PairingDialog {
             .on_action(cx.listener(|this, _: &Cancel, _, cx| {
                 this.close(cx);
             }))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                this.close(cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.close(cx);
+                }),
+            )
             .child(
                 modal_content("pairing-dialog-modal", &t)
                     .w(px(400.0))
@@ -160,7 +163,9 @@ impl Render for PairingDialog {
                                                 .child("Copy Code")
                                                 .on_click(move |_, _window, cx| {
                                                     cx.write_to_clipboard(
-                                                        ClipboardItem::new_string(code_for_copy.clone()),
+                                                        ClipboardItem::new_string(
+                                                            code_for_copy.clone(),
+                                                        ),
                                                     );
                                                 }),
                                         )

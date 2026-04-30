@@ -1,13 +1,13 @@
 //! Pure render functions for service items in the sidebar.
 
 use crate::types::{ServiceSnapshot, status_color};
-use gpui::*;
 use gpui::prelude::*;
+use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use vryn_services::manager::ServiceStatus;
 use vryn_ui::icon_action_button::icon_action_button_sized;
 use vryn_ui::theme::ThemeColors;
-use vryn_ui::tokens::{ui_text_xs, ui_text_sm, ui_text_md};
+use vryn_ui::tokens::{ui_text_md, ui_text_sm, ui_text_xs};
 
 /// Render the action buttons for the services group header.
 ///
@@ -224,9 +224,7 @@ pub fn render_service_item(
                 .when(!is_running && !is_starting, |d| {
                     d.child(
                         icon_action_button_sized(
-                            ElementId::Name(
-                                format!("svc-play-{}-{}", pid, service_name).into(),
-                            ),
+                            ElementId::Name(format!("svc-play-{}-{}", pid, service_name).into()),
                             "\u{25B6}",
                             t.term_green,
                             18.0,
@@ -243,9 +241,7 @@ pub fn render_service_item(
                 .when(is_running, |d| {
                     d.child(
                         icon_action_button_sized(
-                            ElementId::Name(
-                                format!("svc-restart-{}-{}", pid, service_name).into(),
-                            ),
+                            ElementId::Name(format!("svc-restart-{}-{}", pid, service_name).into()),
                             "\u{27F3}",
                             t.text_secondary,
                             18.0,
@@ -260,9 +256,7 @@ pub fn render_service_item(
                     )
                     .child(
                         icon_action_button_sized(
-                            ElementId::Name(
-                                format!("svc-stop-{}-{}", pid, service_name).into(),
-                            ),
+                            ElementId::Name(format!("svc-stop-{}-{}", pid, service_name).into()),
                             "\u{25A0}",
                             t.term_red,
                             18.0,

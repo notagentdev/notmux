@@ -1,26 +1,26 @@
+use crate::action_dispatch::ActionDispatcher;
 use crate::git;
 use crate::git::watcher::GitStatusWatcher;
-use crate::action_dispatch::ActionDispatcher;
-use vryn_views_git::git_header::GitHeader;
 use crate::services::manager::ServiceManager;
 use crate::terminal::backend::TerminalBackend;
-use crate::theme::{theme, ThemeColors};
+use crate::theme::{ThemeColors, theme};
+use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use crate::views::layout::layout_container::LayoutContainer;
 use crate::views::layout::split_pane::ActiveDrag;
 use crate::workspace::request_broker::RequestBroker;
 use crate::workspace::state::{ProjectData, Workspace};
-use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 use std::sync::Arc;
+use vryn_views_git::git_header::GitHeader;
 
-use vryn_core::api::ActionRequest;
-use vryn_workspace::requests::OverlayRequest;
-use vryn_views_services::service_panel::ServicePanel;
 use crate::views::panels::hook_panel::HookPanel;
 use crate::views::root::TerminalsRegistry;
+use vryn_core::api::ActionRequest;
+use vryn_views_services::service_panel::ServicePanel;
+use vryn_workspace::requests::OverlayRequest;
 
 /// A single project column with header and layout
 pub struct ProjectColumn {
@@ -65,8 +65,13 @@ impl ProjectColumn {
             cx.observe(watcher, |_, _, cx| cx.notify()).detach();
         }
 
-        let initial_service_height = workspace.read(cx).data.service_panel_heights
-            .get(&project_id).copied().unwrap_or(200.0);
+        let initial_service_height = workspace
+            .read(cx)
+            .data
+            .service_panel_heights
+            .get(&project_id)
+            .copied()
+            .unwrap_or(200.0);
 
         let git_header = {
             let pid = project_id.clone();
@@ -84,15 +89,18 @@ impl ProjectColumn {
             let be = backend.clone();
             let ts = terminals.clone();
             let ad = active_drag.clone();
-            cx.new(move |cx| {
-                ServicePanel::new(pid, ws, rb, be, ts, ad, initial_service_height, cx)
-            })
+            cx.new(move |cx| ServicePanel::new(pid, ws, rb, be, ts, ad, initial_service_height, cx))
         };
         // Observe service_panel so ProjectColumn re-renders when panel state changes
         cx.observe(&service_panel, |_, _, cx| cx.notify()).detach();
 
-        let initial_hook_height = workspace.read(cx).data.hook_panel_heights
-            .get(&project_id).copied().unwrap_or(200.0);
+        let initial_hook_height = workspace
+            .read(cx)
+            .data
+            .hook_panel_heights
+            .get(&project_id)
+            .copied()
+            .unwrap_or(200.0);
 
         let hook_panel = {
             let pid = project_id.clone();
@@ -101,9 +109,7 @@ impl ProjectColumn {
             let be = backend.clone();
             let ts = terminals.clone();
             let ad = active_drag.clone();
-            cx.new(move |cx| {
-                HookPanel::new(pid, ws, rb, be, ts, ad, initial_hook_height, cx)
-            })
+            cx.new(move |cx| HookPanel::new(pid, ws, rb, be, ts, ad, initial_hook_height, cx))
         };
         cx.observe(&hook_panel, |_, _, cx| cx.notify()).detach();
 
@@ -149,7 +155,11 @@ impl ProjectColumn {
     /// Set the service manager and observe it for changes.
     pub fn set_service_manager(&mut self, manager: Entity<ServiceManager>, cx: &mut Context<Self>) {
         // Also update the action dispatcher so it can route service actions locally
-        if let Some(ActionDispatcher::Local { ref mut service_manager, .. }) = self.action_dispatcher {
+        if let Some(ActionDispatcher::Local {
+            ref mut service_manager,
+            ..
+        }) = self.action_dispatcher
+        {
             *service_manager = Some(manager.clone());
         }
         // Sync dispatcher to service panel (may have been set before panel was created)
@@ -198,7 +208,11 @@ impl ProjectColumn {
     }
 
     /// Observe workspace for remote service state changes (used for remote project columns).
-    pub fn observe_remote_services(&mut self, workspace: Entity<Workspace>, cx: &mut Context<Self>) {
+    pub fn observe_remote_services(
+        &mut self,
+        workspace: Entity<Workspace>,
+        cx: &mut Context<Self>,
+    ) {
         // Sync dispatcher to service panel (may have been set before panel was created)
         self.sync_service_panel_dispatcher(cx);
         self.service_panel.update(cx, |sp, cx| {
@@ -242,11 +256,20 @@ impl ProjectColumn {
     }
 
     #[allow(dead_code)]
-    fn render_hidden_taskbar(&self, project: &ProjectData, t: ThemeColors, cx: &App) -> impl IntoElement {
-        let minimized_terminals = project.layout.as_ref()
+    fn render_hidden_taskbar(
+        &self,
+        project: &ProjectData,
+        t: ThemeColors,
+        cx: &App,
+    ) -> impl IntoElement {
+        let minimized_terminals = project
+            .layout
+            .as_ref()
             .map(|l| l.collect_minimized_terminals())
             .unwrap_or_default();
-        let detached_terminals = project.layout.as_ref()
+        let detached_terminals = project
+            .layout
+            .as_ref()
             .map(|l| l.collect_detached_terminals())
             .unwrap_or_default();
 
@@ -257,74 +280,82 @@ impl ProjectColumn {
         h_flex()
             // Minimized terminals
             .children(
-                minimized_terminals.into_iter().map(|(terminal_id, layout_path)| {
-                    let workspace = self.workspace.clone();
-                    let project_id = self.project_id.clone();
+                minimized_terminals
+                    .into_iter()
+                    .map(|(terminal_id, layout_path)| {
+                        let workspace = self.workspace.clone();
+                        let project_id = self.project_id.clone();
 
-                    let terminal_name = {
-                        let osc_title = self.terminals.lock().get(&terminal_id).and_then(|t| t.title());
-                        project.terminal_display_name(&terminal_id, osc_title)
-                    };
+                        let terminal_name = {
+                            let osc_title = self
+                                .terminals
+                                .lock()
+                                .get(&terminal_id)
+                                .and_then(|t| t.title());
+                            project.terminal_display_name(&terminal_id, osc_title)
+                        };
 
-                    div()
-                        .id(ElementId::Name(format!("minimized-{}", terminal_id).into()))
-                        .cursor_pointer()
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .border_l_1()
-                        .border_color(rgb(t.border))
-                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
-                        .text_size(ui_text_sm(cx))
-                        .child(
-                            svg()
-                                .path("icons/terminal-minimized.svg")
-                                .size(px(10.0))
-                                .text_color(rgb(t.text_muted))
-                        )
-                        .child(
-                            div()
-                                .text_color(rgb(t.text_primary))
-                                .child(terminal_name)
-                        )
-                        .on_click(move |_, _window, cx| {
-                            workspace.update(cx, |ws, cx| {
-                                ws.restore_terminal(&project_id, &layout_path, cx);
-                            });
-                        })
-                })
+                        div()
+                            .id(ElementId::Name(format!("minimized-{}", terminal_id).into()))
+                            .cursor_pointer()
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .border_l_1()
+                            .border_color(rgb(t.border))
+                            .hover(|s| s.bg(rgb(t.bg_hover)))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.0))
+                            .text_size(ui_text_sm(cx))
+                            .child(
+                                svg()
+                                    .path("icons/terminal-minimized.svg")
+                                    .size(px(10.0))
+                                    .text_color(rgb(t.text_muted)),
+                            )
+                            .child(div().text_color(rgb(t.text_primary)).child(terminal_name))
+                            .on_click(move |_, _window, cx| {
+                                workspace.update(cx, |ws, cx| {
+                                    ws.restore_terminal(&project_id, &layout_path, cx);
+                                });
+                            })
+                    }),
             )
             // Detached terminals (with different styling)
             .children(
-                detached_terminals.into_iter().map(|(terminal_id, _layout_path)| {
-                    let workspace = self.workspace.clone();
-                    let terminal_id_for_click = terminal_id.clone();
+                detached_terminals
+                    .into_iter()
+                    .map(|(terminal_id, _layout_path)| {
+                        let workspace = self.workspace.clone();
+                        let terminal_id_for_click = terminal_id.clone();
 
-                    let terminal_name = {
-                        let osc_title = self.terminals.lock().get(&terminal_id).and_then(|t| t.title());
-                        project.terminal_display_name(&terminal_id, osc_title)
-                    };
+                        let terminal_name = {
+                            let osc_title = self
+                                .terminals
+                                .lock()
+                                .get(&terminal_id)
+                                .and_then(|t| t.title());
+                            project.terminal_display_name(&terminal_id, osc_title)
+                        };
 
-                    div()
-                        .id(ElementId::Name(format!("detached-{}", terminal_id).into()))
-                        .cursor_pointer()
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .border_l_1()
-                        .border_color(rgb(t.border))
-                        .bg(rgb(t.bg_hover))
-                        .hover(|s| s.bg(rgb(t.bg_selection)))
-                        .text_size(ui_text_sm(cx))
-                        .text_color(rgb(t.text_primary))
-                        .child(format!("\u{2197} {}", terminal_name))
-                        .on_click(move |_, _window, cx| {
-                            workspace.update(cx, |ws, cx| {
-                                ws.attach_terminal(&terminal_id_for_click, cx);
-                            });
-                        })
-                })
+                        div()
+                            .id(ElementId::Name(format!("detached-{}", terminal_id).into()))
+                            .cursor_pointer()
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .border_l_1()
+                            .border_color(rgb(t.border))
+                            .bg(rgb(t.bg_hover))
+                            .hover(|s| s.bg(rgb(t.bg_selection)))
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_primary))
+                            .child(format!("\u{2197} {}", terminal_name))
+                            .on_click(move |_, _window, cx| {
+                                workspace.update(cx, |ws, cx| {
+                                    ws.attach_terminal(&terminal_id_for_click, cx);
+                                });
+                            })
+                    }),
             )
             .into_any_element()
     }
@@ -340,10 +371,14 @@ impl ProjectColumn {
         let folder_color = t.get_folder_color(effective_color);
 
         // Fetch git status once for both header badge and git status area
-        let git_status = self.git_watcher.as_ref()
+        let git_status = self
+            .git_watcher
+            .as_ref()
             .and_then(|w| w.read(cx).get(&self.project_id).cloned())
             .or_else(|| {
-                self.workspace.read(cx).remote_snapshot(&self.project_id)
+                self.workspace
+                    .read(cx)
+                    .remote_snapshot(&self.project_id)
                     .and_then(|snap| snap.git_status.as_ref())
                     .map(|g| git::GitStatus {
                         branch: g.branch.clone(),
@@ -353,40 +388,39 @@ impl ProjectColumn {
                     })
             });
 
-        v_flex()
-            .child(div()
-            .id("project-header")
-            .group("project-header")
-            .h(px(34.0))
-            .px(px(12.0))
-            .flex()
-            .items_center()
-            .justify_between()
-            .bg(rgb(t.bg_header))
-            .border_b_1()
-            .border_color(rgb(t.border))
-            .on_mouse_down(MouseButton::Right, {
-                let request_broker = self.request_broker.clone();
-                let project_id = self.project_id.clone();
-                move |event, _window, cx| {
-                    cx.stop_propagation();
-                    request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(
-                            OverlayRequest::ContextMenu {
-                                project_id: project_id.clone(),
-                                position: event.position,
-                            },
-                            cx,
-                        );
-                    });
-                }
-            })
-            .child(
-                h_flex()
-                    .gap(px(6.0))
-                    .overflow_hidden()
-                    .child(
-                        if project.worktree_info.is_some() {
+        v_flex().child(
+            div()
+                .id("project-header")
+                .group("project-header")
+                .h(px(34.0))
+                .px(px(12.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .bg(rgb(t.bg_header))
+                .border_b_1()
+                .border_color(rgb(t.border))
+                .on_mouse_down(MouseButton::Right, {
+                    let request_broker = self.request_broker.clone();
+                    let project_id = self.project_id.clone();
+                    move |event, _window, cx| {
+                        cx.stop_propagation();
+                        request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(
+                                OverlayRequest::ContextMenu {
+                                    project_id: project_id.clone(),
+                                    position: event.position,
+                                },
+                                cx,
+                            );
+                        });
+                    }
+                })
+                .child(
+                    h_flex()
+                        .gap(px(6.0))
+                        .overflow_hidden()
+                        .child(if project.worktree_info.is_some() {
                             div()
                                 .flex_shrink_0()
                                 .w(px(8.0))
@@ -403,138 +437,145 @@ impl ProjectColumn {
                                 .rounded(px(4.0))
                                 .bg(rgb(folder_color))
                                 .into_any_element()
-                        }
-                    )
-                    .child({
-                        let display_name = if let Some(ref wt_info) = project.worktree_info {
-                            let ws = self.workspace.read(cx);
-                            ws.project(&wt_info.parent_project_id)
-                                .map(|p| p.name.clone())
-                                .unwrap_or_else(|| project.name.clone())
-                        } else {
-                            project.name.clone()
-                        };
-                        let path_for_tooltip = project.path.clone();
-                        let project_id_for_click = self.project_id.clone();
-                        let request_broker_for_click = self.request_broker.clone();
-                        div()
-                            .id("project-name")
-                            .flex_shrink_0()
-                            .text_size(ui_text_md(cx))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(t.text_primary))
-                            .line_height(px(14.0))
-                            .text_ellipsis()
-                            .cursor_pointer()
-                            .rounded(px(3.0))
-                            .px(px(2.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_click(move |_, _, cx| {
-                                request_broker_for_click.update(cx, |broker, cx| {
-                                    broker.push_overlay_request(
-                                        OverlayRequest::FileBrowser { project_id: project_id_for_click.clone() },
-                                        cx,
-                                    );
-                                });
-                            })
-                            .tooltip(move |_window, cx| Tooltip::new(path_for_tooltip.clone()).build(_window, cx))
-                            .child(display_name)
-                    })
-                    // Git status (delegated to GitHeader entity)
-                    .child({
-                        self.git_header.update(cx, |gh, cx| {
-                            gh.render_git_status(
-                                git_status,
-                                &t,
-                                cx,
-                            )
                         })
-                    }),
-            )
-            .child(
-                // Right side: minimized taskbar + controls
-                h_flex()
-                    .gap(px(8.0))
-                    .child(self.render_hidden_taskbar(project, t, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(2.0))
-                            .opacity(0.0)
-                            .group_hover("project-header", |s| s.opacity(1.0))
-                            .child(
-                                div()
-                                    .id("hide-project-btn")
-                                    .cursor_pointer()
-                                    .w(px(24.0))
-                                    .h(px(24.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation();
-                                    })
-                                    .on_click(move |_, _window, cx| {
-                                        cx.stop_propagation();
-                                        workspace_for_hide.update(cx, |ws, cx| {
-                                            ws.toggle_project_overview_visibility(&project_id_for_hide, cx);
-                                        });
-                                    })
-                                    .child(
-                                        svg()
-                                            .path("icons/eye-off.svg")
-                                            .size(px(14.0))
-                                            .text_color(rgb(t.text_secondary))
-                                    )
-                                    .tooltip(|_window, cx| Tooltip::new("Hide Project").build(_window, cx)),
-                            )
-                            .child(
-                                div()
-                                    .id("fullscreen-project-btn")
-                                    .cursor_pointer()
-                                    .w(px(24.0))
-                                    .h(px(24.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded(px(4.0))
-                                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation();
-                                    })
-                                    .on_click(move |_, _window, cx| {
-                                        cx.stop_propagation();
-                                        workspace.update(cx, |ws, cx| {
-                                            ws.set_focused_project(Some(project_id.clone()), cx);
-                                        });
-                                    })
-                                    .child(
-                                        svg()
-                                            .path("icons/fullscreen.svg")
-                                            .size(px(14.0))
-                                            .text_color(rgb(t.text_secondary))
-                                    )
-                                    .tooltip(|_window, cx| Tooltip::new("Focus Project").build(_window, cx)),
-                            ),
-                    )
-                    // Hook indicator (delegated to HookPanel entity)
-                    .child({
-                        self.hook_panel.update(cx, |hp, cx| {
-                            hp.render_hook_indicator(&t, cx)
+                        .child({
+                            let display_name = if let Some(ref wt_info) = project.worktree_info {
+                                let ws = self.workspace.read(cx);
+                                ws.project(&wt_info.parent_project_id)
+                                    .map(|p| p.name.clone())
+                                    .unwrap_or_else(|| project.name.clone())
+                            } else {
+                                project.name.clone()
+                            };
+                            let path_for_tooltip = project.path.clone();
+                            let project_id_for_click = self.project_id.clone();
+                            let request_broker_for_click = self.request_broker.clone();
+                            div()
+                                .id("project-name")
+                                .flex_shrink_0()
+                                .text_size(ui_text_md(cx))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(rgb(t.text_primary))
+                                .line_height(px(14.0))
+                                .text_ellipsis()
+                                .cursor_pointer()
+                                .rounded(px(3.0))
+                                .px(px(2.0))
+                                .hover(|s| s.bg(rgb(t.bg_hover)))
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                    cx.stop_propagation();
+                                })
+                                .on_click(move |_, _, cx| {
+                                    request_broker_for_click.update(cx, |broker, cx| {
+                                        broker.push_overlay_request(
+                                            OverlayRequest::FileBrowser {
+                                                project_id: project_id_for_click.clone(),
+                                            },
+                                            cx,
+                                        );
+                                    });
+                                })
+                                .tooltip(move |_window, cx| {
+                                    Tooltip::new(path_for_tooltip.clone()).build(_window, cx)
+                                })
+                                .child(display_name)
                         })
-                    })
-                    // Service indicator (delegated to ServicePanel entity)
-                    .child({
-                        self.service_panel.update(cx, |sp, cx| {
-                            sp.render_service_indicator(&t, cx)
+                        // Git status (delegated to GitHeader entity)
+                        .child({
+                            self.git_header
+                                .update(cx, |gh, cx| gh.render_git_status(git_status, &t, cx))
+                        }),
+                )
+                .child(
+                    // Right side: minimized taskbar + controls
+                    h_flex()
+                        .gap(px(8.0))
+                        .child(self.render_hidden_taskbar(project, t, cx))
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(2.0))
+                                .opacity(0.0)
+                                .group_hover("project-header", |s| s.opacity(1.0))
+                                .child(
+                                    div()
+                                        .id("hide-project-btn")
+                                        .cursor_pointer()
+                                        .w(px(24.0))
+                                        .h(px(24.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(4.0))
+                                        .hover(|s| s.bg(rgb(t.bg_hover)))
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_click(move |_, _window, cx| {
+                                            cx.stop_propagation();
+                                            workspace_for_hide.update(cx, |ws, cx| {
+                                                ws.toggle_project_overview_visibility(
+                                                    &project_id_for_hide,
+                                                    cx,
+                                                );
+                                            });
+                                        })
+                                        .child(
+                                            svg()
+                                                .path("icons/eye-off.svg")
+                                                .size(px(14.0))
+                                                .text_color(rgb(t.text_secondary)),
+                                        )
+                                        .tooltip(|_window, cx| {
+                                            Tooltip::new("Hide Project").build(_window, cx)
+                                        }),
+                                )
+                                .child(
+                                    div()
+                                        .id("fullscreen-project-btn")
+                                        .cursor_pointer()
+                                        .w(px(24.0))
+                                        .h(px(24.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(4.0))
+                                        .hover(|s| s.bg(rgb(t.bg_hover)))
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_click(move |_, _window, cx| {
+                                            cx.stop_propagation();
+                                            workspace.update(cx, |ws, cx| {
+                                                ws.set_focused_project(
+                                                    Some(project_id.clone()),
+                                                    cx,
+                                                );
+                                            });
+                                        })
+                                        .child(
+                                            svg()
+                                                .path("icons/fullscreen.svg")
+                                                .size(px(14.0))
+                                                .text_color(rgb(t.text_secondary)),
+                                        )
+                                        .tooltip(|_window, cx| {
+                                            Tooltip::new("Focus Project").build(_window, cx)
+                                        }),
+                                ),
+                        )
+                        // Hook indicator (delegated to HookPanel entity)
+                        .child({
+                            self.hook_panel
+                                .update(cx, |hp, cx| hp.render_hook_indicator(&t, cx))
                         })
-                    }),
-            ))
+                        // Service indicator (delegated to ServicePanel entity)
+                        .child({
+                            self.service_panel
+                                .update(cx, |sp, cx| sp.render_service_indicator(&t, cx))
+                        }),
+                ),
+        )
     }
 
     /// Render empty state for bookmark projects (no terminal)
@@ -582,13 +623,13 @@ impl ProjectColumn {
                 svg()
                     .path("icons/folder.svg")
                     .size(px(48.0))
-                    .text_color(rgb(t.text_muted))
+                    .text_color(rgb(t.text_muted)),
             )
             .child(
                 div()
                     .text_size(ui_text_xl(cx))
                     .text_color(rgb(t.text_muted))
-                    .child("No terminal attached")
+                    .child("No terminal attached"),
             )
             .child(
                 div()
@@ -596,7 +637,9 @@ impl ProjectColumn {
                     .text_color(rgb(t.text_muted))
                     .max_w(px(200.0))
                     .text_center()
-                    .child("This project is saved as a bookmark. Start a terminal to begin working.")
+                    .child(
+                        "This project is saved as a bookmark. Start a terminal to begin working.",
+                    ),
             )
             .child(
                 div()
@@ -614,14 +657,14 @@ impl ProjectColumn {
                         svg()
                             .path("icons/terminal.svg")
                             .size(px(14.0))
-                            .text_color(rgb(t.button_primary_fg))
+                            .text_color(rgb(t.button_primary_fg)),
                     )
                     .child(
                         div()
                             .text_size(ui_text_md(cx))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(rgb(t.button_primary_fg))
-                            .child("Start Terminal")
+                            .child("Start Terminal"),
                     )
                     .on_click({
                         let dispatcher = self.action_dispatcher.clone();
@@ -635,7 +678,7 @@ impl ProjectColumn {
                                 );
                             }
                         }
-                    })
+                    }),
             )
     }
 }
@@ -656,7 +699,11 @@ impl Render for ProjectColumn {
                 let bg_color = if crate::settings::settings(cx).color_tinted_background {
                     let color = workspace.effective_folder_color(&project);
                     if color != crate::theme::FolderColor::Default {
-                        rgb(crate::ui::tint_color(t.bg_primary, t.get_folder_color(color), 0.025))
+                        rgb(crate::ui::tint_color(
+                            t.bg_primary,
+                            t.get_folder_color(color),
+                            0.025,
+                        ))
                     } else {
                         rgb(t.bg_primary)
                     }
@@ -673,9 +720,14 @@ impl Render for ProjectColumn {
                         .flex_1()
                         .min_h_0()
                         .overflow_hidden()
-                        .child(AnyView::from(self.layout_container.clone().expect("ensure_layout_container sets this to Some")).cached(
-                            StyleRefinement::default().size_full()
-                        ))
+                        .child(
+                            AnyView::from(
+                                self.layout_container
+                                    .clone()
+                                    .expect("ensure_layout_container sets this to Some"),
+                            )
+                            .cached(StyleRefinement::default().size_full()),
+                        )
                         .into_any_element()
                 } else if is_creating {
                     self.render_creating_state(cx).into_any_element()
@@ -684,7 +736,9 @@ impl Render for ProjectColumn {
                 };
 
                 // Get current branch for commit log popover and update git header
-                let current_branch = self.git_watcher.as_ref()
+                let current_branch = self
+                    .git_watcher
+                    .as_ref()
                     .and_then(|w| w.read(cx).get(&self.project_id).cloned())
                     .and_then(|s| s.branch);
                 self.git_header.update(cx, |gh, _cx| {
@@ -701,22 +755,16 @@ impl Render for ProjectColumn {
                     .bg(bg_color)
                     .child(content)
                     // Hook panel (delegated to HookPanel entity)
-                    .child({
-                        self.hook_panel.update(cx, |hp, cx| {
-                            hp.render_panel(&t, cx)
-                        })
-                    })
+                    .child(self.hook_panel.update(cx, |hp, cx| hp.render_panel(&t, cx)))
                     // Service panel (delegated to ServicePanel entity)
                     .child({
-                        self.service_panel.update(cx, |sp, cx| {
-                            sp.render_panel(&t, cx)
-                        })
+                        self.service_panel
+                            .update(cx, |sp, cx| sp.render_panel(&t, cx))
                     })
                     // Diff popover (delegated to GitHeader entity)
                     .child({
-                        self.git_header.update(cx, |gh, cx| {
-                            gh.render_diff_popover(&t, cx)
-                        })
+                        self.git_header
+                            .update(cx, |gh, cx| gh.render_diff_popover(&t, cx))
                     })
                     .into_any_element()
             }

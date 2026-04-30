@@ -109,7 +109,8 @@ pub fn start_update_checker(update_info: UpdateInfo, cx: &mut Context<UpdateStat
                                     std::task::Poll::Ready(r) => std::task::Poll::Ready(Some(r)),
                                     std::task::Poll::Pending => std::task::Poll::Ready(None),
                                 }
-                            }).await;
+                            })
+                            .await;
                             match polled {
                                 Some(r) => break r,
                                 None => {
@@ -121,10 +122,7 @@ pub fn start_update_checker(update_info: UpdateInfo, cx: &mut Context<UpdateStat
 
                         match result {
                             Ok(path) => {
-                                update_info.set_status(UpdateStatus::Ready {
-                                    version,
-                                    path,
-                                });
+                                update_info.set_status(UpdateStatus::Ready { version, path });
                                 let _ = this.update(cx, |_, cx| cx.notify());
                                 update_info.mark_stopped(token);
                                 return;

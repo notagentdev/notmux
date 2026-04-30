@@ -3,11 +3,9 @@
 // Re-export everything from vryn-theme
 #[allow(unused_imports)]
 pub use vryn_theme::{
-    ThemeColors, ThemeInfo, ThemeMode, FolderColor,
-    DARK_THEME, LIGHT_THEME, PASTEL_DARK_THEME, HIGH_CONTRAST_THEME,
-    with_alpha, ansi_to_hsla,
-    AppTheme, GlobalTheme, theme_entity,
-    CustomThemeConfig, CustomThemeColors, get_themes_dir, load_custom_themes,
+    AppTheme, CustomThemeColors, CustomThemeConfig, DARK_THEME, FolderColor, GlobalTheme,
+    HIGH_CONTRAST_THEME, LIGHT_THEME, PASTEL_DARK_THEME, ThemeColors, ThemeInfo, ThemeMode,
+    ansi_to_hsla, get_themes_dir, load_custom_themes, theme_entity, with_alpha,
 };
 
 use gpui::*;

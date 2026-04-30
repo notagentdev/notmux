@@ -1,5 +1,3 @@
-use vryn_extensions::ThemeColors;
-use vryn_ui::tokens::{ui_text_xs, ui_text_sm, ui_text_ms, ui_text_md};
 use base64::Engine as _;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -8,9 +6,11 @@ use parking_lot::Mutex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use vryn_extensions::ThemeColors;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xs};
 
 /// Refresh interval for usage data
 const USAGE_INTERVAL: Duration = Duration::from_secs(300);
@@ -111,23 +111,24 @@ fn refresh_access_token(auth: &CodexAuth) -> Option<String> {
 
     // Persist new tokens back to auth.json
     if let Ok(content) = std::fs::read_to_string(&auth.auth_path)
-        && let Ok(mut file_json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(tokens) = file_json.get_mut("tokens").and_then(|t| t.as_object_mut()) {
+        && let Ok(mut file_json) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        if let Some(tokens) = file_json.get_mut("tokens").and_then(|t| t.as_object_mut()) {
+            tokens.insert(
+                "access_token".to_string(),
+                serde_json::Value::String(new_access.to_string()),
+            );
+            if let Some(rt) = new_refresh {
                 tokens.insert(
-                    "access_token".to_string(),
-                    serde_json::Value::String(new_access.to_string()),
+                    "refresh_token".to_string(),
+                    serde_json::Value::String(rt.to_string()),
                 );
-                if let Some(rt) = new_refresh {
-                    tokens.insert(
-                        "refresh_token".to_string(),
-                        serde_json::Value::String(rt.to_string()),
-                    );
-                }
-            }
-            if let Ok(updated) = serde_json::to_string_pretty(&file_json) {
-                let _ = std::fs::write(&auth.auth_path, updated);
             }
         }
+        if let Ok(updated) = serde_json::to_string_pretty(&file_json) {
+            let _ = std::fs::write(&auth.auth_path, updated);
+        }
+    }
 
     Some(new_access.to_string())
 }
@@ -238,10 +239,7 @@ fn fetch_usage_from_local_sessions(auth: &CodexAuth) -> Option<UsageData> {
                     .get("unlimited")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false),
-                balance: c
-                    .get("balance")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0),
+                balance: c.get("balance").and_then(|v| v.as_f64()).unwrap_or(0.0),
             });
 
             if primary_window.is_some() || secondary_window.is_some() {
@@ -303,7 +301,10 @@ fn fetch_usage() -> Option<UsageData> {
             match try_fetch_with_token(&client, &new_token, &auth.account_id) {
                 Ok(resp) => resp,
                 Err(status) => {
-                    log::warn!("[codex-usage] API returned {:?} after token refresh", status);
+                    log::warn!(
+                        "[codex-usage] API returned {:?} after token refresh",
+                        status
+                    );
                     return fetch_usage_from_local_sessions(&auth);
                 }
             }
@@ -316,10 +317,7 @@ fn fetch_usage() -> Option<UsageData> {
 
     let body: serde_json::Value = resp.json().ok()?;
 
-    let plan_type = body["plan_type"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let plan_type = body["plan_type"].as_str().unwrap_or("unknown").to_string();
 
     let primary_window = body["rate_limit"]["primary_window"]
         .as_object()
@@ -342,10 +340,7 @@ fn fetch_usage() -> Option<UsageData> {
             .get("unlimited")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        balance: c
-            .get("balance")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0),
+        balance: c.get("balance").and_then(|v| v.as_f64()).unwrap_or(0.0),
     });
 
     Some(UsageData {
@@ -451,11 +446,7 @@ impl CodexUsage {
         .detach();
     }
 
-    fn render_popover(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_popover(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         let data = self.data.lock();
         let data = match data.as_ref() {
             Some(d) if self.popover_visible => d.clone(),
@@ -522,8 +513,15 @@ impl CodexUsage {
                                     el.child(render_window_row(t, cx, "Code Review", w))
                                 })
                                 .when(
-                                    data.primary_window.as_ref().and_then(|w| w.time_elapsed_pct).is_some()
-                                        || data.secondary_window.as_ref().and_then(|w| w.time_elapsed_pct).is_some(),
+                                    data.primary_window
+                                        .as_ref()
+                                        .and_then(|w| w.time_elapsed_pct)
+                                        .is_some()
+                                        || data
+                                            .secondary_window
+                                            .as_ref()
+                                            .and_then(|w| w.time_elapsed_pct)
+                                            .is_some(),
                                     |el| {
                                         el.child(
                                             div()

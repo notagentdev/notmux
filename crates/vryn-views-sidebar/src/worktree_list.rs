@@ -3,13 +3,13 @@
 //! Shows all git worktrees for a project with checkboxes to toggle sidebar visibility.
 //! Rendered at RootView level via OverlayManager, like context menus.
 
+use gpui::prelude::*;
+use gpui::*;
 use vryn_ui::overlay::CloseEvent;
 use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text_ms, ui_text_md};
+use vryn_ui::tokens::{ui_text_md, ui_text_ms};
 use vryn_workspace::settings::HooksConfig;
 use vryn_workspace::state::Workspace;
-use gpui::*;
-use gpui::prelude::*;
 
 use crate::Cancel;
 
@@ -19,7 +19,9 @@ pub enum WorktreeListPopoverEvent {
 }
 
 impl CloseEvent for WorktreeListPopoverEvent {
-    fn is_close(&self) -> bool { matches!(self, Self::Close) }
+    fn is_close(&self) -> bool {
+        matches!(self, Self::Close)
+    }
 }
 
 impl EventEmitter<WorktreeListPopoverEvent> for WorktreeListPopover {}
@@ -46,16 +48,26 @@ impl WorktreeListPopover {
         hooks: HooksConfig,
         cx: &mut Context<Self>,
     ) -> Self {
-        let project_path = workspace.read(cx).project(&project_id)
+        let project_path = workspace
+            .read(cx)
+            .project(&project_id)
             .map(|p| p.path.clone())
             .unwrap_or_default();
-        let (git_root, subdir) = vryn_git::resolve_git_root_and_subdir(
-            std::path::Path::new(&project_path),
-        );
+        let (git_root, subdir) =
+            vryn_git::resolve_git_root_and_subdir(std::path::Path::new(&project_path));
         let norm_git_root = vryn_git::repository::normalize_path(&git_root);
         let entries = vryn_git::repository::list_git_worktrees(&git_root);
         let focus_handle = cx.focus_handle();
-        Self { workspace, project_id, entries, position, hooks, focus_handle, norm_git_root, subdir }
+        Self {
+            workspace,
+            project_id,
+            entries,
+            position,
+            hooks,
+            focus_handle,
+            norm_git_root,
+            subdir,
+        }
     }
 
     /// Find a tracked worktree project by its worktree root path.
@@ -64,10 +76,15 @@ impl WorktreeListPopover {
     fn find_tracked_project_id(&self, wt_path: &str, cx: &App) -> Option<String> {
         let expected_path = vryn_git::repository::project_path_in_worktree(wt_path, &self.subdir);
         let ws = self.workspace.read(cx);
-        ws.data().projects.iter()
-            .find(|p| (p.path == expected_path || p.path == wt_path)
-                && p.worktree_info.as_ref()
-                    .is_some_and(|wt| wt.parent_project_id == self.project_id))
+        ws.data()
+            .projects
+            .iter()
+            .find(|p| {
+                (p.path == expected_path || p.path == wt_path)
+                    && p.worktree_info
+                        .as_ref()
+                        .is_some_and(|wt| wt.parent_project_id == self.project_id)
+            })
             .map(|p| p.id.clone())
     }
 
@@ -88,13 +105,21 @@ impl Render for WorktreeListPopover {
         let project_id = &self.project_id;
         let subdir = &self.subdir;
 
-        let tracked_project_paths: std::collections::HashSet<String> = ws.data().projects.iter()
-            .filter(|p| p.worktree_info.as_ref()
-                .is_some_and(|wt| wt.parent_project_id == *project_id))
+        let tracked_project_paths: std::collections::HashSet<String> = ws
+            .data()
+            .projects
+            .iter()
+            .filter(|p| {
+                p.worktree_info
+                    .as_ref()
+                    .is_some_and(|wt| wt.parent_project_id == *project_id)
+            })
             .map(|p| p.path.clone())
             .collect();
 
-        let worktrees: Vec<(String, String, bool)> = self.entries.iter()
+        let worktrees: Vec<(String, String, bool)> = self
+            .entries
+            .iter()
             .filter(|(wt_path, _)| {
                 let norm_wt = vryn_git::repository::normalize_path(std::path::Path::new(wt_path));
                 norm_wt != self.norm_git_root
@@ -116,7 +141,7 @@ impl Render for WorktreeListPopover {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(t.text_secondary))
                     .pb(px(6.0))
-                    .child("WORKTREES")
+                    .child("WORKTREES"),
             )
             .when(worktrees.is_empty(), |d| {
                 d.child(
@@ -124,7 +149,7 @@ impl Render for WorktreeListPopover {
                         .text_size(ui_text_md(cx))
                         .text_color(rgb(t.text_muted))
                         .py(px(8.0))
-                        .child("No worktrees found")
+                        .child("No worktrees found"),
                 )
             })
             .children(worktrees.into_iter().map(|(wt_path, branch, is_tracked)| {
@@ -171,7 +196,11 @@ impl Render for WorktreeListPopover {
                             .h(px(14.0))
                             .rounded(px(3.0))
                             .border_1()
-                            .border_color(rgb(if is_tracked { t.border_active } else { t.border }))
+                            .border_color(rgb(if is_tracked {
+                                t.border_active
+                            } else {
+                                t.border
+                            }))
                             .when(is_tracked, |d| d.bg(rgb(t.border_active)))
                             .flex()
                             .items_center()
@@ -181,22 +210,19 @@ impl Render for WorktreeListPopover {
                                     svg()
                                         .path("icons/check.svg")
                                         .size(px(10.0))
-                                        .text_color(rgb(t.bg_primary))
+                                        .text_color(rgb(t.bg_primary)),
                                 )
-                            })
+                            }),
                     )
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .text_size(ui_text_md(cx))
-                                    .text_color(rgb(t.text_primary))
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(branch.clone())
-                            )
+                        div().flex_1().min_w_0().child(
+                            div()
+                                .text_size(ui_text_md(cx))
+                                .text_color(rgb(t.text_primary))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .child(branch.clone()),
+                        ),
                     )
             }));
 
@@ -212,18 +238,23 @@ impl Render for WorktreeListPopover {
             .inset_0()
             .occlude()
             .id("worktree-list-backdrop")
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
-            .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
-            .on_scroll_wheel(|_, _, cx| { cx.stop_propagation(); })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
+            .on_scroll_wheel(|_, _, cx| {
+                cx.stop_propagation();
+            })
             .child(deferred(
-                anchored()
-                    .position(position)
-                    .snap_to_window()
-                    .child(panel)
+                anchored().position(position).snap_to_window().child(panel),
             ))
     }
 }

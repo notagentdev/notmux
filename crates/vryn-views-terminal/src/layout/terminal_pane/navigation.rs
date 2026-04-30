@@ -1,10 +1,10 @@
 //! Terminal pane navigation, search, and key handling.
 
 use crate::ActionDispatch;
-use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
-use crate::layout::navigation::{get_pane_map, PaneBounds, NavigationDirection};
+use crate::layout::navigation::{NavigationDirection, PaneBounds, get_pane_map};
 use crate::layout::terminal_pane::actions::paste_clipboard_into_terminal;
 use gpui::*;
+use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
 
 use super::TerminalPane;
 
@@ -106,9 +106,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                 && !terminal.is_mouse_mode()
                 && !terminal.is_alt_screen()
                 && !terminal.has_running_child()
-                && terminal.delete_selection() {
-                    return;
-                }
+                && terminal.delete_selection()
+            {
+                return;
+            }
 
             let app_cursor_mode = terminal.is_app_cursor_mode();
             let key_event = KeyEvent {

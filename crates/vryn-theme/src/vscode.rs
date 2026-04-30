@@ -303,11 +303,10 @@ fn load_recursive(path: &Path, depth: u8) -> Result<VsCodeTheme, String> {
             path.display()
         ));
     }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let stripped = strip_jsonc(&raw);
-    let mut theme: VsCodeTheme = serde_json::from_str(&stripped)
-        .map_err(|e| format!("parse {}: {e}", path.display()))?;
+    let mut theme: VsCodeTheme =
+        serde_json::from_str(&stripped).map_err(|e| format!("parse {}: {e}", path.display()))?;
 
     if let Some(include_rel) = theme.include.clone() {
         let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -386,8 +385,7 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     };
 
     // Primary text — resolved early so we can derive contrast-visible borders from it.
-    let text_primary =
-        look(&["foreground", "editor.foreground"]).unwrap_or(fallback.text_primary);
+    let text_primary = look(&["foreground", "editor.foreground"]).unwrap_or(fallback.text_primary);
     let text_secondary = look(&[
         "tab.inactiveForeground",
         "sideBar.foreground",
@@ -446,8 +444,7 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     let border_active = ensure_visible_border(border_active_raw, bg_primary, text_primary);
     // Keyboard-focus ring. Many themes set `focusBorder` to fully transparent —
     // in that case reuse the active accent so focus is still visible.
-    let border_focused_raw =
-        look(&["focusBorder", "tab.activeBorder"]).unwrap_or(border_active);
+    let border_focused_raw = look(&["focusBorder", "tab.activeBorder"]).unwrap_or(border_active);
     let border_focused = ensure_visible_border(border_focused_raw, bg_primary, text_primary);
     let border_bell = look(&[
         "notificationsWarningIcon.foreground",
@@ -455,8 +452,8 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         "editorWarning.foreground",
     ])
     .unwrap_or(fallback.border_bell);
-    let border_idle = look(&["descriptionForeground", "disabledForeground"])
-        .unwrap_or(fallback.border_idle);
+    let border_idle =
+        look(&["descriptionForeground", "disabledForeground"]).unwrap_or(fallback.border_idle);
 
     // Text selection inside a terminal pane.
     let selection_bg = look(&[
@@ -492,12 +489,10 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         look(&["terminal.ansiBrightGreen"]).unwrap_or(fallback.term_bright_green);
     let term_bright_yellow =
         look(&["terminal.ansiBrightYellow"]).unwrap_or(fallback.term_bright_yellow);
-    let term_bright_blue =
-        look(&["terminal.ansiBrightBlue"]).unwrap_or(fallback.term_bright_blue);
+    let term_bright_blue = look(&["terminal.ansiBrightBlue"]).unwrap_or(fallback.term_bright_blue);
     let term_bright_magenta =
         look(&["terminal.ansiBrightMagenta"]).unwrap_or(fallback.term_bright_magenta);
-    let term_bright_cyan =
-        look(&["terminal.ansiBrightCyan"]).unwrap_or(fallback.term_bright_cyan);
+    let term_bright_cyan = look(&["terminal.ansiBrightCyan"]).unwrap_or(fallback.term_bright_cyan);
     let term_bright_white =
         look(&["terminal.ansiBrightWhite"]).unwrap_or(fallback.term_bright_white);
 
@@ -519,8 +514,8 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         look(&["terminal.background", "editor.background"]).unwrap_or(fallback.term_background);
     let term_background_unfocused = look(&["terminal.background", "editor.background"])
         .unwrap_or(fallback.term_background_unfocused);
-    let cursor = look(&["terminalCursor.foreground", "editorCursor.foreground"])
-        .unwrap_or(fallback.cursor);
+    let cursor =
+        look(&["terminalCursor.foreground", "editorCursor.foreground"]).unwrap_or(fallback.cursor);
 
     let scrollbar = look(&["scrollbarSlider.background"]).unwrap_or(fallback.scrollbar);
     let scrollbar_hover =
@@ -555,8 +550,8 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         .unwrap_or(fallback.folder_yellow);
     let folder_lime =
         look(&["charts.lines", "terminal.ansiBrightGreen"]).unwrap_or(fallback.folder_lime);
-    let folder_green = look(&["terminal.ansiBrightGreen", "terminal.ansiGreen"])
-        .unwrap_or(fallback.folder_green);
+    let folder_green =
+        look(&["terminal.ansiBrightGreen", "terminal.ansiGreen"]).unwrap_or(fallback.folder_green);
     let folder_teal = look(&["terminal.ansiCyan"]).unwrap_or(fallback.folder_teal);
     let folder_cyan =
         look(&["terminal.ansiBrightCyan", "terminal.ansiCyan"]).unwrap_or(fallback.folder_cyan);
@@ -727,7 +722,10 @@ mod tests {
         // Raw #303340 would be much brighter; blended result should be closer to bg_primary.
         assert_ne!(mapped.bg_selection, 0x303340, "must blend, not strip alpha");
         let r = (mapped.bg_selection >> 16) & 0xff;
-        assert!(r < 0x30, "blended red channel should be darker than raw: got {r:#x}");
+        assert!(
+            r < 0x30,
+            "blended red channel should be darker than raw: got {r:#x}"
+        );
     }
 
     #[test]
@@ -953,10 +951,7 @@ mod tests {
 
     #[test]
     fn include_chain_merges_with_child_precedence() {
-        let tmp = std::env::temp_dir().join(format!(
-            "vryn-vscode-test-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("vryn-vscode-test-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let parent = tmp.join("parent.json");
         let child = tmp.join("child.json");
@@ -971,18 +966,21 @@ mod tests {
         )
         .unwrap();
         let merged = load_with_includes(&child).unwrap();
-        assert_eq!(merged.colors.get("editor.background").map(String::as_str), Some("#222222"));
-        assert_eq!(merged.colors.get("foreground").map(String::as_str), Some("#cccccc"));
+        assert_eq!(
+            merged.colors.get("editor.background").map(String::as_str),
+            Some("#222222")
+        );
+        assert_eq!(
+            merged.colors.get("foreground").map(String::as_str),
+            Some("#cccccc")
+        );
         assert_eq!(merged.name.as_deref(), Some("Parent"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn include_loop_guard_triggers() {
-        let tmp = std::env::temp_dir().join(format!(
-            "vryn-vscode-loop-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("vryn-vscode-loop-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let a = tmp.join("a.json");
         let b = tmp.join("b.json");

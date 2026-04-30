@@ -4,7 +4,9 @@ fn main() {
     // Forward log warnings to stderr
     struct StderrLogger;
     impl log::Log for StderrLogger {
-        fn enabled(&self, _m: &log::Metadata) -> bool { true }
+        fn enabled(&self, _m: &log::Metadata) -> bool {
+            true
+        }
         fn log(&self, r: &log::Record) {
             eprintln!("[{}] {}", r.level(), r.args());
         }
@@ -16,7 +18,9 @@ fn main() {
     let themes = load_custom_themes();
     println!("Loaded {} theme(s)", themes.len());
     for (info, colors) in &themes {
-        if !info.id.contains("poimandres-dark") { continue; }
+        if !info.id.contains("poimandres-dark") {
+            continue;
+        }
         println!("\n=== {} ({}) ===", info.name, info.id);
         println!("  bg_primary     = #{:06x}", colors.bg_primary);
         println!("  bg_secondary   = #{:06x}", colors.bg_secondary);

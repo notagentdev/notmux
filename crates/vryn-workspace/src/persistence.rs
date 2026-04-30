@@ -1,9 +1,9 @@
-use vryn_terminal::session_backend::SessionBackend;
 use crate::state::{HookTerminalStatus, WorkspaceData};
 #[cfg(test)]
 use crate::state::{LayoutNode, ProjectData, WorktreeMetadata};
 #[cfg(test)]
 use vryn_core::theme::FolderColor;
+use vryn_terminal::session_backend::SessionBackend;
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -17,20 +17,18 @@ static LOADED_FROM_DEFAULT: AtomicBool = AtomicBool::new(false);
 // Re-export from settings module for backward compatibility
 #[allow(unused_imports)]
 pub use super::settings::{
-    load_settings, save_settings, get_settings_path,
-    AppSettings, CursorShape, DiffViewMode, HooksConfig, ProjectHooks, TerminalHooks, WorktreeHooks, SidebarSettings, GitPanelSettings, FileExplorerSettings,
-    DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH,
-    DEFAULT_GIT_PANEL_WIDTH, MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH,
-    DEFAULT_FILE_EXPLORER_WIDTH, MIN_FILE_EXPLORER_WIDTH, MAX_FILE_EXPLORER_WIDTH,
-    SETTINGS_VERSION,
+    AppSettings, CursorShape, DEFAULT_FILE_EXPLORER_WIDTH, DEFAULT_GIT_PANEL_WIDTH,
+    DEFAULT_SIDEBAR_WIDTH, DiffViewMode, FileExplorerSettings, GitPanelSettings, HooksConfig,
+    MAX_FILE_EXPLORER_WIDTH, MAX_GIT_PANEL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_FILE_EXPLORER_WIDTH,
+    MIN_GIT_PANEL_WIDTH, MIN_SIDEBAR_WIDTH, ProjectHooks, SETTINGS_VERSION, SidebarSettings,
+    TerminalHooks, WorktreeHooks, get_settings_path, load_settings, save_settings,
 };
 
 // Re-export from sessions module for backward compatibility
 #[allow(unused_imports)]
 pub use super::sessions::{
-    list_sessions, save_session, load_session, delete_session, rename_session, session_exists,
-    export_workspace, import_workspace,
-    SessionInfo, ExportedWorkspace,
+    ExportedWorkspace, SessionInfo, delete_session, export_workspace, import_workspace,
+    list_sessions, load_session, rename_session, save_session, session_exists,
 };
 
 /// Current workspace schema version - increment when making breaking changes
@@ -88,16 +86,17 @@ pub fn acquire_instance_lock() -> Result<LockGuard> {
     // Check if a lock file already exists with a live process
     if lock_path.exists()
         && let Ok(content) = std::fs::read_to_string(&lock_path)
-            && let Ok(pid) = content.trim().parse::<u32>() {
-                if is_process_alive(pid) {
-                    anyhow::bail!(
-                        "Another Vryn instance is already running (PID {pid}). \
+        && let Ok(pid) = content.trim().parse::<u32>()
+    {
+        if is_process_alive(pid) {
+            anyhow::bail!(
+                "Another Vryn instance is already running (PID {pid}). \
                          If this is incorrect, delete {lock_path:?} and try again."
-                    );
-                }
-                // Stale lock file from a crashed process — safe to take over
-                log::info!("Removing stale lock file from PID {pid}");
-            }
+            );
+        }
+        // Stale lock file from a crashed process — safe to take over
+        log::info!("Removing stale lock file from PID {pid}");
+    }
 
     let my_pid = std::process::id();
     std::fs::write(&lock_path, my_pid.to_string())?;
@@ -139,15 +138,16 @@ fn is_process_alive(pid: u32) -> bool {
 pub(crate) fn validate_workspace_data(
     data: &mut WorkspaceData,
     clear_terminal_ids: bool,
-    #[cfg_attr(not(windows), allow(unused))]
-    backend_preference: SessionBackend,
+    #[cfg_attr(not(windows), allow(unused))] backend_preference: SessionBackend,
 ) {
     // Auto-detect WSL default shell for projects with WSL UNC paths that don't have it set.
     // This must run BEFORE clearing terminal IDs so we can check WSL backend availability.
     #[cfg(windows)]
     for project in &mut data.projects {
         if project.default_shell.is_none() {
-            if let Some((distro, _)) = vryn_terminal::shell_config::parse_wsl_unc_path(&project.path) {
+            if let Some((distro, _)) =
+                vryn_terminal::shell_config::parse_wsl_unc_path(&project.path)
+            {
                 project.default_shell = Some(vryn_terminal::shell_config::ShellType::Wsl {
                     distro: Some(distro),
                 });
@@ -176,8 +176,8 @@ pub(crate) fn validate_workspace_data(
                 }
             }
             // Preserve hook terminal IDs so they're recognized after restart
-            let hook_ids: std::collections::HashSet<&str> = project.hook_terminals
-                .keys().map(|s| s.as_str()).collect();
+            let hook_ids: std::collections::HashSet<&str> =
+                project.hook_terminals.keys().map(|s| s.as_str()).collect();
             if let Some(ref mut layout) = project.layout {
                 layout.clear_terminal_ids_except(&hook_ids);
             }
@@ -202,11 +202,17 @@ pub(crate) fn validate_workspace_data(
     // Clean up orphaned terminal metadata (terminal_names/hidden_terminals entries
     // for terminals no longer in the layout tree)
     for project in &mut data.projects {
-        let layout_ids: std::collections::HashSet<String> = project.layout.as_ref()
+        let layout_ids: std::collections::HashSet<String> = project
+            .layout
+            .as_ref()
             .map(|l| l.collect_terminal_ids().into_iter().collect())
             .unwrap_or_default();
-        project.terminal_names.retain(|id, _| layout_ids.contains(id));
-        project.hidden_terminals.retain(|id, _| layout_ids.contains(id));
+        project
+            .terminal_names
+            .retain(|id, _| layout_ids.contains(id));
+        project
+            .hidden_terminals
+            .retain(|id, _| layout_ids.contains(id));
     }
 
     // Populate worktree_ids from worktree_info back-references (migration for old data)
@@ -225,30 +231,40 @@ pub(crate) fn validate_workspace_data(
 
         for project in &mut data.projects {
             if project.worktree_ids.is_empty()
-                && let Some(mut children) = parent_to_children.remove(&project.id) {
-                    // Sort by position in project_order for deterministic migration
-                    children.sort_by_key(|(_, pos)| pos.unwrap_or(usize::MAX));
-                    project.worktree_ids = children.into_iter().map(|(id, _)| id).collect();
-                }
+                && let Some(mut children) = parent_to_children.remove(&project.id)
+            {
+                // Sort by position in project_order for deterministic migration
+                children.sort_by_key(|(_, pos)| pos.unwrap_or(usize::MAX));
+                project.worktree_ids = children.into_iter().map(|(id, _)| id).collect();
+            }
         }
 
         // Remove non-orphan worktrees from project_order (they live in parent's worktree_ids now)
-        let worktree_ids_in_parents: std::collections::HashSet<String> = data.projects.iter()
+        let worktree_ids_in_parents: std::collections::HashSet<String> = data
+            .projects
+            .iter()
             .flat_map(|p| p.worktree_ids.iter().cloned())
             .collect();
-        data.project_order.retain(|id| !worktree_ids_in_parents.contains(id));
+        data.project_order
+            .retain(|id| !worktree_ids_in_parents.contains(id));
 
         // Also remove from folder project_ids
         for folder in &mut data.folders {
-            folder.project_ids.retain(|id| !worktree_ids_in_parents.contains(id));
+            folder
+                .project_ids
+                .retain(|id| !worktree_ids_in_parents.contains(id));
         }
     }
 
     // Ensure project_order contains all project IDs (that aren't in a folder or worktree_ids)
-    let folder_project_ids: std::collections::HashSet<String> = data.folders.iter()
+    let folder_project_ids: std::collections::HashSet<String> = data
+        .folders
+        .iter()
         .flat_map(|f| f.project_ids.iter().cloned())
         .collect();
-    let worktree_child_ids: std::collections::HashSet<String> = data.projects.iter()
+    let worktree_child_ids: std::collections::HashSet<String> = data
+        .projects
+        .iter()
         .flat_map(|p| p.worktree_ids.iter().cloned())
         .collect();
     for project in &data.projects {
@@ -262,15 +278,19 @@ pub(crate) fn validate_workspace_data(
 
     // Folder consistency checks
     {
-        let valid_project_ids: std::collections::HashSet<&str> = data.projects.iter().map(|p| p.id.as_str()).collect();
+        let valid_project_ids: std::collections::HashSet<&str> =
+            data.projects.iter().map(|p| p.id.as_str()).collect();
 
         // Remove stale project refs from folders
         for folder in &mut data.folders {
-            folder.project_ids.retain(|pid| valid_project_ids.contains(pid.as_str()));
+            folder
+                .project_ids
+                .retain(|pid| valid_project_ids.contains(pid.as_str()));
         }
 
         // Ensure folder IDs in project_order match actual folders
-        let valid_folder_ids: std::collections::HashSet<&str> = data.folders.iter().map(|f| f.id.as_str()).collect();
+        let valid_folder_ids: std::collections::HashSet<&str> =
+            data.folders.iter().map(|f| f.id.as_str()).collect();
         data.project_order.retain(|id| {
             valid_project_ids.contains(id.as_str()) || valid_folder_ids.contains(id.as_str())
         });
@@ -314,9 +334,16 @@ pub fn load_workspace(backend: SessionBackend) -> Result<WorkspaceData> {
                 // Back up the corrupted file so the user can recover manually
                 let backup_path = path.with_extension("json.bak");
                 if let Err(backup_err) = std::fs::copy(&path, &backup_path) {
-                    log::error!("Failed to back up corrupted workspace to {:?}: {}", backup_path, backup_err);
+                    log::error!(
+                        "Failed to back up corrupted workspace to {:?}: {}",
+                        backup_path,
+                        backup_err
+                    );
                 } else {
-                    log::error!("Workspace file is corrupted, backed up to {:?}", backup_path);
+                    log::error!(
+                        "Workspace file is corrupted, backed up to {:?}",
+                        backup_path
+                    );
                 }
                 // Block auto-save so the default workspace doesn't overwrite the real file
                 LOADED_FROM_DEFAULT.store(true, Ordering::Relaxed);
@@ -364,7 +391,9 @@ pub fn load_workspace(backend: SessionBackend) -> Result<WorkspaceData> {
 pub fn save_workspace(data: &WorkspaceData) -> Result<()> {
     // Layer 1: block save if we loaded from fallback default
     if LOADED_FROM_DEFAULT.load(Ordering::Relaxed) {
-        log::warn!("Skipping workspace save — loaded from fallback default, protecting file on disk.");
+        log::warn!(
+            "Skipping workspace save — loaded from fallback default, protecting file on disk."
+        );
         return Ok(());
     }
 
@@ -426,7 +455,11 @@ pub(crate) fn migrate_workspace(mut data: WorkspaceData) -> WorkspaceData {
     // }
 
     if original_version != data.version {
-        log::info!("Workspace migrated from v{} to v{}", original_version, data.version);
+        log::info!(
+            "Workspace migrated from v{} to v{}",
+            original_version,
+            data.version
+        );
     }
 
     data
@@ -438,7 +471,9 @@ pub(crate) fn migrate_workspace(mut data: WorkspaceData) -> WorkspaceData {
 /// list popover or the create worktree dialog). This function only cleans up
 /// worktree projects that have become stale.
 pub(crate) fn sync_worktrees(data: &mut WorkspaceData) {
-    let stale_ids: Vec<String> = data.projects.iter()
+    let stale_ids: Vec<String> = data
+        .projects
+        .iter()
         .filter(|p| p.worktree_info.is_some())
         .filter(|p| !Path::new(&p.path).exists())
         .map(|p| p.id.clone())
@@ -492,14 +527,18 @@ mod tests {
         }
     }
 
-    fn make_workspace(projects: Vec<ProjectData>, order: Vec<&str>, folders: Vec<FolderData>) -> WorkspaceData {
+    fn make_workspace(
+        projects: Vec<ProjectData>,
+        order: Vec<&str>,
+        folders: Vec<FolderData>,
+    ) -> WorkspaceData {
         WorkspaceData {
             version: WORKSPACE_VERSION,
             projects,
             project_order: order.into_iter().map(String::from).collect(),
             project_widths: HashMap::new(),
             service_panel_heights: HashMap::new(),
-        hook_panel_heights: HashMap::new(),
+            hook_panel_heights: HashMap::new(),
             folders,
         }
     }
@@ -542,7 +581,11 @@ mod tests {
             vec![],
         );
         validate_workspace_data(&mut data, false, SessionBackend::None);
-        assert!(!data.project_order.contains(&"nonexistent_folder".to_string()));
+        assert!(
+            !data
+                .project_order
+                .contains(&"nonexistent_folder".to_string())
+        );
         assert!(data.project_order.contains(&"p1".to_string()));
     }
 
@@ -556,13 +599,20 @@ mod tests {
             shell_type: vryn_terminal::shell_config::ShellType::Default,
             zoom_level: 1.0,
         });
-        project.service_terminals.insert("web".to_string(), "svc-term-1".to_string());
+        project
+            .service_terminals
+            .insert("web".to_string(), "svc-term-1".to_string());
         let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
         validate_workspace_data(&mut data, true, SessionBackend::None);
 
         let layout = data.projects[0].layout.as_ref().unwrap();
         match layout {
-            LayoutNode::Terminal { terminal_id, minimized, detached, .. } => {
+            LayoutNode::Terminal {
+                terminal_id,
+                minimized,
+                detached,
+                ..
+            } => {
                 assert!(terminal_id.is_none());
                 assert!(!minimized);
                 assert!(!detached);
@@ -597,13 +647,16 @@ mod tests {
                 },
             ],
         });
-        project.hook_terminals.insert("hook-term".to_string(), HookTerminalEntry {
-            label: "on_project_open".to_string(),
-            status: HookTerminalStatus::Running,
-            hook_type: "on_project_open".to_string(),
-            command: "echo hello".to_string(),
-            cwd: "/tmp".to_string(),
-        });
+        project.hook_terminals.insert(
+            "hook-term".to_string(),
+            HookTerminalEntry {
+                label: "on_project_open".to_string(),
+                status: HookTerminalStatus::Running,
+                hook_type: "on_project_open".to_string(),
+                command: "echo hello".to_string(),
+                cwd: "/tmp".to_string(),
+            },
+        );
 
         let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
         validate_workspace_data(&mut data, true, SessionBackend::None);
@@ -613,11 +666,18 @@ mod tests {
             LayoutNode::Split { children, .. } => {
                 // Regular terminal should have its ID cleared
                 if let LayoutNode::Terminal { terminal_id, .. } = &children[0] {
-                    assert!(terminal_id.is_none(), "regular terminal ID should be cleared");
+                    assert!(
+                        terminal_id.is_none(),
+                        "regular terminal ID should be cleared"
+                    );
                 }
                 // Hook terminal should keep its ID
                 if let LayoutNode::Terminal { terminal_id, .. } = &children[1] {
-                    assert_eq!(terminal_id.as_deref(), Some("hook-term"), "hook terminal ID should be preserved");
+                    assert_eq!(
+                        terminal_id.as_deref(),
+                        Some("hook-term"),
+                        "hook terminal ID should be preserved"
+                    );
                 }
             }
             _ => panic!("Expected split"),
@@ -641,7 +701,10 @@ mod tests {
         let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
         validate_workspace_data(&mut data, false, SessionBackend::None);
 
-        assert!(matches!(data.projects[0].layout, Some(LayoutNode::Terminal { .. })));
+        assert!(matches!(
+            data.projects[0].layout,
+            Some(LayoutNode::Terminal { .. })
+        ));
     }
 
     #[test]
@@ -682,7 +745,7 @@ mod tests {
             project_order: vec![],
             project_widths: HashMap::new(),
             service_panel_heights: HashMap::new(),
-        hook_panel_heights: HashMap::new(),
+            hook_panel_heights: HashMap::new(),
             folders: vec![],
         };
         let migrated = migrate_workspace(data);
@@ -697,7 +760,7 @@ mod tests {
             project_order: vec![],
             project_widths: HashMap::new(),
             service_panel_heights: HashMap::new(),
-        hook_panel_heights: HashMap::new(),
+            hook_panel_heights: HashMap::new(),
             folders: vec![],
         };
         let migrated = migrate_workspace(data);
@@ -750,9 +813,15 @@ mod tests {
             zoom_level: 1.0,
         });
         // t1 is in layout, t2 and t3 are orphaned
-        project.terminal_names.insert("t1".to_string(), "Term 1".to_string());
-        project.terminal_names.insert("t2".to_string(), "Term 2".to_string());
-        project.terminal_names.insert("t3".to_string(), "Term 3".to_string());
+        project
+            .terminal_names
+            .insert("t1".to_string(), "Term 1".to_string());
+        project
+            .terminal_names
+            .insert("t2".to_string(), "Term 2".to_string());
+        project
+            .terminal_names
+            .insert("t3".to_string(), "Term 3".to_string());
         project.hidden_terminals.insert("t2".to_string(), true);
 
         let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
@@ -768,8 +837,12 @@ mod tests {
     fn validate_cleans_all_metadata_when_no_layout() {
         let mut project = make_project("p1");
         project.layout = None;
-        project.terminal_names.insert("t1".to_string(), "Term 1".to_string());
-        project.terminal_names.insert("t2".to_string(), "Term 2".to_string());
+        project
+            .terminal_names
+            .insert("t1".to_string(), "Term 1".to_string());
+        project
+            .terminal_names
+            .insert("t2".to_string(), "Term 2".to_string());
 
         let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
         validate_workspace_data(&mut data, false, SessionBackend::None);
@@ -800,7 +873,8 @@ mod tests {
             }],
         );
         data.project_widths.insert("local1".to_string(), 50.0);
-        data.project_widths.insert("remote:conn1:p1".to_string(), 40.0);
+        data.project_widths
+            .insert("remote:conn1:p1".to_string(), 40.0);
 
         let filtered = data.without_remote_projects();
 
@@ -823,7 +897,7 @@ mod tests {
         let mut p = make_project(id);
         p.worktree_info = Some(crate::state::WorktreeMetadata {
             parent_project_id: parent_id.to_string(),
-                color_override: None,
+            color_override: None,
             main_repo_path: "/tmp/repo".to_string(),
             worktree_path: format!("/tmp/worktrees/{}", id),
             branch_name: String::new(),
@@ -839,7 +913,7 @@ mod tests {
         wt_project.path = "/nonexistent/path/that/does/not/exist".to_string();
         wt_project.worktree_info = Some(WorktreeMetadata {
             parent_project_id: "p1".to_string(),
-                color_override: None,
+            color_override: None,
             main_repo_path: "/tmp/test".to_string(),
             worktree_path: String::new(),
             branch_name: "some-branch".to_string(),
@@ -865,7 +939,7 @@ mod tests {
         wt_project.path = "/nonexistent/path".to_string();
         wt_project.worktree_info = Some(WorktreeMetadata {
             parent_project_id: "p1".to_string(),
-                color_override: None,
+            color_override: None,
             main_repo_path: "/tmp/test".to_string(),
             worktree_path: String::new(),
             branch_name: "some-branch".to_string(),
@@ -896,7 +970,7 @@ mod tests {
         wt_project.path = tmp.to_string_lossy().to_string();
         wt_project.worktree_info = Some(WorktreeMetadata {
             parent_project_id: "p1".to_string(),
-                color_override: None,
+            color_override: None,
             main_repo_path: "/tmp/test".to_string(),
             worktree_path: String::new(),
             branch_name: "some-branch".to_string(),
@@ -921,7 +995,11 @@ mod tests {
     fn validate_populates_worktree_ids_from_worktree_info() {
         // Simulate old data: worktrees in project_order, parent has empty worktree_ids
         let mut data = make_workspace(
-            vec![make_project("parent"), make_worktree_project("wt1", "parent"), make_worktree_project("wt2", "parent")],
+            vec![
+                make_project("parent"),
+                make_worktree_project("wt1", "parent"),
+                make_worktree_project("wt2", "parent"),
+            ],
             vec!["parent", "wt1", "wt2"],
             vec![],
         );
@@ -929,13 +1007,19 @@ mod tests {
 
         // Parent should now have worktree_ids populated
         let parent = data.projects.iter().find(|p| p.id == "parent").unwrap();
-        assert_eq!(parent.worktree_ids, vec!["wt1".to_string(), "wt2".to_string()]);
+        assert_eq!(
+            parent.worktree_ids,
+            vec!["wt1".to_string(), "wt2".to_string()]
+        );
     }
 
     #[test]
     fn validate_removes_worktrees_from_project_order() {
         let mut data = make_workspace(
-            vec![make_project("parent"), make_worktree_project("wt1", "parent")],
+            vec![
+                make_project("parent"),
+                make_worktree_project("wt1", "parent"),
+            ],
             vec!["parent", "wt1"],
             vec![],
         );
@@ -949,7 +1033,10 @@ mod tests {
     #[test]
     fn validate_removes_worktrees_from_folder_project_ids() {
         let mut data = make_workspace(
-            vec![make_project("parent"), make_worktree_project("wt1", "parent")],
+            vec![
+                make_project("parent"),
+                make_worktree_project("wt1", "parent"),
+            ],
             vec!["f1"],
             vec![FolderData {
                 id: "f1".to_string(),
@@ -971,7 +1058,11 @@ mod tests {
         let mut parent = make_project("parent");
         parent.worktree_ids = vec!["wt2".to_string(), "wt1".to_string()]; // custom order
         let mut data = make_workspace(
-            vec![parent, make_worktree_project("wt1", "parent"), make_worktree_project("wt2", "parent")],
+            vec![
+                parent,
+                make_worktree_project("wt1", "parent"),
+                make_worktree_project("wt2", "parent"),
+            ],
             vec!["parent"],
             vec![],
         );
@@ -979,6 +1070,9 @@ mod tests {
 
         let parent = data.projects.iter().find(|p| p.id == "parent").unwrap();
         // Should preserve existing order, not overwrite
-        assert_eq!(parent.worktree_ids, vec!["wt2".to_string(), "wt1".to_string()]);
+        assert_eq!(
+            parent.worktree_ids,
+            vec!["wt2".to_string(), "wt1".to_string()]
+        );
     }
 }

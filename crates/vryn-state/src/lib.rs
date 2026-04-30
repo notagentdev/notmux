@@ -11,9 +11,9 @@ mod transient;
 mod workspace_data;
 
 pub use hooks_config::{HooksConfig, ProjectHooks, TerminalHooks, WorktreeHooks};
-pub use vryn_layout::{LayoutNode, SplitDirection};
 pub use toast::{Toast, ToastLevel};
 pub use transient::{DropZone, FocusedTerminalState, PendingWorktreeClose};
+pub use vryn_layout::{LayoutNode, SplitDirection};
 pub use workspace_data::{
     FolderData, HookTerminalEntry, HookTerminalStatus, ProjectData, WorkspaceData,
     WorktreeMetadata, is_bash_prompt_title,

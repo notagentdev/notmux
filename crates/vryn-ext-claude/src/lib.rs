@@ -1,10 +1,10 @@
 mod status;
-mod usage;
 mod ui_helpers;
+mod usage;
 
 use gpui::AppContext as _;
-use vryn_extensions::{ExtensionInstance, ExtensionManifest, ExtensionRegistration};
 use std::sync::Arc;
+use vryn_extensions::{ExtensionInstance, ExtensionManifest, ExtensionRegistration};
 
 pub fn register() -> ExtensionRegistration {
     ExtensionRegistration {

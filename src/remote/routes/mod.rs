@@ -10,18 +10,18 @@ pub mod tokens;
 use crate::remote::auth::AuthStore;
 use crate::remote::bridge::BridgeSender;
 use crate::remote::pty_broadcaster::PtyBroadcaster;
-use axum::extract::DefaultBodyLimit;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use vryn_core::api::ApiGitStatus;
 use rust_embed::RustEmbed;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
+use vryn_core::api::ApiGitStatus;
 
 #[derive(RustEmbed)]
 #[folder = "web/dist"]
@@ -72,7 +72,10 @@ pub fn build_router(
         .route("/v1/stream", axum::routing::get(stream::ws_handler))
         .route("/v1/refresh", axum::routing::post(refresh::post_refresh))
         .route("/v1/tokens", axum::routing::get(tokens::list_tokens))
-        .route("/v1/tokens/{id}", axum::routing::delete(tokens::revoke_token))
+        .route(
+            "/v1/tokens/{id}",
+            axum::routing::delete(tokens::revoke_token),
+        )
         .route(
             "/v1/auth/reload",
             axum::routing::post(auth_reload::post_reload),

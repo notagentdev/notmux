@@ -1,5 +1,5 @@
 use crate::settings::settings_entity;
-use crate::views::sidebar_controller::{AnimationTarget, SidebarController, FRAME_TIME_MS};
+use crate::views::sidebar_controller::{AnimationTarget, FRAME_TIME_MS, SidebarController};
 use gpui::*;
 
 use super::RootView;
@@ -93,6 +93,7 @@ impl RootView {
                 this.sidebar_ctrl.set_animation(target);
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 }

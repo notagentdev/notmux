@@ -11,16 +11,16 @@ mod selection;
 
 use crate::code_view::ScrollbarDrag;
 use crate::file_search::FileEntry;
-use crate::file_tree::{build_file_tree, FileTreeNode};
+use crate::file_tree::{FileTreeNode, build_file_tree};
 use crate::selection::SelectionState;
-use crate::syntax::{load_syntax_set, HighlightedLine};
+use crate::syntax::{HighlightedLine, load_syntax_set};
 use context_menu::{DeleteConfirmState, FileRenameState, FileTreeContextMenu, TabContextMenu};
 use gpui::*;
-use vryn_markdown::{MarkdownDocument, MarkdownSelection};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use syntect::parsing::SyntaxSet;
+use vryn_markdown::{MarkdownDocument, MarkdownSelection};
 
 /// Maximum file size to load (5MB)
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
@@ -299,16 +299,20 @@ impl FileViewer {
             let _ = entity.update(cx, |this, cx| {
                 let file_index = files.iter().position(|f| f.path == file_path_clone);
                 if let Some(idx) = file_index
-                    && let Some(tab) = this.tabs.first_mut() {
-                        tab.selected_file_index = Some(idx);
-                    }
+                    && let Some(tab) = this.tabs.first_mut()
+                {
+                    tab.selected_file_index = Some(idx);
+                }
                 // Recompute expanded folders using the actual relative path from the file list
                 if let Some(entry) = files.iter().find(|f| f.path == file_path_clone) {
                     let expanded = Self::compute_expanded_for_relative(&entry.relative_path);
                     this.expanded_folders.extend(expanded);
                 }
                 this.file_tree = build_file_tree(
-                    files.iter().enumerate().map(|(i, f)| (i, f.relative_path.as_str())),
+                    files
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| (i, f.relative_path.as_str())),
                 );
                 this.files = files;
                 this.loading = false;
@@ -396,7 +400,10 @@ impl FileViewer {
                 .await;
             let _ = entity.update(cx, |this, cx| {
                 this.file_tree = build_file_tree(
-                    files.iter().enumerate().map(|(i, f)| (i, f.relative_path.as_str())),
+                    files
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| (i, f.relative_path.as_str())),
                 );
                 this.files = files;
                 this.loading = false;
@@ -455,11 +462,7 @@ impl FileViewer {
             }
             // Theme changed — re-highlight without reloading
             if rehighlight {
-                tab.do_highlight_content(
-                    &tab.file_path.clone(),
-                    &self.syntax_set,
-                    self.is_dark,
-                );
+                tab.do_highlight_content(&tab.file_path.clone(), &self.syntax_set, self.is_dark);
             }
         }
     }
@@ -477,11 +480,15 @@ impl FileViewer {
                 .await;
             let _ = entity.update(cx, |this, cx| {
                 this.file_tree = build_file_tree(
-                    files.iter().enumerate().map(|(i, f)| (i, f.relative_path.as_str())),
+                    files
+                        .iter()
+                        .enumerate()
+                        .map(|(i, f)| (i, f.relative_path.as_str())),
                 );
                 for tab in &mut this.tabs {
                     if !tab.is_empty() {
-                        tab.selected_file_index = files.iter().position(|f| f.path == tab.file_path);
+                        tab.selected_file_index =
+                            files.iter().position(|f| f.path == tab.file_path);
                     }
                 }
                 this.files = files;
@@ -529,7 +536,8 @@ impl FileViewer {
             }
             // Expand ancestors so sidebar highlights this file
             let expanded = Self::compute_expanded_for_relative(
-                &self.relative_path_for(&file_path)
+                &self
+                    .relative_path_for(&file_path)
                     .unwrap_or_else(|| file_path.to_string_lossy().to_string()),
             );
             self.expanded_folders.extend(expanded);
@@ -622,7 +630,8 @@ impl FileViewer {
             // Update expanded folders to reveal active tab's file
             let tab_path = self.tabs[self.active_tab].file_path.clone();
             let expanded = Self::compute_expanded_for_relative(
-                &self.relative_path_for(&tab_path)
+                &self
+                    .relative_path_for(&tab_path)
                     .unwrap_or_else(|| tab_path.to_string_lossy().to_string()),
             );
             self.expanded_folders.extend(expanded);
@@ -682,8 +691,7 @@ impl FileViewer {
         cx: &mut Context<Self>,
     ) {
         let fs = self.project_fs.clone();
-        let rel = relative_path
-            .unwrap_or_else(|| file_path.to_string_lossy().to_string());
+        let rel = relative_path.unwrap_or_else(|| file_path.to_string_lossy().to_string());
         let target = file_path;
         cx.spawn(async move |entity: WeakEntity<Self>, cx| {
             let result: Result<String, String> = cx
@@ -711,7 +719,10 @@ impl FileViewer {
 
     /// Look up the relative path for a file by its absolute path.
     fn relative_path_for(&self, file_path: &Path) -> Option<String> {
-        self.files.iter().find(|f| f.path == *file_path).map(|f| f.relative_path.clone())
+        self.files
+            .iter()
+            .find(|f| f.path == *file_path)
+            .map(|f| f.relative_path.clone())
     }
 
     /// Compute which folder paths should be expanded to reveal a file.

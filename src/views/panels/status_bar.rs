@@ -1,17 +1,17 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
-use crate::workspace::state::Workspace;
 use crate::ui::tokens::{ui_text_ms, ui_text_sm};
+use crate::workspace::state::Workspace;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
-use vryn_extensions::{ExtensionInstance, ExtensionRegistry};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{Disks, System};
 use time::OffsetDateTime;
+use vryn_extensions::{ExtensionInstance, ExtensionRegistry};
 
 /// Refresh interval for system stats
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -54,9 +54,13 @@ impl SystemInfoCache {
         self.disks.refresh(true);
 
         // Calculate average CPU usage across all cores
-        let cpu_usage = self.system.cpus().iter()
+        let cpu_usage = self
+            .system
+            .cpus()
+            .iter()
             .map(|cpu| cpu.cpu_usage())
-            .sum::<f32>() / self.system.cpus().len().max(1) as f32;
+            .sum::<f32>()
+            / self.system.cpus().len().max(1) as f32;
 
         let memory_used = self.system.used_memory() as f64 / 1_073_741_824.0; // bytes to GB
         let memory_total = self.system.total_memory() as f64 / 1_073_741_824.0;
@@ -64,7 +68,10 @@ impl SystemInfoCache {
         // Pick the primary disk: the one mounted at the shortest root path
         // ("/" on Unix, "C:\" on Windows). This excludes tmpfs/overlay mounts
         // whose paths tend to be deeper.
-        let primary = self.disks.list().iter()
+        let primary = self
+            .disks
+            .list()
+            .iter()
             .filter(|d| !d.is_removable())
             .min_by_key(|d| d.mount_point().as_os_str().len());
         let (disk_free, disk_total) = match primary {
@@ -125,19 +132,27 @@ impl StatusBar {
                     break; // View was dropped
                 }
             }
-        }).detach();
+        })
+        .detach();
 
         // Clone activate functions from the global registry.
-        let activate_fns: Vec<_> = cx.try_global::<ExtensionRegistry>()
+        let activate_fns: Vec<_> = cx
+            .try_global::<ExtensionRegistry>()
             .map(|registry| {
-                registry.extensions().iter()
+                registry
+                    .extensions()
+                    .iter()
                     .map(|ext| (ext.manifest.id.to_string(), ext.activate.clone()))
                     .collect()
             })
             .unwrap_or_default();
 
         // Activate initially enabled extensions
-        let enabled = settings_entity(cx).read(cx).settings.enabled_extensions.clone();
+        let enabled = settings_entity(cx)
+            .read(cx)
+            .settings
+            .enabled_extensions
+            .clone();
         let active_extensions = Self::activate_extensions(&activate_fns, &enabled, cx);
 
         // Observe settings to sync extensions when enabled_extensions changes
@@ -145,13 +160,17 @@ impl StatusBar {
         cx.observe(&settings, |this, entity, cx| {
             let enabled = entity.read(cx).settings.enabled_extensions.clone();
             this.sync_extensions(&enabled, cx);
-        }).detach();
+        })
+        .detach();
 
         // Re-render when workspace changes (for potential UI updates)
         cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
 
         Self {
-            cache, activate_fns, active_extensions, sidebar_open: true,
+            cache,
+            activate_fns,
+            active_extensions,
+            sidebar_open: true,
         }
     }
 
@@ -161,7 +180,8 @@ impl StatusBar {
         enabled: &HashSet<String>,
         cx: &mut App,
     ) -> HashMap<String, ExtensionInstance> {
-        activate_fns.iter()
+        activate_fns
+            .iter()
             .filter(|(id, _)| enabled.contains(id.as_str()))
             .map(|(id, activate)| (id.clone(), activate(cx)))
             .collect()
@@ -172,7 +192,8 @@ impl StatusBar {
     /// (dropping the instance cancels background tasks and releases views).
     fn sync_extensions(&mut self, enabled: &HashSet<String>, cx: &mut Context<Self>) {
         // Deactivate disabled (drop instances → cancel tasks)
-        self.active_extensions.retain(|id, _| enabled.contains(id.as_str()));
+        self.active_extensions
+            .retain(|id, _| enabled.contains(id.as_str()));
 
         // Activate newly enabled
         for (id, activate) in &self.activate_fns {
@@ -212,7 +233,10 @@ impl Render for StatusBar {
         let time_str = Self::format_time();
 
         // Format memory
-        let memory_str = format!("{:.1}/{:.1} GB", stats.memory_used_gb, stats.memory_total_gb);
+        let memory_str = format!(
+            "{:.1}/{:.1} GB",
+            stats.memory_used_gb, stats.memory_total_gb
+        );
         let memory_percent = if stats.memory_total_gb > 0.0 {
             (stats.memory_used_gb / stats.memory_total_gb * 100.0) as u32
         } else {
@@ -251,12 +275,16 @@ impl Render for StatusBar {
         let disk_str = format!("{:.0}/{:.0} GB", stats.disk_free_gb, stats.disk_total_gb);
 
         // Collect widgets in stable registry order from active extensions
-        let left_widgets: Vec<&Vec<AnyView>> = self.activate_fns.iter()
+        let left_widgets: Vec<&Vec<AnyView>> = self
+            .activate_fns
+            .iter()
             .filter_map(|(id, _)| self.active_extensions.get(id))
             .map(|inst| &inst.status_bar_widgets)
             .filter(|w| !w.is_empty())
             .collect();
-        let right_widgets: Vec<&Vec<AnyView>> = self.activate_fns.iter()
+        let right_widgets: Vec<&Vec<AnyView>> = self
+            .activate_fns
+            .iter()
             .filter_map(|(id, _)| self.active_extensions.get(id))
             .map(|inst| &inst.status_bar_right_widgets)
             .filter(|w| !w.is_empty())
@@ -275,51 +303,32 @@ impl Render for StatusBar {
             .text_size(ui_text_ms(cx))
             // Left side — system stats (sidebar toggle now lives in the titlebar)
             .child({
-                let mut left = h_flex().gap(px(16.0))
+                let mut left = h_flex()
+                    .gap(px(16.0))
                     // CPU
                     .child(
                         h_flex()
                             .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_color(rgb(t.text_muted))
-                                    .child("CPU")
-                            )
+                            .child(div().text_color(rgb(t.text_muted)).child("CPU"))
                             .child(
                                 div()
                                     .text_color(rgb(cpu_color))
-                                    .child(format!("{:02.0}%", stats.cpu_usage))
-                            )
+                                    .child(format!("{:02.0}%", stats.cpu_usage)),
+                            ),
                     )
                     // Memory
                     .child(
                         h_flex()
                             .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_color(rgb(t.text_muted))
-                                    .child("MEM")
-                            )
-                            .child(
-                                div()
-                                    .text_color(rgb(mem_color))
-                                    .child(memory_str)
-                            )
+                            .child(div().text_color(rgb(t.text_muted)).child("MEM"))
+                            .child(div().text_color(rgb(mem_color)).child(memory_str)),
                     )
                     // Free disk space (free / total)
                     .child(
                         h_flex()
                             .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_color(rgb(t.text_muted))
-                                    .child("DISK")
-                            )
-                            .child(
-                                div()
-                                    .text_color(rgb(disk_color))
-                                    .child(disk_str)
-                            )
+                            .child(div().text_color(rgb(t.text_muted)).child("DISK"))
+                            .child(div().text_color(rgb(disk_color)).child(disk_str)),
                     );
 
                 // Left-side extension widgets
@@ -333,8 +342,7 @@ impl Render for StatusBar {
             })
             // Right side - remote info + version + time
             .child({
-                let mut right = h_flex()
-                    .gap(px(8.0));
+                let mut right = h_flex().gap(px(8.0));
 
                 // Right-side extension widgets
                 for widgets in &right_widgets {
@@ -345,39 +353,40 @@ impl Render for StatusBar {
 
                 // Show remote server status if active
                 if let Some(remote_info) = cx.try_global::<crate::remote::GlobalRemoteInfo>()
-                    && let Some(port) = remote_info.0.port() {
-                        right = right.child(
-                            div()
-                                .id("remote-info")
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(
-                                    div()
-                                        .text_color(rgb(t.term_cyan))
-                                        .child(format!("REMOTE :{}", port))
-                                )
-                                .child(
-                                    div()
-                                        .id("pair-btn")
-                                        .cursor_pointer()
-                                        .px(px(6.0))
-                                        .py(px(1.0))
-                                        .rounded(px(3.0))
-                                        .text_color(rgb(t.term_yellow))
-                                        .text_size(ui_text_sm(cx))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                                        .child("Pair")
-                                        .on_click(|_, window, cx| {
-                                            window.dispatch_action(
-                                                Box::new(crate::keybindings::ShowPairingDialog),
-                                                cx,
-                                            );
-                                        })
-                                )
-                        );
-                    }
+                    && let Some(port) = remote_info.0.port()
+                {
+                    right = right.child(
+                        div()
+                            .id("remote-info")
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(
+                                div()
+                                    .text_color(rgb(t.term_cyan))
+                                    .child(format!("REMOTE :{}", port)),
+                            )
+                            .child(
+                                div()
+                                    .id("pair-btn")
+                                    .cursor_pointer()
+                                    .px(px(6.0))
+                                    .py(px(1.0))
+                                    .rounded(px(3.0))
+                                    .text_color(rgb(t.term_yellow))
+                                    .text_size(ui_text_sm(cx))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                                    .child("Pair")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(crate::keybindings::ShowPairingDialog),
+                                            cx,
+                                        );
+                                    }),
+                            ),
+                    );
+                }
 
                 // Zoom controls
                 let settings_for_minus = settings_entity(cx);
@@ -400,7 +409,10 @@ impl Render for StatusBar {
                                 .child("−")
                                 .on_click(move |_, _window, cx| {
                                     settings_for_minus.update(cx, |state, cx| {
-                                        state.set_ui_font_size(state.settings.ui_font_size - 1.0, cx);
+                                        state.set_ui_font_size(
+                                            state.settings.ui_font_size - 1.0,
+                                            cx,
+                                        );
                                     });
                                 }),
                         )
@@ -422,7 +434,10 @@ impl Render for StatusBar {
                                 .child("+")
                                 .on_click(move |_, _window, cx| {
                                     settings_for_plus.update(cx, |state, cx| {
-                                        state.set_ui_font_size(state.settings.ui_font_size + 1.0, cx);
+                                        state.set_ui_font_size(
+                                            state.settings.ui_font_size + 1.0,
+                                            cx,
+                                        );
                                     });
                                 }),
                         ),
@@ -433,14 +448,10 @@ impl Render for StatusBar {
                         el.child(
                             div()
                                 .text_color(rgb(t.text_muted))
-                                .child(format!("v{}", env!("CARGO_PKG_VERSION")))
+                                .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
                         )
                     })
-                    .child(
-                        div()
-                            .text_color(rgb(t.text_secondary))
-                            .child(time_str)
-                    )
+                    .child(div().text_color(rgb(t.text_secondary)).child(time_str))
             })
     }
 }

@@ -5,7 +5,6 @@
 //! `vryn-state` / `vryn-layout` and are re-exported here so existing
 //! `crate::state::*` imports keep working.
 
-use vryn_core::theme::FolderColor;
 use crate::access_history::ProjectAccessHistory;
 use crate::focus::FocusManager;
 use crate::lifecycle::ProjectLifecycleTracker;
@@ -13,6 +12,7 @@ use crate::remote_sync::{RemoteProjectSnapshot, RemoteSyncState};
 use crate::visibility::compute_visible_projects;
 use gpui::*;
 use std::collections::HashMap;
+use vryn_core::theme::FolderColor;
 
 pub use vryn_layout::{LayoutNode, SplitDirection};
 pub use vryn_state::{
@@ -152,12 +152,18 @@ impl Workspace {
 
     /// Update the saved service terminal IDs for a project.
     /// Called by the ServiceManager observer to persist terminal IDs across restarts.
-    pub fn sync_service_terminals(&mut self, project_id: &str, terminals: HashMap<String, String>, cx: &mut Context<Self>) {
+    pub fn sync_service_terminals(
+        &mut self,
+        project_id: &str,
+        terminals: HashMap<String, String>,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id)
-            && project.service_terminals != terminals {
-                project.service_terminals = terminals;
-                self.notify_data(cx);
-            }
+            && project.service_terminals != terminals
+        {
+            project.service_terminals = terminals;
+            self.notify_data(cx);
+        }
     }
 
     pub fn register_hook_terminal(
@@ -169,11 +175,15 @@ impl Workspace {
     ) {
         if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id) {
             let label = entry.label.clone();
-            project.hook_terminals.insert(terminal_id.to_string(), entry);
+            project
+                .hook_terminals
+                .insert(terminal_id.to_string(), entry);
 
             // Hook terminals are displayed in the dedicated HookPanel (not in the layout tree).
             // Set the terminal name so the panel can display it.
-            project.terminal_names.insert(terminal_id.to_string(), label);
+            project
+                .terminal_names
+                .insert(terminal_id.to_string(), label);
 
             self.notify_data(cx);
         }
@@ -187,13 +197,18 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         for result in results {
-            self.register_hook_terminal(&result.project_id, &result.terminal_id, HookTerminalEntry {
-                label: result.label,
-                status: HookTerminalStatus::Running,
-                hook_type: result.hook_type.to_string(),
-                command: result.command,
-                cwd: result.cwd,
-            }, cx);
+            self.register_hook_terminal(
+                &result.project_id,
+                &result.terminal_id,
+                HookTerminalEntry {
+                    label: result.label,
+                    status: HookTerminalStatus::Running,
+                    hook_type: result.hook_type.to_string(),
+                    command: result.command,
+                    cwd: result.cwd,
+                },
+                cx,
+            );
         }
     }
 
@@ -214,21 +229,18 @@ impl Workspace {
         }
     }
 
-    pub fn remove_hook_terminal(
-        &mut self,
-        terminal_id: &str,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn remove_hook_terminal(&mut self, terminal_id: &str, cx: &mut Context<Self>) {
         for project in &mut self.data.projects {
             if project.hook_terminals.remove(terminal_id).is_some() {
                 if let Some(ref layout) = project.layout
-                    && let Some(path) = layout.find_terminal_path(terminal_id) {
-                        if path.is_empty() {
-                            project.layout = None;
-                        } else if let Some(ref mut layout) = project.layout {
-                            layout.remove_at_path(&path);
-                        }
+                    && let Some(path) = layout.find_terminal_path(terminal_id)
+                {
+                    if path.is_empty() {
+                        project.layout = None;
+                    } else if let Some(ref mut layout) = project.layout {
+                        layout.remove_at_path(&path);
                     }
+                }
                 project.terminal_names.remove(terminal_id);
                 self.notify_data(cx);
                 return;
@@ -249,7 +261,9 @@ impl Workspace {
     /// Returns a reference to the `ProjectData` if found.
     pub fn find_project_for_terminal(&self, terminal_id: &str) -> Option<&ProjectData> {
         self.data.projects.iter().find(|p| {
-            p.layout.as_ref().is_some_and(|l| l.find_terminal_path(terminal_id).is_some())
+            p.layout
+                .as_ref()
+                .is_some_and(|l| l.find_terminal_path(terminal_id).is_some())
         })
     }
 
@@ -295,7 +309,10 @@ impl Workspace {
     }
 
     /// Take a pending worktree close for the given terminal ID (removes it).
-    pub fn take_pending_worktree_close(&mut self, terminal_id: &str) -> Option<PendingWorktreeClose> {
+    pub fn take_pending_worktree_close(
+        &mut self,
+        terminal_id: &str,
+    ) -> Option<PendingWorktreeClose> {
         self.lifecycle.take_pending_close(terminal_id)
     }
 
@@ -333,8 +350,14 @@ impl Workspace {
 
     /// Get IDs of worktree children for a given parent project.
     pub fn worktree_child_ids(&self, parent_id: &str) -> Vec<String> {
-        self.data.projects.iter()
-            .filter(|p| p.worktree_info.as_ref().is_some_and(|w| w.parent_project_id == parent_id))
+        self.data
+            .projects
+            .iter()
+            .filter(|p| {
+                p.worktree_info
+                    .as_ref()
+                    .is_some_and(|w| w.parent_project_id == parent_id)
+            })
             .map(|p| p.id.clone())
             .collect()
     }
@@ -391,17 +414,19 @@ impl Workspace {
 
     /// Find which folder (if any) contains a given project
     pub fn folder_for_project(&self, project_id: &str) -> Option<&FolderData> {
-        self.data.folders.iter().find(|f| f.project_ids.contains(&project_id.to_string()))
+        self.data
+            .folders
+            .iter()
+            .find(|f| f.project_ids.contains(&project_id.to_string()))
     }
 
     /// Find folder for a project, falling back to the parent project's folder for worktrees.
     pub fn folder_for_project_or_parent(&self, project_id: &str) -> Option<&FolderData> {
-        self.folder_for_project(project_id)
-            .or_else(|| {
-                self.project(project_id)
-                    .and_then(|p| p.worktree_info.as_ref())
-                    .and_then(|wt| self.folder_for_project(&wt.parent_project_id))
-            })
+        self.folder_for_project(project_id).or_else(|| {
+            self.project(project_id)
+                .and_then(|p| p.worktree_info.as_ref())
+                .and_then(|wt| self.folder_for_project(&wt.parent_project_id))
+        })
     }
 
     /// Collect all detached terminals across all projects by traversing layout trees.
@@ -431,15 +456,20 @@ impl Workspace {
 
         self.data.projects.retain(|p| !p.id.starts_with(&prefix));
         self.data.folders.retain(|f| !f.id.starts_with(&prefix));
-        self.data.project_order.retain(|id| !id.starts_with(&prefix));
-        self.data.project_widths.retain(|id, _| !id.starts_with(&prefix));
+        self.data
+            .project_order
+            .retain(|id| !id.starts_with(&prefix));
+        self.data
+            .project_widths
+            .retain(|id, _| !id.starts_with(&prefix));
 
         self.remote_sync.retain_not_starting_with(&prefix);
 
         if let Some(focused) = self.focus_manager.focused_project_id()
-            && focused.starts_with(&prefix) {
-                self.focus_manager.set_focused_project_id(None);
-            }
+            && focused.starts_with(&prefix)
+        {
+            self.focus_manager.set_focused_project_id(None);
+        }
 
         cx.notify();
     }
@@ -451,17 +481,24 @@ impl Workspace {
 
     /// Helper to mutate a layout node at a path, with automatic notify.
     /// Returns true if the mutation was applied.
-    pub fn with_layout_node<F>(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>, f: F) -> bool
+    pub fn with_layout_node<F>(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        cx: &mut Context<Self>,
+        f: F,
+    ) -> bool
     where
         F: FnOnce(&mut LayoutNode) -> bool,
     {
         if let Some(project) = self.project_mut(project_id)
             && let Some(ref mut layout) = project.layout
-                && let Some(node) = layout.get_at_path_mut(path)
-                    && f(node) {
-                        self.notify_data(cx);
-                        return true;
-                    }
+            && let Some(node) = layout.get_at_path_mut(path)
+            && f(node)
+        {
+            self.notify_data(cx);
+            return true;
+        }
         false
     }
 
@@ -472,24 +509,25 @@ impl Workspace {
         F: FnOnce(&mut ProjectData) -> bool,
     {
         if let Some(project) = self.project_mut(project_id)
-            && f(project) {
-                self.notify_data(cx);
-                return true;
-            }
+            && f(project)
+        {
+            self.notify_data(cx);
+            return true;
+        }
         false
     }
 }
 
 #[cfg(test)]
 mod workspace_tests {
+    use crate::settings::HooksConfig;
     use crate::state::{
         FolderData, LayoutNode, ProjectData, SplitDirection, Workspace, WorkspaceData,
         WorktreeMetadata,
     };
-    use vryn_terminal::shell_config::ShellType;
-    use vryn_core::theme::FolderColor;
-    use crate::settings::HooksConfig;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
+    use vryn_terminal::shell_config::ShellType;
 
     fn make_project(id: &str, visible: bool) -> ProjectData {
         ProjectData {
@@ -533,7 +571,11 @@ mod workspace_tests {
     #[test]
     fn test_visible_projects_filters_hidden() {
         let data = make_workspace_data(
-            vec![make_project("p1", true), make_project("p2", false), make_project("p3", true)],
+            vec![
+                make_project("p1", true),
+                make_project("p2", false),
+                make_project("p3", true),
+            ],
             vec!["p1", "p2", "p3"],
         );
         let ws = Workspace::new(data);
@@ -547,12 +589,17 @@ mod workspace_tests {
     #[test]
     fn test_visible_projects_with_focused_project() {
         let data = make_workspace_data(
-            vec![make_project("p1", true), make_project("p2", true), make_project("p3", false)],
+            vec![
+                make_project("p1", true),
+                make_project("p2", true),
+                make_project("p3", false),
+            ],
             vec!["p1", "p2", "p3"],
         );
         let mut ws = Workspace::new(data);
 
-        ws.focus_manager.set_focused_project_id(Some("p3".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("p3".to_string()));
 
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 1);
@@ -584,7 +631,11 @@ mod workspace_tests {
     #[test]
     fn test_projects_by_recency() {
         let data = make_workspace_data(
-            vec![make_project("p1", true), make_project("p2", true), make_project("p3", true)],
+            vec![
+                make_project("p1", true),
+                make_project("p2", true),
+                make_project("p3", true),
+            ],
             vec!["p1", "p2", "p3"],
         );
         let mut ws = Workspace::new(data);
@@ -654,8 +705,10 @@ mod workspace_tests {
     fn test_visible_projects_with_folder_filter() {
         let mut data = make_workspace_data(
             vec![
-                make_project("p1", true), make_project("p2", true),
-                make_project("p3", true), make_project("p4", true),
+                make_project("p1", true),
+                make_project("p2", true),
+                make_project("p3", true),
+                make_project("p4", true),
                 make_project("p5", true),
             ],
             vec!["f1", "f2", "p5"],
@@ -698,7 +751,8 @@ mod workspace_tests {
     fn test_folder_filter_hides_top_level_projects() {
         let mut data = make_workspace_data(
             vec![
-                make_project("p1", true), make_project("p2", true),
+                make_project("p1", true),
+                make_project("p2", true),
                 make_project("p3", true),
             ],
             vec!["f1", "p3"],
@@ -740,20 +794,20 @@ mod workspace_tests {
             branch_name: "branch-w2".to_string(),
         });
 
-        let data = make_workspace_data(
-            vec![p1, w1, w2, make_project("p2", true)],
-            vec!["p1", "p2"],
-        );
+        let data =
+            make_workspace_data(vec![p1, w1, w2, make_project("p2", true)], vec!["p1", "p2"]);
         let mut ws = Workspace::new(data);
 
-        ws.focus_manager.set_focused_project_id(Some("p1".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("p1".to_string()));
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 3);
         assert_eq!(visible[0].id, "p1");
         assert_eq!(visible[1].id, "w1");
         assert_eq!(visible[2].id, "w2");
 
-        ws.focus_manager.set_focused_project_id(Some("w1".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("w1".to_string()));
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].id, "w1");
@@ -784,10 +838,8 @@ mod workspace_tests {
             branch_name: "branch-w2".to_string(),
         });
 
-        let mut data = make_workspace_data(
-            vec![p1, w1, w2, make_project("p2", true)],
-            vec!["f1", "p2"],
-        );
+        let mut data =
+            make_workspace_data(vec![p1, w1, w2, make_project("p2", true)], vec!["f1", "p2"]);
         data.folders = vec![FolderData {
             id: "f1".to_string(),
             name: "Folder".to_string(),
@@ -1027,10 +1079,7 @@ mod workspace_tests {
             branch_name: "branch-w1".to_string(),
         });
 
-        let data = make_workspace_data(
-            vec![make_project("p1", false), w1],
-            vec!["p1", "w1"],
-        );
+        let data = make_workspace_data(vec![make_project("p1", false), w1], vec!["p1", "w1"]);
         let ws = Workspace::new(data);
 
         let visible = ws.visible_projects();
@@ -1042,7 +1091,8 @@ mod workspace_tests {
     fn test_folder_filter_with_focus_override() {
         let mut data = make_workspace_data(
             vec![
-                make_project("p1", true), make_project("p2", true),
+                make_project("p1", true),
+                make_project("p2", true),
                 make_project("p3", true),
             ],
             vec!["f1", "p3"],
@@ -1058,7 +1108,8 @@ mod workspace_tests {
         let mut ws = Workspace::new(data);
         ws.active_folder_filter = Some("f1".to_string());
 
-        ws.focus_manager.set_focused_project_id(Some("p3".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("p3".to_string()));
 
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 1);
@@ -1147,7 +1198,8 @@ mod workspace_tests {
         });
         let data = make_workspace_data(vec![parent, wt1, wt2], vec!["parent"]);
         let mut ws = Workspace::new(data);
-        ws.focus_manager.set_focused_project_id(Some("parent".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("parent".to_string()));
 
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 3);
@@ -1178,7 +1230,8 @@ mod workspace_tests {
         });
         let data = make_workspace_data(vec![parent, wt1, wt2], vec!["parent"]);
         let mut ws = Workspace::new(data);
-        ws.focus_manager.set_focused_project_id(Some("wt1".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("wt1".to_string()));
 
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 1);
@@ -1208,12 +1261,14 @@ mod workspace_tests {
         let data = make_workspace_data(vec![parent, wt1, wt2], vec!["parent"]);
         let mut ws = Workspace::new(data);
 
-        ws.focus_manager.set_focused_project_id_individual(Some("parent".to_string()));
+        ws.focus_manager
+            .set_focused_project_id_individual(Some("parent".to_string()));
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].id, "parent");
 
-        ws.focus_manager.set_focused_project_id(Some("parent".to_string()));
+        ws.focus_manager
+            .set_focused_project_id(Some("parent".to_string()));
         let visible = ws.visible_projects();
         assert_eq!(visible.len(), 3);
     }
@@ -1221,12 +1276,14 @@ mod workspace_tests {
 
 #[cfg(test)]
 mod gpui_tests {
-    use gpui::AppContext as _;
-    use crate::state::{HookTerminalEntry, HookTerminalStatus, LayoutNode, ProjectData, Workspace, WorkspaceData};
     use crate::settings::HooksConfig;
-    use vryn_terminal::shell_config::ShellType;
-    use vryn_core::theme::FolderColor;
+    use crate::state::{
+        HookTerminalEntry, HookTerminalStatus, LayoutNode, ProjectData, Workspace, WorkspaceData,
+    };
+    use gpui::AppContext as _;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
+    use vryn_terminal::shell_config::ShellType;
 
     fn make_project(id: &str) -> ProjectData {
         ProjectData {
@@ -1324,14 +1381,14 @@ mod gpui_tests {
         });
     }
 
-
     #[gpui::test]
     fn test_replace_data_resets_focus(cx: &mut gpui::TestAppContext) {
         let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
         workspace.update(cx, |ws: &mut Workspace, _cx| {
-            ws.focus_manager.set_focused_project_id(Some("p1".to_string()));
+            ws.focus_manager
+                .set_focused_project_id(Some("p1".to_string()));
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
@@ -1428,8 +1485,16 @@ mod gpui_tests {
             assert_eq!(ws.data.folders.len(), 1);
             assert_eq!(ws.data.folders[0].id, "remote:conn2:folder2");
 
-            assert!(!ws.data.project_order.contains(&"remote:conn1:folder1".to_string()));
-            assert!(ws.data.project_order.contains(&"remote:conn2:folder2".to_string()));
+            assert!(
+                !ws.data
+                    .project_order
+                    .contains(&"remote:conn1:folder1".to_string())
+            );
+            assert!(
+                ws.data
+                    .project_order
+                    .contains(&"remote:conn2:folder2".to_string())
+            );
         });
     }
 
@@ -1528,7 +1593,10 @@ mod gpui_tests {
             assert!(p.hook_terminals.contains_key("hook-1"));
             assert!(p.hook_terminals.contains_key("hook-2"));
             assert!(p.hook_terminals.contains_key("hook-3"));
-            assert!(matches!(p.layout.as_ref().unwrap(), LayoutNode::Terminal { .. }));
+            assert!(matches!(
+                p.layout.as_ref().unwrap(),
+                LayoutNode::Terminal { .. }
+            ));
         });
     }
 
@@ -1542,7 +1610,12 @@ mod gpui_tests {
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
-            assert!(ws.project("p1").unwrap().hook_terminals.contains_key("hook-1"));
+            assert!(
+                ws.project("p1")
+                    .unwrap()
+                    .hook_terminals
+                    .contains_key("hook-1")
+            );
         });
 
         workspace.update(cx, |ws: &mut Workspace, cx| {
@@ -1562,17 +1635,27 @@ mod gpui_tests {
         let workspace = cx.new(|_cx| Workspace::new(data));
 
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.register_hook_terminal("p1", "hook-1", HookTerminalEntry {
-                label: "on_project_open (feature/foo)".to_string(),
-                status: HookTerminalStatus::Running,
-                hook_type: "on_project_open".to_string(),
-                command: "echo test".to_string(),
-                cwd: ".".to_string(),
-            }, cx);
+            ws.register_hook_terminal(
+                "p1",
+                "hook-1",
+                HookTerminalEntry {
+                    label: "on_project_open (feature/foo)".to_string(),
+                    status: HookTerminalStatus::Running,
+                    hook_type: "on_project_open".to_string(),
+                    command: "echo test".to_string(),
+                    cwd: ".".to_string(),
+                },
+                cx,
+            );
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
-            let name = ws.project("p1").unwrap().terminal_names.get("hook-1").unwrap();
+            let name = ws
+                .project("p1")
+                .unwrap()
+                .terminal_names
+                .get("hook-1")
+                .unwrap();
             assert_eq!(name, "on_project_open (feature/foo)");
         });
     }

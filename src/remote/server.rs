@@ -2,12 +2,12 @@ use crate::remote::auth::AuthStore;
 use crate::remote::bridge::BridgeSender;
 use crate::remote::pty_broadcaster::PtyBroadcaster;
 use crate::remote::routes;
-use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
+use vryn_core::api::ApiGitStatus;
 
 /// Handle to a running remote control server.
 /// Dropping this will trigger shutdown.
@@ -196,10 +196,11 @@ fn cleanup_stale_remote_json() {
     };
 
     if let Some(pid) = json.get("pid").and_then(|v| v.as_u64())
-        && !is_process_alive(pid as u32) {
-            log::info!("Removing stale remote.json (pid {} is dead)", pid);
-            let _ = std::fs::remove_file(&path);
-        }
+        && !is_process_alive(pid as u32)
+    {
+        log::info!("Removing stale remote.json (pid {} is dead)", pid);
+        let _ = std::fs::remove_file(&path);
+    }
 }
 
 /// Check if a process with the given PID is still running.

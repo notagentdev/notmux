@@ -37,8 +37,9 @@ pub fn post_action(
         return Err(format!("Server returned {}: {}", status, body));
     }
 
-    let body: serde_json::Value =
-        resp.json().map_err(|e| format!("Failed to parse response: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     if let Some(error) = body.get("error").and_then(|e| e.as_str()) {
         return Err(error.to_string());

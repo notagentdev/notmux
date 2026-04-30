@@ -1,5 +1,5 @@
-use vryn_terminal::pty_manager::PtyOutputSink;
 use tokio::sync::broadcast;
+use vryn_terminal::pty_manager::PtyOutputSink;
 
 /// A PTY broadcast event for WebSocket subscribers.
 #[derive(Clone, Debug)]
@@ -7,7 +7,11 @@ pub enum PtyBroadcastEvent {
     /// Terminal output data.
     Output { terminal_id: String, data: Vec<u8> },
     /// Terminal was resized (server-side).
-    Resized { terminal_id: String, cols: u16, rows: u16 },
+    Resized {
+        terminal_id: String,
+        cols: u16,
+        rows: u16,
+    },
 }
 
 /// Fan-out PTY events to WebSocket subscribers.
@@ -27,12 +31,18 @@ impl PtyBroadcaster {
 
     /// Publish a PTY output event. Non-blocking; drops if no subscribers.
     pub fn publish(&self, terminal_id: String, data: Vec<u8>) {
-        let _ = self.tx.send(PtyBroadcastEvent::Output { terminal_id, data });
+        let _ = self
+            .tx
+            .send(PtyBroadcastEvent::Output { terminal_id, data });
     }
 
     /// Publish a terminal resize event. Non-blocking; drops if no subscribers.
     pub fn publish_resize(&self, terminal_id: String, cols: u16, rows: u16) {
-        let _ = self.tx.send(PtyBroadcastEvent::Resized { terminal_id, cols, rows });
+        let _ = self.tx.send(PtyBroadcastEvent::Resized {
+            terminal_id,
+            cols,
+            rows,
+        });
     }
 
     /// Create a new subscriber receiver.

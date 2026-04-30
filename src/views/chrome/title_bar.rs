@@ -1,11 +1,14 @@
-use crate::keybindings::{Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel, ToggleSidebar};
+use crate::keybindings::{
+    Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel,
+    ToggleSidebar,
+};
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
 use crate::views::components::menu_item;
 use crate::workspace::state::Workspace;
+use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
-use gpui::prelude::*;
 
 const MAX_PROJECT_NAME_LENGTH: usize = 40;
 
@@ -178,10 +181,13 @@ impl TitleBar {
             .id("app-menu-backdrop")
             .absolute()
             .inset_0()
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
-                cx.stop_propagation();
-                this.close_menu(cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    cx.stop_propagation();
+                    this.close_menu(cx);
+                }),
+            )
             .on_mouse_move(|_, _, cx| {
                 cx.stop_propagation();
             })
@@ -212,43 +218,49 @@ impl TitleBar {
                     )
                     // Theme
                     .child(
-                        menu_item("app-menu-theme", "icons/eye.svg", "Select Theme", &t)
-                            .on_click(cx.listener(|this, _, window, cx| {
+                        menu_item("app-menu-theme", "icons/eye.svg", "Select Theme", &t).on_click(
+                            cx.listener(|this, _, window, cx| {
                                 this.close_menu(cx);
                                 window.dispatch_action(Box::new(ShowThemeSelector), cx);
-                            })),
+                            }),
+                        ),
                     )
                     // Command Palette
                     .child(
-                        menu_item("app-menu-command-palette", "icons/search.svg", "Command Palette", &t)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close_menu(cx);
-                                window.dispatch_action(Box::new(ShowCommandPalette), cx);
-                            })),
+                        menu_item(
+                            "app-menu-command-palette",
+                            "icons/search.svg",
+                            "Command Palette",
+                            &t,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.close_menu(cx);
+                            window.dispatch_action(Box::new(ShowCommandPalette), cx);
+                        })),
                     )
                     // Keyboard Shortcuts
                     .child(
-                        menu_item("app-menu-keybindings", "icons/keyboard.svg", "Keyboard Shortcuts", &t)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close_menu(cx);
-                                window.dispatch_action(Box::new(ShowKeybindings), cx);
-                            })),
+                        menu_item(
+                            "app-menu-keybindings",
+                            "icons/keyboard.svg",
+                            "Keyboard Shortcuts",
+                            &t,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.close_menu(cx);
+                            window.dispatch_action(Box::new(ShowKeybindings), cx);
+                        })),
                     )
                     // Separator
-                    .child(
-                        div()
-                            .h(px(1.0))
-                            .mx(px(8.0))
-                            .my(px(4.0))
-                            .bg(rgb(t.border)),
-                    )
+                    .child(div().h(px(1.0)).mx(px(8.0)).my(px(4.0)).bg(rgb(t.border)))
                     // Exit
                     .child(
-                        menu_item("app-menu-exit", "icons/close.svg", "Exit", &t)
-                            .on_click(cx.listener(|this, _, window, cx| {
+                        menu_item("app-menu-exit", "icons/close.svg", "Exit", &t).on_click(
+                            cx.listener(|this, _, window, cx| {
                                 this.close_menu(cx);
                                 window.dispatch_action(Box::new(Quit), cx);
-                            })),
+                            }),
+                        ),
                     ),
             )
     }
@@ -283,7 +295,9 @@ impl TitleBar {
         };
 
         div()
-            .id(ElementId::Name(format!("window-control-{:?}", control_type).into()))
+            .id(ElementId::Name(
+                format!("window-control-{:?}", control_type).into(),
+            ))
             .cursor_pointer()
             .w(px(46.0)) // Windows standard caption button width
             .h(px(42.0)) // Match titlebar height
@@ -295,33 +309,30 @@ impl TitleBar {
             .when(is_close, |d| {
                 d.hover(|s| s.bg(rgb(0xE81123)).text_color(rgb(0xffffff)))
             })
-            .when(!is_close, |d| {
-                d.hover(|s| s.bg(rgb(t.bg_hover)))
-            })
+            .when(!is_close, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
             .child(icon)
             .when_some(control_area, |d, area| {
                 // occlude() prevents parent Drag hitbox from shadowing button hit tests
                 d.occlude().window_control_area(area)
             })
             .when(control_area.is_none(), |d| {
-                d
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                d.on_mouse_down(MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation();
+                })
+                .on_click({
+                    move |_, window, cx| {
                         cx.stop_propagation();
-                    })
-                    .on_click({
-                        move |_, window, cx| {
-                            cx.stop_propagation();
-                            match control_type {
-                                WindowControlType::Minimize => window.minimize_window(),
-                                WindowControlType::Maximize | WindowControlType::Restore => {
-                                    window.zoom_window();
-                                }
-                                WindowControlType::Close => {
-                                    cx.quit();
-                                }
+                        match control_type {
+                            WindowControlType::Minimize => window.minimize_window(),
+                            WindowControlType::Maximize | WindowControlType::Restore => {
+                                window.zoom_window();
+                            }
+                            WindowControlType::Close => {
+                                cx.quit();
                             }
                         }
-                    })
+                    }
+                })
             })
     }
 
@@ -335,7 +346,11 @@ impl TitleBar {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let t = theme(cx);
-        let color = if active { t.term_blue } else { t.text_secondary };
+        let color = if active {
+            t.term_blue
+        } else {
+            t.text_secondary
+        };
         div()
             .id(id)
             .cursor_pointer()
@@ -346,12 +361,7 @@ impl TitleBar {
             .justify_center()
             .rounded(px(4.0))
             .hover(|s| s.bg(rgb(t.bg_hover)))
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(px(16.0))
-                    .text_color(rgb(color)),
-            )
+            .child(svg().path(icon_path).size(px(16.0)).text_color(rgb(color)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -408,33 +418,48 @@ impl Render for TitleBar {
             // to start a compositor-native window move. The move is deferred to
             // mouse-move so that double-click to maximize still works.
             .when(cfg!(target_os = "linux"), |d| {
-                d
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _cx| {
+                d.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _cx| {
                         #[cfg(target_os = "linux")]
-                        { this.should_move = true; }
+                        {
+                            this.should_move = true;
+                        }
                         #[cfg(not(target_os = "linux"))]
-                        { let _ = this; }
-                    }))
-                    .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _cx| {
+                        {
+                            let _ = this;
+                        }
+                    }),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _cx| {
                         #[cfg(target_os = "linux")]
-                        { this.should_move = false; }
-                        #[cfg(not(target_os = "linux"))]
-                        { let _ = this; }
-                    }))
-                    .on_mouse_move(cx.listener(|this, _, window, _cx| {
-                        #[cfg(target_os = "linux")]
-                        if this.should_move {
+                        {
                             this.should_move = false;
-                            window.start_window_move();
                         }
                         #[cfg(not(target_os = "linux"))]
-                        { let _ = (this, window); }
-                    }))
-                    .on_click(|event: &ClickEvent, window, _| {
-                        if event.click_count() == 2 {
-                            window.zoom_window();
+                        {
+                            let _ = this;
                         }
-                    })
+                    }),
+                )
+                .on_mouse_move(cx.listener(|this, _, window, _cx| {
+                    #[cfg(target_os = "linux")]
+                    if this.should_move {
+                        this.should_move = false;
+                        window.start_window_move();
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        let _ = (this, window);
+                    }
+                }))
+                .on_click(|event: &ClickEvent, window, _| {
+                    if event.click_count() == 2 {
+                        window.zoom_window();
+                    }
+                })
             })
             .child(
                 // Left side - sidebar toggle + title
@@ -522,7 +547,7 @@ impl Render for TitleBar {
                     .items_center()
                     .child(div().flex_1())
                     .child(self.render_command_palette_field(cx))
-                    .child(div().flex_1())
+                    .child(div().flex_1()),
             )
             .child(
                 // Right side — panel toggles + settings + native window controls
@@ -560,13 +585,31 @@ impl Render for TitleBar {
                             h_flex()
                                 .ml(px(4.0))
                                 .gap(px(2.0))
-                                .child(self.render_window_control(WindowControlType::Minimize, window, cx))
+                                .child(self.render_window_control(
+                                    WindowControlType::Minimize,
+                                    window,
+                                    cx,
+                                ))
                                 .child(if is_maximized {
-                                    self.render_window_control(WindowControlType::Restore, window, cx).into_any_element()
+                                    self.render_window_control(
+                                        WindowControlType::Restore,
+                                        window,
+                                        cx,
+                                    )
+                                    .into_any_element()
                                 } else {
-                                    self.render_window_control(WindowControlType::Maximize, window, cx).into_any_element()
+                                    self.render_window_control(
+                                        WindowControlType::Maximize,
+                                        window,
+                                        cx,
+                                    )
+                                    .into_any_element()
                                 })
-                                .child(self.render_window_control(WindowControlType::Close, window, cx))
+                                .child(self.render_window_control(
+                                    WindowControlType::Close,
+                                    window,
+                                    cx,
+                                )),
                         )
                     }),
             )

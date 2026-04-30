@@ -15,12 +15,25 @@ use vryn_ui::menu::{
 
 pub enum GitOverflowMenuEvent {
     Close,
-    StageAll { project_id: String },
-    UnstageAll { project_id: String },
-    StashAll { project_id: String },
-    StashPop { project_id: String },
-    ShowStash { project_id: String, position: Point<Pixels> },
-    DiscardAllTracked { project_id: String },
+    StageAll {
+        project_id: String,
+    },
+    UnstageAll {
+        project_id: String,
+    },
+    StashAll {
+        project_id: String,
+    },
+    StashPop {
+        project_id: String,
+    },
+    ShowStash {
+        project_id: String,
+        position: Point<Pixels>,
+    },
+    DiscardAllTracked {
+        project_id: String,
+    },
 }
 
 impl vryn_ui::overlay::CloseEvent for GitOverflowMenuEvent {

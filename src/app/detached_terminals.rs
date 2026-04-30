@@ -1,10 +1,10 @@
+#[cfg(target_os = "linux")]
+use crate::simple_root::SimpleRoot as Root;
 use crate::views::overlays::detached_terminal::DetachedTerminalView;
 use crate::workspace::state::Workspace;
 use gpui::*;
 #[cfg(not(target_os = "linux"))]
 use gpui_component::Root;
-#[cfg(target_os = "linux")]
-use crate::simple_root::SimpleRoot as Root;
 use std::collections::HashSet;
 
 use super::Vryn;
@@ -37,7 +37,8 @@ impl Vryn {
 
     fn open_detached_window(&self, terminal_id: &str, cx: &mut Context<Self>) {
         let workspace = self.workspace.clone();
-        let transport: std::sync::Arc<dyn crate::terminal::terminal::TerminalTransport> = self.pty_manager.clone();
+        let transport: std::sync::Arc<dyn crate::terminal::terminal::TerminalTransport> =
+            self.pty_manager.clone();
         let terminals = self.terminals.clone();
         let terminal_id_owned = terminal_id.to_string();
 

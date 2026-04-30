@@ -1,13 +1,13 @@
 //! Terminal pane view - composition of child entity views.
 
-pub mod url_detector;
-mod scrollbar;
-mod search_bar;
-mod content;
 pub(crate) mod actions;
-mod zoom;
+mod content;
 mod navigation;
 mod render;
+mod scrollbar;
+mod search_bar;
+pub mod url_detector;
+mod zoom;
 
 use content::TerminalContentEvent;
 use search_bar::{SearchBar, SearchBarEvent};
@@ -16,16 +16,16 @@ pub use content::TerminalContent;
 
 use crate::ActionDispatch;
 use crate::terminal_view_settings;
-use vryn_terminal::backend::TerminalBackend;
-use vryn_terminal::shell_config::ShellType;
-use vryn_terminal::terminal::{Terminal, TerminalSize};
-use vryn_terminal::TerminalsRegistry;
-use vryn_workspace::hooks;
-use vryn_workspace::request_broker::RequestBroker;
-use vryn_workspace::state::Workspace;
 use gpui::*;
 use std::sync::Arc;
 use std::time::Duration;
+use vryn_terminal::TerminalsRegistry;
+use vryn_terminal::backend::TerminalBackend;
+use vryn_terminal::shell_config::ShellType;
+use vryn_terminal::terminal::{Terminal, TerminalSize};
+use vryn_workspace::hooks;
+use vryn_workspace::request_broker::RequestBroker;
+use vryn_workspace::state::Workspace;
 
 /// A terminal pane view composed of child entity views.
 pub struct TerminalPane<D: ActionDispatch> {
@@ -96,7 +96,8 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
         let search_bar = cx.new(|cx| SearchBar::new(workspace.clone(), cx));
 
-        cx.subscribe(&search_bar, Self::handle_search_bar_event).detach();
+        cx.subscribe(&search_bar, Self::handle_search_bar_event)
+            .detach();
         cx.subscribe(&content, Self::handle_content_event).detach();
 
         let mut pane = Self {
@@ -127,7 +128,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             pane.create_new_terminal(cx);
         }
 
-        if pane.terminal_id.as_deref().is_some_and(|id| id.starts_with("remote:")) {
+        if pane
+            .terminal_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("remote:"))
+        {
             pane.start_remote_dirty_check_loop(cx);
         }
         pane.start_cursor_blink_loop(cx);
@@ -166,7 +171,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         cx: &mut Context<Self>,
     ) {
         match event {
-            TerminalContentEvent::RequestContextMenu { position, has_selection, link_url } => {
+            TerminalContentEvent::RequestContextMenu {
+                position,
+                has_selection,
+                link_url,
+            } => {
                 if let Some(ref terminal_id) = self.terminal_id {
                     self.request_broker.update(cx, |broker, cx| {
                         broker.push_overlay_request(
@@ -288,7 +297,9 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                     if was_waiting {
                         was_waiting = false;
                         terminal.set_waiting_for_input(false);
-                        let _ = this.update(cx, |_pane, cx| { cx.notify(); });
+                        let _ = this.update(cx, |_pane, cx| {
+                            cx.notify();
+                        });
                     }
                     continue;
                 }
@@ -327,7 +338,8 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let settings = terminal_view_settings(cx);
         let ws = self.workspace.read(cx);
         let shell = self.shell_type.clone().resolve_default(
-            ws.project(&self.project_id).and_then(|p| p.default_shell.as_ref()),
+            ws.project(&self.project_id)
+                .and_then(|p| p.default_shell.as_ref()),
             &settings.default_shell,
         );
 
@@ -348,7 +360,12 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         }
 
         let size = TerminalSize::default();
-        let terminal = Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), cwd));
+        let terminal = Arc::new(Terminal::new(
+            terminal_id.clone(),
+            size,
+            self.backend.transport(),
+            cwd,
+        ));
         if let Some(pid) = self.backend.get_foreground_shell_pid(&terminal_id) {
             terminal.set_shell_pid(pid);
         }
@@ -366,14 +383,24 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let settings = terminal_view_settings(cx);
         let ws = self.workspace.read(cx);
         let mut shell = self.shell_type.clone().resolve_default(
-            ws.project(&self.project_id).and_then(|p| p.default_shell.as_ref()),
+            ws.project(&self.project_id)
+                .and_then(|p| p.default_shell.as_ref()),
             &settings.default_shell,
         );
 
         // Read fresh path and project info from workspace state
-        let (project_path, project_name, project_hooks, parent_hooks, is_worktree, folder_id, folder_name) = {
+        let (
+            project_path,
+            project_name,
+            project_hooks,
+            parent_hooks,
+            is_worktree,
+            folder_id,
+            folder_name,
+        ) = {
             let project = ws.project(&self.project_id);
-            let path = project.map(|p| p.path.clone())
+            let path = project
+                .map(|p| p.path.clone())
                 .unwrap_or_else(|| self.project_path.clone());
             let name = project.map(|p| p.name.clone()).unwrap_or_default();
             let hooks_cfg = project.map(|p| p.hooks.clone()).unwrap_or_default();
@@ -388,7 +415,14 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             (path, name, hooks_cfg, parent, is_wt, fid, fname)
         };
 
-        let env = hooks::terminal_hook_env(&self.project_id, &project_name, &project_path, is_worktree, folder_id.as_deref(), folder_name.as_deref());
+        let env = hooks::terminal_hook_env(
+            &self.project_id,
+            &project_name,
+            &project_path,
+            is_worktree,
+            folder_id.as_deref(),
+            folder_name.as_deref(),
+        );
 
         // Snapshot the small persist-scrollback flags before consuming `settings.hooks`
         // below, so the post-spawn replay call can still read them.
@@ -397,12 +431,18 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
         // Apply shell_wrapper if configured
         let global_hooks = settings.hooks;
-        if let Some(wrapper) = hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks) {
+        if let Some(wrapper) =
+            hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks)
+        {
             shell = hooks::apply_shell_wrapper(&shell, &wrapper, &env);
         }
 
         // Apply on_create: wrap shell to run command first, then exec into shell
-        if let Some(cmd) = hooks::resolve_terminal_on_create_simple(&project_hooks, parent_hooks.as_ref(), &global_hooks) {
+        if let Some(cmd) = hooks::resolve_terminal_on_create_simple(
+            &project_hooks,
+            parent_hooks.as_ref(),
+            &global_hooks,
+        ) {
             shell = hooks::apply_on_create(&shell, &cmd, &env);
         }
 
@@ -412,30 +452,34 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             &project_path,
             self.backend.is_remote(),
         );
-        match self
-            .backend
-            .create_terminal(&cwd, Some(&shell))
-        {
+        match self.backend.create_terminal(&cwd, Some(&shell)) {
             Ok(terminal_id) => {
                 self.terminal_id = Some(terminal_id.clone());
                 self.workspace.update(cx, |ws, cx| {
-                    ws.set_terminal_id(&self.project_id, &self.layout_path, terminal_id.clone(), cx);
+                    ws.set_terminal_id(
+                        &self.project_id,
+                        &self.layout_path,
+                        terminal_id.clone(),
+                        cx,
+                    );
                 });
 
                 let size = TerminalSize::default();
-                let terminal =
-                    Arc::new(Terminal::new(terminal_id.clone(), size, self.backend.transport(), cwd));
+                let terminal = Arc::new(Terminal::new(
+                    terminal_id.clone(),
+                    size,
+                    self.backend.transport(),
+                    cwd,
+                ));
                 if let Some(pid) = self.backend.get_shell_pid(&terminal_id) {
                     terminal.set_shell_pid(pid);
                 }
                 if persist_scrollback && persist_lines > 0 {
-                    replay_persisted_scrollback_raw(
-                        &self.project_id,
-                        &self.layout_path,
-                        &terminal,
-                    );
+                    replay_persisted_scrollback_raw(&self.project_id, &self.layout_path, &terminal);
                 }
-                self.terminals.lock().insert(terminal_id.clone(), terminal.clone());
+                self.terminals
+                    .lock()
+                    .insert(terminal_id.clone(), terminal.clone());
                 self.terminal = Some(terminal.clone());
 
                 self.update_child_terminals(terminal, cx);
@@ -451,10 +495,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
     }
 
     fn update_child_terminals(&mut self, terminal: Arc<Terminal>, cx: &mut Context<Self>) {
-        crate::register_content_pane(
-            terminal.terminal_id.clone(),
-            self.content.downgrade(),
-        );
+        crate::register_content_pane(terminal.terminal_id.clone(), self.content.downgrade());
 
         self.content.update(cx, |content, cx| {
             content.set_terminal(Some(terminal.clone()), cx);
@@ -495,7 +536,6 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             )
         })
     }
-
 }
 
 impl<D: ActionDispatch> Drop for TerminalPane<D> {
@@ -539,14 +579,18 @@ fn resolve_revival_cwd(
     } else {
         log::warn!(
             "Snapshot cwd {} for {} no longer exists, falling back to {}",
-            cwd, key, fallback
+            cwd,
+            key,
+            fallback
         );
         fallback.to_string()
     }
 }
 
 /// Replay a previously persisted scrollback snapshot into a freshly created
-/// terminal, then delete the snapshot file so it isn't replayed twice.
+/// terminal. The bytes are moved into the terminal's restore buffer and the
+/// disk snapshot is cleared so a later terminal in the same layout slot cannot
+/// accidentally load stale history.
 /// Snapshots are keyed by `(project_id, layout_path)` so they survive the
 /// terminal_id reset that workspace persistence performs on restart when
 /// no session backend is available.
@@ -566,11 +610,7 @@ fn replay_persisted_scrollback(
 }
 
 /// Inner replay: caller has already verified the feature is enabled.
-fn replay_persisted_scrollback_raw(
-    project_id: &str,
-    layout_path: &[usize],
-    terminal: &Terminal,
-) {
+fn replay_persisted_scrollback_raw(project_id: &str, layout_path: &[usize], terminal: &Terminal) {
     let dir = vryn_workspace::persistence::get_config_dir().join("scrollback");
     let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
     match vryn_terminal::scrollback_snapshot::load(&dir, &key) {
@@ -590,8 +630,9 @@ fn replay_persisted_scrollback_raw(
             if snap.original_cols >= 2 && snap.original_rows >= 2 {
                 terminal.resize_grid_only(snap.original_cols, snap.original_rows);
             }
-            terminal.replay_output(&snap.bytes);
-            terminal.replay_output(HISTORY_RESTORED_BANNER);
+            terminal.restore_scrollback_output(&snap.bytes);
+            terminal.process_output(history_restored_banner(&snap.bytes));
+            vryn_terminal::scrollback_snapshot::clear(&dir, &key);
         }
         None => {
             log::debug!(
@@ -601,15 +642,17 @@ fn replay_persisted_scrollback_raw(
             );
         }
     }
-    // Always clear: stale snapshots from terminals that opened-but-didn't-quit
-    // shouldn't replay twice. The next graceful shutdown writes a fresh one.
-    vryn_terminal::scrollback_snapshot::clear(&dir, &key);
 }
 
-/// VSCode's "History restored" banner, byte-for-byte.
-/// Source: `formatMessageForTerminal` in `microsoft/vscode`
-/// `src/vs/platform/terminal/common/terminalStrings.ts` (commit 560a9db,
-/// referenced from this repo's `ref/vscodium-master/upstream/stable.json`).
-/// Layout: leading CRLF → reset → inverse-video banner → reset → trailing LF+CR.
-const HISTORY_RESTORED_BANNER: &[u8] =
-    b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\n\r";
+fn history_restored_banner(previous_bytes: &[u8]) -> &'static [u8] {
+    if previous_bytes.ends_with(b"\n") || previous_bytes.ends_with(b"\r") {
+        HISTORY_RESTORED_BANNER_AT_LINE_START
+    } else {
+        HISTORY_RESTORED_BANNER_AFTER_TEXT
+    }
+}
+
+const HISTORY_RESTORED_BANNER_AT_LINE_START: &[u8] =
+    b"\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n";
+const HISTORY_RESTORED_BANNER_AFTER_TEXT: &[u8] =
+    b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n";

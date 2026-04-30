@@ -1,6 +1,6 @@
-use vryn_core::process::{command, safe_output};
 use std::collections::HashSet;
 use std::path::Path;
+use vryn_core::process::{command, safe_output};
 
 #[derive(Clone, Copy)]
 enum Gender {
@@ -15,44 +15,158 @@ struct BakedGood {
 }
 
 const GOODS: &[BakedGood] = &[
-    BakedGood { name: "rohlik", gender: Gender::Masculine },
-    BakedGood { name: "houska", gender: Gender::Feminine },
-    BakedGood { name: "kolac", gender: Gender::Masculine },
-    BakedGood { name: "veka", gender: Gender::Feminine },
-    BakedGood { name: "chleb", gender: Gender::Masculine },
-    BakedGood { name: "buchta", gender: Gender::Feminine },
-    BakedGood { name: "kobliha", gender: Gender::Feminine },
-    BakedGood { name: "strudl", gender: Gender::Masculine },
-    BakedGood { name: "mazanec", gender: Gender::Masculine },
-    BakedGood { name: "vanocka", gender: Gender::Feminine },
-    BakedGood { name: "trdlo", gender: Gender::Neuter },
-    BakedGood { name: "trdelnik", gender: Gender::Masculine },
-    BakedGood { name: "loupak", gender: Gender::Masculine },
-    BakedGood { name: "makovec", gender: Gender::Masculine },
-    BakedGood { name: "zavin", gender: Gender::Masculine },
-    BakedGood { name: "kremrole", gender: Gender::Feminine },
-    BakedGood { name: "venecek", gender: Gender::Masculine },
-    BakedGood { name: "rakvicka", gender: Gender::Feminine },
-    BakedGood { name: "laskonka", gender: Gender::Feminine },
-    BakedGood { name: "medovnik", gender: Gender::Masculine },
-    BakedGood { name: "bublanina", gender: Gender::Feminine },
-    BakedGood { name: "pernik", gender: Gender::Masculine },
-    BakedGood { name: "knedlik", gender: Gender::Masculine },
-    BakedGood { name: "palacinka", gender: Gender::Feminine },
-    BakedGood { name: "babovka", gender: Gender::Feminine },
-    BakedGood { name: "povidlak", gender: Gender::Masculine },
-    BakedGood { name: "vdolek", gender: Gender::Masculine },
-    BakedGood { name: "bochanek", gender: Gender::Masculine },
-    BakedGood { name: "kolatek", gender: Gender::Masculine },
-    BakedGood { name: "zemle", gender: Gender::Feminine },
-    BakedGood { name: "paska", gender: Gender::Feminine },
-    BakedGood { name: "pletenak", gender: Gender::Masculine },
-    BakedGood { name: "orechovec", gender: Gender::Masculine },
-    BakedGood { name: "tvarohac", gender: Gender::Masculine },
-    BakedGood { name: "jablecnak", gender: Gender::Masculine },
-    BakedGood { name: "svestkac", gender: Gender::Masculine },
-    BakedGood { name: "linecak", gender: Gender::Masculine },
-    BakedGood { name: "vetrnik", gender: Gender::Masculine },
+    BakedGood {
+        name: "rohlik",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "houska",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "kolac",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "veka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "chleb",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "buchta",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "kobliha",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "strudl",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "mazanec",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "vanocka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "trdlo",
+        gender: Gender::Neuter,
+    },
+    BakedGood {
+        name: "trdelnik",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "loupak",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "makovec",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "zavin",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "kremrole",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "venecek",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "rakvicka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "laskonka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "medovnik",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "bublanina",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "pernik",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "knedlik",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "palacinka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "babovka",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "povidlak",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "vdolek",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "bochanek",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "kolatek",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "zemle",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "paska",
+        gender: Gender::Feminine,
+    },
+    BakedGood {
+        name: "pletenak",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "orechovec",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "tvarohac",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "jablecnak",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "svestkac",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "linecak",
+        gender: Gender::Masculine,
+    },
+    BakedGood {
+        name: "vetrnik",
+        gender: Gender::Masculine,
+    },
 ];
 
 /// (stem, masculine_suffix, feminine_suffix, neuter_suffix)
@@ -69,7 +183,13 @@ const ADJECTIVE_STEMS: &[(&str, &str, &str, &str)] = &[
     ("rychl", "y", "a", "e"),
 ];
 
-fn adjective_for(stem: &str, suffix_m: &str, suffix_f: &str, suffix_n: &str, good: &BakedGood) -> String {
+fn adjective_for(
+    stem: &str,
+    suffix_m: &str,
+    suffix_f: &str,
+    suffix_n: &str,
+    good: &BakedGood,
+) -> String {
     let suffix = match good.gender {
         Gender::Masculine => suffix_m,
         Gender::Feminine => suffix_f,
@@ -80,11 +200,14 @@ fn adjective_for(stem: &str, suffix_m: &str, suffix_f: &str, suffix_n: &str, goo
 
 /// Per-repo username cache. Keyed by canonical repo path so that different
 /// repositories resolve to their own GitHub owner.
-static USERNAME_CACHE: parking_lot::Mutex<Option<std::collections::HashMap<std::path::PathBuf, String>>> =
-    parking_lot::Mutex::new(None);
+static USERNAME_CACHE: parking_lot::Mutex<
+    Option<std::collections::HashMap<std::path::PathBuf, String>>,
+> = parking_lot::Mutex::new(None);
 
 fn detect_github_username(repo_path: &Path) -> String {
-    let canonical = repo_path.canonicalize().unwrap_or_else(|_| repo_path.to_path_buf());
+    let canonical = repo_path
+        .canonicalize()
+        .unwrap_or_else(|_| repo_path.to_path_buf());
     let mut guard = USERNAME_CACHE.lock();
     let cache = guard.get_or_insert_with(std::collections::HashMap::new);
     if let Some(cached) = cache.get(&canonical) {
@@ -100,22 +223,25 @@ fn detect_github_username_inner(repo_path: &Path) -> String {
     // which is correct even when the remote is owned by an org.
     // Result is cached so the network call only happens once.
     if let Ok(output) = safe_output(command("gh").args(["api", "user", "--jq", ".login"]))
-        && output.status.success() {
-            let login = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !login.is_empty() {
-                return sanitize_username(&login);
-            }
+        && output.status.success()
+    {
+        let login = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !login.is_empty() {
+            return sanitize_username(&login);
         }
+    }
 
     // Tier 2: git config user.name
     if let Some(path_str) = repo_path.to_str()
-        && let Ok(output) = safe_output(command("git").args(["-C", path_str, "config", "user.name"]))
-            && output.status.success() {
-                let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !name.is_empty() {
-                    return sanitize_username(&name);
-                }
-            }
+        && let Ok(output) =
+            safe_output(command("git").args(["-C", path_str, "config", "user.name"]))
+        && output.status.success()
+    {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !name.is_empty() {
+            return sanitize_username(&name);
+        }
+    }
 
     // Tier 3: fallback
     "dev".to_string()
@@ -236,9 +362,18 @@ mod tests {
 
     #[test]
     fn test_adjective_gender_agreement() {
-        let m_good = BakedGood { name: "rohlik", gender: Gender::Masculine };
-        let f_good = BakedGood { name: "houska", gender: Gender::Feminine };
-        let n_good = BakedGood { name: "trdlo", gender: Gender::Neuter };
+        let m_good = BakedGood {
+            name: "rohlik",
+            gender: Gender::Masculine,
+        };
+        let f_good = BakedGood {
+            name: "houska",
+            gender: Gender::Feminine,
+        };
+        let n_good = BakedGood {
+            name: "trdlo",
+            gender: Gender::Neuter,
+        };
 
         assert_eq!(adjective_for("velk", "y", "a", "e", &m_good), "velky");
         assert_eq!(adjective_for("velk", "y", "a", "e", &f_good), "velka");

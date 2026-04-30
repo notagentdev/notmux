@@ -2,9 +2,9 @@
 //!
 //! Actions for creating, modifying, and deleting sidebar folders.
 
-use vryn_core::theme::FolderColor;
 use crate::state::{FolderData, Workspace};
 use gpui::*;
+use vryn_core::theme::FolderColor;
 
 impl Workspace {
     /// Create a new folder, appending it to project_order
@@ -29,13 +29,21 @@ impl Workspace {
             self.active_folder_filter = None;
         }
 
-        let project_ids = self.data.folders.iter()
+        let project_ids = self
+            .data
+            .folders
+            .iter()
             .find(|f| f.id == folder_id)
             .map(|f| f.project_ids.clone())
             .unwrap_or_default();
 
         // Find folder position in project_order
-        if let Some(pos) = self.data.project_order.iter().position(|id| id == folder_id) {
+        if let Some(pos) = self
+            .data
+            .project_order
+            .iter()
+            .position(|id| id == folder_id)
+        {
             self.data.project_order.remove(pos);
             // Insert contained projects at the folder's old position
             for (i, pid) in project_ids.into_iter().enumerate() {
@@ -56,7 +64,12 @@ impl Workspace {
     }
 
     /// Set the color for a folder
-    pub fn set_folder_item_color(&mut self, folder_id: &str, color: FolderColor, cx: &mut Context<Self>) {
+    pub fn set_folder_item_color(
+        &mut self,
+        folder_id: &str,
+        color: FolderColor,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(folder) = self.folder_mut(folder_id) {
             folder.folder_color = color;
             self.notify_data(cx);
@@ -72,7 +85,13 @@ impl Workspace {
     }
 
     /// Move a project into a folder at a given position
-    pub fn move_project_to_folder(&mut self, project_id: &str, folder_id: &str, position: Option<usize>, cx: &mut Context<Self>) {
+    pub fn move_project_to_folder(
+        &mut self,
+        project_id: &str,
+        folder_id: &str,
+        position: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
         // Remove from any current folder
         for folder in &mut self.data.folders {
             folder.project_ids.retain(|id| id != project_id);
@@ -91,7 +110,12 @@ impl Workspace {
 
     /// Move a project out of its folder into the top-level project_order
     #[allow(dead_code)]
-    pub fn move_project_out_of_folder(&mut self, project_id: &str, top_level_index: usize, cx: &mut Context<Self>) {
+    pub fn move_project_out_of_folder(
+        &mut self,
+        project_id: &str,
+        top_level_index: usize,
+        cx: &mut Context<Self>,
+    ) {
         // Remove from any folder
         for folder in &mut self.data.folders {
             folder.project_ids.retain(|id| id != project_id);
@@ -100,25 +124,34 @@ impl Workspace {
         self.data.project_order.retain(|id| id != project_id);
 
         let target = top_level_index.min(self.data.project_order.len());
-        self.data.project_order.insert(target, project_id.to_string());
+        self.data
+            .project_order
+            .insert(target, project_id.to_string());
         self.notify_data(cx);
     }
 
     /// Reorder a project within a folder
     #[allow(dead_code)]
-    pub fn reorder_project_in_folder(&mut self, folder_id: &str, project_id: &str, new_index: usize, cx: &mut Context<Self>) {
+    pub fn reorder_project_in_folder(
+        &mut self,
+        folder_id: &str,
+        project_id: &str,
+        new_index: usize,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(folder) = self.folder_mut(folder_id)
-            && let Some(current) = folder.project_ids.iter().position(|id| id == project_id) {
-                let id = folder.project_ids.remove(current);
-                let target = if new_index > current {
-                    new_index.saturating_sub(1)
-                } else {
-                    new_index
-                };
-                let target = target.min(folder.project_ids.len());
-                folder.project_ids.insert(target, id);
-                self.notify_data(cx);
-            }
+            && let Some(current) = folder.project_ids.iter().position(|id| id == project_id)
+        {
+            let id = folder.project_ids.remove(current);
+            let target = if new_index > current {
+                new_index.saturating_sub(1)
+            } else {
+                new_index
+            };
+            let target = target.min(folder.project_ids.len());
+            folder.project_ids.insert(target, id);
+            self.notify_data(cx);
+        }
     }
 
     /// Reorder any top-level item (project or folder) in project_order
@@ -139,10 +172,10 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::*;
     use crate::settings::HooksConfig;
-    use vryn_core::theme::FolderColor;
+    use crate::state::*;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
 
     fn make_project(id: &str) -> ProjectData {
         ProjectData {
@@ -179,7 +212,9 @@ mod tests {
 
     /// Simulate delete_folder: splice projects back into project_order
     fn simulate_delete_folder(data: &mut WorkspaceData, folder_id: &str) {
-        let project_ids = data.folders.iter()
+        let project_ids = data
+            .folders
+            .iter()
             .find(|f| f.id == folder_id)
             .map(|f| f.project_ids.clone())
             .unwrap_or_default();
@@ -194,7 +229,12 @@ mod tests {
     }
 
     /// Simulate move_project_to_folder
-    fn simulate_move_to_folder(data: &mut WorkspaceData, project_id: &str, folder_id: &str, position: Option<usize>) {
+    fn simulate_move_to_folder(
+        data: &mut WorkspaceData,
+        project_id: &str,
+        folder_id: &str,
+        position: Option<usize>,
+    ) {
         for folder in &mut data.folders {
             folder.project_ids.retain(|id| id != project_id);
         }
@@ -250,11 +290,11 @@ mod tests {
 
 #[cfg(test)]
 mod gpui_tests {
-    use gpui::AppContext as _;
-    use crate::state::{FolderData, LayoutNode, ProjectData, Workspace, WorkspaceData};
     use crate::settings::HooksConfig;
-    use vryn_core::theme::FolderColor;
+    use crate::state::{FolderData, LayoutNode, ProjectData, Workspace, WorkspaceData};
+    use gpui::AppContext as _;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
 
     fn make_project(id: &str) -> ProjectData {
         ProjectData {
@@ -308,10 +348,8 @@ mod gpui_tests {
 
     #[gpui::test]
     fn test_delete_folder_gpui(cx: &mut gpui::TestAppContext) {
-        let mut data = make_workspace_data(
-            vec![make_project("p1"), make_project("p2")],
-            vec!["f1"],
-        );
+        let mut data =
+            make_workspace_data(vec![make_project("p1"), make_project("p2")], vec!["f1"]);
         data.folders = vec![FolderData {
             id: "f1".to_string(),
             name: "Folder".to_string(),

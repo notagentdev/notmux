@@ -133,10 +133,7 @@ pub fn unique_path(path: &Path) -> PathBuf {
     }
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let ext = path.extension().and_then(|s| s.to_str());
 
     for i in 1..1000 {
@@ -164,8 +161,8 @@ pub fn unique_path(path: &Path) -> PathBuf {
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst)
         .map_err(|e| format!("Failed to create destination directory: {}", e))?;
-    let read = std::fs::read_dir(src)
-        .map_err(|e| format!("Failed to read source directory: {}", e))?;
+    let read =
+        std::fs::read_dir(src).map_err(|e| format!("Failed to read source directory: {}", e))?;
     for entry in read.flatten() {
         let ft = entry
             .file_type()

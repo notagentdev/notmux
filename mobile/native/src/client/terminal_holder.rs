@@ -8,9 +8,9 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config as TermConfig, Term};
 use alacritty_terminal::vte::ansi::Processor;
-use vryn_core::theme::ThemeColors;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use vryn_core::theme::ThemeColors;
 
 /// No-op event listener for mobile.
 ///
@@ -86,8 +86,8 @@ impl TerminalHolder {
                     continue;
                 }
 
-                let mut fg = cell.fg.clone();
-                let mut bg = cell.bg.clone();
+                let mut fg = cell.fg;
+                let mut bg = cell.bg;
                 if cell.flags.contains(Flags::INVERSE) {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -143,8 +143,13 @@ impl TerminalHolder {
         // Hide cursor when scrolled into history (cursor would be off-screen)
         let cursor_visual_line = cursor.line.0 + display_offset;
         let screen_lines = term.grid().screen_lines() as i32;
-        let visible = term.mode().contains(alacritty_terminal::term::TermMode::SHOW_CURSOR)
-            && !matches!(cursor_shape, alacritty_terminal::vte::ansi::CursorShape::Hidden)
+        let visible = term
+            .mode()
+            .contains(alacritty_terminal::term::TermMode::SHOW_CURSOR)
+            && !matches!(
+                cursor_shape,
+                alacritty_terminal::vte::ansi::CursorShape::Hidden
+            )
             && cursor_visual_line >= 0
             && cursor_visual_line < screen_lines;
 
@@ -232,12 +237,12 @@ impl TerminalHolder {
     /// where rows are buffer coordinates (adjusted for display_offset for rendering).
     pub fn selection_bounds(&self) -> Option<((usize, i32), (usize, i32))> {
         let term = self.term.lock();
-        if let Some(ref selection) = term.selection {
-            if let Some(range) = selection.to_range(&*term) {
-                let start = (range.start.column.0, range.start.line.0);
-                let end = (range.end.column.0, range.end.line.0);
-                return Some((start, end));
-            }
+        if let Some(ref selection) = term.selection
+            && let Some(range) = selection.to_range(&*term)
+        {
+            let start = (range.start.column.0, range.start.line.0);
+            let end = (range.end.column.0, range.end.line.0);
+            return Some((start, end));
         }
         None
     }
@@ -264,7 +269,11 @@ mod tests {
         holder.process_output(b"Hello, world!");
         let cells = holder.get_visible_cells(&DARK_THEME);
         // Cells should contain H, e, l, l, o, etc. (minus WIDE_CHAR_SPACERs)
-        let text: String = cells.iter().take(13).map(|c| c.character.as_str()).collect();
+        let text: String = cells
+            .iter()
+            .take(13)
+            .map(|c| c.character.as_str())
+            .collect();
         assert_eq!(text, "Hello, world!");
     }
 

@@ -1,17 +1,17 @@
 //! Dialog for renaming a project's directory on disk.
 
 use crate::Cancel;
+use gpui::prelude::*;
+use gpui::*;
+use gpui_component::h_flex;
+use std::path::Path;
 use vryn_ui::button::{button, button_primary};
 use vryn_ui::input::input_container;
 use vryn_ui::modal::{modal_backdrop, modal_content};
 use vryn_ui::simple_input::{SimpleInput, SimpleInputState};
 use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text_ms, ui_text_md, ui_text_xl, ui_text};
+use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_xl};
 use vryn_workspace::state::Workspace;
-use gpui::prelude::*;
-use gpui::*;
-use gpui_component::h_flex;
-use std::path::Path;
 
 /// Events emitted by the rename directory dialog
 #[derive(Clone)]
@@ -23,7 +23,9 @@ pub enum RenameDirectoryDialogEvent {
 }
 
 impl vryn_ui::overlay::CloseEvent for RenameDirectoryDialogEvent {
-    fn is_close(&self) -> bool { matches!(self, Self::Close | Self::Renamed) }
+    fn is_close(&self) -> bool {
+        matches!(self, Self::Close | Self::Renamed)
+    }
 }
 
 impl EventEmitter<RenameDirectoryDialogEvent> for RenameDirectoryDialog {}
@@ -53,8 +55,7 @@ impl RenameDirectoryDialog {
             .to_string();
 
         let name_input = cx.new(|cx| {
-            let mut input = SimpleInputState::new(cx)
-                .placeholder("Directory name...");
+            let mut input = SimpleInputState::new(cx).placeholder("Directory name...");
             input.set_value(&current_name, cx);
             input
         });
@@ -90,10 +91,7 @@ impl RenameDirectoryDialog {
         }
 
         let old_path = Path::new(&self.project_path);
-        let current_name = old_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let current_name = old_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if new_name == current_name {
             self.error_message = Some("Name is the same as current directory".to_string());
@@ -164,9 +162,12 @@ impl Render for RenameDirectoryDialog {
                     this.confirm(cx);
                 }
             }))
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                this.close(cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.close(cx);
+                }),
+            )
             .child(
                 modal_content("rename-dir-dialog", &t)
                     .w(px(420.0))
@@ -237,8 +238,9 @@ impl Render for RenameDirectoryDialog {
                                     .child(path_display),
                             )
                             .child(
-                                input_container(&t, Some(input_focused))
-                                    .child(SimpleInput::new(&name_input).text_size(ui_text(13.0, cx))),
+                                input_container(&t, Some(input_focused)).child(
+                                    SimpleInput::new(&name_input).text_size(ui_text(13.0, cx)),
+                                ),
                             ),
                     )
                     .when_some(error_msg, |d, msg| {

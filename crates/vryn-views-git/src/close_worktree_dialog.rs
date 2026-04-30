@@ -1,16 +1,16 @@
-use vryn_git as git;
 use crate::Cancel;
-use vryn_files::theme::theme;
-use vryn_ui::button::{button, button_primary};
-use vryn_ui::modal::{modal_backdrop, modal_content};
-use vryn_ui::tokens::{ui_text_ms, ui_text_md, ui_text_sm, ui_text_xl, ui_text};
-use vryn_workspace::hooks;
-use vryn_workspace::settings::{HooksConfig, WorktreeConfig};
-use vryn_workspace::state::{PendingWorktreeClose, Workspace};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
 use std::path::PathBuf;
+use vryn_files::theme::theme;
+use vryn_git as git;
+use vryn_ui::button::{button, button_primary};
+use vryn_ui::modal::{modal_backdrop, modal_content};
+use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
+use vryn_workspace::hooks;
+use vryn_workspace::settings::{HooksConfig, WorktreeConfig};
+use vryn_workspace::state::{PendingWorktreeClose, Workspace};
 
 /// Events emitted by the close worktree dialog
 #[derive(Clone)]
@@ -22,7 +22,9 @@ pub enum CloseWorktreeDialogEvent {
 impl EventEmitter<CloseWorktreeDialogEvent> for CloseWorktreeDialog {}
 
 impl vryn_ui::overlay::CloseEvent for CloseWorktreeDialogEvent {
-    fn is_close(&self) -> bool { matches!(self, Self::Closed) }
+    fn is_close(&self) -> bool {
+        matches!(self, Self::Closed)
+    }
 }
 
 /// Processing state for async operations
@@ -173,14 +175,12 @@ impl CloseWorktreeDialog {
                     });
 
                     let stash_path = PathBuf::from(&project_path);
-                    let stash_result =
-                        smol::unblock(move || git::stash_changes(&stash_path)).await;
+                    let stash_result = smol::unblock(move || git::stash_changes(&stash_path)).await;
 
                     if let Err(e) = stash_result {
                         let _ = cx.update(|cx| {
                             this.update(cx, |this, cx| {
-                                this.error_message =
-                                    Some(format!("Stash failed: {}", e));
+                                this.error_message = Some(format!("Stash failed: {}", e));
                                 this.processing = ProcessingState::Idle;
                                 cx.notify();
                             })
@@ -201,8 +201,7 @@ impl CloseWorktreeDialog {
                     });
 
                     let fetch_path = PathBuf::from(&project_path);
-                    let fetch_result =
-                        smol::unblock(move || git::fetch_all(&fetch_path)).await;
+                    let fetch_result = smol::unblock(move || git::fetch_all(&fetch_path)).await;
 
                     if let Err(e) = fetch_result {
                         if did_stash {
@@ -211,8 +210,7 @@ impl CloseWorktreeDialog {
                         }
                         let _ = cx.update(|cx| {
                             this.update(cx, |this, cx| {
-                                this.error_message =
-                                    Some(format!("Fetch failed: {}", e));
+                                this.error_message = Some(format!("Fetch failed: {}", e));
                                 this.processing = ProcessingState::Idle;
                                 cx.notify();
                             })
@@ -280,10 +278,8 @@ impl CloseWorktreeDialog {
 
                 let worktree_path = PathBuf::from(&project_path);
                 let rebase_target = default_branch.clone();
-                let rebase_result = smol::unblock(move || {
-                    git::rebase_onto(&worktree_path, &rebase_target)
-                })
-                .await;
+                let rebase_result =
+                    smol::unblock(move || git::rebase_onto(&worktree_path, &rebase_target)).await;
 
                 if let Err(e) = rebase_result {
                     // Fire on_rebase_conflict hook
@@ -335,10 +331,8 @@ impl CloseWorktreeDialog {
 
                 let main_path = PathBuf::from(&main_repo_path);
                 let merge_branch = branch.clone();
-                let merge_result = smol::unblock(move || {
-                    git::merge_branch(&main_path, &merge_branch, true)
-                })
-                .await;
+                let merge_result =
+                    smol::unblock(move || git::merge_branch(&main_path, &merge_branch, true)).await;
 
                 if let Err(e) = merge_result {
                     if did_stash {
@@ -382,10 +376,8 @@ impl CloseWorktreeDialog {
 
                     let push_path = PathBuf::from(&main_repo_path);
                     let push_branch = default_branch.clone();
-                    let push_result = smol::unblock(move || {
-                        git::push_branch(&push_path, &push_branch)
-                    })
-                    .await;
+                    let push_result =
+                        smol::unblock(move || git::push_branch(&push_path, &push_branch)).await;
 
                     if let Err(e) = push_result {
                         log::warn!("Push failed (continuing): {}", e);
@@ -431,8 +423,8 @@ impl CloseWorktreeDialog {
             // If the hook exists and we have a runner, fire it as a visible PTY terminal
             // and register a pending close — the actual removal happens when the hook exits.
             // If no hook or no runner, proceed with immediate removal.
-            let has_before_remove_hook =
-                project_hooks.worktree.before_remove.is_some() || global_hooks.worktree.before_remove.is_some();
+            let has_before_remove_hook = project_hooks.worktree.before_remove.is_some()
+                || global_hooks.worktree.before_remove.is_some();
 
             if has_before_remove_hook && runner.is_some() {
                 // Fire hook as visible PTY terminal and defer removal
@@ -476,15 +468,15 @@ impl CloseWorktreeDialog {
                     } else {
                         // Hook terminal failed to spawn — abort, don't remove
                         let _ = this.update(cx, |this, cx| {
-                            this.error_message = Some("before_worktree_remove hook failed to start".into());
+                            this.error_message =
+                                Some("before_worktree_remove hook failed to start".into());
                             this.processing = ProcessingState::Idle;
                             cx.notify();
                         });
                         false
                     }
                 });
-                if !ok {
-                }
+                if !ok {}
             } else {
                 // No hook or no runner — run headlessly then remove immediately
                 if has_before_remove_hook {
@@ -588,7 +580,8 @@ impl CloseWorktreeDialog {
                         }
                         Err(e) => {
                             let _ = this.update(cx, |this, cx| {
-                                this.error_message = Some(format!("Failed to remove worktree: {}", e));
+                                this.error_message =
+                                    Some(format!("Failed to remove worktree: {}", e));
                                 this.processing = ProcessingState::Idle;
                                 cx.notify();
                             });

@@ -1,22 +1,27 @@
 //! Folder list rendering for the sidebar
 
-
-use vryn_ui::theme::theme;
-use vryn_ui::rename_state::is_renaming;
-use gpui::*;
 use gpui::prelude::*;
+use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use vryn_ui::color_dot::color_dot;
+use vryn_ui::rename_state::is_renaming;
+use vryn_ui::theme::theme;
 
+use crate::drag::{FolderDrag, FolderDragView, ProjectDrag, ProjectDragView};
 use crate::item_widgets::*;
 use crate::sidebar::{Sidebar, SidebarProjectInfo};
-use crate::drag::{ProjectDrag, ProjectDragView, FolderDrag, FolderDragView};
 use vryn_workspace::state::FolderData;
 
 impl Sidebar {
     /// Send a reorder action to the remote server when a project is reordered
     /// within a remote folder on the client.
-    fn send_remote_reorder(this: &mut Self, conn_id: &str, prefixed_project_id: &str, new_index: usize, cx: &mut App) {
+    fn send_remote_reorder(
+        this: &mut Self,
+        conn_id: &str,
+        prefixed_project_id: &str,
+        new_index: usize,
+        cx: &mut App,
+    ) {
         let server_project_id = vryn_core::client::strip_prefix(prefixed_project_id, conn_id);
 
         // Look up the server's folder structure from the cached state
@@ -27,13 +32,18 @@ impl Sidebar {
         };
 
         if let Some(folder_id) = server_folder_id
-            && let Some(ref send_action) = this.send_remote_action {
-                (send_action)(conn_id, vryn_core::api::ActionRequest::ReorderProjectInFolder {
+            && let Some(ref send_action) = this.send_remote_action
+        {
+            (send_action)(
+                conn_id,
+                vryn_core::api::ActionRequest::ReorderProjectInFolder {
                     folder_id,
                     project_id: server_project_id,
                     new_index,
-                }, cx);
-            }
+                },
+                cx,
+            );
+        }
     }
 
     /// Renders only the folder header row (expand arrow, icon, name, badges)
@@ -56,8 +66,8 @@ impl Sidebar {
 
         let is_renaming = is_renaming(&self.folder_rename, &folder.id);
         let ws = self.workspace.read(cx);
-        let is_active_filter = ws.active_folder_filter() == Some(&folder.id)
-            && ws.focused_project_id().is_none();
+        let is_active_filter =
+            ws.active_folder_filter() == Some(&folder.id) && ws.focused_project_id().is_none();
 
         // Folder header row
         div()
@@ -71,12 +81,22 @@ impl Sidebar {
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_active_filter, |d| d.bg(rgb(t.bg_hover)))
-            .when(is_cursor, |d| d.border_l_2().border_color(rgb(t.border_active)))
+            .when(is_cursor, |d| {
+                d.border_l_2().border_color(rgb(t.border_active))
+            })
             .when(all_hidden, |d| d.opacity(0.75))
             // Drag source for folder reordering
-            .on_drag(FolderDrag { folder_id: folder_id.clone(), folder_name: folder_name.clone() }, move |drag, _position, _window, cx| {
-                cx.new(|_| FolderDragView { name: drag.folder_name.clone() })
-            })
+            .on_drag(
+                FolderDrag {
+                    folder_id: folder_id.clone(),
+                    folder_name: folder_name.clone(),
+                },
+                move |drag, _position, _window, cx| {
+                    cx.new(|_| FolderDragView {
+                        name: drag.folder_name.clone(),
+                    })
+                },
+            )
             // Drop target for folder reordering
             .drag_over::<FolderDrag>(move |style, _, _, _| {
                 style.border_t_2().border_color(rgb(t.border_active))
@@ -92,9 +112,7 @@ impl Sidebar {
                 }
             }))
             // Drop target for moving projects into this folder
-            .drag_over::<ProjectDrag>(move |style, _, _, _| {
-                style.bg(rgb(t.bg_selection))
-            })
+            .drag_over::<ProjectDrag>(move |style, _, _, _| style.bg(rgb(t.bg_selection)))
             .on_drop(cx.listener({
                 let folder_id = folder_id.clone();
                 move |this, drag: &ProjectDrag, _window, cx| {
@@ -104,20 +122,26 @@ impl Sidebar {
                 }
             }))
             // Right-click context menu
-            .on_mouse_down(MouseButton::Right, cx.listener({
-                let folder_id = folder_id.clone();
-                let folder_name = folder_name.clone();
-                move |this, event: &MouseDownEvent, _window, cx| {
-                    this.request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(vryn_workspace::requests::OverlayRequest::FolderContextMenu {
-                            folder_id: folder_id.clone(),
-                            folder_name: folder_name.clone(),
-                            position: event.position,
-                        }, cx);
-                    });
-                    cx.stop_propagation();
-                }
-            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let folder_id = folder_id.clone();
+                    let folder_name = folder_name.clone();
+                    move |this, event: &MouseDownEvent, _window, cx| {
+                        this.request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(
+                                vryn_workspace::requests::OverlayRequest::FolderContextMenu {
+                                    folder_id: folder_id.clone(),
+                                    folder_name: folder_name.clone(),
+                                    position: event.position,
+                                },
+                                cx,
+                            );
+                        });
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_click(cx.listener({
                 let folder_id = folder_id.clone();
                 move |this, _, _window, cx| {
@@ -154,10 +178,13 @@ impl Sidebar {
                         .size(px(14.0))
                         .text_color(rgb(folder_color)),
                 )
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                    this.show_folder_color_picker(folder_id.clone(), event.position, cx);
-                    cx.stop_propagation();
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                        this.show_folder_color_picker(folder_id.clone(), event.position, cx);
+                        cx.stop_propagation();
+                    }),
+                )
             })
             .child(
                 // Folder name (or input if renaming)
@@ -178,7 +205,12 @@ impl Sidebar {
                         let folder_name = folder_name.clone();
                         move |this, _event: &ClickEvent, window, cx| {
                             if this.check_folder_double_click(&folder_id) {
-                                this.start_folder_rename(folder_id.clone(), folder_name.clone(), window, cx);
+                                this.start_folder_rename(
+                                    folder_id.clone(),
+                                    folder_name.clone(),
+                                    window,
+                                    cx,
+                                );
                             } else {
                                 this.cursor_index = None;
                                 this.workspace.update(cx, |ws, cx| {
@@ -197,7 +229,9 @@ impl Sidebar {
                 {
                     let folder_id = folder_id.clone();
                     div()
-                        .id(ElementId::Name(format!("folder-delete-{}", folder_id).into()))
+                        .id(ElementId::Name(
+                            format!("folder-delete-{}", folder_id).into(),
+                        ))
                         .flex_shrink_0()
                         .cursor_pointer()
                         .w(px(18.0))
@@ -206,12 +240,20 @@ impl Sidebar {
                         .items_center()
                         .justify_center()
                         .rounded(px(3.0))
-                        .child(svg().path("icons/close.svg").size(px(12.0)).text_color(rgb(t.text_secondary)))
+                        .child(
+                            svg()
+                                .path("icons/close.svg")
+                                .size(px(12.0))
+                                .text_color(rgb(t.text_secondary)),
+                        )
                         .opacity(0.0)
                         .hover(|s| s.bg(rgb(t.bg_hover)).opacity(1.0))
-                        .on_mouse_down(MouseButton::Left, cx.listener(|_this, _, _, cx| {
-                            cx.stop_propagation();
-                        }))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|_this, _, _, cx| {
+                                cx.stop_propagation();
+                            }),
+                        )
                         .on_click(cx.listener({
                             let folder_id = folder_id.clone();
                             move |this, _, _window, cx| {
@@ -221,7 +263,9 @@ impl Sidebar {
                                 });
                             }
                         }))
-                        .tooltip(|_window, cx| Tooltip::new("Delete folder (keeps projects)").build(_window, cx))
+                        .tooltip(|_window, cx| {
+                            Tooltip::new("Delete folder (keeps projects)").build(_window, cx)
+                        })
                 },
             )
     }
@@ -255,10 +299,12 @@ impl Sidebar {
         };
 
         div()
-            .id(ElementId::Name(format!("folder-project-row-{}", project.id).into()))
+            .id(ElementId::Name(
+                format!("folder-project-row-{}", project.id).into(),
+            ))
             .group("folder-project-item")
             .h(px(32.0))
-            .pl(px(20.0))  // Indented for folder nesting
+            .pl(px(20.0)) // Indented for folder nesting
             .pr(px(8.0))
             .flex()
             .items_center()
@@ -266,12 +312,22 @@ impl Sidebar {
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_focused_project, |d| d.bg(rgb(t.bg_hover)))
-            .when(is_cursor, |d| d.border_l_2().border_color(rgb(t.border_active)))
+            .when(is_cursor, |d| {
+                d.border_l_2().border_color(rgb(t.border_active))
+            })
             .when(!project.show_in_overview, |d| d.opacity(0.75))
             // Drag source
-            .on_drag(ProjectDrag { project_id: project_id.clone(), project_name: project_name.clone() }, move |drag, _position, _window, cx| {
-                cx.new(|_| ProjectDragView { name: drag.project_name.clone() })
-            })
+            .on_drag(
+                ProjectDrag {
+                    project_id: project_id.clone(),
+                    project_name: project_name.clone(),
+                },
+                move |drag, _position, _window, cx| {
+                    cx.new(|_| ProjectDragView {
+                        name: drag.project_name.clone(),
+                    })
+                },
+            )
             // Drop target for reordering within folder
             .drag_over::<ProjectDrag>(move |style, _, _, _| {
                 style.border_t_2().border_color(rgb(t.border_active))
@@ -281,19 +337,33 @@ impl Sidebar {
                 let project_id = project_id.clone();
                 move |this, drag: &ProjectDrag, _window, cx| {
                     if drag.project_id != project_id {
-                        let pos = this.workspace.read(cx).folder(&folder_id)
-                            .and_then(|f| f.project_ids.iter().position(|id| id == &project_id));
+                        let pos =
+                            this.workspace.read(cx).folder(&folder_id).and_then(|f| {
+                                f.project_ids.iter().position(|id| id == &project_id)
+                            });
                         if let Some(pos) = pos {
                             this.workspace.update(cx, |ws, cx| {
-                                ws.move_project_to_folder(&drag.project_id, &folder_id, Some(pos), cx);
+                                ws.move_project_to_folder(
+                                    &drag.project_id,
+                                    &folder_id,
+                                    Some(pos),
+                                    cx,
+                                );
                             });
                             // Send reorder to server for remote folders
                             if folder_id.starts_with("remote:") {
                                 // Folder ID is "remote:{conn_id}:{folder_id}" — extract conn_id
                                 if let Some(rest) = folder_id.strip_prefix("remote:")
-                                    && let Some(conn_id) = rest.split(':').next() {
-                                        Self::send_remote_reorder(this, conn_id, &drag.project_id, pos, cx);
-                                    }
+                                    && let Some(conn_id) = rest.split(':').next()
+                                {
+                                    Self::send_remote_reorder(
+                                        this,
+                                        conn_id,
+                                        &drag.project_id,
+                                        pos,
+                                        cx,
+                                    );
+                                }
                             }
                         }
                     }
@@ -308,13 +378,16 @@ impl Sidebar {
                     ws.move_item_in_order(&drag.folder_id, 0, cx);
                 });
             }))
-            .on_mouse_down(MouseButton::Right, cx.listener({
-                let project_id = project_id.clone();
-                move |this, event: &MouseDownEvent, _window, cx| {
-                    this.request_context_menu(project_id.clone(), event.position, cx);
-                    cx.stop_propagation();
-                }
-            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let project_id = project_id.clone();
+                    move |this, event: &MouseDownEvent, _window, cx| {
+                        this.request_context_menu(project_id.clone(), event.position, cx);
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .on_click(cx.listener({
                 let project_id = project_id.clone();
                 move |this, _, _window, cx| {
@@ -325,7 +398,8 @@ impl Sidebar {
                 }
             }))
             .child({
-                let has_expandable_content = has_layout || has_worktrees || !project.services.is_empty();
+                let has_expandable_content =
+                    has_layout || has_worktrees || !project.services.is_empty();
                 if has_expandable_content {
                     sidebar_expand_arrow(
                         ElementId::Name(format!("expand-fp-{}", project.id).into()),
@@ -342,7 +416,11 @@ impl Sidebar {
                     }))
                     .into_any_element()
                 } else {
-                    div().flex_shrink_0().w(px(12.0)).h(px(16.0)).into_any_element()
+                    div()
+                        .flex_shrink_0()
+                        .w(px(12.0))
+                        .h(px(16.0))
+                        .into_any_element()
                 }
             })
             .child({
@@ -353,10 +431,13 @@ impl Sidebar {
                     ElementId::Name(format!("fp-folder-icon-{}", project.id).into()),
                     color_dot(folder_color, project.is_worktree),
                 )
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                    this.show_color_picker(project_id.clone(), event.position, cx);
-                    cx.stop_propagation();
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                        this.show_color_picker(project_id.clone(), event.position, cx);
+                        cx.stop_propagation();
+                    }),
+                )
             })
             .child(
                 // Project name (or input if renaming)
@@ -376,7 +457,12 @@ impl Sidebar {
                         let project_name = project_name.clone();
                         move |this, _event: &ClickEvent, window, cx| {
                             if this.check_project_double_click(&project_id) {
-                                this.start_project_rename(project_id.clone(), project_name.clone(), window, cx);
+                                this.start_project_rename(
+                                    project_id.clone(),
+                                    project_name.clone(),
+                                    window,
+                                    cx,
+                                );
                             } else {
                                 this.cursor_index = None;
                                 this.workspace.update(cx, |ws, cx| {
@@ -386,7 +472,14 @@ impl Sidebar {
                             cx.stop_propagation();
                         }
                     }));
-                    sidebar_name_or_badge(name_label, &project_name, is_expanded || project.show_in_overview, project.terminal_ids.len(), &t, cx)
+                    sidebar_name_or_badge(
+                        name_label,
+                        &project_name,
+                        is_expanded || project.show_in_overview,
+                        project.terminal_ids.len(),
+                        &t,
+                        cx,
+                    )
                 },
             )
             .when(idle_count > 0, |d| d.child(sidebar_idle_dot(&t)))
@@ -395,7 +488,11 @@ impl Sidebar {
                     ElementId::Name(format!("fp-visibility-{}", project.id).into()),
                     project.show_in_overview,
                     "folder-project-item",
-                    if project.show_in_overview { "Hide Project" } else { "Show Project" },
+                    if project.show_in_overview {
+                        "Hide Project"
+                    } else {
+                        "Show Project"
+                    },
                     &t,
                 )
                 .on_click(cx.listener({
@@ -406,7 +503,7 @@ impl Sidebar {
                         });
                         cx.stop_propagation();
                     }
-                }))
+                })),
             )
     }
 }

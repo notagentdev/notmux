@@ -1,12 +1,12 @@
 use crate::backend::{RemoteBackend, RemoteTransport};
+use vryn_terminal::TerminalsRegistry;
 use vryn_terminal::backend::TerminalBackend;
 use vryn_terminal::terminal::{Terminal, TerminalSize};
-use vryn_terminal::TerminalsRegistry;
 
 use vryn_core::api::StateResponse;
 use vryn_core::client::{
-    is_remote_terminal, ConnectionEvent, ConnectionHandler, ConnectionStatus,
-    RemoteClient, RemoteConnectionConfig, WsClientMessage,
+    ConnectionEvent, ConnectionHandler, ConnectionStatus, RemoteClient, RemoteConnectionConfig,
+    WsClientMessage, is_remote_terminal,
 };
 
 use std::collections::HashMap;

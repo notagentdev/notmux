@@ -1,11 +1,11 @@
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
-use alacritty_terminal::selection::{Selection, SelectionType};
-use alacritty_terminal::index::{Point, Line, Column, Side};
-use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::grid::{Scroll, Dimensions};
 use parking_lot::Mutex;
 use regex::Regex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -23,7 +23,9 @@ pub trait TerminalTransport: Send + Sync {
     /// Debounce interval for transport resize calls (ms).
     /// Local PTY uses 16ms (just enough to batch rapid resizes).
     /// Remote uses longer interval to avoid flooding the network.
-    fn resize_debounce_ms(&self) -> u64 { 16 }
+    fn resize_debounce_ms(&self) -> u64 {
+        16
+    }
 }
 
 /// Process-global resize authority. "Last to interact wins" across all terminals
@@ -103,7 +105,6 @@ impl Default for TerminalSize {
     }
 }
 
-
 /// Event listener for alacritty_terminal that captures title changes, bell, and PTY write requests
 pub struct ZedEventListener {
     /// Shared title storage - OSC 0/1/2 sequences update this
@@ -154,7 +155,8 @@ impl EventListener for ZedEventListener {
                 }
                 // Write response back to PTY (e.g., cursor position report)
                 log::debug!("PtyWrite event: {:?}", data);
-                self.transport.send_input(&self.terminal_id, data.as_bytes());
+                self.transport
+                    .send_input(&self.terminal_id, data.as_bytes());
             }
             TermEvent::ColorRequest(index, format) => {
                 if self.suppress_pty_responses.load(Ordering::Relaxed) {
@@ -167,7 +169,8 @@ impl EventListener for ZedEventListener {
                     b: (hex & 0xFF) as u8,
                 };
                 let response = format(rgb);
-                self.transport.send_input(&self.terminal_id, response.as_bytes());
+                self.transport
+                    .send_input(&self.terminal_id, response.as_bytes());
             }
             _ => {
                 // Ignore other events
@@ -177,14 +180,12 @@ impl EventListener for ZedEventListener {
 }
 
 /// Selection state for the terminal
-#[derive(Clone, Debug)]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SelectionState {
     pub start: Option<(usize, usize)>,
     pub end: Option<(usize, usize)>,
     pub is_selecting: bool,
 }
-
 
 /// A detected link in terminal content (URL or file path)
 #[derive(Clone, Debug)]
@@ -294,6 +295,10 @@ pub struct Terminal {
     /// that fed the terminal emulator rather than reconstructing bytes from the
     /// already-rendered grid, which bakes stale column spacing into snapshots.
     replay_buffer: Mutex<Vec<u8>>,
+    /// Bytes loaded from a persisted snapshot during terminal revival. Kept
+    /// separate from live PTY output so replay can suppress shell responses
+    /// while still being included in the next persisted snapshot.
+    restored_replay_buffer: Mutex<Vec<u8>>,
     /// True while replaying persisted bytes into the local emulator.
     suppress_pty_responses: Arc<AtomicBool>,
     /// Dirty flag - set when terminal content changes, cleared after render
@@ -359,6 +364,7 @@ impl Terminal {
             has_bell,
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
+            restored_replay_buffer: Mutex::new(Vec::new()),
             suppress_pty_responses,
             dirty: AtomicBool::new(false),
             content_generation: AtomicU64::new(0),
@@ -377,12 +383,32 @@ impl Terminal {
     pub fn capture_scrollback(&self, max_lines: u32, cwd: Option<&str>) -> Vec<u8> {
         let replay_bytes = self.replay_buffer.lock().clone();
         let size = self.resize_state.lock().size;
-        crate::scrollback_snapshot::capture_raw(
-            &replay_bytes,
-            size.cols,
-            size.rows,
-            max_lines,
-            cwd,
+        crate::scrollback_snapshot::capture_raw(&replay_bytes, size.cols, size.rows, max_lines, cwd)
+    }
+
+    /// Capture scrollback by merging the existing persisted snapshot with new
+    /// live PTY output, then trimming the combined stream to `max_lines`.
+    pub fn capture_scrollback_merged(
+        &self,
+        dir: &std::path::Path,
+        key: &str,
+        max_lines: u32,
+        cwd: Option<&str>,
+    ) -> Vec<u8> {
+        let replay_bytes = self.replay_buffer.lock().clone();
+        let restored_replay_bytes = self.restored_replay_buffer.lock().clone();
+        let size = self.resize_state.lock().size;
+        crate::scrollback_snapshot::merge_existing_with_capture(
+            crate::scrollback_snapshot::MergeCapture {
+                dir,
+                key,
+                restored_replay_bytes: &restored_replay_bytes,
+                replay_bytes: &replay_bytes,
+                cols: size.cols,
+                rows: size.rows,
+                max_lines,
+                cwd,
+            },
         )
     }
 
@@ -396,6 +422,16 @@ impl Terminal {
     /// Unlike live PTY output this must not be appended to the replay buffer
     /// again, and emulator-generated replies must not be sent to the new shell.
     pub fn replay_output(&self, data: &[u8]) {
+        self.process_output_inner(data, false, true);
+    }
+
+    /// Replay persisted scrollback, keep it for the next snapshot, and suppress
+    /// emulator-generated replies so the live shell never receives them.
+    pub fn restore_scrollback_output(&self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+        self.restored_replay_buffer.lock().extend_from_slice(data);
         self.process_output_inner(data, false, true);
     }
 
@@ -478,7 +514,8 @@ impl Terminal {
     pub fn send_input(&self, input: &str) {
         self.had_user_input.store(true, Ordering::Relaxed);
         self.scroll_to_bottom();
-        self.transport.send_input(&self.terminal_id, input.as_bytes());
+        self.transport
+            .send_input(&self.terminal_id, input.as_bytes());
     }
 
     /// Send pasted text to the PTY, wrapping in bracketed paste sequences if the
@@ -504,7 +541,8 @@ impl Terminal {
         } else {
             // Without bracketed paste, terminals submit lines with carriage returns.
             let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
-            self.transport.send_input(&self.terminal_id, normalized.as_bytes());
+            self.transport
+                .send_input(&self.terminal_id, normalized.as_bytes());
         }
     }
 
@@ -521,7 +559,8 @@ impl Terminal {
         // Send ANSI escape sequence to clear screen and move cursor to home
         // \x1b[2J = clear entire screen
         // \x1b[H = move cursor to home position (0,0)
-        self.transport.send_input(&self.terminal_id, b"\x1b[2J\x1b[H");
+        self.transport
+            .send_input(&self.terminal_id, b"\x1b[2J\x1b[H");
         self.scroll_to_bottom();
     }
 
@@ -599,7 +638,8 @@ impl Terminal {
             rs.pending_pty_resize = None;
             rs.last_pty_resize = now;
             drop(rs);
-            self.transport.resize(&self.terminal_id, new_size.cols, new_size.rows);
+            self.transport
+                .resize(&self.terminal_id, new_size.cols, new_size.rows);
         } else {
             // Store pending resize
             rs.pending_pty_resize = Some((new_size.cols, new_size.rows));
@@ -730,7 +770,13 @@ impl Terminal {
     /// Start selection with a specific type
     /// Note: row is the visual row on screen (0 to screen_lines-1)
     /// We convert it to buffer coordinates by accounting for display_offset
-    fn start_selection_with_type(&self, col: usize, row: i32, selection_type: SelectionType, side: Side) {
+    fn start_selection_with_type(
+        &self,
+        col: usize,
+        row: i32,
+        selection_type: SelectionType,
+        side: Side,
+    ) {
         let mut term = self.term.lock();
 
         // Convert visual row to buffer row
@@ -806,11 +852,12 @@ impl Terminal {
     pub fn selection_bounds(&self) -> Option<((usize, i32), (usize, i32))> {
         let term = self.term.lock();
         if let Some(ref selection) = term.selection
-            && let Some(range) = selection.to_range(&*term) {
-                let start = (range.start.column.0, range.start.line.0);
-                let end = (range.end.column.0, range.end.line.0);
-                return Some((start, end));
-            }
+            && let Some(range) = selection.to_range(&*term)
+        {
+            let start = (range.start.column.0, range.start.line.0);
+            let end = (range.end.column.0, range.end.line.0);
+            return Some((start, end));
+        }
         None
     }
 
@@ -921,7 +968,12 @@ impl Terminal {
     /// Search the terminal grid for occurrences of a query string
     /// Returns a list of (line, col, length) for each match
     /// Supports case-sensitive and regex search, and searches through scrollback buffer
-    pub fn search_grid(&self, query: &str, case_sensitive: bool, is_regex: bool) -> Vec<(i32, usize, usize)> {
+    pub fn search_grid(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        is_regex: bool,
+    ) -> Vec<(i32, usize, usize)> {
         if query.is_empty() {
             return Vec::new();
         }
@@ -972,7 +1024,8 @@ impl Terminal {
 
                 // Convert a byte offset to a column index
                 let col_at_byte = |byte_offset: usize| -> usize {
-                    line_text.char_indices()
+                    line_text
+                        .char_indices()
                         .enumerate()
                         .find(|(_, (b, _))| *b == byte_offset)
                         .map(|(col, _)| col)
@@ -1060,7 +1113,32 @@ impl Terminal {
 
         // Characters that can appear in a URL (for continuation detection)
         let url_char = |c: char| -> bool {
-            c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '~' | ':' | '/' | '?' | '#' | '[' | ']' | '@' | '!' | '$' | '&' | '\'' | '(' | ')' | '*' | '+' | ',' | ';' | '=' | '%')
+            c.is_ascii_alphanumeric()
+                || matches!(
+                    c,
+                    '-' | '.'
+                        | '_'
+                        | '~'
+                        | ':'
+                        | '/'
+                        | '?'
+                        | '#'
+                        | '['
+                        | ']'
+                        | '@'
+                        | '!'
+                        | '$'
+                        | '&'
+                        | '\''
+                        | '('
+                        | ')'
+                        | '*'
+                        | '+'
+                        | ','
+                        | ';'
+                        | '='
+                        | '%'
+                )
         };
 
         let mut matches = Vec::new();
@@ -1164,7 +1242,8 @@ impl Terminal {
                         let seg_start = match_start.max(row_start_offset);
                         let seg_end = trimmed_end.min(row_end_offset);
 
-                        let col_start = combined_text[row_start_offset..seg_start].chars().count() + leading_stripped;
+                        let col_start = combined_text[row_start_offset..seg_start].chars().count()
+                            + leading_stripped;
                         let len = combined_text[seg_start..seg_end].chars().count();
 
                         if len > 0 {
@@ -1209,9 +1288,7 @@ impl Terminal {
 
                 // Advance to the last segment of this wrap_group.
                 let mut last_idx = idx;
-                while last_idx + 1 < phase1_len
-                    && matches[last_idx + 1].wrap_group == group
-                {
+                while last_idx + 1 < phase1_len && matches[last_idx + 1].wrap_group == group {
                     last_idx += 1;
                 }
                 let next_idx = last_idx + 1;
@@ -1236,8 +1313,7 @@ impl Terminal {
                 let m_col = matches[last_idx].col;
                 let m_len = matches[last_idx].len;
                 let match_buf_line = m_line - display_offset;
-                let match_last_cell =
-                    &grid[Point::new(Line(match_buf_line), last_col)];
+                let match_last_cell = &grid[Point::new(Line(match_buf_line), last_col)];
                 if match_last_cell.flags.contains(Flags::WRAPLINE) {
                     idx = next_idx;
                     continue;
@@ -1301,10 +1377,7 @@ impl Terminal {
                     }
 
                     // Take URL-compatible chars as extension.
-                    let ext_char_len = content
-                        .chars()
-                        .take_while(|c| url_char(*c))
-                        .count();
+                    let ext_char_len = content.chars().take_while(|c| url_char(*c)).count();
                     if ext_char_len == 0 {
                         break;
                     }
@@ -1379,16 +1452,11 @@ impl Terminal {
 
                     // Continue only if extension fills to near end of
                     // visible content on this row.
-                    let next_trimmed_len =
-                        next_rtrimmed.chars().count();
+                    let next_trimmed_len = next_rtrimmed.chars().count();
                     if indent + ext_char_len + 3 < next_trimmed_len {
                         break;
                     }
-                    if !remaining.is_empty()
-                        && remaining
-                            .chars()
-                            .any(|c| c.is_alphanumeric())
-                    {
+                    if !remaining.is_empty() && remaining.chars().any(|c| c.is_alphanumeric()) {
                         break;
                     }
 
@@ -1552,7 +1620,8 @@ impl Terminal {
             return true;
         }
         let term = self.term.lock();
-        term.mode().intersects(TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION)
+        term.mode()
+            .intersects(TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION)
     }
 
     /// Forward a mouse button press or release to the PTY.
@@ -1579,7 +1648,11 @@ impl Terminal {
             format!("\x1b[<{};{};{}{}", cb, col + 1, row + 1, action).into_bytes()
         } else {
             // Legacy X10/normal format: release reports button=3, no SGR distinction.
-            let legacy_cb = if pressed { cb } else { 3 | (modifiers & 0b1_1100) };
+            let legacy_cb = if pressed {
+                cb
+            } else {
+                3 | (modifiers & 0b1_1100)
+            };
             vec![
                 0x1b,
                 b'[',
@@ -1705,7 +1778,11 @@ impl Terminal {
 
         let arrow_seq: &[u8] = if going_right {
             if app_cursor { b"\x1bOC" } else { b"\x1b[C" }
-        } else if app_cursor { b"\x1bOD" } else { b"\x1b[D" };
+        } else if app_cursor {
+            b"\x1bOD"
+        } else {
+            b"\x1b[D"
+        };
 
         let mut buf = Vec::with_capacity(arrow_seq.len() * arrow_count);
         for _ in 0..arrow_count {
@@ -1821,8 +1898,16 @@ fn grid_to_ansi(term: &Term<ZedEventListener>) -> Vec<u8> {
                 underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
                 inverse: cell.flags.contains(Flags::INVERSE),
                 strikeout: cell.flags.contains(Flags::STRIKEOUT),
-                fg: if cell.fg == default_fg { None } else { Some(cell.fg) },
-                bg: if cell.bg == default_bg { None } else { Some(cell.bg) },
+                fg: if cell.fg == default_fg {
+                    None
+                } else {
+                    Some(cell.fg)
+                },
+                bg: if cell.bg == default_bg {
+                    None
+                } else {
+                    Some(cell.bg)
+                },
             };
 
             if desired != current {
@@ -1947,7 +2032,11 @@ fn named_color_sgr_code(color: &NamedColor, is_fg: bool) -> Option<u8> {
         Some(if is_fg { 30 + code } else { 40 + code })
     } else {
         // Bright colors: 90-97 / 100-107
-        Some(if is_fg { 90 + (code - 8) } else { 100 + (code - 8) })
+        Some(if is_fg {
+            90 + (code - 8)
+        } else {
+            100 + (code - 8)
+        })
     }
 }
 
@@ -1960,7 +2049,9 @@ mod tests {
     impl TerminalTransport for NullTransport {
         fn send_input(&self, _terminal_id: &str, _data: &[u8]) {}
         fn resize(&self, _terminal_id: &str, _cols: u16, _rows: u16) {}
-        fn uses_mouse_backend(&self) -> bool { false }
+        fn uses_mouse_backend(&self) -> bool {
+            false
+        }
     }
 
     #[test]
@@ -2033,7 +2124,11 @@ mod tests {
         terminal.process_output(b"\x1b]0;\x07");
         // After reset, title should be cleared or set to empty
         let title = terminal.title();
-        assert!(title.is_none() || title.as_deref() == Some(""), "title should be empty or None, got: {:?}", title);
+        assert!(
+            title.is_none() || title.as_deref() == Some(""),
+            "title should be empty or None, got: {:?}",
+            title
+        );
     }
 
     // The resize authority is process-global; these tests share a mutex so
@@ -2045,7 +2140,12 @@ mod tests {
         let _g = RESIZE_AUTH_TEST_LOCK.lock();
         reset_resize_authority();
         let transport = Arc::new(NullTransport);
-        let terminal = Terminal::new("t".into(), TerminalSize::default(), transport, String::new());
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
         assert!(terminal.is_resize_owner_local());
     }
 
@@ -2054,7 +2154,12 @@ mod tests {
         let _g = RESIZE_AUTH_TEST_LOCK.lock();
         reset_resize_authority();
         let transport = Arc::new(NullTransport);
-        let terminal = Terminal::new("t".into(), TerminalSize::default(), transport, String::new());
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
 
         terminal.claim_resize_remote();
         assert!(!terminal.is_resize_owner_local());
@@ -2068,8 +2173,18 @@ mod tests {
         let _g = RESIZE_AUTH_TEST_LOCK.lock();
         reset_resize_authority();
         let transport = Arc::new(NullTransport);
-        let term_a = Terminal::new("a".into(), TerminalSize::default(), transport.clone(), String::new());
-        let term_b = Terminal::new("b".into(), TerminalSize::default(), transport, String::new());
+        let term_a = Terminal::new(
+            "a".into(),
+            TerminalSize::default(),
+            transport.clone(),
+            String::new(),
+        );
+        let term_b = Terminal::new(
+            "b".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
 
         // Claiming remote on A flips authority for B as well.
         term_a.claim_resize_remote();
@@ -2083,17 +2198,28 @@ mod tests {
     #[test]
     fn resize_grid_only_does_not_call_transport() {
         use std::sync::atomic::{AtomicBool, Ordering};
-        struct SpyTransport { resize_called: AtomicBool }
+        struct SpyTransport {
+            resize_called: AtomicBool,
+        }
         impl TerminalTransport for SpyTransport {
             fn send_input(&self, _: &str, _: &[u8]) {}
             fn resize(&self, _: &str, _: u16, _: u16) {
                 self.resize_called.store(true, Ordering::Relaxed);
             }
-            fn uses_mouse_backend(&self) -> bool { false }
+            fn uses_mouse_backend(&self) -> bool {
+                false
+            }
         }
 
-        let transport = Arc::new(SpyTransport { resize_called: AtomicBool::new(false) });
-        let terminal = Terminal::new("t".into(), TerminalSize::default(), transport.clone(), String::new());
+        let transport = Arc::new(SpyTransport {
+            resize_called: AtomicBool::new(false),
+        });
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport.clone(),
+            String::new(),
+        );
 
         terminal.resize_grid_only(120, 40);
         assert!(!transport.resize_called.load(Ordering::Relaxed));
@@ -2139,10 +2265,14 @@ mod tests {
                 self.writes.lock().push(data.to_vec());
             }
             fn resize(&self, _: &str, _: u16, _: u16) {}
-            fn uses_mouse_backend(&self) -> bool { false }
+            fn uses_mouse_backend(&self) -> bool {
+                false
+            }
         }
 
-        let transport = Arc::new(SpyTransport { writes: Mutex::new(Vec::new()) });
+        let transport = Arc::new(SpyTransport {
+            writes: Mutex::new(Vec::new()),
+        });
         let terminal = Terminal::new(
             "t".into(),
             TerminalSize::default(),
@@ -2167,7 +2297,12 @@ mod tests {
     /// Helper: create a terminal and write text to it, returns detected URLs
     fn detect_urls_in(text: &str, cols: u16) -> Vec<DetectedLink> {
         let transport = Arc::new(NullTransport);
-        let size = TerminalSize { cols, rows: 24, cell_width: 8.0, cell_height: 16.0 };
+        let size = TerminalSize {
+            cols,
+            rows: 24,
+            cell_width: 8.0,
+            cell_height: 16.0,
+        };
         let terminal = Terminal::new("test".into(), size, transport, "/tmp".into());
         terminal.process_output(text.as_bytes());
         terminal.detect_urls()
@@ -2181,10 +2316,7 @@ mod tests {
         // Row 1: "- https://claude.ai/code/sess_ABC" (33 chars)
         // Row 2: "  DEF123" + padding
         // cols=36 so row 1 is nearly full (33+3 >= 36).
-        let links = detect_urls_in(
-            "- https://claude.ai/code/sess_ABC\r\n  DEF123\r\n",
-            36,
-        );
+        let links = detect_urls_in("- https://claude.ai/code/sess_ABC\r\n  DEF123\r\n", 36);
         assert_eq!(links.len(), 2, "URL spans two rows: {:?}", links);
         assert_eq!(links[0].text, "https://claude.ai/code/sess_ABCDEF123");
         assert_eq!(links[0].col, 2);
@@ -2199,10 +2331,7 @@ mod tests {
         // Row 1: "  https://claude.ai/code/sess_ABC" (33 chars) + padding
         // Row 2: "  DEF123" + padding
         // cols=36 so row 1 is nearly full (33+3 >= 36).
-        let links = detect_urls_in(
-            "  https://claude.ai/code/sess_ABC\r\n  DEF123\r\n",
-            36,
-        );
+        let links = detect_urls_in("  https://claude.ai/code/sess_ABC\r\n  DEF123\r\n", 36);
         assert_eq!(links.len(), 2, "URL spans two rows: {:?}", links);
         assert_eq!(links[0].text, "https://claude.ai/code/sess_ABCDEF123");
         assert_eq!(links[0].col, 2); // starts after 2 spaces
@@ -2220,17 +2349,19 @@ mod tests {
             "   1. text https://api.postmarkapp.com\r\n      (next line)\r\n",
             50,
         );
-        assert_eq!(links.len(), 1, "URL should NOT merge with next line: {:?}", links);
+        assert_eq!(
+            links.len(),
+            1,
+            "URL should NOT merge with next line: {:?}",
+            links
+        );
         assert_eq!(links[0].text, "https://api.postmarkapp.com");
     }
 
     #[test]
     fn detect_url_single_line_not_affected() {
         // Single-line URL should still work normally
-        let links = detect_urls_in(
-            "visit https://example.com/path here\r\n",
-            80,
-        );
+        let links = detect_urls_in("visit https://example.com/path here\r\n", 80);
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].text, "https://example.com/path");
         assert_eq!(links[0].col, 6);
@@ -2285,19 +2416,25 @@ mod tests {
             ),
             50,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
-            .filter(|l| l.text == url)
-            .collect();
+        let url_links: Vec<&DetectedLink> = links.iter().filter(|l| l.text == url).collect();
         // Wrapped URL produces 2 segments + standalone URL = 3 total
-        assert!(url_links.len() >= 3, "Expected wrapped (2 segments) + standalone (1): {:?}", url_links);
+        assert!(
+            url_links.len() >= 3,
+            "Expected wrapped (2 segments) + standalone (1): {:?}",
+            url_links
+        );
         let wrapped_group = url_links[0].wrap_group;
         // All wrapped segments share the same group
-        assert_eq!(url_links[0].wrap_group, url_links[1].wrap_group,
-            "Wrapped segments should share wrap_group");
+        assert_eq!(
+            url_links[0].wrap_group, url_links[1].wrap_group,
+            "Wrapped segments should share wrap_group"
+        );
         // Standalone URL has a different group
         let standalone = url_links.last().unwrap();
-        assert_ne!(wrapped_group, standalone.wrap_group,
-            "Standalone URL must have different wrap_group than wrapped one");
+        assert_ne!(
+            wrapped_group, standalone.wrap_group,
+            "Standalone URL must have different wrap_group than wrapped one"
+        );
     }
 
     #[test]
@@ -2315,10 +2452,13 @@ mod tests {
             ),
             80,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
-            .filter(|l| l.text == url)
-            .collect();
-        assert_eq!(url_links.len(), 2, "Should have exactly 2 URL matches: {:?}", url_links);
+        let url_links: Vec<&DetectedLink> = links.iter().filter(|l| l.text == url).collect();
+        assert_eq!(
+            url_links.len(),
+            2,
+            "Should have exactly 2 URL matches: {:?}",
+            url_links
+        );
         assert_ne!(
             url_links[0].wrap_group, url_links[1].wrap_group,
             "URLs must have different wrap_groups even when preceded by colon"
@@ -2345,19 +2485,14 @@ mod tests {
     fn detect_url_not_wrapped_when_next_line_word_after_wrapline() {
         // URL wraps via WRAPLINE (fills terminal width), then next line
         // after the wrap tail starts with a word — should not merge.
-        let url = "https://www.npmjs.com/login?next=/login/cli/d907c402-4ad4-474c-a183-16ae52157acf";
+        let url =
+            "https://www.npmjs.com/login?next=/login/cli/d907c402-4ad4-474c-a183-16ae52157acf";
         let links = detect_urls_in(
             &format!("{url}\r\nPress ENTER to open in the browser...\r\n"),
             60, // force URL to wrap via WRAPLINE
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
-            .filter(|l| l.text == url)
-            .collect();
-        assert!(
-            !url_links.is_empty(),
-            "Should detect the URL: {:?}",
-            links
-        );
+        let url_links: Vec<&DetectedLink> = links.iter().filter(|l| l.text == url).collect();
+        assert!(!url_links.is_empty(), "Should detect the URL: {:?}", links);
         // "Press" should NOT be part of any detected link
         assert!(
             links.iter().all(|l| !l.text.contains("Press")),
@@ -2375,7 +2510,10 @@ mod tests {
             80,
         );
         assert_eq!(links.len(), 1, "Should detect exactly one URL: {:?}", links);
-        assert_eq!(links[0].text, "https://github.com/contember/dotaz/pull/new/fixes");
+        assert_eq!(
+            links[0].text,
+            "https://github.com/contember/dotaz/pull/new/fixes"
+        );
     }
 
     #[test]
@@ -2386,8 +2524,16 @@ mod tests {
             "https://github.com/contember/dotaz/pull/new/fixes\r\nremote:\r\n",
             52, // URL is 50 chars, nearly fills 52-col terminal
         );
-        assert_eq!(links.len(), 1, "Label-like 'remote:' must not be merged: {:?}", links);
-        assert_eq!(links[0].text, "https://github.com/contember/dotaz/pull/new/fixes");
+        assert_eq!(
+            links.len(),
+            1,
+            "Label-like 'remote:' must not be merged: {:?}",
+            links
+        );
+        assert_eq!(
+            links[0].text,
+            "https://github.com/contember/dotaz/pull/new/fixes"
+        );
     }
 
     #[test]
@@ -2400,7 +2546,8 @@ mod tests {
             "    - #61 https://github.com/contember/npi-infrastru\r\n    cture/pull/61 \u{2014} S3 bucket\r\n",
             55,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
+        let url_links: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text == "https://github.com/contember/npi-infrastructure/pull/61")
             .collect();
         assert!(
@@ -2420,7 +2567,8 @@ mod tests {
             "\u{2514}  https://github.com/NPI-Cloud/npi-inf\r\n   rastructure/pull/64\r\n",
             55,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
+        let url_links: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text == "https://github.com/NPI-Cloud/npi-infrastructure/pull/64")
             .collect();
         assert!(
@@ -2439,7 +2587,12 @@ mod tests {
             "  https://github.com/contember/dotaz/pull/2\r\n  - Format check passes\r\n",
             55,
         );
-        assert_eq!(links.len(), 1, "Should not extend into list marker: {:?}", links);
+        assert_eq!(
+            links.len(),
+            1,
+            "Should not extend into list marker: {:?}",
+            links
+        );
         assert_eq!(links[0].text, "https://github.com/contember/dotaz/pull/2");
     }
 
@@ -2452,12 +2605,14 @@ mod tests {
             "  https://github.com/NPI-Cloud/npi-inf\r\n  rastructure/pull/65)\r\n  2. next item\r\n",
             42,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
+        let url_links: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text.starts_with("https://github.com/NPI-Cloud/npi-inf"))
             .collect();
         // Should have 2 segments (line 0 + line 1), NOT 3
         assert_eq!(
-            url_links.len(), 2,
+            url_links.len(),
+            2,
             "Should not extend past trimmed ')' into '2.': {:?}",
             links
         );
@@ -2476,7 +2631,8 @@ mod tests {
             46,
         );
         // First URL should be exactly pull/2, not pull/22
-        let first: Vec<&DetectedLink> = links.iter()
+        let first: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text == "https://github.com/contember/dotaz/pull/2")
             .collect();
         assert!(
@@ -2485,7 +2641,8 @@ mod tests {
             links
         );
         // Second URL should also be detected
-        let second: Vec<&DetectedLink> = links.iter()
+        let second: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text.contains("npi-infrastructure/pull/65"))
             .collect();
         assert!(
@@ -2518,7 +2675,8 @@ mod tests {
             "  http://localhost:19400/s/1f41d02d-6105-45fb-b3\r\n  b1-4b56ae4d869f \u{2014} take your time.\r\n",
             50,
         );
-        let url_links: Vec<&DetectedLink> = links.iter()
+        let url_links: Vec<&DetectedLink> = links
+            .iter()
             .filter(|l| l.text == "http://localhost:19400/s/1f41d02d-6105-45fb-b3b1-4b56ae4d869f")
             .collect();
         assert!(

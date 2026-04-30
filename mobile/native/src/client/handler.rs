@@ -1,10 +1,10 @@
 use crate::client::terminal_holder::TerminalHolder;
 
-use vryn_core::client::{is_remote_terminal, ConnectionHandler, WsClientMessage};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use vryn_core::client::{ConnectionHandler, WsClientMessage, is_remote_terminal};
 
 /// Mobile-specific handler that creates `TerminalHolder` objects.
 ///

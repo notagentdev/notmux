@@ -1,12 +1,12 @@
-use vryn_git::{self as git, GitStatus};
-use vryn_workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
-use vryn_core::api::ApiGitStatus;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use vryn_core::api::ApiGitStatus;
+use vryn_git::{self as git, GitStatus};
+use vryn_workspace::state::Workspace;
 
 /// Filesystem change event emitted after a `notify` debouncer batch.
 /// Listeners (file explorer, git header) use this for live updates.
@@ -125,8 +125,7 @@ impl GitStatusWatcher {
         };
 
         // Remove watchers for projects no longer tracked.
-        self.fs_watchers
-            .retain(|id, _| wanted.contains_key(id));
+        self.fs_watchers.retain(|id, _| wanted.contains_key(id));
 
         // Add watchers for new projects.
         for (id, path) in wanted {
@@ -177,8 +176,7 @@ impl GitStatusWatcher {
         if let Some(path) = path {
             let id = project_id.clone();
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
-                let status =
-                    smol::unblock(move || git::refresh_git_status(Path::new(&path))).await;
+                let status = smol::unblock(move || git::refresh_git_status(Path::new(&path))).await;
                 let _ = this.update(cx, |this, cx| {
                     this.apply_status_update(id, status, cx);
                 });
@@ -318,41 +316,40 @@ impl GitStatusWatcher {
                     HashMap::new()
                 };
 
-                let new_ci_checks: HashMap<String, Option<vryn_git::CiCheckSummary>> =
-                    if check_ci {
-                        let pr_infos_snapshot: HashMap<String, Option<vryn_git::PrInfo>> =
-                            if check_prs {
-                                new_pr_infos.clone()
-                            } else {
-                                this.update(cx, |this, _| this.pr_infos.clone())
-                                    .unwrap_or_default()
-                            };
-                        let ci_futures: Vec<_> = projects
-                            .iter()
-                            .filter(|&(id, _): &&(String, String)| {
-                                pr_infos_snapshot
-                                    .get(id)
-                                    .map(|p| p.is_some())
-                                    .unwrap_or(false)
-                            })
-                            .map(|(id, path): &(String, String)| {
-                                let id = id.clone();
-                                let path = path.clone();
-                                async move {
-                                    let checks = smol::unblock(move || {
-                                        git::repository::get_ci_checks(Path::new(&path))
-                                    })
-                                    .await;
-                                    (id, checks)
-                                }
-                            })
-                            .collect();
-                        let results: Vec<(String, Option<vryn_git::CiCheckSummary>)> =
-                            futures::future::join_all(ci_futures).await;
-                        results.into_iter().collect()
+                let new_ci_checks: HashMap<String, Option<vryn_git::CiCheckSummary>> = if check_ci {
+                    let pr_infos_snapshot: HashMap<String, Option<vryn_git::PrInfo>> = if check_prs
+                    {
+                        new_pr_infos.clone()
                     } else {
-                        HashMap::new()
+                        this.update(cx, |this, _| this.pr_infos.clone())
+                            .unwrap_or_default()
                     };
+                    let ci_futures: Vec<_> = projects
+                        .iter()
+                        .filter(|&(id, _): &&(String, String)| {
+                            pr_infos_snapshot
+                                .get(id)
+                                .map(|p| p.is_some())
+                                .unwrap_or(false)
+                        })
+                        .map(|(id, path): &(String, String)| {
+                            let id = id.clone();
+                            let path = path.clone();
+                            async move {
+                                let checks = smol::unblock(move || {
+                                    git::repository::get_ci_checks(Path::new(&path))
+                                })
+                                .await;
+                                (id, checks)
+                            }
+                        })
+                        .collect();
+                    let results: Vec<(String, Option<vryn_git::CiCheckSummary>)> =
+                        futures::future::join_all(ci_futures).await;
+                    results.into_iter().collect()
+                } else {
+                    HashMap::new()
+                };
 
                 let should_continue = this
                     .update(cx, |this, cx| {
@@ -363,15 +360,13 @@ impl GitStatusWatcher {
                             for (id, checks) in new_ci_checks {
                                 this.ci_checks.insert(id, checks);
                             }
-                            this.any_pending_ci = this
-                                .ci_checks
-                                .values()
-                                .any(|c| c.as_ref().map(|s| s.status.is_pending()).unwrap_or(false));
+                            this.any_pending_ci = this.ci_checks.values().any(|c| {
+                                c.as_ref().map(|s| s.status.is_pending()).unwrap_or(false)
+                            });
                         }
                         for (id, status) in new_statuses.iter_mut() {
                             if let Some(Some(status)) = status.as_mut().map(Some)
-                                && let Some(mut pr) =
-                                    this.pr_infos.get(id).cloned().flatten()
+                                && let Some(mut pr) = this.pr_infos.get(id).cloned().flatten()
                             {
                                 pr.ci_checks = this.ci_checks.get(id).cloned().flatten();
                                 status.pr_info = Some(pr);
@@ -407,7 +402,7 @@ fn spawn_fs_watcher(
     tx: async_channel::Sender<FsBatch>,
 ) -> Option<FsWatcherHandle> {
     use notify::RecursiveMode;
-    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+    use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 
     let root_clone = root.clone();
     let mut debouncer = match new_debouncer(
@@ -436,13 +431,24 @@ fn spawn_fs_watcher(
     ) {
         Ok(d) => d,
         Err(e) => {
-            log::warn!("fs-watcher: failed to create debouncer for {}: {}", root.display(), e);
+            log::warn!(
+                "fs-watcher: failed to create debouncer for {}: {}",
+                root.display(),
+                e
+            );
             return None;
         }
     };
 
-    if let Err(e) = debouncer.watcher().watch(&root_clone, RecursiveMode::Recursive) {
-        log::warn!("fs-watcher: watch failed for {}: {}", root_clone.display(), e);
+    if let Err(e) = debouncer
+        .watcher()
+        .watch(&root_clone, RecursiveMode::Recursive)
+    {
+        log::warn!(
+            "fs-watcher: watch failed for {}: {}",
+            root_clone.display(),
+            e
+        );
         return None;
     }
 

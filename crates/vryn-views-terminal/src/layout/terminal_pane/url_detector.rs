@@ -3,10 +3,10 @@
 //! Pure logic component - no UI, no Entity.
 
 use crate::elements::terminal_element::{LinkKind, URLMatch};
-use vryn_terminal::terminal::Terminal;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use vryn_terminal::terminal::Terminal;
 
 /// URL detector for finding and tracking URLs in terminal content.
 pub struct UrlDetector {
@@ -46,7 +46,8 @@ impl UrlDetector {
         let clean = strip_line_col_suffix(text);
 
         if let Some(stripped) = clean.strip_prefix("~/") {
-            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+            {
                 return PathBuf::from(home).join(stripped);
             }
             PathBuf::from(clean)
@@ -203,7 +204,8 @@ impl UrlDetector {
         // Expand ~ to the user's home directory
         let expanded: String;
         let clean_path = if clean_path.starts_with("~/") {
-            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+            {
                 expanded = format!("{}{}", home.to_string_lossy(), &clean_path[1..]);
                 &expanded
             } else {
@@ -213,13 +215,21 @@ impl UrlDetector {
             clean_path
         };
 
-        log::info!("Opening file: {} (line: {:?}, col: {:?}, opener: {:?})", clean_path, file_line, file_col, opener);
+        log::info!(
+            "Opening file: {} (line: {:?}, col: {:?}, opener: {:?})",
+            clean_path,
+            file_line,
+            file_col,
+            opener
+        );
 
         if opener.is_empty() {
             // Use system default
             #[cfg(target_os = "linux")]
             {
-                let _ = vryn_core::process::command("xdg-open").arg(clean_path).spawn();
+                let _ = vryn_core::process::command("xdg-open")
+                    .arg(clean_path)
+                    .spawn();
             }
             #[cfg(target_os = "macos")]
             {

@@ -19,12 +19,12 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
-use vryn_core::theme::ThemeColors;
-use vryn_ui::tokens::{ui_text_sm, ui_text_ms, ui_text_md};
-use vryn_ui::vscode_icon::vscode_file_icon;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use vryn_core::theme::ThemeColors;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
+use vryn_ui::vscode_icon::vscode_file_icon;
 
 /// Delay before showing diff summary popover (ms)
 const HOVER_DELAY_MS: u64 = 400;
@@ -316,7 +316,10 @@ impl GitHeader {
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries.iter().filter(|r| matches!(r, git::GraphRow::Commit(_))).count();
+                let commit_count = entries
+                    .iter()
+                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
+                    .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
                 this.commit_log_entries = entries;
@@ -341,14 +344,15 @@ impl GitHeader {
         let page = COMMIT_PAGE_SIZE;
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let entries = smol::unblock(move || {
-                provider.get_commit_graph(page, branch.as_deref())
-            })
-            .await;
+            let entries =
+                smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries.iter().filter(|r| matches!(r, git::GraphRow::Commit(_))).count();
+                let commit_count = entries
+                    .iter()
+                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
+                    .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
                 this.commit_log_entries = entries;
@@ -373,14 +377,16 @@ impl GitHeader {
         let new_total = already_loaded + page;
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let entries = smol::unblock(move || {
-                provider.get_commit_graph(new_total, branch.as_deref())
-            })
-            .await;
+            let entries =
+                smol::unblock(move || provider.get_commit_graph(new_total, branch.as_deref()))
+                    .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries.iter().filter(|r| matches!(r, git::GraphRow::Commit(_))).count();
+                let commit_count = entries
+                    .iter()
+                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
+                    .count();
                 this.commit_log_has_more = commit_count >= new_total;
                 this.commit_log_count = commit_count;
                 this.commit_log_entries = entries;
@@ -436,7 +442,10 @@ impl GitHeader {
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
                 this.working_tree_loading = false;
-                let commit_count = entries.iter().filter(|r| matches!(r, git::GraphRow::Commit(_))).count();
+                let commit_count = entries
+                    .iter()
+                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
+                    .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
                 this.commit_log_entries = entries;
@@ -576,7 +585,9 @@ impl GitHeader {
                         let project_id_for_click = self.project_id.clone();
                         d.child(
                             project_header::render_diff_stats_badge(lines_added, lines_removed, t)
-                                .id(ElementId::Name(format!("git-diff-stats-{}", project_id).into()))
+                                .id(ElementId::Name(
+                                    format!("git-diff-stats-{}", project_id).into(),
+                                ))
                                 .relative()
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgb(t.bg_hover)))
@@ -594,28 +605,35 @@ impl GitHeader {
                                     cx.stop_propagation();
                                     this.hide_diff_popover(cx);
                                     request_broker.update(cx, |broker, cx| {
-                                        broker.push_overlay_request(OverlayRequest::DiffViewer {
-                                            project_id: project_id_for_click.clone(),
-                                            file: None,
-                                            mode: None,
-                                            commit_message: None,
-                                            commits: None,
-                                            commit_index: None,
-                                        }, cx);
+                                        broker.push_overlay_request(
+                                            OverlayRequest::DiffViewer {
+                                                project_id: project_id_for_click.clone(),
+                                                file: None,
+                                                mode: None,
+                                                commit_message: None,
+                                                commits: None,
+                                                commit_index: None,
+                                            },
+                                            cx,
+                                        );
                                     });
                                 }))
                                 // Invisible canvas to capture bounds for popover positioning
-                                .child(canvas(
-                                    {
-                                        let entity_handle = entity_handle.clone();
-                                        move |bounds, _window, app| {
-                                            entity_handle.update(app, |this, _cx| {
-                                                this.diff_stats_bounds = bounds;
-                                            });
-                                        }
-                                    },
-                                    |_, _, _, _| {},
-                                ).absolute().size_full())
+                                .child(
+                                    canvas(
+                                        {
+                                            let entity_handle = entity_handle.clone();
+                                            move |bounds, _window, app| {
+                                                entity_handle.update(app, |this, _cx| {
+                                                    this.diff_stats_bounds = bounds;
+                                                });
+                                            }
+                                        },
+                                        |_, _, _, _| {},
+                                    )
+                                    .absolute()
+                                    .size_full(),
+                                ),
                         )
                     })
                     .into_any_element()
@@ -642,14 +660,17 @@ impl GitHeader {
                     this.hide_diff_popover(cx);
                 });
                 request_broker.update(cx, |broker, cx| {
-                    broker.push_overlay_request(OverlayRequest::DiffViewer {
-                        project_id: pid,
-                        file: Some(file_path),
-                        mode: None,
-                        commit_message: None,
-                        commits: None,
-                        commit_index: None,
-                    }, cx);
+                    broker.push_overlay_request(
+                        OverlayRequest::MainDiffViewer {
+                            project_id: pid,
+                            file: Some(file_path),
+                            mode: None,
+                            commit_message: None,
+                            commits: None,
+                            commit_index: None,
+                        },
+                        cx,
+                    );
                 });
             },
             t,
@@ -663,38 +684,35 @@ impl GitHeader {
         );
 
         deferred(
-            anchored()
-                .position(position)
-                .snap_to_window()
-                .child(
-                    div()
-                        .id("diff-summary-popover")
-                        .occlude()
-                        .min_w(px(280.0))
-                        .max_w(px(400.0))
-                        .max_h(px(300.0))
-                        .overflow_y_scroll()
-                        .bg(rgb(t.bg_primary))
-                        .border_1()
-                        .border_color(rgb(t.border))
-                        .rounded(px(6.0))
-                        .shadow_lg()
-                        .py(px(6.0))
-                        .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
-                            if *hovered {
-                                this.hover_token.fetch_add(1, Ordering::SeqCst);
-                            } else {
-                                this.hide_diff_popover(cx);
-                            }
-                        }))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                            cx.stop_propagation();
-                        })
-                        .on_scroll_wheel(|_, _, cx| {
-                            cx.stop_propagation();
-                        })
-                        .children(tree_elements),
-                ),
+            anchored().position(position).snap_to_window().child(
+                div()
+                    .id("diff-summary-popover")
+                    .occlude()
+                    .min_w(px(280.0))
+                    .max_w(px(400.0))
+                    .max_h(px(300.0))
+                    .overflow_y_scroll()
+                    .bg(rgb(t.bg_primary))
+                    .border_1()
+                    .border_color(rgb(t.border))
+                    .rounded(px(6.0))
+                    .shadow_lg()
+                    .py(px(6.0))
+                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                        if *hovered {
+                            this.hover_token.fetch_add(1, Ordering::SeqCst);
+                        } else {
+                            this.hide_diff_popover(cx);
+                        }
+                    }))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_scroll_wheel(|_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .children(tree_elements),
+            ),
         )
         .into_any_element()
     }
@@ -702,11 +720,7 @@ impl GitHeader {
     /// Render the commit log as a panel (no popover wrapper).
     /// Used by the right-side git panel in RootView.
     #[allow(clippy::type_complexity)]
-    pub fn render_commit_log_panel(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub fn render_commit_log_panel(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
         if !self.commit_log_visible {
             return div().size_0().into_any_element();
         }
@@ -737,7 +751,11 @@ impl GitHeader {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let active = self.active_tab == target;
-        let color = if active { t.term_blue } else { t.text_secondary };
+        let color = if active {
+            t.term_blue
+        } else {
+            t.text_secondary
+        };
         div()
             .id(id)
             .w(px(28.0))
@@ -749,13 +767,10 @@ impl GitHeader {
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(active, |d| d.bg(rgb(t.bg_hover)))
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(px(16.0))
-                    .text_color(rgb(color)),
-            )
-            .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+            .child(svg().path(icon_path).size(px(16.0)).text_color(rgb(color)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.active_tab = target;
                 cx.notify();
@@ -804,11 +819,7 @@ impl GitHeader {
 
     /// Render the vertical three-dots overflow button. Sits to the right
     /// of the "N Changes / Stage All" header bar at the top of the commit tab.
-    fn render_overflow_button(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_overflow_button(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         let entity_handle = cx.entity().clone();
         div()
             .id("git-btn-overflow")
@@ -994,7 +1005,11 @@ impl GitHeader {
                                 this.handle_stage_all(cx);
                             }
                         }))
-                        .child(if all_staged { "Unstage All" } else { "Stage All" }),
+                        .child(if all_staged {
+                            "Unstage All"
+                        } else {
+                            "Stage All"
+                        }),
                 )
             })
             .child(self.render_overflow_button(t, cx))
@@ -1043,7 +1058,10 @@ impl GitHeader {
 
         let mut rows: Vec<FileRow> = Vec::new();
         if !conflicts.is_empty() {
-            rows.push(FileRow::Header(FileSectionKind::Conflicts, self.conflicts_collapsed));
+            rows.push(FileRow::Header(
+                FileSectionKind::Conflicts,
+                self.conflicts_collapsed,
+            ));
             if !self.conflicts_collapsed {
                 for f in conflicts {
                     rows.push(FileRow::File {
@@ -1054,7 +1072,10 @@ impl GitHeader {
             }
         }
         if !tracked.is_empty() {
-            rows.push(FileRow::Header(FileSectionKind::Tracked, self.tracked_collapsed));
+            rows.push(FileRow::Header(
+                FileSectionKind::Tracked,
+                self.tracked_collapsed,
+            ));
             if !self.tracked_collapsed {
                 for f in tracked {
                     rows.push(FileRow::File {
@@ -1065,7 +1086,10 @@ impl GitHeader {
             }
         }
         if !untracked.is_empty() {
-            rows.push(FileRow::Header(FileSectionKind::Untracked, self.untracked_collapsed));
+            rows.push(FileRow::Header(
+                FileSectionKind::Untracked,
+                self.untracked_collapsed,
+            ));
             if !self.untracked_collapsed {
                 for f in untracked {
                     rows.push(FileRow::File {
@@ -1084,37 +1108,31 @@ impl GitHeader {
         let view = cx.entity().clone();
         let scroll = self.commit_file_scroll.clone();
 
-        uniform_list(
-            "commit-file-list",
-            rows.len(),
-            move |range, _window, cx| {
-                let rows_ref = rows.clone();
-                let tc = t;
-                view.update(cx, |this, cx| {
-                    range
-                        .into_iter()
-                        .map(|i| match &rows_ref[i] {
-                            FileRow::Header(kind, collapsed) => {
-                                let (title, color) = match kind {
-                                    FileSectionKind::Conflicts => ("Conflicts", Some(tc.error)),
-                                    FileSectionKind::Tracked => ("Tracked", None),
-                                    FileSectionKind::Untracked => ("Untracked", None),
-                                };
-                                let kind = *kind;
-                                let collapsed = *collapsed;
-                                this.render_section_header_kind(
-                                    title, collapsed, kind, color, &tc, cx,
-                                )
+        uniform_list("commit-file-list", rows.len(), move |range, _window, cx| {
+            let rows_ref = rows.clone();
+            let tc = t;
+            view.update(cx, |this, cx| {
+                range
+                    .into_iter()
+                    .map(|i| match &rows_ref[i] {
+                        FileRow::Header(kind, collapsed) => {
+                            let (title, color) = match kind {
+                                FileSectionKind::Conflicts => ("Conflicts", Some(tc.error)),
+                                FileSectionKind::Tracked => ("Tracked", None),
+                                FileSectionKind::Untracked => ("Untracked", None),
+                            };
+                            let kind = *kind;
+                            let collapsed = *collapsed;
+                            this.render_section_header_kind(title, collapsed, kind, color, &tc, cx)
                                 .into_any_element()
-                            }
-                            FileRow::File { file, is_untracked } => this
-                                .render_file_entry(file, *is_untracked, &tc, cx)
-                                .into_any_element(),
-                        })
-                        .collect::<Vec<_>>()
-                })
-            },
-        )
+                        }
+                        FileRow::File { file, is_untracked } => this
+                            .render_file_entry(file, *is_untracked, &tc, cx)
+                            .into_any_element(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
         .flex_1()
         .min_h_0()
         .h_full()
@@ -1134,15 +1152,9 @@ impl GitHeader {
             title,
             collapsed,
             move |this| match kind {
-                FileSectionKind::Conflicts => {
-                    this.conflicts_collapsed = !this.conflicts_collapsed
-                }
-                FileSectionKind::Tracked => {
-                    this.tracked_collapsed = !this.tracked_collapsed
-                }
-                FileSectionKind::Untracked => {
-                    this.untracked_collapsed = !this.untracked_collapsed
-                }
+                FileSectionKind::Conflicts => this.conflicts_collapsed = !this.conflicts_collapsed,
+                FileSectionKind::Tracked => this.tracked_collapsed = !this.tracked_collapsed,
+                FileSectionKind::Untracked => this.untracked_collapsed = !this.untracked_collapsed,
             },
             accent_color,
             t,
@@ -1305,11 +1317,7 @@ impl GitHeader {
                             );
                         });
                     }))
-                    .child(
-                        div()
-                            .text_color(rgb(name_color))
-                            .child(file_name),
-                    )
+                    .child(div().text_color(rgb(name_color)).child(file_name))
                     .when(!dir_part.is_empty(), |d| {
                         d.child(
                             div()
@@ -1513,12 +1521,10 @@ impl GitHeader {
                 cx.stop_propagation();
             })
             .when(!disabled, |d| {
-                d.on_click(cx.listener(move |this, _, _window, cx| {
-                    match op {
-                        RemoteOp::Fetch => this.handle_fetch(cx),
-                        RemoteOp::Pull => this.handle_pull(cx),
-                        RemoteOp::Push => this.handle_push(cx),
-                    }
+                d.on_click(cx.listener(move |this, _, _window, cx| match op {
+                    RemoteOp::Fetch => this.handle_fetch(cx),
+                    RemoteOp::Pull => this.handle_pull(cx),
+                    RemoteOp::Push => this.handle_push(cx),
                 }))
             })
             .tooltip(move |_w, cx| Tooltip::new(tooltip_text).build(_w, cx))
@@ -1544,9 +1550,7 @@ impl GitHeader {
         let amend = self.commit_options_amend;
         let message_empty = self.commit_message_input.read(cx).value().is_empty();
 
-        let can_commit = !message_empty
-            && !self.committing
-            && (has_staged || has_tracked || amend);
+        let can_commit = !message_empty && !self.committing && (has_staged || has_tracked || amend);
 
         let button_label = commit_button_label(self.committing, amend, has_staged, has_tracked);
 
@@ -1564,13 +1568,16 @@ impl GitHeader {
                     // TerminalPane re-grabs GPUI focus on the next render,
                     // because its render-loop sees its layout_path is still
                     // the active one in `focus_manager`.
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                        this.workspace.update(cx, |ws, cx| {
-                            ws.focus_manager.clear_focus();
-                            cx.notify();
-                        });
-                        input.update(cx, |i, cx| i.focus(window, cx));
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            this.workspace.update(cx, |ws, cx| {
+                                ws.focus_manager.clear_focus();
+                                cx.notify();
+                            });
+                            input.update(cx, |i, cx| i.focus(window, cx));
+                        }),
+                    )
                     .child(
                         div()
                             .min_h(px(96.0))
@@ -1657,7 +1664,11 @@ impl GitHeader {
             .text_size(ui_text_sm(cx))
             .cursor_pointer()
             .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
-            .text_color(rgb(if active { t.border_active } else { t.text_muted }))
+            .text_color(rgb(if active {
+                t.border_active
+            } else {
+                t.text_muted
+            }))
             .hover(|s| s.bg(rgb(t.bg_selection)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -1922,7 +1933,8 @@ impl GitHeader {
         let page = COMMIT_PAGE_SIZE;
         let branch = self.commit_log_branch.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let entries = smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
+            let entries =
+                smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
             let _ = this.update(cx, |this, cx| {
                 let commit_count = entries
                     .iter()
@@ -1981,14 +1993,17 @@ impl GitHeader {
                 let file_path = file_path.to_string();
                 let pid = project_id.clone();
                 request_broker.update(cx, |broker, cx| {
-                    broker.push_overlay_request(OverlayRequest::DiffViewer {
-                        project_id: pid,
-                        file: Some(file_path),
-                        mode: None,
-                        commit_message: None,
-                        commits: None,
-                        commit_index: None,
-                    }, cx);
+                    broker.push_overlay_request(
+                        OverlayRequest::MainDiffViewer {
+                            project_id: pid,
+                            file: Some(file_path),
+                            mode: None,
+                            commit_message: None,
+                            commits: None,
+                            commit_index: None,
+                        },
+                        cx,
+                    );
                 });
             },
             t,
@@ -2040,18 +2055,23 @@ impl GitHeader {
                                     .bg(rgb(t.bg_hover))
                                     .hover(|s| s.bg(rgb(t.bg_selection)))
                                     .text_color(rgb(t.text_secondary))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
                                     .on_click(cx.listener(move |_this, _, _window, cx| {
                                         let pid = project_id_for_view_all.clone();
                                         broker_for_view_all.update(cx, |broker, cx| {
-                                            broker.push_overlay_request(OverlayRequest::DiffViewer {
-                                                project_id: pid,
-                                                file: None,
-                                                mode: None,
-                                                commit_message: None,
-                                                commits: None,
-                                                commit_index: None,
-                                            }, cx);
+                                            broker.push_overlay_request(
+                                                OverlayRequest::DiffViewer {
+                                                    project_id: pid,
+                                                    file: None,
+                                                    mode: None,
+                                                    commit_message: None,
+                                                    commits: None,
+                                                    commit_index: None,
+                                                },
+                                                cx,
+                                            );
                                         });
                                     }))
                                     .child("View All"),
@@ -2127,42 +2147,54 @@ impl GitHeader {
     }
 
     /// Build the commit log content (commit list with graph).
-    fn build_commit_log_content(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn build_commit_log_content(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
         let entity_handle = cx.entity().clone();
         let project_id = self.project_id.clone();
         let request_broker = self.request_broker.clone();
-        let on_commit_click: Option<CommitClickHandler> =
-            if self.commit_log_entries.is_empty() {
-                None
-            } else {
-                let all_commits: Vec<CommitLogEntry> = self.commit_log_entries.iter()
-                    .filter_map(|r| match r { GraphRow::Commit(e) => Some(e.clone()), _ => None })
-                    .collect();
-                Some(Arc::new(move |hash: &str, msg: &str, _commit_idx: usize, _window: &mut Window, cx: &mut App| {
+        let on_commit_click: Option<CommitClickHandler> = if self.commit_log_entries.is_empty() {
+            None
+        } else {
+            let all_commits: Vec<CommitLogEntry> = self
+                .commit_log_entries
+                .iter()
+                .filter_map(|r| match r {
+                    GraphRow::Commit(e) => Some(e.clone()),
+                    _ => None,
+                })
+                .collect();
+            Some(Arc::new(
+                move |hash: &str,
+                      msg: &str,
+                      _commit_idx: usize,
+                      _window: &mut Window,
+                      cx: &mut App| {
                     let commit_hash = hash.to_string();
                     let commit_msg = msg.to_string();
                     let commits_vec = all_commits.clone();
-                    let commit_idx = commits_vec.iter().position(|c| c.hash == commit_hash).unwrap_or(0);
+                    let commit_idx = commits_vec
+                        .iter()
+                        .position(|c| c.hash == commit_hash)
+                        .unwrap_or(0);
                     entity_handle.update(cx, |this: &mut GitHeader, _cx| {
                         // Don't hide commit log in panel mode — keep it open
                         let _ = this;
                     });
                     request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(OverlayRequest::DiffViewer {
-                            project_id: project_id.clone(),
-                            file: None,
-                            mode: Some(DiffMode::Commit(commit_hash)),
-                            commit_message: Some(commit_msg),
-                            commits: Some(commits_vec),
-                            commit_index: Some(commit_idx),
-                        }, cx);
+                        broker.push_overlay_request(
+                            OverlayRequest::DiffViewer {
+                                project_id: project_id.clone(),
+                                file: None,
+                                mode: Some(DiffMode::Commit(commit_hash)),
+                                commit_message: Some(commit_msg),
+                                commits: Some(commits_vec),
+                                commit_index: Some(commit_idx),
+                            },
+                            cx,
+                        );
                     });
-                }))
-            };
+                },
+            ))
+        };
         project_header::render_commit_log_content(
             &self.commit_log_entries,
             self.commit_log_loading,
@@ -2215,11 +2247,21 @@ impl GitHeader {
                             .px(px(6.0))
                             .py(px(2.0))
                             .rounded(px(4.0))
-                            .bg(rgb(if is_compare { t.bg_selection } else { t.bg_hover }))
+                            .bg(rgb(if is_compare {
+                                t.bg_selection
+                            } else {
+                                t.bg_hover
+                            }))
                             .hover(|s| s.bg(rgb(t.bg_selection)))
                             .text_size(ui_text_sm(cx))
-                            .text_color(rgb(if is_compare { t.term_cyan } else { t.text_muted }))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+                            .text_color(rgb(if is_compare {
+                                t.term_cyan
+                            } else {
+                                t.text_muted
+                            }))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.commit_log_compare_mode = !this.commit_log_compare_mode;
                                 if this.commit_log_compare_mode {
@@ -2245,17 +2287,30 @@ impl GitHeader {
                                     .bg(rgb(t.bg_hover))
                                     .cursor_pointer()
                                     .hover(|s| s.bg(rgb(t.bg_selection)))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
                                     .on_click(cx.listener(|this, _, _window, cx| {
                                         this.commit_log_picker_target = BranchPickerTarget::Graph;
-                                        this.commit_log_branch_picker = !this.commit_log_branch_picker;
+                                        this.commit_log_branch_picker =
+                                            !this.commit_log_branch_picker;
                                         this.commit_log_branch_filter.clear();
                                         cx.notify();
                                     }))
-                                    .child(svg().path("icons/git-branch.svg").size(px(10.0)).text_color(rgb(t.term_green)))
                                     .child(
-                                        div().text_size(ui_text_sm(cx)).text_color(rgb(t.text_secondary))
-                                            .max_w(px(140.0)).text_ellipsis().overflow_hidden().child(name),
+                                        svg()
+                                            .path("icons/git-branch.svg")
+                                            .size(px(10.0))
+                                            .text_color(rgb(t.term_green)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(ui_text_sm(cx))
+                                            .text_color(rgb(t.text_secondary))
+                                            .max_w(px(140.0))
+                                            .text_ellipsis()
+                                            .overflow_hidden()
+                                            .child(name),
                                     ),
                             )
                         })
@@ -2279,190 +2334,229 @@ impl GitHeader {
             .border_color(rgb(t.border))
             // Base branch pill
             .child(
+                div()
+                    .id("compare-base-btn")
+                    .cursor_pointer()
+                    .px(px(6.0))
+                    .py(px(2.0))
+                    .rounded(px(4.0))
+                    .bg(rgb(t.bg_hover))
+                    .hover(|s| s.bg(rgb(t.bg_selection)))
+                    .text_size(ui_text_sm(cx))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.commit_log_picker_target = BranchPickerTarget::CompareBase;
+                        this.commit_log_branch_picker = !this.commit_log_branch_picker;
+                        this.commit_log_branch_filter.clear();
+                        cx.notify();
+                    }))
+                    .child(
+                        h_flex()
+                            .gap(px(3.0))
+                            .items_center()
+                            .child(
+                                svg()
+                                    .path("icons/git-branch.svg")
+                                    .size(px(9.0))
+                                    .text_color(rgb(t.term_green)),
+                            )
+                            .child(
+                                div()
+                                    .text_color(rgb(t.text_secondary))
+                                    .max_w(px(120.0))
+                                    .text_ellipsis()
+                                    .overflow_hidden()
+                                    .child(base.clone().unwrap_or_else(|| "base...".to_string())),
+                            ),
+                    ),
+            )
+            // Arrow
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child("\u{2192}"),
+            )
+            // Head branch pill
+            .child(
+                div()
+                    .id("compare-head-btn")
+                    .cursor_pointer()
+                    .px(px(6.0))
+                    .py(px(2.0))
+                    .rounded(px(4.0))
+                    .bg(rgb(t.bg_hover))
+                    .hover(|s| s.bg(rgb(t.bg_selection)))
+                    .text_size(ui_text_sm(cx))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.commit_log_picker_target = BranchPickerTarget::CompareHead;
+                        this.commit_log_branch_picker = !this.commit_log_branch_picker;
+                        this.commit_log_branch_filter.clear();
+                        cx.notify();
+                    }))
+                    .child(
+                        h_flex()
+                            .gap(px(3.0))
+                            .items_center()
+                            .child(
+                                svg()
+                                    .path("icons/git-branch.svg")
+                                    .size(px(9.0))
+                                    .text_color(rgb(t.term_cyan)),
+                            )
+                            .child(
+                                div()
+                                    .text_color(rgb(t.text_secondary))
+                                    .max_w(px(120.0))
+                                    .text_ellipsis()
+                                    .overflow_hidden()
+                                    .child(head.clone().unwrap_or_else(|| "head...".to_string())),
+                            ),
+                    ),
+            )
+            // View Diff button
+            .child(
+                div().flex_1().flex().justify_end().child(
                     div()
-                        .id("compare-base-btn")
+                        .id("compare-view-diff")
                         .cursor_pointer()
-                        .px(px(6.0))
-                        .py(px(2.0))
+                        .px(px(8.0))
+                        .py(px(3.0))
                         .rounded(px(4.0))
-                        .bg(rgb(t.bg_hover))
-                        .hover(|s| s.bg(rgb(t.bg_selection)))
+                        .when(both_selected, |d| {
+                            d.bg(rgb(t.term_cyan))
+                                .text_color(rgb(t.bg_primary))
+                                .hover(|s| s.opacity(0.9))
+                        })
+                        .when(!both_selected, |d| {
+                            d.bg(rgb(t.bg_hover)).text_color(rgb(t.text_muted))
+                        })
                         .text_size(ui_text_sm(cx))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.commit_log_picker_target = BranchPickerTarget::CompareBase;
-                            this.commit_log_branch_picker = !this.commit_log_branch_picker;
-                            this.commit_log_branch_filter.clear();
-                            cx.notify();
-                        }))
-                        .child(
-                            h_flex().gap(px(3.0)).items_center()
-                                .child(svg().path("icons/git-branch.svg").size(px(9.0)).text_color(rgb(t.term_green)))
-                                .child(
-                                    div().text_color(rgb(t.text_secondary))
-                                        .max_w(px(120.0)).text_ellipsis().overflow_hidden()
-                                        .child(base.clone().unwrap_or_else(|| "base...".to_string())),
-                                ),
-                        ),
-                )
-                // Arrow
-                .child(div().text_size(ui_text_sm(cx)).text_color(rgb(t.text_muted)).child("\u{2192}"))
-                // Head branch pill
-                .child(
-                    div()
-                        .id("compare-head-btn")
-                        .cursor_pointer()
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
-                        .bg(rgb(t.bg_hover))
-                        .hover(|s| s.bg(rgb(t.bg_selection)))
-                        .text_size(ui_text_sm(cx))
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            this.commit_log_picker_target = BranchPickerTarget::CompareHead;
-                            this.commit_log_branch_picker = !this.commit_log_branch_picker;
-                            this.commit_log_branch_filter.clear();
-                            cx.notify();
-                        }))
-                        .child(
-                            h_flex().gap(px(3.0)).items_center()
-                                .child(svg().path("icons/git-branch.svg").size(px(9.0)).text_color(rgb(t.term_cyan)))
-                                .child(
-                                    div().text_color(rgb(t.text_secondary))
-                                        .max_w(px(120.0)).text_ellipsis().overflow_hidden()
-                                        .child(head.clone().unwrap_or_else(|| "head...".to_string())),
-                                ),
-                        ),
-                )
-                // View Diff button
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .justify_end()
-                        .child(
-                            div()
-                                .id("compare-view-diff")
-                                .cursor_pointer()
-                                .px(px(8.0))
-                                .py(px(3.0))
-                                .rounded(px(4.0))
-                                .when(both_selected, |d| {
-                                    d.bg(rgb(t.term_cyan))
-                                        .text_color(rgb(t.bg_primary))
-                                        .hover(|s| s.opacity(0.9))
-                                })
-                                .when(!both_selected, |d| {
-                                    d.bg(rgb(t.bg_hover))
-                                        .text_color(rgb(t.text_muted))
-                                })
-                                .text_size(ui_text_sm(cx))
-                                .font_weight(FontWeight::MEDIUM)
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                .when(both_selected, |d| {
-                                    d.on_click(cx.listener(move |this, _, _window, cx| {
-                                        let base = this.commit_log_compare_base.clone().expect("both_selected implies compare_base is Some");
-                                        let head = this.commit_log_compare_head.clone().expect("both_selected implies compare_head is Some");
-                                        broker.update(cx, |broker, cx| {
-                                            broker.push_overlay_request(OverlayRequest::DiffViewer {
-                                                project_id: pid.clone(),
-                                                file: None,
-                                                mode: Some(DiffMode::BranchCompare {
-                                                    base,
-                                                    head,
-                                                }),
-                                                commit_message: None,
-                                                commits: None,
-                                                commit_index: None,
-                                            }, cx);
-                                        });
-                                    }))
-                                })
-                                .child("View Diff"),
-                        ),
-                )
+                        .font_weight(FontWeight::MEDIUM)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .when(both_selected, |d| {
+                            d.on_click(cx.listener(move |this, _, _window, cx| {
+                                let base = this
+                                    .commit_log_compare_base
+                                    .clone()
+                                    .expect("both_selected implies compare_base is Some");
+                                let head = this
+                                    .commit_log_compare_head
+                                    .clone()
+                                    .expect("both_selected implies compare_head is Some");
+                                broker.update(cx, |broker, cx| {
+                                    broker.push_overlay_request(
+                                        OverlayRequest::DiffViewer {
+                                            project_id: pid.clone(),
+                                            file: None,
+                                            mode: Some(DiffMode::BranchCompare { base, head }),
+                                            commit_message: None,
+                                            commits: None,
+                                            commit_index: None,
+                                        },
+                                        cx,
+                                    );
+                                });
+                            }))
+                        })
+                        .child("View Diff"),
+                ),
+            )
     }
 
     /// Render the branch picker panel.
     fn render_branch_picker(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         let filter = self.commit_log_branch_filter.to_lowercase();
-        let filtered: Vec<&String> = self.commit_log_branches.iter()
+        let filtered: Vec<&String> = self
+            .commit_log_branches
+            .iter()
             .filter(|b| filter.is_empty() || b.to_lowercase().contains(&filter))
             .collect();
         v_flex()
-                .border_b_1()
-                .border_color(rgb(t.border))
-                .max_h(px(200.0))
-                // Filter input
-                .child(
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .max_h(px(200.0))
+            // Filter input
+            .child(
+                div().px(px(10.0)).py(px(6.0)).child(
                     div()
-                        .px(px(10.0))
-                        .py(px(6.0))
-                        .child(
-                            div()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(4.0))
-                                .bg(rgb(t.bg_secondary))
-                                .text_size(ui_text_ms(cx))
-                                .text_color(rgb(t.text_primary))
-                                .child(
-                                    if filter.is_empty() {
-                                        format!("{} branches", self.commit_log_branches.len())
-                                    } else {
-                                        format!("\"{}\" \u{2014} {} matches", self.commit_log_branch_filter, filtered.len())
-                                    }
-                                ),
-                        ),
-                )
-                // Branch list
-                .child(
-                    div()
-                        .id("branch-picker-scroll")
-                        .flex_1()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .children(
-                            filtered.iter().enumerate().map(|(i, branch)| {
-                                let b = (*branch).clone();
-                                let target = self.commit_log_picker_target;
-                                let is_selected = match target {
-                                    BranchPickerTarget::Graph => self.commit_log_branch.as_ref() == Some(*branch),
-                                    BranchPickerTarget::CompareBase => self.commit_log_compare_base.as_ref() == Some(*branch),
-                                    BranchPickerTarget::CompareHead => self.commit_log_compare_head.as_ref() == Some(*branch),
-                                };
-                                div()
-                                    .id(ElementId::Name(format!("branch-{}-{}", i, branch).into()))
-                                    .px(px(10.0))
-                                    .py(px(3.0))
-                                    .cursor_pointer()
-                                    .text_size(ui_text_ms(cx))
-                                    .text_color(rgb(if is_selected { t.text_primary } else { t.text_secondary }))
-                                    .when(is_selected, |d| d.font_weight(FontWeight::SEMIBOLD))
-                                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                                    .on_click(cx.listener(move |this, _, _window, cx| {
-                                        match target {
-                                            BranchPickerTarget::Graph => {
-                                                this.switch_commit_log_branch(Some(b.clone()), cx);
-                                            }
-                                            BranchPickerTarget::CompareBase => {
-                                                this.commit_log_compare_base = Some(b.clone());
-                                                this.commit_log_branch_picker = false;
-                                                cx.notify();
-                                            }
-                                            BranchPickerTarget::CompareHead => {
-                                                this.commit_log_compare_head = Some(b.clone());
-                                                this.commit_log_branch_picker = false;
-                                                cx.notify();
-                                            }
-                                        }
-                                    }))
-                                    .child((*branch).clone())
-                                    .into_any_element()
-                            }),
-                        ),
-                )
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .rounded(px(4.0))
+                        .bg(rgb(t.bg_secondary))
+                        .text_size(ui_text_ms(cx))
+                        .text_color(rgb(t.text_primary))
+                        .child(if filter.is_empty() {
+                            format!("{} branches", self.commit_log_branches.len())
+                        } else {
+                            format!(
+                                "\"{}\" \u{2014} {} matches",
+                                self.commit_log_branch_filter,
+                                filtered.len()
+                            )
+                        }),
+                ),
+            )
+            // Branch list
+            .child(
+                div()
+                    .id("branch-picker-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .children(filtered.iter().enumerate().map(|(i, branch)| {
+                        let b = (*branch).clone();
+                        let target = self.commit_log_picker_target;
+                        let is_selected = match target {
+                            BranchPickerTarget::Graph => {
+                                self.commit_log_branch.as_ref() == Some(*branch)
+                            }
+                            BranchPickerTarget::CompareBase => {
+                                self.commit_log_compare_base.as_ref() == Some(*branch)
+                            }
+                            BranchPickerTarget::CompareHead => {
+                                self.commit_log_compare_head.as_ref() == Some(*branch)
+                            }
+                        };
+                        div()
+                            .id(ElementId::Name(format!("branch-{}-{}", i, branch).into()))
+                            .px(px(10.0))
+                            .py(px(3.0))
+                            .cursor_pointer()
+                            .text_size(ui_text_ms(cx))
+                            .text_color(rgb(if is_selected {
+                                t.text_primary
+                            } else {
+                                t.text_secondary
+                            }))
+                            .when(is_selected, |d| d.font_weight(FontWeight::SEMIBOLD))
+                            .hover(|s| s.bg(rgb(t.bg_hover)))
+                            .on_click(cx.listener(move |this, _, _window, cx| match target {
+                                BranchPickerTarget::Graph => {
+                                    this.switch_commit_log_branch(Some(b.clone()), cx);
+                                }
+                                BranchPickerTarget::CompareBase => {
+                                    this.commit_log_compare_base = Some(b.clone());
+                                    this.commit_log_branch_picker = false;
+                                    cx.notify();
+                                }
+                                BranchPickerTarget::CompareHead => {
+                                    this.commit_log_compare_head = Some(b.clone());
+                                    this.commit_log_branch_picker = false;
+                                    cx.notify();
+                                }
+                            }))
+                            .child((*branch).clone())
+                            .into_any_element()
+                    })),
+            )
     }
 
     /// Render the commit log popover (anchored below the commit log button).
@@ -2913,7 +3007,10 @@ mod commit_label_tests {
 
     #[test]
     fn no_amend_no_staged_with_tracked_says_commit_tracked() {
-        assert_eq!(commit_button_label(false, false, false, true), "Commit Tracked");
+        assert_eq!(
+            commit_button_label(false, false, false, true),
+            "Commit Tracked"
+        );
     }
 
     #[test]
@@ -2929,7 +3026,10 @@ mod commit_label_tests {
 
     #[test]
     fn amend_no_staged_with_tracked_says_amend_tracked() {
-        assert_eq!(commit_button_label(false, true, false, true), "Amend Tracked");
+        assert_eq!(
+            commit_button_label(false, true, false, true),
+            "Amend Tracked"
+        );
     }
 
     #[test]

@@ -13,9 +13,10 @@ use gpui::{ClipboardItem, Context};
 /// This is a convenience function to avoid duplicating clipboard logic.
 pub fn copy_to_clipboard<V: 'static>(cx: &mut Context<V>, text: Option<String>) {
     if let Some(text) = text
-        && !text.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(text));
-        }
+        && !text.is_empty()
+    {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+    }
 }
 
 /// Extension trait for SelectionState with 2D positions to check line selection.
@@ -64,9 +65,7 @@ pub trait Selection2DNonEmpty {
 impl Selection2DNonEmpty for SelectionState<(usize, usize)> {
     fn normalized_non_empty(&self) -> Option<((usize, usize), (usize, usize))> {
         match (&self.start, &self.end) {
-            (Some(s), Some(e)) if s != e => {
-                Some(<(usize, usize)>::normalized_pair(*s, *e))
-            }
+            (Some(s), Some(e)) if s != e => Some(<(usize, usize)>::normalized_pair(*s, *e)),
             _ => None,
         }
     }
@@ -78,25 +77,31 @@ mod tests {
 
     #[test]
     fn test_2d_non_empty_zero_width_returns_none() {
-        let mut sel = SelectionState::<(usize, usize)>::default();
-        sel.start = Some((5, 3));
-        sel.end = Some((5, 3));
+        let sel = SelectionState::<(usize, usize)> {
+            start: Some((5, 3)),
+            end: Some((5, 3)),
+            ..Default::default()
+        };
         assert!(sel.normalized_non_empty().is_none());
     }
 
     #[test]
     fn test_2d_non_empty_with_selection() {
-        let mut sel = SelectionState::<(usize, usize)>::default();
-        sel.start = Some((5, 3));
-        sel.end = Some((5, 10));
+        let sel = SelectionState::<(usize, usize)> {
+            start: Some((5, 3)),
+            end: Some((5, 10)),
+            ..Default::default()
+        };
         assert_eq!(sel.normalized_non_empty(), Some(((5, 3), (5, 10))));
     }
 
     #[test]
     fn test_2d_non_empty_reversed() {
-        let mut sel = SelectionState::<(usize, usize)>::default();
-        sel.start = Some((10, 0));
-        sel.end = Some((5, 3));
+        let sel = SelectionState::<(usize, usize)> {
+            start: Some((10, 0)),
+            end: Some((5, 3)),
+            ..Default::default()
+        };
         assert_eq!(sel.normalized_non_empty(), Some(((5, 3), (10, 0))));
     }
 

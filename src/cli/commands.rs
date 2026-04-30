@@ -20,10 +20,11 @@ pub fn cli_pair() -> i32 {
     let path = pair_code_path();
 
     if let Some(parent) = path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("Failed to create config directory: {e}");
-            return 1;
-        }
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("Failed to create config directory: {e}");
+        return 1;
+    }
 
     if let Err(e) = std::fs::write(&path, &code) {
         eprintln!("Failed to write pairing code: {e}");
@@ -82,8 +83,12 @@ pub fn cli_health(args: &[String]) -> i32 {
         // tab-separated: status version uptime
         println!(
             "{}\t{}\t{}",
-            v.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
-            v.get("version").and_then(|s| s.as_str()).unwrap_or("unknown"),
+            v.get("status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown"),
+            v.get("version")
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown"),
             v.get("uptime_secs").and_then(|s| s.as_u64()).unwrap_or(0),
         );
     } else {
@@ -215,7 +220,11 @@ pub fn cli_services(args: &[String]) -> i32 {
                 }));
             }
         }
-        println!("{}", serde_json::to_string_pretty(&entries).expect("serializing owned JSON values cannot fail"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&entries)
+                .expect("serializing owned JSON values cannot fail")
+        );
     } else {
         for project in &projects {
             for svc in &project.services {
@@ -405,10 +414,7 @@ pub fn cli_whoami(args: &[String]) -> i32 {
         Ok(t) => t,
         Err(e) => {
             if json_mode {
-                println!(
-                    "{}",
-                    serde_json::json!({ "terminal_id": terminal_id })
-                );
+                println!("{}", serde_json::json!({ "terminal_id": terminal_id }));
             } else {
                 println!("{terminal_id}");
             }
@@ -449,10 +455,7 @@ pub fn cli_whoami(args: &[String]) -> i32 {
 
             // Terminal not found in any project
             if json_mode {
-                println!(
-                    "{}",
-                    serde_json::json!({ "terminal_id": terminal_id })
-                );
+                println!("{}", serde_json::json!({ "terminal_id": terminal_id }));
             } else {
                 println!("{terminal_id}");
             }
@@ -460,10 +463,7 @@ pub fn cli_whoami(args: &[String]) -> i32 {
         }
         Err(e) => {
             if json_mode {
-                println!(
-                    "{}",
-                    serde_json::json!({ "terminal_id": terminal_id })
-                );
+                println!("{}", serde_json::json!({ "terminal_id": terminal_id }));
             } else {
                 println!("{terminal_id}");
             }

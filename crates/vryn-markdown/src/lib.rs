@@ -8,8 +8,8 @@ mod types;
 
 use gpui::*;
 
-use vryn_core::selection::SelectionState;
 use types::Node;
+use vryn_core::selection::SelectionState;
 
 /// Type alias for markdown selection (1D character offset).
 pub type MarkdownSelection = SelectionState<usize>;

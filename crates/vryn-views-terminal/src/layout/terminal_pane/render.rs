@@ -1,7 +1,6 @@
 //! Render implementation for TerminalPane.
 
 use crate::ActionDispatch;
-use vryn_core::api::ActionRequest;
 use crate::actions::{
     AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextTerminal,
     FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
@@ -9,12 +8,13 @@ use crate::actions::{
     SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical, ToggleFullscreen, ZoomIn,
     ZoomOut,
 };
-use crate::terminal_view_settings;
-use vryn_files::theme::theme;
 use crate::layout::navigation::NavigationDirection;
-use vryn_workspace::state::SplitDirection;
+use crate::terminal_view_settings;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use vryn_core::api::ActionRequest;
+use vryn_files::theme::theme;
+use vryn_workspace::state::SplitDirection;
 
 use super::TerminalPane;
 
@@ -23,7 +23,8 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         let t = theme(cx);
 
         // Refresh search results if terminal content changed (scroll, new output)
-        self.search_bar.update(cx, |bar, cx| bar.refresh_if_needed(cx));
+        self.search_bar
+            .update(cx, |bar, cx| bar.refresh_if_needed(cx));
 
         let focus_handle = self.focus_handle.clone();
         let id_suffix = self.id_suffix();
@@ -36,28 +37,26 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             if !search_active && !is_modal {
                 if let Some(focused) = ws.focus_manager.focused_terminal_state()
                     && focused.project_id == self.project_id
-                        && focused.layout_path == self.layout_path
-                        && !focus_handle.is_focused(window)
-                    {
-                        self.pending_focus = true;
-                    }
+                    && focused.layout_path == self.layout_path
+                    && !focus_handle.is_focused(window)
+                {
+                    self.pending_focus = true;
+                }
 
                 if let Some(ref tid) = self.terminal_id
-                    && ws.focus_manager.is_terminal_fullscreened(&self.project_id, tid)
-                        && !focus_handle.is_focused(window)
-                    {
-                        self.pending_focus = true;
-                    }
+                    && ws
+                        .focus_manager
+                        .is_terminal_fullscreened(&self.project_id, tid)
+                    && !focus_handle.is_focused(window)
+                {
+                    self.pending_focus = true;
+                }
             }
             is_modal
         };
 
         let search_active = self.search_bar.read(cx).is_active();
-        if self.pending_focus
-            && self.terminal.is_some()
-            && !search_active
-            && !is_modal
-        {
+        if self.pending_focus && self.terminal.is_some() && !search_active && !is_modal {
             self.pending_focus = false;
             window.focus(&self.focus_handle, cx);
         }
@@ -65,26 +64,34 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         let is_focused = focus_handle.is_focused(window);
 
         let has_bell = self.terminal.as_ref().is_some_and(|t| t.has_bell());
-        if is_focused && has_bell
-            && let Some(ref terminal) = self.terminal {
-                terminal.clear_bell();
-            }
+        if is_focused
+            && has_bell
+            && let Some(ref terminal) = self.terminal
+        {
+            terminal.clear_bell();
+        }
 
         if is_focused
             && let Some(ref terminal) = self.terminal
-                && terminal.is_waiting_for_input() {
-                    terminal.clear_waiting();
-                }
+            && terminal.is_waiting_for_input()
+        {
+            terminal.clear_waiting();
+        }
 
-        if self.was_focused && !is_focused
-            && let Some(ref terminal) = self.terminal {
-                terminal.mark_as_viewed();
-            }
+        if self.was_focused
+            && !is_focused
+            && let Some(ref terminal) = self.terminal
+        {
+            terminal.mark_as_viewed();
+        }
         self.was_focused = is_focused;
 
         let show_focused_border = terminal_view_settings(cx).show_focused_border;
-        let is_waiting = !is_focused && self.terminal.as_ref()
-            .is_some_and(|t| t.is_waiting_for_input());
+        let is_waiting = !is_focused
+            && self
+                .terminal
+                .as_ref()
+                .is_some_and(|t| t.is_waiting_for_input());
         let show_border = (is_focused && show_focused_border) || has_bell || is_waiting;
         let border_color = if is_focused && show_focused_border {
             rgb(t.border_focused)
@@ -110,74 +117,163 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                 cx.listener(|this, _event: &MouseDownEvent, window, cx| {
                     window.focus(&this.focus_handle, cx);
                     this.workspace.update(cx, |ws, cx| {
-                        ws.set_focused_terminal(this.project_id.clone(), this.layout_path.clone(), cx);
+                        ws.set_focused_terminal(
+                            this.project_id.clone(),
+                            this.layout_path.clone(),
+                            cx,
+                        );
                     });
                 }),
             )
-            .on_action(cx.listener(|this, _: &SplitVertical, _window, cx| { this.handle_split(SplitDirection::Vertical, cx); }))
-            .on_action(cx.listener(|this, _: &SplitHorizontal, _window, cx| { this.handle_split(SplitDirection::Horizontal, cx); }))
-            .on_action(cx.listener(|this, _: &AddTab, _window, cx| { this.handle_add_tab(cx); }))
-            .on_action(cx.listener(|this, _: &CloseTerminal, _window, cx| { this.handle_close(cx); }))
-            .on_action(cx.listener(|this, _: &MinimizeTerminal, _window, cx| { this.handle_minimize(cx); }))
-            .on_action(cx.listener(|this, _: &Copy, _window, cx| { this.handle_copy(cx); }))
-            .on_action(cx.listener(|this, _: &Paste, _window, cx| { this.handle_paste(cx); }))
-            .on_action(cx.listener(|this, _: &Search, window, cx| { if !this.search_bar.read(cx).is_active() { this.start_search(window, cx); } }))
-            .on_action(cx.listener(|this, _: &CloseSearch, _window, cx| { if this.search_bar.read(cx).is_active() { this.close_search(cx); } }))
-            .on_action(cx.listener(|this, _: &SearchNext, _window, cx| { this.next_match(cx); }))
-            .on_action(cx.listener(|this, _: &SearchPrev, _window, cx| { this.prev_match(cx); }))
-            .on_action(cx.listener(|this, _: &FocusLeft, window, cx| { this.handle_navigation(NavigationDirection::Left, window, cx); }))
-            .on_action(cx.listener(|this, _: &FocusRight, window, cx| { this.handle_navigation(NavigationDirection::Right, window, cx); }))
-            .on_action(cx.listener(|this, _: &FocusUp, window, cx| { this.handle_navigation(NavigationDirection::Up, window, cx); }))
-            .on_action(cx.listener(|this, _: &FocusDown, window, cx| { this.handle_navigation(NavigationDirection::Down, window, cx); }))
-            .on_action(cx.listener(|this, _: &FocusNextTerminal, window, cx| { this.handle_sequential_navigation(true, window, cx); }))
-            .on_action(cx.listener(|this, _: &FocusPrevTerminal, window, cx| { this.handle_sequential_navigation(false, window, cx); }))
+            .on_action(cx.listener(|this, _: &SplitVertical, _window, cx| {
+                this.handle_split(SplitDirection::Vertical, cx);
+            }))
+            .on_action(cx.listener(|this, _: &SplitHorizontal, _window, cx| {
+                this.handle_split(SplitDirection::Horizontal, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AddTab, _window, cx| {
+                this.handle_add_tab(cx);
+            }))
+            .on_action(cx.listener(|this, _: &CloseTerminal, _window, cx| {
+                this.handle_close(cx);
+            }))
+            .on_action(cx.listener(|this, _: &MinimizeTerminal, _window, cx| {
+                this.handle_minimize(cx);
+            }))
+            .on_action(cx.listener(|this, _: &Copy, _window, cx| {
+                this.handle_copy(cx);
+            }))
+            .on_action(cx.listener(|this, _: &Paste, _window, cx| {
+                this.handle_paste(cx);
+            }))
+            .on_action(cx.listener(|this, _: &Search, window, cx| {
+                if !this.search_bar.read(cx).is_active() {
+                    this.start_search(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &CloseSearch, _window, cx| {
+                if this.search_bar.read(cx).is_active() {
+                    this.close_search(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SearchNext, _window, cx| {
+                this.next_match(cx);
+            }))
+            .on_action(cx.listener(|this, _: &SearchPrev, _window, cx| {
+                this.prev_match(cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusLeft, window, cx| {
+                this.handle_navigation(NavigationDirection::Left, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusRight, window, cx| {
+                this.handle_navigation(NavigationDirection::Right, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusUp, window, cx| {
+                this.handle_navigation(NavigationDirection::Up, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusDown, window, cx| {
+                this.handle_navigation(NavigationDirection::Down, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusNextTerminal, window, cx| {
+                this.handle_sequential_navigation(true, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FocusPrevTerminal, window, cx| {
+                this.handle_sequential_navigation(false, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &ScrollUp, _window, cx| {
-                if let Some(ref terminal) = this.terminal { terminal.scroll_up(5); }
+                if let Some(ref terminal) = this.terminal {
+                    terminal.scroll_up(5);
+                }
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ScrollDown, _window, cx| {
-                if let Some(ref terminal) = this.terminal { terminal.scroll_down(5); }
+                if let Some(ref terminal) = this.terminal {
+                    terminal.scroll_down(5);
+                }
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &SendTab, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\t"); } }))
-            .on_action(cx.listener(|this, _: &SendBacktab, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\x1b[Z"); } }))
-            .on_action(cx.listener(|this, _: &SendEscape, _window, _cx| { if let Some(ref terminal) = this.terminal { terminal.send_bytes(b"\x1b"); } }))
+            .on_action(cx.listener(|this, _: &SendTab, _window, _cx| {
+                if let Some(ref terminal) = this.terminal {
+                    terminal.send_bytes(b"\t");
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SendBacktab, _window, _cx| {
+                if let Some(ref terminal) = this.terminal {
+                    terminal.send_bytes(b"\x1b[Z");
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SendEscape, _window, _cx| {
+                if let Some(ref terminal) = this.terminal {
+                    terminal.send_bytes(b"\x1b");
+                }
+            }))
             .on_action(cx.listener(|this, _: &ZoomIn, _window, cx| {
-                let current = this.workspace.read(cx).get_terminal_zoom(&this.project_id, &this.layout_path);
+                let current = this
+                    .workspace
+                    .read(cx)
+                    .get_terminal_zoom(&this.project_id, &this.layout_path);
                 let new_zoom = (current + 0.1).clamp(0.5, 3.0);
                 let project_id = this.project_id.clone();
                 let layout_path = this.layout_path.clone();
-                this.workspace.update(cx, |ws, cx| { ws.set_terminal_zoom(&project_id, &layout_path, new_zoom, cx); });
+                this.workspace.update(cx, |ws, cx| {
+                    ws.set_terminal_zoom(&project_id, &layout_path, new_zoom, cx);
+                });
             }))
             .on_action(cx.listener(|this, _: &ZoomOut, _window, cx| {
-                let current = this.workspace.read(cx).get_terminal_zoom(&this.project_id, &this.layout_path);
+                let current = this
+                    .workspace
+                    .read(cx)
+                    .get_terminal_zoom(&this.project_id, &this.layout_path);
                 let new_zoom = (current - 0.1).clamp(0.5, 3.0);
                 let project_id = this.project_id.clone();
                 let layout_path = this.layout_path.clone();
-                this.workspace.update(cx, |ws, cx| { ws.set_terminal_zoom(&project_id, &layout_path, new_zoom, cx); });
+                this.workspace.update(cx, |ws, cx| {
+                    ws.set_terminal_zoom(&project_id, &layout_path, new_zoom, cx);
+                });
             }))
             .on_action(cx.listener(|this, _: &ResetZoom, _window, cx| {
                 let project_id = this.project_id.clone();
                 let layout_path = this.layout_path.clone();
-                this.workspace.update(cx, |ws, cx| { ws.set_terminal_zoom(&project_id, &layout_path, 1.0, cx); });
+                this.workspace.update(cx, |ws, cx| {
+                    ws.set_terminal_zoom(&project_id, &layout_path, 1.0, cx);
+                });
             }))
             .on_action(cx.listener(|this, _: &ToggleFullscreen, _window, cx| {
                 let is_fullscreen = this.workspace.read(cx).focus_manager.has_fullscreen();
                 if is_fullscreen {
-                    let action = ActionRequest::SetFullscreen { project_id: this.project_id.clone(), terminal_id: None };
-                    if let Some(ref dispatcher) = this.action_dispatcher { dispatcher.dispatch(action, cx); }
+                    let action = ActionRequest::SetFullscreen {
+                        project_id: this.project_id.clone(),
+                        terminal_id: None,
+                    };
+                    if let Some(ref dispatcher) = this.action_dispatcher {
+                        dispatcher.dispatch(action, cx);
+                    }
                 } else {
                     this.handle_fullscreen(cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &FullscreenNextTerminal, _window, cx| { this.handle_zoom_next_terminal(cx); }))
-            .on_action(cx.listener(|this, _: &FullscreenPrevTerminal, _window, cx| { this.handle_zoom_prev_terminal(cx); }))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| { this.handle_key(event, cx); }))
+            .on_action(
+                cx.listener(|this, _: &FullscreenNextTerminal, _window, cx| {
+                    this.handle_zoom_next_terminal(cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &FullscreenPrevTerminal, _window, cx| {
+                    this.handle_zoom_prev_terminal(cx);
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                this.handle_key(event, cx);
+            }))
             .on_click(cx.listener(|this, _, window, cx| {
                 window.focus(&this.focus_handle, cx);
-                this.workspace.update(cx, |ws, cx| { ws.set_focused_terminal(this.project_id.clone(), this.layout_path.clone(), cx); });
+                this.workspace.update(cx, |ws, cx| {
+                    ws.set_focused_terminal(this.project_id.clone(), this.layout_path.clone(), cx);
+                });
             }))
-            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| { this.handle_file_drop(paths, cx); }))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+                this.handle_file_drop(paths, cx);
+            }))
             .flex()
             .flex_col()
             .size_full()
@@ -195,11 +291,18 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                         .min_w_0()
                         .overflow_hidden()
                         .relative()
-                        .child(AnyView::from(self.content.clone()).cached(
-                            StyleRefinement::default().size_full()
-                        ))
+                        .child(
+                            AnyView::from(self.content.clone())
+                                .cached(StyleRefinement::default().size_full()),
+                        )
                         .when(show_border, |el| {
-                            el.child(div().absolute().inset_0().border_1().border_color(border_color))
+                            el.child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .border_1()
+                                    .border_color(border_color),
+                            )
                         }),
                 )
             })

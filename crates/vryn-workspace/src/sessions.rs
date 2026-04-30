@@ -1,11 +1,13 @@
-use vryn_terminal::session_backend::SessionBackend;
 use crate::state::WorkspaceData;
+use vryn_terminal::session_backend::SessionBackend;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::persistence::{get_config_dir, migrate_workspace, validate_workspace_data, WORKSPACE_VERSION};
+use super::persistence::{
+    WORKSPACE_VERSION, get_config_dir, migrate_workspace, validate_workspace_data,
+};
 
 /// Metadata about a saved session
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,7 +39,13 @@ fn get_session_path(name: &str) -> PathBuf {
 /// Sanitize session name for use as filename
 fn sanitize_session_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -56,36 +64,37 @@ pub fn list_sessions() -> Result<Vec<SessionInfo>> {
         let path = entry.path();
 
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                // Read file metadata for timestamps
-                let metadata = std::fs::metadata(&path)?;
-                let modified = metadata.modified().ok();
-                let created = metadata.created().ok();
+            && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+        {
+            // Read file metadata for timestamps
+            let metadata = std::fs::metadata(&path)?;
+            let modified = metadata.modified().ok();
+            let created = metadata.created().ok();
 
-                // Try to read workspace to get project count
-                let project_count = if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(data) = serde_json::from_str::<WorkspaceData>(&content) {
-                        data.projects.len()
-                    } else {
-                        0
-                    }
+            // Try to read workspace to get project count
+            let project_count = if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(data) = serde_json::from_str::<WorkspaceData>(&content) {
+                    data.projects.len()
                 } else {
                     0
-                };
+                }
+            } else {
+                0
+            };
 
-                sessions.push(SessionInfo {
-                    name: name.to_string(),
-                    created_at: created
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| format_timestamp(d.as_secs()))
-                        .unwrap_or_else(|| "Unknown".to_string()),
-                    modified_at: modified
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| format_timestamp(d.as_secs()))
-                        .unwrap_or_else(|| "Unknown".to_string()),
-                    project_count,
-                });
-            }
+            sessions.push(SessionInfo {
+                name: name.to_string(),
+                created_at: created
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| format_timestamp(d.as_secs()))
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                modified_at: modified
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| format_timestamp(d.as_secs()))
+                    .unwrap_or_else(|| "Unknown".to_string()),
+                project_count,
+            });
+        }
     }
 
     // Sort by modification time (most recent first)
@@ -190,8 +199,7 @@ pub fn import_workspace(path: &std::path::Path) -> Result<WorkspaceData> {
         exported.workspace
     } else {
         // Fall back to parsing as raw WorkspaceData (for backwards compatibility)
-        serde_json::from_str(&content)
-            .with_context(|| "Failed to parse workspace file")?
+        serde_json::from_str(&content).with_context(|| "Failed to parse workspace file")?
     };
 
     // Imported workspaces always get current version (no migration needed)

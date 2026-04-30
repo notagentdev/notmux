@@ -1,13 +1,13 @@
 //! Rendering logic for markdown nodes and inline elements.
 
+use gpui::prelude::FluentBuilder;
+use gpui::*;
+use gpui_component::{h_flex, v_flex};
 use vryn_core::theme::ThemeColors;
 use vryn_ui::code_block::code_block_container;
 use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_xl};
-use gpui::*;
-use gpui::prelude::FluentBuilder;
-use gpui_component::{h_flex, v_flex};
 
-use super::types::{char_len, slice_by_chars, Inline, Node};
+use super::types::{Inline, Node, char_len, slice_by_chars};
 use super::{MarkdownDocument, RenderedNode};
 
 impl MarkdownDocument {
@@ -29,10 +29,7 @@ impl MarkdownDocument {
                 if end <= offset || start >= offset + node_len {
                     None
                 } else {
-                    Some((
-                        start.saturating_sub(offset),
-                        (end - offset).min(node_len),
-                    ))
+                    Some((start.saturating_sub(offset), (end - offset).min(node_len)))
                 }
             });
 
@@ -53,15 +50,13 @@ impl MarkdownDocument {
                             if e <= rel_offset || s >= rel_end {
                                 None
                             } else {
-                                Some((
-                                    s.saturating_sub(rel_offset),
-                                    (e - rel_offset).min(line_len),
-                                ))
+                                Some((s.saturating_sub(rel_offset), (e - rel_offset).min(line_len)))
                             }
                         });
 
                         let line_div = if let Some((sel_start, sel_end)) = line_sel {
-                            let (before, selected, after) = slice_by_chars(line, sel_start, sel_end);
+                            let (before, selected, after) =
+                                slice_by_chars(line, sel_start, sel_end);
                             div()
                                 .h(px(18.0))
                                 .flex()
@@ -69,9 +64,11 @@ impl MarkdownDocument {
                                 .child(div().bg(selection_bg).child(selected))
                                 .child(div().child(after))
                         } else {
-                            div()
-                                .h(px(18.0))
-                                .child(if line.is_empty() { " ".to_string() } else { line.to_string() })
+                            div().h(px(18.0)).child(if line.is_empty() {
+                                " ".to_string()
+                            } else {
+                                line.to_string()
+                            })
                         };
 
                         lines.push((line_div, line_offset, line_end));
@@ -106,8 +103,12 @@ impl MarkdownDocument {
 
                     // Header row
                     if !headers.is_empty() {
-                        let header_len: usize = headers.iter().map(|h| Self::inlines_text_length(h)).sum::<usize>()
-                            + headers.len().saturating_sub(1) + 1; // tabs + newline
+                        let header_len: usize = headers
+                            .iter()
+                            .map(|h| Self::inlines_text_length(h))
+                            .sum::<usize>()
+                            + headers.len().saturating_sub(1)
+                            + 1; // tabs + newline
                         let header_end = row_offset + header_len;
 
                         let header_sel = node_selection.and_then(|(s, e)| {
@@ -123,43 +124,50 @@ impl MarkdownDocument {
                         let mut header_row = h_flex();
                         let mut cell_offset = 0usize;
                         for (i, header) in headers.iter().enumerate() {
-                            let cell_len = Self::inlines_text_length(header) + if i > 0 { 1 } else { 0 };
+                            let cell_len =
+                                Self::inlines_text_length(header) + if i > 0 { 1 } else { 0 };
                             let cell_sel = header_sel.and_then(|(s, e)| {
                                 let cell_start = cell_offset + if i > 0 { 1 } else { 0 };
                                 let cell_end = cell_offset + cell_len;
                                 if e <= cell_start || s >= cell_end {
                                     None
                                 } else {
-                                    Some((s.saturating_sub(cell_start), (e - cell_start).min(Self::inlines_text_length(header))))
+                                    Some((
+                                        s.saturating_sub(cell_start),
+                                        (e - cell_start).min(Self::inlines_text_length(header)),
+                                    ))
                                 }
                             });
 
                             let width = col_widths.get(i).copied().unwrap_or(10);
                             let min_w = ((width * 8) + 24).max(80) as f32;
                             header_row = header_row.child(
-                                div()
-                                    .min_w(px(min_w))
-                                    .px(px(12.0))
-                                    .py(px(8.0))
-                                    .child(
-                                        Self::render_inlines_with_selection(header, t, cx, cell_sel)
-                                            .text_size(ui_text_md(cx))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(rgb(t.text_primary))
-                                    )
+                                div().min_w(px(min_w)).px(px(12.0)).py(px(8.0)).child(
+                                    Self::render_inlines_with_selection(header, t, cx, cell_sel)
+                                        .text_size(ui_text_md(cx))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(t.text_primary)),
+                                ),
                             );
                             cell_offset += cell_len;
                         }
 
-                        let header_div = header_row.bg(rgb(t.bg_header)).border_b_1().border_color(rgb(t.border));
+                        let header_div = header_row
+                            .bg(rgb(t.bg_header))
+                            .border_b_1()
+                            .border_color(rgb(t.border));
                         rendered_header = Some((header_div, row_offset, header_end));
                         row_offset = header_end;
                     }
 
                     // Data rows
                     for (row_idx, row) in rows.iter().enumerate() {
-                        let row_len: usize = row.iter().map(|cell| Self::inlines_text_length(cell)).sum::<usize>()
-                            + row.len().saturating_sub(1) + 1; // tabs + newline
+                        let row_len: usize = row
+                            .iter()
+                            .map(|cell| Self::inlines_text_length(cell))
+                            .sum::<usize>()
+                            + row.len().saturating_sub(1)
+                            + 1; // tabs + newline
                         let row_end = row_offset + row_len;
 
                         let row_sel = node_selection.and_then(|(s, e)| {
@@ -182,29 +190,29 @@ impl MarkdownDocument {
 
                         let mut cell_offset = 0usize;
                         for (i, cell) in row.iter().enumerate() {
-                            let cell_len = Self::inlines_text_length(cell) + if i > 0 { 1 } else { 0 };
+                            let cell_len =
+                                Self::inlines_text_length(cell) + if i > 0 { 1 } else { 0 };
                             let cell_sel = row_sel.and_then(|(s, e)| {
                                 let cell_start = cell_offset + if i > 0 { 1 } else { 0 };
                                 let cell_end = cell_offset + cell_len;
                                 if e <= cell_start || s >= cell_end {
                                     None
                                 } else {
-                                    Some((s.saturating_sub(cell_start), (e - cell_start).min(Self::inlines_text_length(cell))))
+                                    Some((
+                                        s.saturating_sub(cell_start),
+                                        (e - cell_start).min(Self::inlines_text_length(cell)),
+                                    ))
                                 }
                             });
 
                             let width = col_widths.get(i).copied().unwrap_or(10);
                             let min_w = ((width * 8) + 24).max(80) as f32;
                             row_div = row_div.child(
-                                div()
-                                    .min_w(px(min_w))
-                                    .px(px(12.0))
-                                    .py(px(6.0))
-                                    .child(
-                                        Self::render_inlines_with_selection(cell, t, cx, cell_sel)
-                                            .text_size(ui_text_md(cx))
-                                            .text_color(rgb(t.text_secondary))
-                                    )
+                                div().min_w(px(min_w)).px(px(12.0)).py(px(6.0)).child(
+                                    Self::render_inlines_with_selection(cell, t, cx, cell_sel)
+                                        .text_size(ui_text_md(cx))
+                                        .text_color(rgb(t.text_secondary)),
+                                ),
                             );
                             cell_offset += cell_len;
                         }
@@ -235,31 +243,37 @@ impl MarkdownDocument {
         result
     }
 
-
     /// Calculate the text length of a node (for selection offset tracking, in characters).
     pub(crate) fn node_text_length(node: &Node) -> usize {
         match node {
-            Node::Heading { level: _, children } |
-            Node::Paragraph { children } |
-            Node::Blockquote { children } => {
+            Node::Heading { level: _, children }
+            | Node::Paragraph { children }
+            | Node::Blockquote { children } => {
                 Self::inlines_text_length(children) + 1 // +1 for newline
             }
             Node::CodeBlock { code, .. } => {
                 // Sum of character lengths of each line + 1 newline per line
-                code.lines().map(|line| char_len(line) + 1).sum::<usize>().max(1)
+                code.lines()
+                    .map(|line| char_len(line) + 1)
+                    .sum::<usize>()
+                    .max(1)
             }
-            Node::List { items, .. } => {
-                items.iter().map(|item| Self::inlines_text_length(item) + 1).sum()
-            }
+            Node::List { items, .. } => items
+                .iter()
+                .map(|item| Self::inlines_text_length(item) + 1)
+                .sum(),
             Node::Table { headers, rows } => {
                 let header_len: usize = headers.iter().map(|h| Self::inlines_text_length(h)).sum::<usize>()
                     + headers.len().saturating_sub(1) // tabs
                     + 1; // newline
-                let rows_len: usize = rows.iter().map(|row| {
-                    row.iter().map(|cell| Self::inlines_text_length(cell)).sum::<usize>()
+                let rows_len: usize = rows
+                    .iter()
+                    .map(|row| {
+                        row.iter().map(|cell| Self::inlines_text_length(cell)).sum::<usize>()
                         + row.len().saturating_sub(1) // tabs
                         + 1 // newline
-                }).sum();
+                    })
+                    .sum();
                 header_len + rows_len
             }
             Node::HorizontalRule => 1, // newline
@@ -268,22 +282,26 @@ impl MarkdownDocument {
 
     /// Calculate the text length of inline elements (in characters, not bytes).
     pub(crate) fn inlines_text_length(inlines: &[Inline]) -> usize {
-        inlines.iter().map(|inline| {
-            match inline {
+        inlines
+            .iter()
+            .map(|inline| match inline {
                 Inline::Text(t) => char_len(t),
                 Inline::Code(c) => char_len(c),
                 Inline::Bold(children) | Inline::Italic(children) => {
                     Self::inlines_text_length(children)
                 }
-                Inline::Link { children, .. } => {
-                    Self::inlines_text_length(children)
-                }
-            }
-        }).sum()
+                Inline::Link { children, .. } => Self::inlines_text_length(children),
+            })
+            .sum()
     }
 
     /// Render a node with selection highlighting.
-    fn render_node_with_selection(node: &Node, t: &ThemeColors, cx: &App, selection: Option<(usize, usize)>) -> Div {
+    fn render_node_with_selection(
+        node: &Node,
+        t: &ThemeColors,
+        cx: &App,
+        selection: Option<(usize, usize)>,
+    ) -> Div {
         match node {
             Node::Heading { level, children } => {
                 let (size, weight) = match level {
@@ -311,9 +329,7 @@ impl MarkdownDocument {
                     .text_color(rgb(t.text_primary))
                     .pb(px(4.0))
                     .when(*level <= 2, |d| {
-                        d.border_b_1()
-                            .border_color(rgb(t.border))
-                            .mb(px(4.0))
+                        d.border_b_1().border_color(rgb(t.border)).mb(px(4.0))
                     })
                     .child(content)
             }
@@ -335,10 +351,7 @@ impl MarkdownDocument {
                         if e <= offset || s >= line_end {
                             None
                         } else {
-                            Some((
-                                s.saturating_sub(offset),
-                                (e - offset).min(line_len),
-                            ))
+                            Some((s.saturating_sub(offset), (e - offset).min(line_len)))
                         }
                     });
 
@@ -351,26 +364,27 @@ impl MarkdownDocument {
                             .child(div().bg(selection_bg).child(selected))
                             .child(div().child(after))
                     } else {
-                        div()
-                            .h(px(18.0))
-                            .child(if line.is_empty() { " ".to_string() } else { line.to_string() })
+                        div().h(px(18.0)).child(if line.is_empty() {
+                            " ".to_string()
+                        } else {
+                            line.to_string()
+                        })
                     };
 
                     code_lines.push(line_div);
                     offset = line_end;
                 }
 
-                code_block_container(language.as_deref(), t, cx)
-                    .child(
-                        div()
-                            .p(px(12.0))
-                            .font_family("monospace")
-                            .text_size(ui_text_md(cx))
-                            .text_color(rgb(t.text_secondary))
-                            .flex()
-                            .flex_col()
-                            .children(code_lines)
-                    )
+                code_block_container(language.as_deref(), t, cx).child(
+                    div()
+                        .p(px(12.0))
+                        .font_family("monospace")
+                        .text_size(ui_text_md(cx))
+                        .text_color(rgb(t.text_secondary))
+                        .flex()
+                        .flex_col()
+                        .children(code_lines),
+                )
             }
             Node::List { ordered, items } => {
                 let mut list = v_flex().gap(px(4.0)).pl(px(16.0));
@@ -404,9 +418,12 @@ impl MarkdownDocument {
                                     .text_color(rgb(t.text_muted))
                                     .w(px(16.0))
                                     .flex_shrink_0()
-                                    .child(marker)
+                                    .child(marker),
                             )
-                            .child(Self::render_inlines_with_selection(item_inlines, t, cx, item_sel).flex_1())
+                            .child(
+                                Self::render_inlines_with_selection(item_inlines, t, cx, item_sel)
+                                    .flex_1(),
+                            ),
                     );
                     offset += item_len;
                 }
@@ -415,29 +432,26 @@ impl MarkdownDocument {
             Node::Table { headers, rows } => {
                 Self::render_table_with_selection(headers, rows, t, cx, selection)
             }
-            Node::Blockquote { children } => {
-                div()
-                    .pl(px(12.0))
-                    .border_l_2()
-                    .border_color(rgb(t.text_muted))
-                    .child(
-                        Self::render_inlines_with_selection(children, t, cx, selection)
-                            .text_color(rgb(t.text_muted))
-                            .italic()
-                    )
-            }
-            Node::HorizontalRule => {
-                div()
-                    .w_full()
-                    .h(px(1.0))
-                    .bg(rgb(t.border))
-                    .my(px(8.0))
-            }
+            Node::Blockquote { children } => div()
+                .pl(px(12.0))
+                .border_l_2()
+                .border_color(rgb(t.text_muted))
+                .child(
+                    Self::render_inlines_with_selection(children, t, cx, selection)
+                        .text_color(rgb(t.text_muted))
+                        .italic(),
+                ),
+            Node::HorizontalRule => div().w_full().h(px(1.0)).bg(rgb(t.border)).my(px(8.0)),
         }
     }
 
     /// Render inline elements with selection highlighting.
-    pub(crate) fn render_inlines_with_selection(inlines: &[Inline], t: &ThemeColors, cx: &App, selection: Option<(usize, usize)>) -> Div {
+    pub(crate) fn render_inlines_with_selection(
+        inlines: &[Inline],
+        t: &ThemeColors,
+        cx: &App,
+        selection: Option<(usize, usize)>,
+    ) -> Div {
         let mut elements: Vec<Div> = Vec::new();
         let mut offset = 0usize;
 
@@ -445,7 +459,9 @@ impl MarkdownDocument {
             let inline_len = match inline {
                 Inline::Text(text) => char_len(text),
                 Inline::Code(code) => char_len(code),
-                Inline::Bold(children) | Inline::Italic(children) => Self::inlines_text_length(children),
+                Inline::Bold(children) | Inline::Italic(children) => {
+                    Self::inlines_text_length(children)
+                }
                 Inline::Link { children, .. } => Self::inlines_text_length(children),
             };
 
@@ -453,14 +469,13 @@ impl MarkdownDocument {
                 if e <= offset || s >= offset + inline_len {
                     None
                 } else {
-                    Some((
-                        s.saturating_sub(offset),
-                        (e - offset).min(inline_len),
-                    ))
+                    Some((s.saturating_sub(offset), (e - offset).min(inline_len)))
                 }
             });
 
-            elements.push(Self::render_inline_with_selection(inline, t, cx, inline_sel));
+            elements.push(Self::render_inline_with_selection(
+                inline, t, cx, inline_sel,
+            ));
             offset += inline_len;
         }
 
@@ -475,7 +490,12 @@ impl MarkdownDocument {
     }
 
     /// Render a single inline element with selection.
-    fn render_inline_with_selection(inline: &Inline, t: &ThemeColors, cx: &App, selection: Option<(usize, usize)>) -> Div {
+    fn render_inline_with_selection(
+        inline: &Inline,
+        t: &ThemeColors,
+        cx: &App,
+        selection: Option<(usize, usize)>,
+    ) -> Div {
         let selection_bg = rgba(0x3390ff40);
 
         match inline {
@@ -533,7 +553,8 @@ impl MarkdownDocument {
                             Some((s.saturating_sub(offset), (e - offset).min(child_len)))
                         }
                     });
-                    container = container.child(Self::render_inline_with_selection(child, t, cx, child_sel));
+                    container = container
+                        .child(Self::render_inline_with_selection(child, t, cx, child_sel));
                     offset += child_len;
                 }
                 container
@@ -555,7 +576,8 @@ impl MarkdownDocument {
                             Some((s.saturating_sub(offset), (e - offset).min(child_len)))
                         }
                     });
-                    container = container.child(Self::render_inline_with_selection(child, t, cx, child_sel));
+                    container = container
+                        .child(Self::render_inline_with_selection(child, t, cx, child_sel));
                     offset += child_len;
                 }
                 container
@@ -581,7 +603,8 @@ impl MarkdownDocument {
                             Some((s.saturating_sub(offset), (e - offset).min(child_len)))
                         }
                     });
-                    container = container.child(Self::render_inline_with_selection(child, t, cx, child_sel));
+                    container = container
+                        .child(Self::render_inline_with_selection(child, t, cx, child_sel));
                     offset += child_len;
                 }
                 container
@@ -646,16 +669,12 @@ impl MarkdownDocument {
                 let width = col_widths.get(i).copied().unwrap_or(10);
                 let min_w = ((width * 8) + 24).max(80) as f32;
                 header_row = header_row.child(
-                    div()
-                        .min_w(px(min_w))
-                        .px(px(12.0))
-                        .py(px(8.0))
-                        .child(
-                            Self::render_inlines_with_selection(header, t, cx, cell_sel)
-                                .text_size(ui_text_md(cx))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(rgb(t.text_primary))
-                        )
+                    div().min_w(px(min_w)).px(px(12.0)).py(px(8.0)).child(
+                        Self::render_inlines_with_selection(header, t, cx, cell_sel)
+                            .text_size(ui_text_md(cx))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(t.text_primary)),
+                    ),
                 );
                 offset += cell_len;
             }
@@ -691,15 +710,11 @@ impl MarkdownDocument {
                 let width = col_widths.get(i).copied().unwrap_or(10);
                 let min_w = ((width * 8) + 24).max(80) as f32;
                 row_div = row_div.child(
-                    div()
-                        .min_w(px(min_w))
-                        .px(px(12.0))
-                        .py(px(6.0))
-                        .child(
-                            Self::render_inlines_with_selection(cell, t, cx, cell_sel)
-                                .text_size(ui_text_md(cx))
-                                .text_color(rgb(t.text_secondary))
-                        )
+                    div().min_w(px(min_w)).px(px(12.0)).py(px(6.0)).child(
+                        Self::render_inlines_with_selection(cell, t, cx, cell_sel)
+                            .text_size(ui_text_md(cx))
+                            .text_color(rgb(t.text_secondary)),
+                    ),
                 );
                 offset += cell_len;
             }
@@ -738,7 +753,11 @@ impl MarkdownDocument {
 
     /// Render heading text with selection highlighting.
     /// Returns a Div with flex layout containing the text split by selection.
-    fn render_heading_text_with_selection(inlines: &[Inline], sel_start: usize, sel_end: usize) -> Div {
+    fn render_heading_text_with_selection(
+        inlines: &[Inline],
+        sel_start: usize,
+        sel_end: usize,
+    ) -> Div {
         let selection_bg = rgba(0x3390ff40);
         let text = Self::render_inlines_as_text(inlines);
         let (before, selected, after) = slice_by_chars(&text, sel_start, sel_end);

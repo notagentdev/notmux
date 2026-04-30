@@ -4,7 +4,7 @@ use crate::code_view::{
     apply_vertical_selection_autoscroll, get_selected_text, start_scrollbar_drag,
     update_scrollbar_drag, vertical_selection_autoscroll_delta,
 };
-use crate::selection::{copy_to_clipboard, Selection1DExtension};
+use crate::selection::{Selection1DExtension, copy_to_clipboard};
 use gpui::*;
 
 use super::{DisplayMode, FileViewer, FileViewerEvent};
@@ -224,13 +224,11 @@ impl FileViewer {
 
         let tab = self.active_tab();
         let scroll_y = -f32::from(tab.source_scroll_handle.0.borrow().base_handle.offset().y);
-        let target_line = ((scroll_y + pointer_y_in_viewport.max(0.0)) / line_height).floor() as usize;
+        let target_line =
+            ((scroll_y + pointer_y_in_viewport.max(0.0)) / line_height).floor() as usize;
         let target_line = target_line.min(tab.line_count.saturating_sub(1));
-        let target_col = self.source_selection_target_col(
-            target_line,
-            pointer_y_in_viewport,
-            viewport_height,
-        );
+        let target_col =
+            self.source_selection_target_col(target_line, pointer_y_in_viewport, viewport_height);
 
         let delta_y = vertical_selection_autoscroll_delta(
             pointer_y_in_viewport,
@@ -298,11 +296,9 @@ impl FileViewer {
             return;
         }
 
-        let did_scroll = apply_vertical_selection_autoscroll(
-            &self.active_tab().source_scroll_handle,
-            delta_y,
-        )
-        .is_some();
+        let did_scroll =
+            apply_vertical_selection_autoscroll(&self.active_tab().source_scroll_handle, delta_y)
+                .is_some();
 
         if did_scroll {
             let scroll_y = -f32::from(
@@ -315,13 +311,11 @@ impl FileViewer {
                     .y,
             );
             let pointer_y = state.pointer_y_in_viewport;
-            let target_line = ((scroll_y + pointer_y.max(0.0)) / state.line_height).floor() as usize;
+            let target_line =
+                ((scroll_y + pointer_y.max(0.0)) / state.line_height).floor() as usize;
             let target_line = target_line.min(self.active_tab().line_count.saturating_sub(1));
-            let target_col = self.source_selection_target_col(
-                target_line,
-                pointer_y,
-                state.viewport_height,
-            );
+            let target_col =
+                self.source_selection_target_col(target_line, pointer_y, state.viewport_height);
             let tab = self.active_tab_mut();
             tab.selection.end = Some((target_line, target_col));
 

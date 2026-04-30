@@ -13,11 +13,15 @@ impl Workspace {
             return vec![];
         };
 
-        let layout_ids: std::collections::HashSet<String> = project.layout.as_ref()
+        let layout_ids: std::collections::HashSet<String> = project
+            .layout
+            .as_ref()
             .map(|l| l.collect_terminal_ids().into_iter().collect())
             .unwrap_or_default();
 
-        let orphaned: Vec<String> = project.terminal_names.keys()
+        let orphaned: Vec<String> = project
+            .terminal_names
+            .keys()
             .filter(|id| !layout_ids.contains(id.as_str()))
             .cloned()
             .collect();
@@ -37,7 +41,11 @@ impl Workspace {
         direction: SplitDirection,
         cx: &mut Context<Self>,
     ) {
-        log::info!("Workspace::split_terminal called for project {} at path {:?}", project_id, path);
+        log::info!(
+            "Workspace::split_terminal called for project {} at path {:?}",
+            project_id,
+            path
+        );
 
         // If the target node is inside a Tabs container, split the Tabs container
         // instead of splitting inside the tab. This avoids nested splits within tabs
@@ -94,24 +102,24 @@ impl Workspace {
     }
 
     /// Add a new tab - either to existing tab group (if parent is Tabs) or create new tab group
-    pub fn add_tab(
-        &mut self,
-        project_id: &str,
-        path: &[usize],
-        cx: &mut Context<Self>,
-    ) {
-        log::info!("Workspace::add_tab called for project {} at path {:?}", project_id, path);
+    pub fn add_tab(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) {
+        log::info!(
+            "Workspace::add_tab called for project {} at path {:?}",
+            project_id,
+            path
+        );
 
         // Check if parent is a Tabs container
         if !path.is_empty() {
             let parent_path = &path[..path.len() - 1];
             if let Some(project) = self.project(project_id)
                 && let Some(ref layout) = project.layout
-                    && let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path) {
-                        // Parent is Tabs - add new tab to the group
-                        self.add_tab_to_group(project_id, parent_path, cx);
-                        return;
-                    }
+                && let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path)
+            {
+                // Parent is Tabs - add new tab to the group
+                self.add_tab_to_group(project_id, parent_path, cx);
+                return;
+            }
         }
 
         // Parent is not Tabs - create new tab group
@@ -140,11 +148,18 @@ impl Workspace {
     ) {
         let mut new_tab_index = 0;
         self.with_layout_node(project_id, tabs_path, cx, |node| {
-            if let LayoutNode::Tabs { children, active_tab } = node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = node
+            {
                 children.push(LayoutNode::new_terminal());
                 *active_tab = children.len() - 1;
                 new_tab_index = *active_tab;
-                log::info!("Added new tab to existing group, now {} tabs", children.len());
+                log::info!(
+                    "Added new tab to existing group, now {} tabs",
+                    children.len()
+                );
                 true
             } else {
                 false
@@ -159,64 +174,80 @@ impl Workspace {
 
     /// Close a terminal at a path.
     /// Returns the terminal IDs that were removed from the layout.
-    pub fn close_terminal(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) -> Vec<String> {
+    pub fn close_terminal(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        cx: &mut Context<Self>,
+    ) -> Vec<String> {
         if let Some(project) = self.project_mut(project_id)
-            && let Some(ref mut layout) = project.layout {
-                if path.is_empty() {
-                    // Closing root - remove layout entirely (project becomes bookmark)
-                    project.layout = None;
-                    self.notify_data(cx);
-                    return self.cleanup_orphaned_metadata(project_id);
-                }
+            && let Some(ref mut layout) = project.layout
+        {
+            if path.is_empty() {
+                // Closing root - remove layout entirely (project becomes bookmark)
+                project.layout = None;
+                self.notify_data(cx);
+                return self.cleanup_orphaned_metadata(project_id);
+            }
 
-                let parent_path = &path[..path.len() - 1];
-                let child_index = path[path.len() - 1];
+            let parent_path = &path[..path.len() - 1];
+            let child_index = path[path.len() - 1];
 
-                if let Some(parent) = layout.get_at_path_mut(parent_path) {
-                    match parent {
-                        LayoutNode::Split { children, sizes, .. } => {
-                            if children.len() <= 2 {
-                                let remaining_index = if child_index == 0 { 1 } else { 0 };
-                                if let Some(remaining) = children.get(remaining_index).cloned() {
-                                    *parent = remaining;
-                                }
-                            } else {
-                                children.remove(child_index);
-                                if child_index < sizes.len() {
-                                    sizes.remove(child_index);
-                                }
+            if let Some(parent) = layout.get_at_path_mut(parent_path) {
+                match parent {
+                    LayoutNode::Split {
+                        children, sizes, ..
+                    } => {
+                        if children.len() <= 2 {
+                            let remaining_index = if child_index == 0 { 1 } else { 0 };
+                            if let Some(remaining) = children.get(remaining_index).cloned() {
+                                *parent = remaining;
                             }
-                            self.notify_data(cx);
-                            return self.cleanup_orphaned_metadata(project_id);
-                        }
-                        LayoutNode::Tabs { children, active_tab } => {
-                            if children.len() <= 2 {
-                                let remaining_index = if child_index == 0 { 1 } else { 0 };
-                                if let Some(remaining) = children.get(remaining_index).cloned() {
-                                    *parent = remaining;
-                                }
-                            } else {
-                                children.remove(child_index);
-                                // Adjust active_tab to stay valid
-                                if *active_tab >= children.len() {
-                                    *active_tab = children.len() - 1;
-                                } else if *active_tab > child_index {
-                                    *active_tab -= 1;
-                                }
+                        } else {
+                            children.remove(child_index);
+                            if child_index < sizes.len() {
+                                sizes.remove(child_index);
                             }
-                            self.notify_data(cx);
-                            return self.cleanup_orphaned_metadata(project_id);
                         }
-                        _ => {}
+                        self.notify_data(cx);
+                        return self.cleanup_orphaned_metadata(project_id);
                     }
+                    LayoutNode::Tabs {
+                        children,
+                        active_tab,
+                    } => {
+                        if children.len() <= 2 {
+                            let remaining_index = if child_index == 0 { 1 } else { 0 };
+                            if let Some(remaining) = children.get(remaining_index).cloned() {
+                                *parent = remaining;
+                            }
+                        } else {
+                            children.remove(child_index);
+                            // Adjust active_tab to stay valid
+                            if *active_tab >= children.len() {
+                                *active_tab = children.len() - 1;
+                            } else if *active_tab > child_index {
+                                *active_tab -= 1;
+                            }
+                        }
+                        self.notify_data(cx);
+                        return self.cleanup_orphaned_metadata(project_id);
+                    }
+                    _ => {}
                 }
             }
+        }
         vec![]
     }
 
     /// Close a terminal and focus its sibling (reverse of splitting).
     /// Returns the terminal IDs that were removed from the layout.
-    pub fn close_terminal_and_focus_sibling(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) -> Vec<String> {
+    pub fn close_terminal_and_focus_sibling(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        cx: &mut Context<Self>,
+    ) -> Vec<String> {
         if path.is_empty() {
             // Closing root - remove layout (project becomes bookmark)
             let removed = self.close_terminal(project_id, path, cx);
@@ -249,7 +280,8 @@ impl Workspace {
                             } else {
                                 // Parent keeps multiple children
                                 // Focus previous sibling, or next if closing first
-                                let sibling_index = if child_index > 0 { child_index - 1 } else { 1 };
+                                let sibling_index =
+                                    if child_index > 0 { child_index - 1 } else { 1 };
                                 if let Some(sibling) = children.get(sibling_index) {
                                     let relative_path = sibling.find_first_terminal_path();
                                     let mut full_path = parent_path.to_vec();
@@ -318,11 +350,12 @@ impl Workspace {
     ) {
         if let Some(project) = self.project_mut(project_id)
             && let Some(ref mut layout) = project.layout
-                && let Some(node) = layout.get_at_path_mut(path)
-                    && let LayoutNode::Split { sizes, .. } = node {
-                        *sizes = new_sizes;
-                        self.notify_ui_only(cx);
-                    }
+            && let Some(node) = layout.get_at_path_mut(path)
+            && let LayoutNode::Split { sizes, .. } = node
+        {
+            *sizes = new_sizes;
+            self.notify_ui_only(cx);
+        }
     }
 
     /// Set active tab in a tabs container
@@ -353,7 +386,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.with_layout_node(project_id, path, cx, |node| {
-            if let LayoutNode::Tabs { children, active_tab } = node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = node
+            {
                 if from_index >= children.len() || to_index >= children.len() {
                     return false;
                 }
@@ -399,7 +436,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<String> {
         let applied = self.with_layout_node(project_id, path, cx, |node| {
-            if let LayoutNode::Tabs { children, active_tab } = node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = node
+            {
                 if tab_index >= children.len() || children.len() <= 1 {
                     return false;
                 }
@@ -425,7 +466,11 @@ impl Workspace {
             }
         });
 
-        if applied { self.cleanup_orphaned_metadata(project_id) } else { vec![] }
+        if applied {
+            self.cleanup_orphaned_metadata(project_id)
+        } else {
+            vec![]
+        }
     }
 
     /// Close all tabs except the one at the specified index.
@@ -452,7 +497,11 @@ impl Workspace {
             }
         });
 
-        if applied { self.cleanup_orphaned_metadata(project_id) } else { vec![] }
+        if applied {
+            self.cleanup_orphaned_metadata(project_id)
+        } else {
+            vec![]
+        }
     }
 
     /// Close all tabs to the right of the specified index.
@@ -466,7 +515,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<String> {
         let applied = self.with_layout_node(project_id, path, cx, |node| {
-            if let LayoutNode::Tabs { children, active_tab } = node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = node
+            {
                 if from_index >= children.len() {
                     return false;
                 }
@@ -488,7 +541,11 @@ impl Workspace {
             }
         });
 
-        if applied { self.cleanup_orphaned_metadata(project_id) } else { vec![] }
+        if applied {
+            self.cleanup_orphaned_metadata(project_id)
+        } else {
+            vec![]
+        }
     }
     /// Move a terminal pane to a new position relative to a target terminal.
     ///
@@ -510,9 +567,22 @@ impl Workspace {
         }
 
         if source_project_id == target_project_id {
-            self.move_pane_same_project(source_project_id, source_terminal_id, target_terminal_id, zone, cx);
+            self.move_pane_same_project(
+                source_project_id,
+                source_terminal_id,
+                target_terminal_id,
+                zone,
+                cx,
+            );
         } else {
-            self.move_pane_cross_project(source_project_id, source_terminal_id, target_project_id, target_terminal_id, zone, cx);
+            self.move_pane_cross_project(
+                source_project_id,
+                source_terminal_id,
+                target_project_id,
+                target_terminal_id,
+                zone,
+                cx,
+            );
         }
     }
 
@@ -616,11 +686,21 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         // Find project indices (needed for split borrows)
-        let src_idx = match self.data.projects.iter().position(|p| p.id == source_project_id) {
+        let src_idx = match self
+            .data
+            .projects
+            .iter()
+            .position(|p| p.id == source_project_id)
+        {
             Some(i) => i,
             None => return,
         };
-        let tgt_idx = match self.data.projects.iter().position(|p| p.id == target_project_id) {
+        let tgt_idx = match self
+            .data
+            .projects
+            .iter()
+            .position(|p| p.id == target_project_id)
+        {
             Some(i) => i,
             None => return,
         };
@@ -640,7 +720,11 @@ impl Workspace {
         };
 
         // Block if terminal is a service terminal
-        if self.data.projects[src_idx].service_terminals.values().any(|id| id == source_terminal_id) {
+        if self.data.projects[src_idx]
+            .service_terminals
+            .values()
+            .any(|id| id == source_terminal_id)
+        {
             return;
         }
 
@@ -659,7 +743,10 @@ impl Workspace {
             // Source is root — remove entire layout
             src_project.layout = None;
         } else {
-            let src_layout = src_project.layout.as_mut().expect("non-empty source_path implies layout is Some");
+            let src_layout = src_project
+                .layout
+                .as_mut()
+                .expect("non-empty source_path implies layout is Some");
             if src_layout.remove_at_path(&source_path).is_none() {
                 return;
             }
@@ -671,20 +758,30 @@ impl Workspace {
         let hidden_state = src_project.hidden_terminals.remove(source_terminal_id);
 
         // Cleanup orphaned source metadata
-        let src_layout_ids: std::collections::HashSet<String> = src_project.layout.as_ref()
+        let src_layout_ids: std::collections::HashSet<String> = src_project
+            .layout
+            .as_ref()
             .map(|l| l.collect_terminal_ids().into_iter().collect())
             .unwrap_or_default();
-        src_project.terminal_names.retain(|id, _| src_layout_ids.contains(id));
-        src_project.hidden_terminals.retain(|id, _| src_layout_ids.contains(id));
+        src_project
+            .terminal_names
+            .retain(|id, _| src_layout_ids.contains(id));
+        src_project
+            .hidden_terminals
+            .retain(|id, _| src_layout_ids.contains(id));
 
         // --- Insert into target ---
         let tgt_project = &mut self.data.projects[tgt_idx];
 
         if let Some(name) = terminal_name {
-            tgt_project.terminal_names.insert(source_terminal_id.to_string(), name);
+            tgt_project
+                .terminal_names
+                .insert(source_terminal_id.to_string(), name);
         }
         if let Some(hidden) = hidden_state {
-            tgt_project.hidden_terminals.insert(source_terminal_id.to_string(), hidden);
+            tgt_project
+                .hidden_terminals
+                .insert(source_terminal_id.to_string(), hidden);
         }
 
         let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
@@ -708,7 +805,11 @@ impl Workspace {
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
-            tgt_project.layout.as_ref().expect("set to Some one line above").find_terminal_path(source_terminal_id)
+            tgt_project
+                .layout
+                .as_ref()
+                .expect("set to Some one line above")
+                .find_terminal_path(source_terminal_id)
         };
 
         self.notify_data(cx);
@@ -720,7 +821,11 @@ impl Workspace {
     }
 
     /// Build wrapper node for drop zone placement.
-    fn build_drop_zone_wrapper(source_node: LayoutNode, target_node: LayoutNode, zone: DropZone) -> LayoutNode {
+    fn build_drop_zone_wrapper(
+        source_node: LayoutNode,
+        target_node: LayoutNode,
+        zone: DropZone,
+    ) -> LayoutNode {
         match zone {
             DropZone::Top => LayoutNode::Split {
                 direction: SplitDirection::Horizontal,
@@ -772,9 +877,22 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if source_project_id == target_project_id {
-            self.move_terminal_to_tab_group_same_project(source_project_id, terminal_id, tabs_path, insert_index, cx);
+            self.move_terminal_to_tab_group_same_project(
+                source_project_id,
+                terminal_id,
+                tabs_path,
+                insert_index,
+                cx,
+            );
         } else {
-            self.move_terminal_to_tab_group_cross_project(source_project_id, terminal_id, target_project_id, tabs_path, insert_index, cx);
+            self.move_terminal_to_tab_group_cross_project(
+                source_project_id,
+                terminal_id,
+                target_project_id,
+                tabs_path,
+                insert_index,
+                cx,
+            );
         }
     }
 
@@ -875,7 +993,11 @@ impl Workspace {
                 None => return,
             };
 
-            if let LayoutNode::Tabs { children, active_tab } = tabs_node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = tabs_node
+            {
                 let idx = insert_index.unwrap_or(children.len());
                 let clamped = idx.min(children.len());
                 children.insert(clamped, source_node);
@@ -906,11 +1028,21 @@ impl Workspace {
         insert_index: Option<usize>,
         cx: &mut Context<Self>,
     ) {
-        let src_idx = match self.data.projects.iter().position(|p| p.id == source_project_id) {
+        let src_idx = match self
+            .data
+            .projects
+            .iter()
+            .position(|p| p.id == source_project_id)
+        {
             Some(i) => i,
             None => return,
         };
-        let tgt_idx = match self.data.projects.iter().position(|p| p.id == target_project_id) {
+        let tgt_idx = match self
+            .data
+            .projects
+            .iter()
+            .position(|p| p.id == target_project_id)
+        {
             Some(i) => i,
             None => return,
         };
@@ -930,7 +1062,11 @@ impl Workspace {
         };
 
         // Block service terminals
-        if self.data.projects[src_idx].service_terminals.values().any(|id| id == terminal_id) {
+        if self.data.projects[src_idx]
+            .service_terminals
+            .values()
+            .any(|id| id == terminal_id)
+        {
             return;
         }
 
@@ -958,7 +1094,10 @@ impl Workspace {
         if source_path.is_empty() {
             src_project.layout = None;
         } else {
-            let src_layout = src_project.layout.as_mut().expect("non-empty source_path implies layout is Some");
+            let src_layout = src_project
+                .layout
+                .as_mut()
+                .expect("non-empty source_path implies layout is Some");
             if src_layout.remove_at_path(&source_path).is_none() {
                 return;
             }
@@ -970,20 +1109,30 @@ impl Workspace {
         let hidden_state = src_project.hidden_terminals.remove(terminal_id);
 
         // Cleanup orphaned source metadata
-        let src_layout_ids: std::collections::HashSet<String> = src_project.layout.as_ref()
+        let src_layout_ids: std::collections::HashSet<String> = src_project
+            .layout
+            .as_ref()
             .map(|l| l.collect_terminal_ids().into_iter().collect())
             .unwrap_or_default();
-        src_project.terminal_names.retain(|id, _| src_layout_ids.contains(id));
-        src_project.hidden_terminals.retain(|id, _| src_layout_ids.contains(id));
+        src_project
+            .terminal_names
+            .retain(|id, _| src_layout_ids.contains(id));
+        src_project
+            .hidden_terminals
+            .retain(|id, _| src_layout_ids.contains(id));
 
         // --- Insert into target ---
         let tgt_project = &mut self.data.projects[tgt_idx];
 
         if let Some(name) = terminal_name {
-            tgt_project.terminal_names.insert(terminal_id.to_string(), name);
+            tgt_project
+                .terminal_names
+                .insert(terminal_id.to_string(), name);
         }
         if let Some(hidden) = hidden_state {
-            tgt_project.hidden_terminals.insert(terminal_id.to_string(), hidden);
+            tgt_project
+                .hidden_terminals
+                .insert(terminal_id.to_string(), hidden);
         }
 
         let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
@@ -1003,7 +1152,11 @@ impl Workspace {
                 None => return,
             };
 
-            if let LayoutNode::Tabs { children, active_tab } = tabs_node {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = tabs_node
+            {
                 let idx = insert_index.unwrap_or(children.len());
                 let clamped = idx.min(children.len());
                 children.insert(clamped, source_node);
@@ -1017,7 +1170,11 @@ impl Workspace {
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
-            tgt_project.layout.as_ref().expect("set to Some one line above").find_terminal_path(terminal_id)
+            tgt_project
+                .layout
+                .as_ref()
+                .expect("set to Some one line above")
+                .find_terminal_path(terminal_id)
         };
 
         self.notify_data(cx);
@@ -1031,18 +1188,22 @@ impl Workspace {
     pub fn equalize_focused_split(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.focus_manager.focused_terminal_state()
             && let Some(project) = self.project_mut(&target.project_id)
-                && let Some(ref mut layout) = project.layout {
-                    let parent_path = if target.layout_path.is_empty() {
-                        &target.layout_path[..]
-                    } else {
-                        &target.layout_path[..target.layout_path.len() - 1]
-                    };
-                    if let Some(node) = layout.get_at_path_mut(parent_path)
-                        && let LayoutNode::Split { sizes, children, .. } = node {
-                            let n = children.len();
-                            *sizes = vec![100.0 / n as f32; n];
-                        }
-                }
+            && let Some(ref mut layout) = project.layout
+        {
+            let parent_path = if target.layout_path.is_empty() {
+                &target.layout_path[..]
+            } else {
+                &target.layout_path[..target.layout_path.len() - 1]
+            };
+            if let Some(node) = layout.get_at_path_mut(parent_path)
+                && let LayoutNode::Split {
+                    sizes, children, ..
+                } = node
+            {
+                let n = children.len();
+                *sizes = vec![100.0 / n as f32; n];
+            }
+        }
         self.notify_data(cx);
     }
 }
@@ -1092,7 +1253,9 @@ mod tests {
 
         if let Some(parent) = layout.get_at_path_mut(parent_path) {
             match parent {
-                LayoutNode::Split { children, sizes, .. } => {
+                LayoutNode::Split {
+                    children, sizes, ..
+                } => {
                     if children.len() <= 2 {
                         let remaining_index = if child_index == 0 { 1 } else { 0 };
                         if let Some(remaining) = children.get(remaining_index).cloned() {
@@ -1131,12 +1294,24 @@ mod tests {
         simulate_split(&mut layout, SplitDirection::Vertical);
 
         match &layout {
-            LayoutNode::Split { direction, children, sizes } => {
+            LayoutNode::Split {
+                direction,
+                children,
+                sizes,
+            } => {
                 assert_eq!(*direction, SplitDirection::Vertical);
                 assert_eq!(children.len(), 2);
                 assert_eq!(sizes.len(), 2);
-                assert!(matches!(&children[0], LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t1"));
-                assert!(matches!(&children[1], LayoutNode::Terminal { terminal_id: None, .. }));
+                assert!(
+                    matches!(&children[0], LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t1")
+                );
+                assert!(matches!(
+                    &children[1],
+                    LayoutNode::Terminal {
+                        terminal_id: None,
+                        ..
+                    }
+                ));
             }
             _ => panic!("Expected split"),
         }
@@ -1157,7 +1332,11 @@ mod tests {
         layout.normalize();
 
         match &layout {
-            LayoutNode::Split { direction, children, .. } => {
+            LayoutNode::Split {
+                direction,
+                children,
+                ..
+            } => {
                 assert_eq!(*direction, SplitDirection::Horizontal);
                 // Should be flattened to 3 children
                 assert_eq!(children.len(), 3);
@@ -1172,7 +1351,10 @@ mod tests {
         simulate_add_tab(&mut layout);
 
         match &layout {
-            LayoutNode::Tabs { children, active_tab } => {
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
                 assert_eq!(children.len(), 2);
                 assert_eq!(*active_tab, 1);
             }
@@ -1186,12 +1368,19 @@ mod tests {
             children: vec![terminal_node("t1"), terminal_node("t2")],
             active_tab: 0,
         };
-        if let LayoutNode::Tabs { children, active_tab } = &mut layout {
+        if let LayoutNode::Tabs {
+            children,
+            active_tab,
+        } = &mut layout
+        {
             children.push(LayoutNode::new_terminal());
             *active_tab = children.len() - 1;
         }
         match &layout {
-            LayoutNode::Tabs { children, active_tab } => {
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
                 assert_eq!(children.len(), 3);
                 assert_eq!(*active_tab, 2);
             }
@@ -1207,7 +1396,9 @@ mod tests {
             children: vec![terminal_node("t1"), terminal_node("t2")],
         };
         simulate_close(&mut layout, &[0]);
-        assert!(matches!(&layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2"));
+        assert!(
+            matches!(&layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2")
+        );
     }
 
     #[test]
@@ -1215,18 +1406,30 @@ mod tests {
         let mut layout = LayoutNode::Split {
             direction: SplitDirection::Horizontal,
             sizes: vec![33.0, 33.0, 34.0],
-            children: vec![terminal_node("t1"), terminal_node("t2"), terminal_node("t3")],
+            children: vec![
+                terminal_node("t1"),
+                terminal_node("t2"),
+                terminal_node("t3"),
+            ],
         };
         simulate_close(&mut layout, &[1]);
         match &layout {
-            LayoutNode::Split { children, sizes, .. } => {
+            LayoutNode::Split {
+                children, sizes, ..
+            } => {
                 assert_eq!(children.len(), 2);
                 assert_eq!(sizes.len(), 2);
                 // t1 and t3 remain
-                let ids: Vec<_> = children.iter().map(|c| match c {
-                    LayoutNode::Terminal { terminal_id: Some(id), .. } => id.as_str(),
-                    _ => "",
-                }).collect();
+                let ids: Vec<_> = children
+                    .iter()
+                    .map(|c| match c {
+                        LayoutNode::Terminal {
+                            terminal_id: Some(id),
+                            ..
+                        } => id.as_str(),
+                        _ => "",
+                    })
+                    .collect();
                 assert_eq!(ids, vec!["t1", "t3"]);
             }
             _ => panic!("Expected split with 2 children"),
@@ -1240,13 +1443,19 @@ mod tests {
         let mut layout = LayoutNode::Split {
             direction: SplitDirection::Horizontal,
             sizes: vec![25.0, 50.0, 25.0],
-            children: vec![terminal_node("t1"), terminal_node("t2"), terminal_node("t3")],
+            children: vec![
+                terminal_node("t1"),
+                terminal_node("t2"),
+                terminal_node("t3"),
+            ],
         };
 
         // Close the middle terminal (index 1, size 50.0)
         simulate_close(&mut layout, &[1]);
         match &layout {
-            LayoutNode::Split { children, sizes, .. } => {
+            LayoutNode::Split {
+                children, sizes, ..
+            } => {
                 assert_eq!(children.len(), 2);
                 assert_eq!(sizes.len(), 2);
                 // Sizes should be [25.0, 25.0] — the middle entry was removed
@@ -1259,11 +1468,17 @@ mod tests {
         let mut layout = LayoutNode::Split {
             direction: SplitDirection::Vertical,
             sizes: vec![30.0, 40.0, 30.0],
-            children: vec![terminal_node("t1"), terminal_node("t2"), terminal_node("t3")],
+            children: vec![
+                terminal_node("t1"),
+                terminal_node("t2"),
+                terminal_node("t3"),
+            ],
         };
         simulate_close(&mut layout, &[0]);
         match &layout {
-            LayoutNode::Split { children, sizes, .. } => {
+            LayoutNode::Split {
+                children, sizes, ..
+            } => {
                 assert_eq!(children.len(), 2);
                 assert_eq!(sizes.len(), 2);
                 assert_eq!(sizes, &vec![40.0, 30.0]);
@@ -1275,22 +1490,39 @@ mod tests {
     #[test]
     fn test_move_tab() {
         let mut layout = LayoutNode::Tabs {
-            children: vec![terminal_node("t1"), terminal_node("t2"), terminal_node("t3")],
+            children: vec![
+                terminal_node("t1"),
+                terminal_node("t2"),
+                terminal_node("t3"),
+            ],
             active_tab: 0,
         };
         // Move tab at index 0 to index 2
-        if let LayoutNode::Tabs { children, active_tab } = &mut layout {
+        if let LayoutNode::Tabs {
+            children,
+            active_tab,
+        } = &mut layout
+        {
             let tab = children.remove(0);
             children.insert(2.min(children.len()), tab);
             // active_tab was 0, which was the moved tab, so update
             *active_tab = 2.min(children.len() - 1);
         }
         match &layout {
-            LayoutNode::Tabs { children, active_tab } => {
-                let ids: Vec<_> = children.iter().map(|c| match c {
-                    LayoutNode::Terminal { terminal_id: Some(id), .. } => id.as_str(),
-                    _ => "",
-                }).collect();
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
+                let ids: Vec<_> = children
+                    .iter()
+                    .map(|c| match c {
+                        LayoutNode::Terminal {
+                            terminal_id: Some(id),
+                            ..
+                        } => id.as_str(),
+                        _ => "",
+                    })
+                    .collect();
                 assert_eq!(ids, vec!["t2", "t3", "t1"]);
                 assert_eq!(*active_tab, 2);
             }
@@ -1309,11 +1541,12 @@ mod tests {
         };
         // Focused terminal at path [1] → parent split at path []
         let parent_path: &[usize] = &[];
-        if let Some(node) = layout.get_at_path_mut(parent_path) {
-            if let LayoutNode::Split { sizes, children, .. } = node {
-                let n = children.len();
-                *sizes = vec![100.0 / n as f32; n];
-            }
+        if let Some(LayoutNode::Split {
+            sizes, children, ..
+        }) = layout.get_at_path_mut(parent_path)
+        {
+            let n = children.len();
+            *sizes = vec![100.0 / n as f32; n];
         }
         if let LayoutNode::Split { sizes, .. } = &layout {
             assert_eq!(sizes, &vec![50.0, 50.0]);
@@ -1338,14 +1571,18 @@ mod tests {
             ],
         };
         let parent_path: &[usize] = &[0];
-        if let Some(node) = layout.get_at_path_mut(parent_path) {
-            if let LayoutNode::Split { sizes, children, .. } = node {
-                let n = children.len();
-                *sizes = vec![100.0 / n as f32; n];
-            }
+        if let Some(LayoutNode::Split {
+            sizes, children, ..
+        }) = layout.get_at_path_mut(parent_path)
+        {
+            let n = children.len();
+            *sizes = vec![100.0 / n as f32; n];
         }
         // Outer split unchanged
-        if let LayoutNode::Split { sizes, children, .. } = &layout {
+        if let LayoutNode::Split {
+            sizes, children, ..
+        } = &layout
+        {
             assert_eq!(sizes, &vec![60.0, 40.0]);
             // Inner split equalized
             if let LayoutNode::Split { sizes: inner, .. } = &children[0] {
@@ -1361,12 +1598,14 @@ mod tests {
 
 #[cfg(test)]
 mod gpui_tests {
-    use gpui::AppContext as _;
-    use crate::state::{DropZone, LayoutNode, ProjectData, SplitDirection, Workspace, WorkspaceData};
     use crate::settings::HooksConfig;
-    use vryn_terminal::shell_config::ShellType;
-    use vryn_core::theme::FolderColor;
+    use crate::state::{
+        DropZone, LayoutNode, ProjectData, SplitDirection, Workspace, WorkspaceData,
+    };
+    use gpui::AppContext as _;
     use std::collections::HashMap;
+    use vryn_core::theme::FolderColor;
+    use vryn_terminal::shell_config::ShellType;
 
     fn make_project(id: &str) -> ProjectData {
         ProjectData {
@@ -1447,7 +1686,10 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 2);
                     assert_eq!(*active_tab, 1);
                 }
@@ -1490,7 +1732,9 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             // After closing child 0, sibling (t2) should replace the split
-            assert!(matches!(layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2"));
+            assert!(
+                matches!(layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2")
+            );
         });
     }
 
@@ -1534,15 +1778,24 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 2);
                     // active_tab was 2, after removing index 0 it should be 1
                     assert_eq!(*active_tab, 1);
                     // Remaining are t2 and t3
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
+                    let ids: Vec<_> = children
+                        .iter()
+                        .filter_map(|c| match c {
+                            LayoutNode::Terminal {
+                                terminal_id: Some(id),
+                                ..
+                            } => Some(id.as_str()),
+                            _ => None,
+                        })
+                        .collect();
                     assert_eq!(ids, vec!["t2", "t3"]);
                 }
                 _ => panic!("Expected tabs"),
@@ -1590,11 +1843,20 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
+                    let ids: Vec<_> = children
+                        .iter()
+                        .filter_map(|c| match c {
+                            LayoutNode::Terminal {
+                                terminal_id: Some(id),
+                                ..
+                            } => Some(id.as_str()),
+                            _ => None,
+                        })
+                        .collect();
                     assert_eq!(ids, vec!["t2", "t3", "t1"]);
                     assert_eq!(*active_tab, 2); // active_tab was 0 (the moved tab), should follow
                 }
@@ -1685,7 +1947,11 @@ mod gpui_tests {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             // t1 removed -> t2 becomes root. t1 dropped on top of t2 -> H[t1, t2]
             match layout {
-                LayoutNode::Split { direction, children, .. } => {
+                LayoutNode::Split {
+                    direction,
+                    children,
+                    ..
+                } => {
                     assert_eq!(*direction, SplitDirection::Horizontal);
                     assert_eq!(children.len(), 2);
                     let ids = layout.collect_terminal_ids();
@@ -1714,7 +1980,11 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Split { direction, children, .. } => {
+                LayoutNode::Split {
+                    direction,
+                    children,
+                    ..
+                } => {
                     assert_eq!(*direction, SplitDirection::Horizontal);
                     assert_eq!(children.len(), 2);
                     let ids = layout.collect_terminal_ids();
@@ -1744,7 +2014,10 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 2);
                     assert_eq!(*active_tab, 1);
                     let ids = layout.collect_terminal_ids();
@@ -1823,13 +2096,22 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 3);
                     assert_eq!(*active_tab, 1);
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
+                    let ids: Vec<_> = children
+                        .iter()
+                        .filter_map(|c| match c {
+                            LayoutNode::Terminal {
+                                terminal_id: Some(id),
+                                ..
+                            } => Some(id.as_str()),
+                            _ => None,
+                        })
+                        .collect();
                     assert_eq!(ids, vec!["t1", "t3", "t2"]);
                 }
                 _ => panic!("Expected tabs, got {:?}", layout),
@@ -1862,13 +2144,22 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 3);
                     assert_eq!(*active_tab, 2);
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
+                    let ids: Vec<_> = children
+                        .iter()
+                        .filter_map(|c| match c {
+                            LayoutNode::Terminal {
+                                terminal_id: Some(id),
+                                ..
+                            } => Some(id.as_str()),
+                            _ => None,
+                        })
+                        .collect();
                     assert_eq!(ids, vec!["t1", "t2", "t3"]);
                 }
                 _ => panic!("Expected tabs, got {:?}", layout),
@@ -1880,7 +2171,11 @@ mod gpui_tests {
     fn test_move_terminal_to_tab_group_same_group_reorders(cx: &mut gpui::TestAppContext) {
         // Tabs[t1, t2, t3] → move t1 (already in group) to index 2 → reorder
         let layout = LayoutNode::Tabs {
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2"), terminal_node_t("t3")],
+            children: vec![
+                terminal_node_t("t1"),
+                terminal_node_t("t2"),
+                terminal_node_t("t3"),
+            ],
             active_tab: 0,
         };
         let project = make_project_with_layout("p1", layout);
@@ -1895,10 +2190,16 @@ mod gpui_tests {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             match layout {
                 LayoutNode::Tabs { children, .. } => {
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
+                    let ids: Vec<_> = children
+                        .iter()
+                        .filter_map(|c| match c {
+                            LayoutNode::Terminal {
+                                terminal_id: Some(id),
+                                ..
+                            } => Some(id.as_str()),
+                            _ => None,
+                        })
+                        .collect();
                     assert_eq!(ids, vec!["t2", "t3", "t1"]);
                 }
                 _ => panic!("Expected tabs, got {:?}", layout),
@@ -1912,7 +2213,11 @@ mod gpui_tests {
         let layout = LayoutNode::Split {
             direction: SplitDirection::Vertical,
             sizes: vec![33.0, 33.0, 34.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2"), terminal_node_t("t3")],
+            children: vec![
+                terminal_node_t("t1"),
+                terminal_node_t("t2"),
+                terminal_node_t("t3"),
+            ],
         };
         let project = make_project_with_layout("p1", layout);
         let data = make_workspace_data(vec![project], vec!["p1"]);
@@ -1951,7 +2256,11 @@ mod gpui_tests {
 
     // === metadata cleanup tests ===
 
-    fn make_project_with_names(id: &str, layout: LayoutNode, names: Vec<(&str, &str)>) -> ProjectData {
+    fn make_project_with_names(
+        id: &str,
+        layout: LayoutNode,
+        names: Vec<(&str, &str)>,
+    ) -> ProjectData {
         let mut p = make_project_with_layout(id, layout);
         for (tid, name) in names {
             p.terminal_names.insert(tid.to_string(), name.to_string());
@@ -1966,7 +2275,8 @@ mod gpui_tests {
             sizes: vec![50.0, 50.0],
             children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
         };
-        let project = make_project_with_names("p1", layout, vec![("t1", "Term 1"), ("t2", "Term 2")]);
+        let project =
+            make_project_with_names("p1", layout, vec![("t1", "Term 1"), ("t2", "Term 2")]);
         let data = make_workspace_data(vec![project], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -1985,18 +2295,22 @@ mod gpui_tests {
     #[gpui::test]
     fn test_close_tab_cleans_metadata(cx: &mut gpui::TestAppContext) {
         let layout = LayoutNode::Tabs {
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2"), terminal_node_t("t3")],
+            children: vec![
+                terminal_node_t("t1"),
+                terminal_node_t("t2"),
+                terminal_node_t("t3"),
+            ],
             active_tab: 0,
         };
-        let project = make_project_with_names("p1", layout, vec![
-            ("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3"),
-        ]);
+        let project = make_project_with_names(
+            "p1",
+            layout,
+            vec![("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3")],
+        );
         let data = make_workspace_data(vec![project], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
-        let removed = workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.close_tab("p1", &[], 1, cx)
-        });
+        let removed = workspace.update(cx, |ws: &mut Workspace, cx| ws.close_tab("p1", &[], 1, cx));
 
         assert_eq!(removed, vec!["t2"]);
         workspace.read_with(cx, |ws: &Workspace, _cx| {
@@ -2010,12 +2324,18 @@ mod gpui_tests {
     #[gpui::test]
     fn test_close_other_tabs_cleans_metadata(cx: &mut gpui::TestAppContext) {
         let layout = LayoutNode::Tabs {
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2"), terminal_node_t("t3")],
+            children: vec![
+                terminal_node_t("t1"),
+                terminal_node_t("t2"),
+                terminal_node_t("t3"),
+            ],
             active_tab: 0,
         };
-        let project = make_project_with_names("p1", layout, vec![
-            ("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3"),
-        ]);
+        let project = make_project_with_names(
+            "p1",
+            layout,
+            vec![("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3")],
+        );
         let data = make_workspace_data(vec![project], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -2037,12 +2357,18 @@ mod gpui_tests {
     #[gpui::test]
     fn test_close_tabs_to_right_cleans_metadata(cx: &mut gpui::TestAppContext) {
         let layout = LayoutNode::Tabs {
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2"), terminal_node_t("t3")],
+            children: vec![
+                terminal_node_t("t1"),
+                terminal_node_t("t2"),
+                terminal_node_t("t3"),
+            ],
             active_tab: 0,
         };
-        let project = make_project_with_names("p1", layout, vec![
-            ("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3"),
-        ]);
+        let project = make_project_with_names(
+            "p1",
+            layout,
+            vec![("t1", "Term 1"), ("t2", "Term 2"), ("t3", "Term 3")],
+        );
         let data = make_workspace_data(vec![project], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
@@ -2066,11 +2392,14 @@ mod gpui_tests {
     #[gpui::test]
     fn test_move_pane_cross_project(cx: &mut gpui::TestAppContext) {
         // p1: V[t1, t2], p2: t3 → move t1 to left of t3 → p1: t2, p2: V[t1, t3]
-        let p1 = make_project_with_layout("p1", LayoutNode::Split {
-            direction: SplitDirection::Vertical,
-            sizes: vec![50.0, 50.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-        });
+        let p1 = make_project_with_layout(
+            "p1",
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
+            },
+        );
         let p2 = make_project_with_layout("p2", terminal_node_t("t3"));
         let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
@@ -2101,11 +2430,14 @@ mod gpui_tests {
     #[gpui::test]
     fn test_move_pane_cross_project_center(cx: &mut gpui::TestAppContext) {
         // p1: V[t1, t2], p2: t3 → move t1 center onto t3 → p2: Tabs[t3, t1]
-        let p1 = make_project_with_layout("p1", LayoutNode::Split {
-            direction: SplitDirection::Vertical,
-            sizes: vec![50.0, 50.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-        });
+        let p1 = make_project_with_layout(
+            "p1",
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
+            },
+        );
         let p2 = make_project_with_layout("p2", terminal_node_t("t3"));
         let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
@@ -2117,7 +2449,10 @@ mod gpui_tests {
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let p2_layout = ws.project("p2").unwrap().layout.as_ref().unwrap();
             match p2_layout {
-                LayoutNode::Tabs { children, active_tab } => {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
                     assert_eq!(children.len(), 2);
                     assert_eq!(*active_tab, 1);
                     let ids = p2_layout.collect_terminal_ids();
@@ -2154,13 +2489,18 @@ mod gpui_tests {
     #[gpui::test]
     fn test_move_pane_cross_project_metadata_migration(cx: &mut gpui::TestAppContext) {
         // Move t1 from p1 to p2, verify terminal_names and hidden_terminals migrate
-        let mut p1 = make_project_with_layout("p1", LayoutNode::Split {
-            direction: SplitDirection::Vertical,
-            sizes: vec![50.0, 50.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-        });
-        p1.terminal_names.insert("t1".to_string(), "My Terminal".to_string());
-        p1.terminal_names.insert("t2".to_string(), "Other Terminal".to_string());
+        let mut p1 = make_project_with_layout(
+            "p1",
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
+            },
+        );
+        p1.terminal_names
+            .insert("t1".to_string(), "My Terminal".to_string());
+        p1.terminal_names
+            .insert("t2".to_string(), "Other Terminal".to_string());
         p1.hidden_terminals.insert("t1".to_string(), true);
 
         let p2 = make_project_with_layout("p2", terminal_node_t("t3"));
@@ -2186,11 +2526,14 @@ mod gpui_tests {
     #[gpui::test]
     fn test_move_pane_cross_project_to_bookmark(cx: &mut gpui::TestAppContext) {
         // p2 has no layout (bookmark) → t1 becomes root of p2
-        let p1 = make_project_with_layout("p1", LayoutNode::Split {
-            direction: SplitDirection::Vertical,
-            sizes: vec![50.0, 50.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-        });
+        let p1 = make_project_with_layout(
+            "p1",
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
+            },
+        );
         let mut p2 = make_project("p2");
         p2.layout = None;
         let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
@@ -2210,15 +2553,21 @@ mod gpui_tests {
     #[gpui::test]
     fn test_move_to_tab_group_cross_project(cx: &mut gpui::TestAppContext) {
         // p1: V[t1, t2], p2: Tabs[t3, t4] → move t1 into p2's tabs at index 1
-        let p1 = make_project_with_layout("p1", LayoutNode::Split {
-            direction: SplitDirection::Vertical,
-            sizes: vec![50.0, 50.0],
-            children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-        });
-        let p2 = make_project_with_layout("p2", LayoutNode::Tabs {
-            children: vec![terminal_node_t("t3"), terminal_node_t("t4")],
-            active_tab: 0,
-        });
+        let p1 = make_project_with_layout(
+            "p1",
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
+            },
+        );
+        let p2 = make_project_with_layout(
+            "p2",
+            LayoutNode::Tabs {
+                children: vec![terminal_node_t("t3"), terminal_node_t("t4")],
+                active_tab: 0,
+            },
+        );
         let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 

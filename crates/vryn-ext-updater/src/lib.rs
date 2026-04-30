@@ -6,12 +6,12 @@ mod status;
 mod update_checker;
 
 use gpui::AppContext as _;
-use vryn_extensions::{ExtensionInstance, ExtensionManifest, ExtensionRegistration};
 use std::sync::Arc;
+use vryn_extensions::{ExtensionInstance, ExtensionManifest, ExtensionRegistration};
 
 // Re-export public types used by the host app
-pub use status::{GlobalUpdateInfo, UpdateInfo, UpdateStatus};
 pub use installer::restart_app;
+pub use status::{GlobalUpdateInfo, UpdateInfo, UpdateStatus};
 
 pub fn register() -> ExtensionRegistration {
     ExtensionRegistration {

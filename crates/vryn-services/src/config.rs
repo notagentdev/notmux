@@ -57,8 +57,8 @@ pub fn load_project_config(project_path: &str) -> Result<Option<VrynProjectConfi
     }
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-    let config: VrynProjectConfig =
-        serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+    let config: VrynProjectConfig = serde_yaml::from_str(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
     Ok(Some(config))
 }
 

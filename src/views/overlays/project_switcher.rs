@@ -7,18 +7,18 @@
 
 use crate::keybindings::Cancel;
 use crate::theme::theme;
+use crate::ui::tokens::{ui_text, ui_text_ms};
 use crate::views::components::{
-    badge, handle_list_overlay_key, keyboard_hints_footer, modal_backdrop, modal_content,
-    modal_header, search_input_area, substring_filter, ListOverlayAction, ListOverlayConfig,
-    ListOverlayState,
+    ListOverlayAction, ListOverlayConfig, ListOverlayState, badge, handle_list_overlay_key,
+    keyboard_hints_footer, modal_backdrop, modal_content, modal_header, search_input_area,
+    substring_filter,
 };
 use crate::workspace::state::{ProjectData, Workspace};
-use vryn_ui::empty_state::empty_state;
-use vryn_ui::selectable_list::selectable_list_item;
-use crate::ui::tokens::{ui_text, ui_text_ms};
+use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
-use gpui::prelude::*;
+use vryn_ui::empty_state::empty_state;
+use vryn_ui::selectable_list::selectable_list_item;
 
 /// Events emitted by the ProjectSwitcher overlay.
 #[derive(Clone)]
@@ -43,23 +43,35 @@ impl ProjectSwitcher {
     pub fn new(workspace: Entity<Workspace>, cx: &mut Context<Self>) -> Self {
         // Get all projects from workspace, sorted by recency, with effective colors resolved
         let ws = workspace.read(cx);
-        let projects: Vec<ProjectData> = ws.projects_by_recency().into_iter().cloned().map(|mut p| {
-            p.folder_color = ws.effective_folder_color(&p);
-            p
-        }).collect();
+        let projects: Vec<ProjectData> = ws
+            .projects_by_recency()
+            .into_iter()
+            .cloned()
+            .map(|mut p| {
+                p.folder_color = ws.effective_folder_color(&p);
+                p
+            })
+            .collect();
 
         let config = ListOverlayConfig::new("Switch Project")
             .subtitle("Type to search, Enter to focus, Space to toggle visibility")
             .searchable("Type to filter projects...")
             .size(500.0, 500.0)
             .empty_message("No projects found")
-            .keyboard_hints(vec![("Enter", "focus"), ("Space", "toggle visibility"), ("Esc", "close")])
+            .keyboard_hints(vec![
+                ("Enter", "focus"),
+                ("Space", "toggle visibility"),
+                ("Esc", "close"),
+            ])
             .key_context("ProjectSwitcher");
 
         let state = ListOverlayState::new(projects, config, cx);
         let focus_handle = state.focus_handle.clone();
 
-        Self { focus_handle, state }
+        Self {
+            focus_handle,
+            state,
+        }
     }
 
     fn close(&self, cx: &mut Context<Self>) {
@@ -101,90 +113,88 @@ impl ProjectSwitcher {
         let folder_color = t.get_folder_color(project.folder_color);
 
         selectable_list_item(
-                ElementId::Name(format!("project-{}", display_index).into()),
-                is_selected,
-                &t,
-            )
-            .gap(px(12.0))
-            .py(px(10.0))
-            .border_b_1()
-            .border_color(rgb(t.border))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _window, cx| {
-                    this.state.selected_index = display_index;
-                    this.focus_selected(cx);
-                }),
-            )
-            .child(
-                // Folder icon with project color
-                div()
-                    .w(px(20.0))
-                    .h(px(20.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        svg()
-                            .path("icons/folder.svg")
-                            .size(px(16.0))
-                            .text_color(rgb(folder_color)),
-                    ),
-            )
-            .child(
-                // Project info
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .overflow_hidden()
-                    .child(
-                        h_flex()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text(13.0, cx))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(rgb(t.text_primary))
-                                    .child(name),
-                            )
-                            .when(is_worktree, |d| {
-                                d.child(badge("worktree", &t))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(ui_text_ms(cx))
-                            .text_color(rgb(t.text_muted))
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(path),
-                    ),
-            )
-            .child(
-                // Visibility indicator
-                div()
-                    .w(px(20.0))
-                    .h(px(20.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        svg()
-                            .path(if show_in_overview {
-                                "icons/eye.svg"
-                            } else {
-                                "icons/eye-off.svg"
-                            })
-                            .size(px(14.0))
-                            .text_color(if show_in_overview {
-                                rgb(t.text_secondary)
-                            } else {
-                                rgb(t.text_muted)
-                            }),
-                    ),
-            )
+            ElementId::Name(format!("project-{}", display_index).into()),
+            is_selected,
+            &t,
+        )
+        .gap(px(12.0))
+        .py(px(10.0))
+        .border_b_1()
+        .border_color(rgb(t.border))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, _window, cx| {
+                this.state.selected_index = display_index;
+                this.focus_selected(cx);
+            }),
+        )
+        .child(
+            // Folder icon with project color
+            div()
+                .w(px(20.0))
+                .h(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path("icons/folder.svg")
+                        .size(px(16.0))
+                        .text_color(rgb(folder_color)),
+                ),
+        )
+        .child(
+            // Project info
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .overflow_hidden()
+                .child(
+                    h_flex()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .text_size(ui_text(13.0, cx))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgb(t.text_primary))
+                                .child(name),
+                        )
+                        .when(is_worktree, |d| d.child(badge("worktree", &t))),
+                )
+                .child(
+                    div()
+                        .text_size(ui_text_ms(cx))
+                        .text_color(rgb(t.text_muted))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(path),
+                ),
+        )
+        .child(
+            // Visibility indicator
+            div()
+                .w(px(20.0))
+                .h(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(if show_in_overview {
+                            "icons/eye.svg"
+                        } else {
+                            "icons/eye-off.svg"
+                        })
+                        .size(px(14.0))
+                        .text_color(if show_in_overview {
+                            rgb(t.text_secondary)
+                        } else {
+                            rgb(t.text_muted)
+                        }),
+                ),
+        )
     }
 }
 
@@ -197,7 +207,12 @@ impl Render for ProjectSwitcher {
         let config_max_height = self.state.config.max_height;
         let config_title = self.state.config.title.clone();
         let config_subtitle = self.state.config.subtitle.clone();
-        let search_placeholder = self.state.config.search_placeholder.clone().unwrap_or_default();
+        let search_placeholder = self
+            .state
+            .config
+            .search_placeholder
+            .clone()
+            .unwrap_or_default();
         let empty_message = self.state.config.empty_message.clone();
 
         if !focus_handle.is_focused(window) {
@@ -263,7 +278,14 @@ impl Render for ProjectSwitcher {
                                 d.child(empty_state(empty_message.clone(), &t, cx))
                             }),
                     )
-                    .child(keyboard_hints_footer(&[("Enter", "focus"), ("Space", "toggle visibility"), ("Esc", "close")], &t)),
+                    .child(keyboard_hints_footer(
+                        &[
+                            ("Enter", "focus"),
+                            ("Space", "toggle visibility"),
+                            ("Esc", "close"),
+                        ],
+                        &t,
+                    )),
             )
     }
 }

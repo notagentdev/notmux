@@ -7,7 +7,7 @@
 
 use std::sync::OnceLock;
 
-use vryn_core::theme::{ThemeColors, ThemeInfo, DARK_THEME, LIGHT_THEME};
+use vryn_core::theme::{DARK_THEME, LIGHT_THEME, ThemeColors, ThemeInfo};
 
 use crate::vscode;
 
@@ -75,7 +75,11 @@ pub fn builtin_themes() -> &'static [(ThemeInfo, ThemeColors)] {
                         return None;
                     }
                 };
-                let fallback = if theme.is_dark() { DARK_THEME } else { LIGHT_THEME };
+                let fallback = if theme.is_dark() {
+                    DARK_THEME
+                } else {
+                    LIGHT_THEME
+                };
                 let colors = vscode::vscode_to_theme_colors(&theme, &fallback);
                 let info = ThemeInfo {
                     id: format!("custom:{}", spec.id),

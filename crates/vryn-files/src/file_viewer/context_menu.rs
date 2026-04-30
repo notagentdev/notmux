@@ -4,21 +4,26 @@ use crate::file_search::Cancel;
 use gpui::prelude::*;
 use gpui::{ClipboardItem, *};
 use gpui_component::h_flex;
+use std::path::{Path, PathBuf};
 use vryn_ui::button::button;
 use vryn_ui::icon_button::icon_button_sized;
 use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 use vryn_ui::modal::{modal_backdrop, modal_content};
-use vryn_ui::rename_state::{start_rename_with_blur, RenameState};
+use vryn_ui::rename_state::{RenameState, start_rename_with_blur};
 use vryn_ui::simple_input::SimpleInput;
 use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_xl};
-use std::path::{Path, PathBuf};
 
 use super::FileViewer;
 
 /// What kind of tree node was right-clicked.
 pub(crate) enum TreeNodeTarget {
-    File { path: PathBuf },
-    Folder { folder_path: String, abs_path: PathBuf },
+    File {
+        path: PathBuf,
+    },
+    Folder {
+        folder_path: String,
+        abs_path: PathBuf,
+    },
 }
 
 impl TreeNodeTarget {
@@ -229,9 +234,10 @@ impl FileViewer {
             if tab.file_path == *old_path {
                 tab.file_path = new_path.to_path_buf();
             } else if tab.file_path.starts_with(old_path)
-                && let Ok(relative) = tab.file_path.strip_prefix(old_path) {
-                    tab.file_path = new_path.join(relative);
-                }
+                && let Ok(relative) = tab.file_path.strip_prefix(old_path)
+            {
+                tab.file_path = new_path.join(relative);
+            }
         }
     }
 
@@ -372,10 +378,11 @@ impl FileViewer {
                     anchored().position(position).snap_to_window().child(
                         context_menu_panel("fv-tree-context-menu", t)
                             .child(
-                                menu_item("fv-ctx-rename", "icons/edit.svg", "Rename", t)
-                                    .on_click(cx.listener(|this, _, window, cx| {
+                                menu_item("fv-ctx-rename", "icons/edit.svg", "Rename", t).on_click(
+                                    cx.listener(|this, _, window, cx| {
                                         this.start_rename(window, cx);
-                                    })),
+                                    }),
+                                ),
                             )
                             .child(
                                 menu_item(
@@ -384,12 +391,14 @@ impl FileViewer {
                                     "Copy Relative Path",
                                     t,
                                 )
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        rel_path.clone(),
-                                    ));
-                                    this.close_context_menu(cx);
-                                })),
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            rel_path.clone(),
+                                        ));
+                                        this.close_context_menu(cx);
+                                    },
+                                )),
                             )
                             .child(
                                 menu_item(
@@ -398,30 +407,30 @@ impl FileViewer {
                                     "Copy Absolute Path",
                                     t,
                                 )
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        abs_path.clone(),
-                                    ));
-                                    this.close_context_menu(cx);
-                                })),
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            abs_path.clone(),
+                                        ));
+                                        this.close_context_menu(cx);
+                                    },
+                                )),
                             )
                             .child(menu_separator(t))
                             .child(
                                 menu_item_with_color(
                                     "fv-ctx-delete",
                                     "icons/trash.svg",
-                                    if is_folder {
-                                        "Delete Folder"
-                                    } else {
-                                        "Delete"
-                                    },
+                                    if is_folder { "Delete Folder" } else { "Delete" },
                                     t.error,
                                     t.error,
                                     t,
                                 )
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.start_delete(cx);
-                                })),
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.start_delete(cx);
+                                    },
+                                )),
                             ),
                     ),
                 ))
@@ -474,10 +483,12 @@ impl FileViewer {
                                     "Close Others",
                                     t,
                                 )
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.tab_context_menu = None;
-                                    this.close_other_tabs(tab_index, cx);
-                                })),
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.tab_context_menu = None;
+                                        this.close_other_tabs(tab_index, cx);
+                                    },
+                                )),
                             )
                             .child(
                                 menu_item(
@@ -486,10 +497,12 @@ impl FileViewer {
                                     "Close All",
                                     t,
                                 )
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.tab_context_menu = None;
-                                    this.close_all_tabs(cx);
-                                })),
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.tab_context_menu = None;
+                                        this.close_all_tabs(cx);
+                                    },
+                                )),
                             ),
                     ),
                 ))

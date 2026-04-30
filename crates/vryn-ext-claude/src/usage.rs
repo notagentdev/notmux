@@ -1,12 +1,12 @@
-use vryn_extensions::ThemeColors;
-use vryn_ui::tokens::{ui_text_xs, ui_text_sm, ui_text_ms, ui_text_md};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+use vryn_extensions::ThemeColors;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xs};
 
 /// Refresh interval for usage data
 const USAGE_INTERVAL: Duration = Duration::from_secs(300);
@@ -83,7 +83,14 @@ fn read_access_token() -> Option<String> {
     {
         let user = std::env::var("USER").ok()?;
         let output = std::process::Command::new("security")
-            .args(["find-generic-password", "-s", "Claude Code-credentials", "-a", &user, "-w"])
+            .args([
+                "find-generic-password",
+                "-s",
+                "Claude Code-credentials",
+                "-a",
+                &user,
+                "-w",
+            ])
             .output()
             .ok()?;
         if output.status.success() {
@@ -101,13 +108,11 @@ fn parse_usage(resp: &serde_json::Value) -> UsageData {
     let seven_day_sonnet = parse_tier(resp, "seven_day_sonnet", true, SEVEN_DAY_SECS);
     let seven_day_opus = parse_tier(resp, "seven_day_opus", true, SEVEN_DAY_SECS);
 
-    let extra_usage = resp.get("extra_usage").map(|eu| {
-        ExtraUsage {
-            is_enabled: eu["is_enabled"].as_bool().unwrap_or(false),
-            monthly_limit: eu["monthly_limit"].as_f64().unwrap_or(0.0),
-            used_credits: eu["used_credits"].as_f64().unwrap_or(0.0),
-            utilization: eu["utilization"].as_f64().unwrap_or(0.0),
-        }
+    let extra_usage = resp.get("extra_usage").map(|eu| ExtraUsage {
+        is_enabled: eu["is_enabled"].as_bool().unwrap_or(false),
+        monthly_limit: eu["monthly_limit"].as_f64().unwrap_or(0.0),
+        used_credits: eu["used_credits"].as_f64().unwrap_or(0.0),
+        utilization: eu["utilization"].as_f64().unwrap_or(0.0),
     });
 
     UsageData {
@@ -174,7 +179,9 @@ fn format_reset_time(ts: &str, include_date: bool) -> String {
             let today = jiff::Zoned::now().date();
             let reset_date = zoned.date();
 
-            let diff_days = today.until(reset_date).ok()
+            let diff_days = today
+                .until(reset_date)
+                .ok()
                 .map(|span| span.get_days())
                 .unwrap_or(i32::MAX);
 
@@ -186,9 +193,7 @@ fn format_reset_time(ts: &str, include_date: bool) -> String {
 
             return match date_label {
                 Some(label) => format!("{}, {}", label, zoned.strftime("%H:%M %Z")),
-                None if (2..=6).contains(&diff_days) => {
-                    zoned.strftime("%a, %H:%M %Z").to_string()
-                }
+                None if (2..=6).contains(&diff_days) => zoned.strftime("%a, %H:%M %Z").to_string(),
                 None => zoned.strftime("%b %-d, %H:%M %Z").to_string(),
             };
         }
@@ -259,8 +264,8 @@ impl ClaudeUsage {
                                     .and_then(|v| v.to_str().ok())
                                     .and_then(|v| v.parse::<u64>().ok())
                                     .unwrap_or(USAGE_INTERVAL.as_secs() * 2);
-                                let effective = Duration::from_secs(retry_secs)
-                                    .max(MIN_RETRY_DELAY);
+                                let effective =
+                                    Duration::from_secs(retry_secs).max(MIN_RETRY_DELAY);
                                 log::warn!(
                                     "[claude-usage] rate limited (429), retrying in {}s",
                                     effective.as_secs()
@@ -277,11 +282,10 @@ impl ClaudeUsage {
                             if !status.is_success() {
                                 return (None, None);
                             }
-                            let parsed: serde_json::Value =
-                                match serde_json::from_str(&body) {
-                                    Ok(v) => v,
-                                    Err(_) => return (None, None),
-                                };
+                            let parsed: serde_json::Value = match serde_json::from_str(&body) {
+                                Ok(v) => v,
+                                Err(_) => return (None, None),
+                            };
                             (Some(parse_usage(&parsed)), None)
                         }
                         Err(e) => {
@@ -323,9 +327,16 @@ impl ClaudeUsage {
                 log::info!("[claude-usage] next fetch in {}s", delay.as_secs());
                 // Race: sleep vs wake signal (e.g. when UI becomes visible but has no data)
                 let woken = smol::future::or(
-                    async { smol::Timer::after(delay).await; false },
-                    async { let _ = wake_rx.recv().await; true },
-                ).await;
+                    async {
+                        smol::Timer::after(delay).await;
+                        false
+                    },
+                    async {
+                        let _ = wake_rx.recv().await;
+                        true
+                    },
+                )
+                .await;
                 // Drain any extra wake signals
                 while wake_rx.try_recv().is_ok() {}
                 // Don't reset consecutive_failures on wake — preserve backoff
@@ -396,11 +407,7 @@ impl ClaudeUsage {
         .detach();
     }
 
-    fn render_popover(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_popover(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         let data = self.data.lock();
         let data = match data.as_ref() {
             Some(d) if self.popover_visible => d.clone(),
@@ -460,8 +467,15 @@ impl ClaudeUsage {
                                     el.child(render_tier_row(t, cx, "Opus (7d)", tier))
                                 })
                                 .when(
-                                    data.five_hour.as_ref().and_then(|t| t.time_elapsed_pct).is_some()
-                                        || data.seven_day.as_ref().and_then(|t| t.time_elapsed_pct).is_some(),
+                                    data.five_hour
+                                        .as_ref()
+                                        .and_then(|t| t.time_elapsed_pct)
+                                        .is_some()
+                                        || data
+                                            .seven_day
+                                            .as_ref()
+                                            .and_then(|t| t.time_elapsed_pct)
+                                            .is_some(),
                                     |el| {
                                         el.child(
                                             div()
@@ -498,10 +512,7 @@ impl ClaudeUsage {
                                                             )),
                                                     ),
                                             )
-                                            .child(render_progress_bar(
-                                                t,
-                                                extra.utilization,
-                                            )),
+                                            .child(render_progress_bar(t, extra.utilization)),
                                     )
                                 }),
                         ),
@@ -522,12 +533,7 @@ fn utilization_color(t: &ThemeColors, pct: f64) -> u32 {
     }
 }
 
-fn render_tier_row(
-    t: &ThemeColors,
-    cx: &App,
-    label: &str,
-    tier: &TierUsage,
-) -> impl IntoElement {
+fn render_tier_row(t: &ThemeColors, cx: &App, label: &str, tier: &TierUsage) -> impl IntoElement {
     let pct = tier.utilization;
 
     v_flex()
@@ -759,15 +765,27 @@ mod tests {
     fn test_format_reset_time_uses_local_tz() {
         let result = format_reset_time("2025-06-15T14:00:00.000Z", false);
         // Should contain a colon (HH:MM) and a timezone abbreviation
-        assert!(result.contains(':'), "Expected HH:MM format, got: {}", result);
+        assert!(
+            result.contains(':'),
+            "Expected HH:MM format, got: {}",
+            result
+        );
         assert!(!result.is_empty());
     }
 
     #[test]
     fn test_format_reset_time_with_date() {
         let result = format_reset_time("2099-01-15T11:00:00.000Z", true);
-        assert!(result.contains(':'), "Expected time in result, got: {}", result);
-        assert!(result.contains(','), "Expected date label with comma, got: {}", result);
+        assert!(
+            result.contains(':'),
+            "Expected time in result, got: {}",
+            result
+        );
+        assert!(
+            result.contains(','),
+            "Expected date label with comma, got: {}",
+            result
+        );
     }
 
     #[test]
@@ -781,8 +799,16 @@ mod tests {
     fn test_format_reset_time_past_date() {
         // A reset time in the past should still format with date (no panic, no special label)
         let result = format_reset_time("2020-01-01T00:00:00.000Z", true);
-        assert!(result.contains(':'), "Expected time in result, got: {}", result);
-        assert!(result.contains(','), "Expected date with comma, got: {}", result);
+        assert!(
+            result.contains(':'),
+            "Expected time in result, got: {}",
+            result
+        );
+        assert!(
+            result.contains(','),
+            "Expected date with comma, got: {}",
+            result
+        );
     }
 
     #[test]

@@ -2,9 +2,9 @@
 //!
 //! Actions for managing individual terminals within projects.
 
-use vryn_terminal::shell_config::ShellType;
 use crate::state::{LayoutNode, Workspace};
 use gpui::*;
+use vryn_terminal::shell_config::ShellType;
 
 impl Workspace {
     /// Set terminal ID at a layout path
@@ -18,10 +18,13 @@ impl Workspace {
         self.with_project(project_id, cx, |project| {
             if let Some(ref mut layout) = project.layout
                 && let Some(node) = layout.get_at_path_mut(path)
-                    && let LayoutNode::Terminal { terminal_id: id, .. } = node {
-                        *id = Some(terminal_id);
-                        return true;
-                    }
+                && let LayoutNode::Terminal {
+                    terminal_id: id, ..
+                } = node
+            {
+                *id = Some(terminal_id);
+                return true;
+            }
             false
         });
     }
@@ -46,7 +49,9 @@ impl Workspace {
     /// Get shell type for a terminal at a layout path
     pub fn get_terminal_shell(&self, project_id: &str, path: &[usize]) -> Option<ShellType> {
         let project = self.project(project_id)?;
-        if let Some(LayoutNode::Terminal { shell_type, .. }) = project.layout.as_ref().and_then(|l| l.get_at_path(path)) {
+        if let Some(LayoutNode::Terminal { shell_type, .. }) =
+            project.layout.as_ref().and_then(|l| l.get_at_path(path))
+        {
             Some(shell_type.clone())
         } else {
             None
@@ -105,22 +110,24 @@ impl Workspace {
     ) {
         if let Some(project) = self.project_mut(project_id)
             && let Some(ref mut layout) = project.layout
-                && let Some(path) = layout.find_terminal_path(terminal_id)
-                    && let Some(node) = layout.get_at_path_mut(&path)
-                        && let LayoutNode::Terminal { minimized, .. } = node {
-                            *minimized = !*minimized;
-                            self.notify_data(cx);
-                        }
+            && let Some(path) = layout.find_terminal_path(terminal_id)
+            && let Some(node) = layout.get_at_path_mut(&path)
+            && let LayoutNode::Terminal { minimized, .. } = node
+        {
+            *minimized = !*minimized;
+            self.notify_data(cx);
+        }
     }
 
     /// Check if a terminal is minimized by ID
     pub fn is_terminal_minimized(&self, project_id: &str, terminal_id: &str) -> bool {
         if let Some(project) = self.project(project_id)
             && let Some(ref layout) = project.layout
-                && let Some(path) = layout.find_terminal_path(terminal_id)
-                    && let Some(LayoutNode::Terminal { minimized, .. }) = layout.get_at_path(&path) {
-                        return *minimized;
-                    }
+            && let Some(path) = layout.find_terminal_path(terminal_id)
+            && let Some(LayoutNode::Terminal { minimized, .. }) = layout.get_at_path(&path)
+        {
+            return *minimized;
+        }
         false
     }
 
@@ -134,11 +141,16 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> bool {
         self.with_layout_node(project_id, path, cx, |node| {
-            if let LayoutNode::Terminal { terminal_id: Some(_), detached, .. } = node
-                && !*detached {
-                    *detached = true;
-                    return true;
-                }
+            if let LayoutNode::Terminal {
+                terminal_id: Some(_),
+                detached,
+                ..
+            } = node
+                && !*detached
+            {
+                *detached = true;
+                return true;
+            }
             false
         })
     }
@@ -148,14 +160,16 @@ impl Workspace {
     pub fn attach_terminal(&mut self, terminal_id: &str, cx: &mut Context<Self>) {
         for project in &mut self.data.projects {
             if let Some(ref mut layout) = project.layout
-                && let Some(path) = layout.find_terminal_path(terminal_id) {
-                    if let Some(node) = layout.get_at_path_mut(&path)
-                        && let LayoutNode::Terminal { detached, .. } = node {
-                            *detached = false;
-                        }
-                    self.notify_data(cx);
-                    return;
+                && let Some(path) = layout.find_terminal_path(terminal_id)
+            {
+                if let Some(node) = layout.get_at_path_mut(&path)
+                    && let LayoutNode::Terminal { detached, .. } = node
+                {
+                    *detached = false;
                 }
+                self.notify_data(cx);
+                return;
+            }
         }
     }
 
@@ -164,9 +178,10 @@ impl Workspace {
         for project in &self.data.projects {
             if let Some(ref layout) = project.layout
                 && let Some(path) = layout.find_terminal_path(terminal_id)
-                    && let Some(LayoutNode::Terminal { detached, .. }) = layout.get_at_path(&path) {
-                        return *detached;
-                    }
+                && let Some(LayoutNode::Terminal { detached, .. }) = layout.get_at_path(&path)
+            {
+                return *detached;
+            }
         }
         false
     }
@@ -204,5 +219,4 @@ impl Workspace {
             }
         });
     }
-
 }

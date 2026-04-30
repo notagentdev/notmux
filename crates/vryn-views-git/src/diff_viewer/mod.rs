@@ -10,23 +10,26 @@ mod scrollbar;
 mod syntax;
 mod types;
 
-use vryn_git::{DiffMode, DiffResult, FileDiff, CommitLogEntry};
-use vryn_core::selection::SelectionState;
-use vryn_core::types::DiffViewMode;
-use vryn_files::selection::{copy_to_clipboard, Selection2DNonEmpty};
-use vryn_files::file_tree::build_file_tree;
-use vryn_files::code_view::extract_selected_text;
-use vryn_files::syntax::load_syntax_set;
-use vryn_files::theme::theme;
-use vryn_ui::modal::fullscreen_overlay;
 use gpui::prelude::*;
 use gpui::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 use syntect::parsing::SyntaxSet;
+use vryn_core::selection::SelectionState;
+use vryn_core::types::DiffViewMode;
+use vryn_files::code_view::extract_selected_text;
+use vryn_files::file_tree::build_file_tree;
+use vryn_files::selection::{Selection2DNonEmpty, copy_to_clipboard};
+use vryn_files::syntax::load_syntax_set;
+use vryn_files::theme::theme;
+use vryn_git::{CommitLogEntry, DiffMode, DiffResult, FileDiff};
+use vryn_ui::modal::fullscreen_overlay;
 
 use syntax::process_file;
-use types::{DiffDisplayFile, DisplayItem, FileStats, FileTreeNode, HScrollbarDrag, ScrollbarDrag, SideBySideLine, SideBySideSide};
+use types::{
+    DiffDisplayFile, DisplayItem, FileStats, FileTreeNode, HScrollbarDrag, ScrollbarDrag,
+    SideBySideLine, SideBySideSide,
+};
 
 mod side_by_side;
 
@@ -168,10 +171,14 @@ impl DiffViewer {
     }
 
     /// Current diff view mode (for persisting on close).
-    pub fn view_mode(&self) -> DiffViewMode { self.view_mode }
+    pub fn view_mode(&self) -> DiffViewMode {
+        self.view_mode
+    }
 
     /// Current ignore-whitespace setting (for persisting on close).
-    pub fn ignore_whitespace(&self) -> bool { self.ignore_whitespace }
+    pub fn ignore_whitespace(&self) -> bool {
+        self.ignore_whitespace
+    }
 
     /// Update configuration (font size, theme) from outside.
     pub fn update_config(&mut self, font_size: f32, is_dark: bool, cx: &mut Context<Self>) {
@@ -188,7 +195,12 @@ impl DiffViewer {
         }
     }
 
-    fn load_diff_async(&mut self, mode: DiffMode, select_file: Option<String>, cx: &mut Context<Self>) {
+    fn load_diff_async(
+        &mut self,
+        mode: DiffMode,
+        select_file: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.diff_mode = mode.clone();
         self.loading = true;
         self.error_message = None;
@@ -211,9 +223,7 @@ impl DiffViewer {
 
         cx.spawn(async move |this, cx| {
             let mode_for_fallback = mode.clone();
-            let result = smol::unblock(move || {
-                provider.get_diff(mode, ignore_whitespace)
-            }).await;
+            let result = smol::unblock(move || provider.get_diff(mode, ignore_whitespace)).await;
 
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
@@ -225,16 +235,21 @@ impl DiffViewer {
                                 this.load_diff_async(DiffMode::Staged, select_file, cx);
                                 return;
                             }
-                            this.error_message = Some(format!("No {} changes", mode_for_fallback.display_name().to_lowercase()));
+                            this.error_message = Some(format!(
+                                "No {} changes",
+                                mode_for_fallback.display_name().to_lowercase()
+                            ));
                         } else {
                             this.store_diff_result(diff_result);
                             this.build_file_tree();
 
                             // Select specific file if requested
                             if let Some(ref file_path) = select_file
-                                && let Some(index) = this.file_stats.iter().position(|f| f.path == *file_path) {
-                                    this.selected_file_index = index;
-                                }
+                                && let Some(index) =
+                                    this.file_stats.iter().position(|f| f.path == *file_path)
+                            {
+                                this.selected_file_index = index;
+                            }
 
                             this.process_current_file_async(cx);
                         }
@@ -245,7 +260,8 @@ impl DiffViewer {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     /// Store raw diff data and extract lightweight stats (no syntax highlighting).
@@ -286,7 +302,8 @@ impl DiffViewer {
                     is_dark,
                 );
                 (old_content, new_content, display_file, max_line_num)
-            }).await;
+            })
+            .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.current_file_old_content = old_content;
@@ -297,7 +314,8 @@ impl DiffViewer {
                 this.update_side_by_side_cache();
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     /// Re-highlight current file using cached content (for theme changes).
@@ -324,7 +342,10 @@ impl DiffViewer {
 
     fn build_file_tree(&mut self) {
         self.file_tree = build_file_tree(
-            self.file_stats.iter().enumerate().map(|(i, f)| (i, &f.path))
+            self.file_stats
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (i, &f.path)),
         );
         // Auto-expand all folders in diff view
         self.expanded_folders.clear();
@@ -333,7 +354,11 @@ impl DiffViewer {
 
     fn collect_folder_paths(node: &FileTreeNode, parent: &str, out: &mut HashSet<String>) {
         for (name, child) in &node.children {
-            let path = if parent.is_empty() { name.clone() } else { format!("{parent}/{name}") };
+            let path = if parent.is_empty() {
+                name.clone()
+            } else {
+                format!("{parent}/{name}")
+            };
             out.insert(path.clone());
             Self::collect_folder_paths(child, &path, out);
         }
@@ -355,6 +380,18 @@ impl DiffViewer {
 
     fn toggle_view_mode(&mut self, cx: &mut Context<Self>) {
         self.view_mode = self.view_mode.toggle();
+        self.finish_view_mode_change(cx);
+    }
+
+    fn set_view_mode(&mut self, view_mode: DiffViewMode, cx: &mut Context<Self>) {
+        if self.view_mode == view_mode {
+            return;
+        }
+        self.view_mode = view_mode;
+        self.finish_view_mode_change(cx);
+    }
+
+    fn finish_view_mode_change(&mut self, cx: &mut Context<Self>) {
         self.selection.clear();
         self.selection_side = None;
         self.update_side_by_side_cache();
@@ -430,13 +467,17 @@ impl DiffViewer {
     }
 
     fn prev_commit(&mut self, cx: &mut Context<Self>) {
-        if !self.can_prev_commit() { return; }
+        if !self.can_prev_commit() {
+            return;
+        }
         self.commit_index -= 1;
         self.navigate_to_current_commit(cx);
     }
 
     fn next_commit(&mut self, cx: &mut Context<Self>) {
-        if !self.can_next_commit() { return; }
+        if !self.can_next_commit() {
+            return;
+        }
         self.commit_index += 1;
         self.navigate_to_current_commit(cx);
     }
@@ -460,7 +501,12 @@ impl DiffViewer {
     }
 
     /// Expand all hidden context lines. Finds the expander by matching old/new range.
-    fn expand_context_by_range(&mut self, old_range: (usize, usize), new_range: (usize, usize), cx: &mut Context<Self>) {
+    fn expand_context_by_range(
+        &mut self,
+        old_range: (usize, usize),
+        new_range: (usize, usize),
+        cx: &mut Context<Self>,
+    ) {
         let file = match self.current_file.as_ref() {
             Some(f) => f,
             None => return,
@@ -496,11 +542,13 @@ impl DiffViewer {
         self.selection.clear();
         self.selection_side = None;
 
-        let old_lines: Vec<&str> = self.current_file_old_content
+        let old_lines: Vec<&str> = self
+            .current_file_old_content
             .as_deref()
             .map(|c| c.lines().collect())
             .unwrap_or_default();
-        let new_lines: Vec<&str> = self.current_file_new_content
+        let new_lines: Vec<&str> = self
+            .current_file_new_content
             .as_deref()
             .map(|c| c.lines().collect())
             .unwrap_or_default();
@@ -512,26 +560,40 @@ impl DiffViewer {
             let new_ln = new_start + i;
             let old_ln = old_start + i;
 
-            let spans = file.new_highlighted.get(&new_ln)
+            let spans = file
+                .new_highlighted
+                .get(&new_ln)
                 .or_else(|| file.old_highlighted.get(&old_ln))
                 .cloned()
                 .unwrap_or_default();
 
-            let plain_text = new_lines.get(new_ln - 1)
+            let plain_text = new_lines
+                .get(new_ln - 1)
                 .or_else(|| old_lines.get(old_ln - 1))
                 .unwrap_or(&"")
                 .replace('\t', "    ");
 
             new_items.push(DisplayItem::Line(types::DisplayLine {
                 line_type: vryn_git::DiffLineType::Context,
-                old_line_num: if old_ln >= 1 && old_ln <= file.old_line_count { Some(old_ln) } else { None },
-                new_line_num: if new_ln >= 1 && new_ln <= file.new_line_count { Some(new_ln) } else { None },
+                old_line_num: if old_ln >= 1 && old_ln <= file.old_line_count {
+                    Some(old_ln)
+                } else {
+                    None
+                },
+                new_line_num: if new_ln >= 1 && new_ln <= file.new_line_count {
+                    Some(new_ln)
+                } else {
+                    None
+                },
                 spans,
                 plain_text,
             }));
         }
 
-        let file = self.current_file.as_mut().expect("current_file verified Some at function entry");
+        let file = self
+            .current_file
+            .as_mut()
+            .expect("current_file verified Some at function entry");
         file.items.splice(item_index..=item_index, new_items);
 
         self.max_line_chars = Self::calc_max_line_chars(file);
@@ -551,7 +613,10 @@ impl DiffViewer {
                     SideBySideSide::Left => &sbs_line.left,
                     SideBySideSide::Right => &sbs_line.right,
                 };
-                content.as_ref().map(|c| c.plain_text.as_str()).unwrap_or("")
+                content
+                    .as_ref()
+                    .map(|c| c.plain_text.as_str())
+                    .unwrap_or("")
             })
         } else {
             let file = self.current_file.as_ref()?;
@@ -630,11 +695,109 @@ pub enum DiffViewerEvent {
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
 
 impl vryn_ui::overlay::CloseEvent for DiffViewerEvent {
-    fn is_close(&self) -> bool { matches!(self, Self::Close) }
+    fn is_close(&self) -> bool {
+        matches!(self, Self::Close)
+    }
 }
 
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_view(window, cx)
+    }
+}
+
+impl DiffViewer {
+    /// Render the diff viewer inside the main content area instead of as a
+    /// fullscreen overlay. Close still emits `DiffViewerEvent::Close`.
+    pub fn render_embedded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        // Measure actual monospace character width from font metrics.
+        let font = Font {
+            family: "monospace".into(),
+            weight: FontWeight::NORMAL,
+            style: FontStyle::Normal,
+            ..Default::default()
+        };
+        let text_system = window.text_system();
+        let font_id = text_system.resolve_font(&font);
+        self.measured_char_width = text_system
+            .advance(font_id, px(self.file_font_size), 'm')
+            .map(|size| f32::from(size.width))
+            .unwrap_or(self.file_font_size * 0.6);
+
+        let t = theme(cx);
+        let has_error = self.error_message.is_some();
+        let error_message = self.error_message.clone();
+        let has_files = !self.file_stats.is_empty();
+
+        let char_width = self.char_width();
+        let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
+        let gutter_width = 2.0 * num_col_width + 1.0;
+
+        let current_stats = self.file_stats.get(self.selected_file_index);
+        let file_path = current_stats.map(|f| f.path.clone()).unwrap_or_default();
+        let is_binary = current_stats.map(|f| f.is_binary).unwrap_or(false);
+        let added = current_stats.map(|f| f.added).unwrap_or(0);
+        let removed = current_stats.map(|f| f.removed).unwrap_or(0);
+        let line_count = self
+            .current_file
+            .as_ref()
+            .map(|f| f.items.len())
+            .unwrap_or(0);
+        let theme_colors = Arc::new(t);
+
+        div()
+            .id("main-diff-pane")
+            .size_full()
+            .bg(rgb(t.bg_primary))
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.scrollbar_drag.is_some() {
+                    let y = f32::from(event.position.y);
+                    this.update_scrollbar_drag(y, cx);
+                }
+                if let Some(drag) = this.h_scrollbar_drag {
+                    let x = f32::from(event.position.x);
+                    let delta_x = x - drag.start_x;
+                    let max = this.max_scroll_x();
+                    let text_w = this.max_text_width();
+                    let avail_w = this.available_text_width();
+                    let scale = if avail_w > 0.0 { text_w / avail_w } else { 1.0 };
+                    this.scroll_x = (drag.start_scroll_x + delta_x * scale).clamp(0.0, max);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    if this.scrollbar_drag.is_some() {
+                        this.end_scrollbar_drag(cx);
+                    }
+                    if this.h_scrollbar_drag.is_some() {
+                        this.h_scrollbar_drag = None;
+                        cx.notify();
+                    }
+                }),
+            )
+            .child(self.render_embedded_header(&file_path, added, removed, &t, cx))
+            .child(self.render_embedded_content(
+                &t,
+                self.loading,
+                has_error,
+                error_message,
+                has_files,
+                is_binary,
+                file_path,
+                line_count,
+                gutter_width,
+                theme_colors,
+                cx,
+            ))
+            .into_any_element()
+    }
+
+    fn render_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Measure actual monospace character width from font metrics
         let font = Font {
             family: "monospace".into(),
@@ -663,7 +826,11 @@ impl Render for DiffViewer {
         let current_stats = self.file_stats.get(self.selected_file_index);
         let file_path = current_stats.map(|f| f.path.clone()).unwrap_or_default();
         let is_binary = current_stats.map(|f| f.is_binary).unwrap_or(false);
-        let line_count = self.current_file.as_ref().map(|f| f.items.len()).unwrap_or(0);
+        let line_count = self
+            .current_file
+            .as_ref()
+            .map(|f| f.items.len())
+            .unwrap_or(0);
 
         let tree_elements = if has_files {
             self.render_tree_node(&self.file_tree.clone(), 0, "", &t, cx)
@@ -749,13 +916,37 @@ impl Render for DiffViewer {
                     }
                 }),
             )
-            .child(self.render_header(&t, has_files, self.file_stats.len(), total_added, total_removed, &diff_mode, self.ignore_whitespace, self.commit_message.as_deref(), cx))
+            .child(self.render_header(
+                &t,
+                has_files,
+                self.file_stats.len(),
+                total_added,
+                total_removed,
+                &diff_mode,
+                self.ignore_whitespace,
+                self.commit_message.as_deref(),
+                cx,
+            ))
             // Commit info bar (when viewing a commit with navigation)
             .when(self.has_commits(), |d| {
                 d.child(self.render_commit_info_bar(&t, cx))
             })
-            .child(self.render_content(&t, self.loading, has_error, error_message, has_files, is_binary, file_path, line_count, gutter_width, tree_elements, theme_colors, cx))
+            .child(self.render_content(
+                &t,
+                self.loading,
+                has_error,
+                error_message,
+                has_files,
+                is_binary,
+                file_path,
+                line_count,
+                gutter_width,
+                tree_elements,
+                theme_colors,
+                cx,
+            ))
             .child(self.render_footer(&t, cx))
+            .into_any_element()
     }
 }
 

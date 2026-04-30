@@ -1,13 +1,13 @@
-use crate::ui_helpers::{format_api_timestamp, capitalize_first, open_url};
-use vryn_extensions::ThemeColors;
-use vryn_ui::tokens::{ui_text_sm, ui_text_ms, ui_text_md};
+use crate::ui_helpers::{capitalize_first, format_api_timestamp, open_url};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use vryn_extensions::ThemeColors;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 
 /// Refresh interval for Claude Code status
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
@@ -102,10 +102,8 @@ impl ClaudeStatus {
                                 continue;
                             }
 
-                            let name =
-                                incident["name"].as_str().unwrap_or("Unknown").to_string();
-                            let impact =
-                                incident["impact"].as_str().unwrap_or("none").to_string();
+                            let name = incident["name"].as_str().unwrap_or("Unknown").to_string();
+                            let impact = incident["impact"].as_str().unwrap_or("none").to_string();
 
                             let updates: Vec<IncidentUpdate> = incident["incident_updates"]
                                 .as_array()
@@ -113,10 +111,7 @@ impl ClaudeStatus {
                                     updates
                                         .iter()
                                         .map(|u| IncidentUpdate {
-                                            status: u["status"]
-                                                .as_str()
-                                                .unwrap_or("")
-                                                .to_string(),
+                                            status: u["status"].as_str().unwrap_or("").to_string(),
                                             body: u["body"].as_str().unwrap_or("").to_string(),
                                             created_at: format_api_timestamp(
                                                 u["created_at"].as_str().unwrap_or(""),
@@ -211,11 +206,7 @@ impl ClaudeStatus {
         .detach();
     }
 
-    fn render_popover(
-        &self,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_popover(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         let data = self.data.lock();
         let data = match data.as_ref() {
             Some(d) if self.popover_visible && !d.incidents.is_empty() => d.clone(),
@@ -257,86 +248,62 @@ impl ClaudeStatus {
                         .on_scroll_wheel(|_, _, cx| {
                             cx.stop_propagation();
                         })
-                        .children(
-                            data.incidents
-                                .iter()
-                                .enumerate()
-                                .map(|(idx, incident)| {
-                                    let impact_color = match incident.impact.as_str() {
-                                        "critical" | "major" => t.metric_critical,
-                                        _ => t.metric_warning,
-                                    };
+                        .children(data.incidents.iter().enumerate().map(|(idx, incident)| {
+                            let impact_color = match incident.impact.as_str() {
+                                "critical" | "major" => t.metric_critical,
+                                _ => t.metric_warning,
+                            };
 
+                            div()
+                                .when(idx > 0, |d| d.border_t_1().border_color(rgb(t.border)))
+                                .child(
                                     div()
-                                        .when(idx > 0, |d| {
-                                            d.border_t_1().border_color(rgb(t.border))
+                                        .px(px(10.0))
+                                        .py(px(6.0))
+                                        .bg(rgb(impact_color))
+                                        .when(idx == 0, |d| {
+                                            d.rounded_tl(px(5.0)).rounded_tr(px(5.0))
                                         })
                                         .child(
                                             div()
-                                                .px(px(10.0))
-                                                .py(px(6.0))
-                                                .bg(rgb(impact_color))
-                                                .when(idx == 0, |d| {
-                                                    d.rounded_tl(px(5.0)).rounded_tr(px(5.0))
-                                                })
-                                                .child(
-                                                    div()
-                                                        .text_size(ui_text_md(cx))
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .text_color(rgb(0x000000))
-                                                        .child(incident.name.clone()),
-                                                ),
-                                        )
-                                        .child(
-                                            v_flex()
-                                                .px(px(10.0))
-                                                .py(px(4.0))
-                                                .gap(px(8.0))
-                                                .children(incident.updates.iter().map(
-                                                    |update| {
-                                                        v_flex()
-                                                            .gap(px(2.0))
-                                                            .child(
-                                                                h_flex().gap(px(4.0)).child(
-                                                                    div()
-                                                                        .text_size(ui_text_ms(cx))
-                                                                        .font_weight(
-                                                                            FontWeight::BOLD,
-                                                                        )
-                                                                        .text_color(rgb(
-                                                                            t.text_primary,
-                                                                        ))
-                                                                        .child(capitalize_first(
-                                                                            &update.status,
-                                                                        )),
-                                                                )
-                                                                .child(
-                                                                    div()
-                                                                        .text_size(ui_text_ms(cx))
-                                                                        .text_color(rgb(
-                                                                            t.text_secondary,
-                                                                        ))
-                                                                        .child(format!(
-                                                                            "- {}",
-                                                                            update.body
-                                                                        )),
-                                                                ),
-                                                            )
-                                                            .child(
-                                                                div()
-                                                                    .text_size(ui_text_sm(cx))
-                                                                    .text_color(rgb(t.text_muted))
-                                                                    .child(
-                                                                        update
-                                                                            .created_at
-                                                                            .clone(),
-                                                                    ),
-                                                            )
-                                                    },
-                                                )),
-                                        )
-                                }),
-                        ),
+                                                .text_size(ui_text_md(cx))
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(rgb(0x000000))
+                                                .child(incident.name.clone()),
+                                        ),
+                                )
+                                .child(v_flex().px(px(10.0)).py(px(4.0)).gap(px(8.0)).children(
+                                    incident.updates.iter().map(|update| {
+                                        v_flex()
+                                            .gap(px(2.0))
+                                            .child(
+                                                h_flex()
+                                                    .gap(px(4.0))
+                                                    .child(
+                                                        div()
+                                                            .text_size(ui_text_ms(cx))
+                                                            .font_weight(FontWeight::BOLD)
+                                                            .text_color(rgb(t.text_primary))
+                                                            .child(capitalize_first(
+                                                                &update.status,
+                                                            )),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(ui_text_ms(cx))
+                                                            .text_color(rgb(t.text_secondary))
+                                                            .child(format!("- {}", update.body)),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(ui_text_sm(cx))
+                                                    .text_color(rgb(t.text_muted))
+                                                    .child(update.created_at.clone()),
+                                            )
+                                    }),
+                                ))
+                        })),
                 ),
         )
         .with_priority(1)

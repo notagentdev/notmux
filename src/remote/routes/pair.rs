@@ -15,11 +15,13 @@ pub async fn post_pair(
     match state.auth_store.try_pair(&req.code, addr.ip()) {
         Ok(token) => (
             StatusCode::OK,
-            Json(serde_json::to_value(PairResponse {
-                token,
-                expires_in: TOKEN_TTL_SECS,
-            })
-            .expect("PairResponse serializes to valid JSON")),
+            Json(
+                serde_json::to_value(PairResponse {
+                    token,
+                    expires_in: TOKEN_TTL_SECS,
+                })
+                .expect("PairResponse serializes to valid JSON"),
+            ),
         )
             .into_response(),
         Err(PairError::RateLimited) => {

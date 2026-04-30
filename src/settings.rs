@@ -7,10 +7,10 @@ use crate::terminal::session_backend::SessionBackend;
 use crate::terminal::shell_config::ShellType;
 use crate::theme::ThemeMode;
 use crate::views::panels::toast::ToastManager;
-use crate::workspace::persistence::{load_settings, save_settings, get_settings_path, AppSettings};
+use crate::workspace::persistence::{AppSettings, get_settings_path, load_settings, save_settings};
 use gpui::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Global settings wrapper for app-wide access
 #[derive(Clone)]
@@ -83,7 +83,11 @@ impl SettingsState {
     setting_setter!(set_ui_font_size, ui_font_size, f32, 8.0, 24.0);
     setting_setter!(set_file_font_size, file_font_size, f32, 8.0, 24.0);
     /// Set the cursor style (Block, Bar, Underline)
-    pub fn set_cursor_style(&mut self, value: crate::workspace::settings::CursorShape, cx: &mut Context<Self>) {
+    pub fn set_cursor_style(
+        &mut self,
+        value: crate::workspace::settings::CursorShape,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.cursor_style = value;
         self.save_and_notify(cx);
     }
@@ -91,7 +95,13 @@ impl SettingsState {
     setting_setter!(set_cursor_blink, cursor_blink, bool);
     setting_setter!(set_scrollback_lines, scrollback_lines, u32, 100, 100000);
     setting_setter!(set_persist_scrollback, persist_scrollback, bool);
-    setting_setter!(set_persist_scrollback_lines, persist_scrollback_lines, u32, 0, 50000);
+    setting_setter!(
+        set_persist_scrollback_lines,
+        persist_scrollback_lines,
+        u32,
+        0,
+        50000
+    );
     setting_setter!(set_show_focused_border, show_focused_border, bool);
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
     setting_setter!(set_show_shell_selector, show_shell_selector, bool);
@@ -121,17 +131,30 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
-
     /// Set per-extension settings blob (opaque JSON value).
-    pub fn set_extension_setting(&mut self, extension_id: &str, value: serde_json::Value, cx: &mut Context<Self>) {
-        self.settings.extension_settings.insert(extension_id.to_string(), value);
+    pub fn set_extension_setting(
+        &mut self,
+        extension_id: &str,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings
+            .extension_settings
+            .insert(extension_id.to_string(), value);
         self.save_and_notify(cx);
     }
 
     /// Enable or disable an extension by ID.
-    pub fn set_extension_enabled(&mut self, extension_id: &str, enabled: bool, cx: &mut Context<Self>) {
+    pub fn set_extension_enabled(
+        &mut self,
+        extension_id: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
         if enabled {
-            self.settings.enabled_extensions.insert(extension_id.to_string());
+            self.settings
+                .enabled_extensions
+                .insert(extension_id.to_string());
         } else {
             self.settings.enabled_extensions.remove(extension_id);
         }
@@ -152,7 +175,7 @@ impl SettingsState {
 
     /// Set sidebar width (clamped to min/max bounds)
     pub fn set_sidebar_width(&mut self, value: f32, cx: &mut Context<Self>) {
-        use crate::workspace::persistence::{MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH};
+        use crate::workspace::persistence::{MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH};
         self.settings.sidebar.width = value.clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
         self.save_and_notify(cx);
     }
@@ -165,7 +188,7 @@ impl SettingsState {
 
     /// Set git panel width (clamped to min/max bounds)
     pub fn set_git_panel_width(&mut self, value: f32, cx: &mut Context<Self>) {
-        use crate::workspace::persistence::{MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH};
+        use crate::workspace::persistence::{MAX_GIT_PANEL_WIDTH, MIN_GIT_PANEL_WIDTH};
         self.settings.git_panel.width = value.clamp(MIN_GIT_PANEL_WIDTH, MAX_GIT_PANEL_WIDTH);
         self.save_and_notify(cx);
     }
@@ -224,7 +247,11 @@ impl SettingsState {
         self.settings.hooks.terminal.on_close = value;
         self.save_and_notify(cx);
     }
-    pub fn set_hook_terminal_shell_wrapper(&mut self, value: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_hook_terminal_shell_wrapper(
+        &mut self,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.hooks.terminal.shell_wrapper = value;
         self.save_and_notify(cx);
     }
@@ -246,19 +273,35 @@ impl SettingsState {
         self.settings.hooks.worktree.post_merge = value;
         self.save_and_notify(cx);
     }
-    pub fn set_hook_worktree_before_remove(&mut self, value: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_hook_worktree_before_remove(
+        &mut self,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.hooks.worktree.before_remove = value;
         self.save_and_notify(cx);
     }
-    pub fn set_hook_worktree_after_remove(&mut self, value: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_hook_worktree_after_remove(
+        &mut self,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.hooks.worktree.after_remove = value;
         self.save_and_notify(cx);
     }
-    pub fn set_hook_worktree_on_rebase_conflict(&mut self, value: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_hook_worktree_on_rebase_conflict(
+        &mut self,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.hooks.worktree.on_rebase_conflict = value;
         self.save_and_notify(cx);
     }
-    pub fn set_hook_worktree_on_dirty_close(&mut self, value: Option<String>, cx: &mut Context<Self>) {
+    pub fn set_hook_worktree_on_dirty_close(
+        &mut self,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.settings.hooks.worktree.on_dirty_close = value;
         self.save_and_notify(cx);
     }
@@ -323,9 +366,10 @@ impl SettingsState {
     /// Synchronously flush any pending settings save (called on quit)
     pub fn flush_pending_save(&self) {
         if self.save_pending.swap(false, Ordering::Relaxed)
-            && let Err(e) = save_settings(&self.settings) {
-                log::error!("Failed to flush settings on quit: {}", e);
-            }
+            && let Err(e) = save_settings(&self.settings)
+        {
+            log::error!("Failed to flush settings on quit: {}", e);
+        }
     }
 
     /// Save and notify - common logic for all setters.
@@ -344,16 +388,15 @@ impl SettingsState {
             smol::Timer::after(std::time::Duration::from_millis(300)).await;
 
             if save_pending.swap(false, Ordering::Relaxed) {
-                let settings = cx.update(|cx| {
-                    this.upgrade().map(|e| e.read(cx).settings.clone())
-                });
+                let settings = cx.update(|cx| this.upgrade().map(|e| e.read(cx).settings.clone()));
                 if let Some(settings) = settings
-                    && let Err(e) = save_settings(&settings) {
-                        log::error!("Failed to save settings: {}", e);
-                        cx.update(|cx| {
-                            ToastManager::error(format!("Failed to save settings: {}", e), cx);
-                        });
-                    }
+                    && let Err(e) = save_settings(&settings)
+                {
+                    log::error!("Failed to save settings: {}", e);
+                    cx.update(|cx| {
+                        ToastManager::error(format!("Failed to save settings: {}", e), cx);
+                    });
+                }
             }
         })
         .detach();
@@ -381,24 +424,17 @@ pub fn open_settings_file() {
 
     #[cfg(target_os = "macos")]
     {
-        let _ = crate::process::command("open")
-            .arg("-t")
-            .arg(&path)
-            .spawn();
+        let _ = crate::process::command("open").arg("-t").arg(&path).spawn();
     }
 
     #[cfg(target_os = "linux")]
     {
-        let _ = crate::process::command("xdg-open")
-            .arg(&path)
-            .spawn();
+        let _ = crate::process::command("xdg-open").arg(&path).spawn();
     }
 
     #[cfg(target_os = "windows")]
     {
-        let _ = crate::process::command("notepad")
-            .arg(&path)
-            .spawn();
+        let _ = crate::process::command("notepad").arg(&path).spawn();
     }
 }
 

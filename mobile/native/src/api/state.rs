@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::client::manager::ConnectionManager;
 use vryn_core::api::ActionRequest;
-use vryn_core::client::{collect_state_terminal_ids, WsClientMessage};
+use vryn_core::client::{WsClientMessage, collect_state_terminal_ids};
 use vryn_core::keys::SpecialKey;
 
 /// Flat FFI-friendly project info.
@@ -76,13 +76,7 @@ pub async fn send_special_key(
         .map_err(|_| anyhow::anyhow!("Unknown special key: {}", key))?;
     let text = String::from_utf8_lossy(special_key.to_bytes()).to_string();
     let mgr = ConnectionManager::get();
-    mgr.send_ws_message(
-        &conn_id,
-        WsClientMessage::SendText {
-            terminal_id,
-            text,
-        },
-    );
+    mgr.send_ws_message(&conn_id, WsClientMessage::SendText { terminal_id, text });
     Ok(())
 }
 
@@ -115,11 +109,8 @@ pub fn get_all_terminal_ids(conn_id: String) -> Vec<String> {
 /// Create a new terminal in the given project via POST /v1/actions.
 pub async fn create_terminal(conn_id: String, project_id: String) -> anyhow::Result<()> {
     let mgr = ConnectionManager::get();
-    mgr.send_action(
-        &conn_id,
-        ActionRequest::CreateTerminal { project_id },
-    )
-    .await
+    mgr.send_action(&conn_id, ActionRequest::CreateTerminal { project_id })
+        .await
 }
 
 /// Close a terminal in the given project via POST /v1/actions.
@@ -138,4 +129,3 @@ pub async fn close_terminal(
     )
     .await
 }
-

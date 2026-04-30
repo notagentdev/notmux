@@ -3,21 +3,22 @@
 //! Provides a searchable overlay for finding text content across project files,
 //! with syntax-highlighted results grouped by file.
 
-use crate::content_search::{
-    ContentSearchConfig, FileSearchResult, SearchHandle, SearchMode,
+use crate::code_view::{
+    CodeSelection, build_styled_text_with_backgrounds, extract_selected_text, selection_bg_ranges,
 };
-use crate::code_view::{CodeSelection, build_styled_text_with_backgrounds, extract_selected_text, selection_bg_ranges};
-use crate::selection::copy_to_clipboard;
-use crate::file_tree::{build_file_tree, expandable_folder_row, expandable_file_row, FileTreeNode};
+use crate::content_search::{ContentSearchConfig, FileSearchResult, SearchHandle, SearchMode};
+use crate::file_tree::{FileTreeNode, build_file_tree, expandable_file_row, expandable_folder_row};
 use crate::list_overlay::ListOverlayConfig;
-use crate::syntax::{
-    HighlightedLine, highlight_content, load_syntax_set,
-};
+use crate::selection::copy_to_clipboard;
+use crate::syntax::{HighlightedLine, highlight_content, load_syntax_set};
 use crate::theme::theme;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
 use gpui_component::tooltip::Tooltip;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use syntect::parsing::SyntaxSet;
 use vryn_ui::badge::keyboard_hint;
 use vryn_ui::empty_state::empty_state;
 use vryn_ui::file_icon::file_icon;
@@ -26,9 +27,6 @@ use vryn_ui::selectable_list::selectable_list_item;
 use vryn_ui::simple_input::{InputChangedEvent, SimpleInput, SimpleInputState};
 use vryn_ui::text_utils::find_word_boundaries;
 use vryn_ui::tokens::{ui_text, ui_text_ms, ui_text_sm};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use syntect::parsing::SyntaxSet;
 
 // Local action for closing the dialog
 gpui::actions!(vryn_files_content_search, [Cancel]);
@@ -127,7 +125,11 @@ pub struct ContentSearchDialog {
 }
 
 impl ContentSearchDialog {
-    pub fn new(project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>, is_dark: bool, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         let scroll_handle = UniformListScrollHandle::new();
         let syntax_set = load_syntax_set();
@@ -139,27 +141,35 @@ impl ContentSearchDialog {
 
         // Restore from previous session
         let memory = cx.try_global::<ContentSearchMemory>();
-        let (query, case_sensitive, regex_mode, fuzzy_mode, file_glob, glob_input_text, expanded, show_ignored, show_hidden) =
-            memory
-                .map(|m| {
-                    (
-                        m.query.clone(),
-                        m.case_sensitive,
-                        m.regex,
-                        m.fuzzy,
-                        m.file_glob.clone(),
-                        m.glob_input.clone(),
-                        m.expanded,
-                        m.show_ignored,
-                        m.show_hidden,
-                    )
-                })
-                .unwrap_or_default();
+        let (
+            query,
+            case_sensitive,
+            regex_mode,
+            fuzzy_mode,
+            file_glob,
+            glob_input_text,
+            expanded,
+            show_ignored,
+            show_hidden,
+        ) = memory
+            .map(|m| {
+                (
+                    m.query.clone(),
+                    m.case_sensitive,
+                    m.regex,
+                    m.fuzzy,
+                    m.file_glob.clone(),
+                    m.glob_input.clone(),
+                    m.expanded,
+                    m.show_ignored,
+                    m.show_hidden,
+                )
+            })
+            .unwrap_or_default();
 
         // Create search input entity
         let search_input = cx.new(|cx| {
-            let mut input = SimpleInputState::new(cx)
-                .placeholder("Search file contents...");
+            let mut input = SimpleInputState::new(cx).placeholder("Search file contents...");
             if !query.is_empty() {
                 input.set_value(&query, cx);
                 input.select_all(cx);
@@ -168,15 +178,17 @@ impl ContentSearchDialog {
         });
 
         // Subscribe to search input changes
-        cx.subscribe(&search_input, |this: &mut Self, _, _: &InputChangedEvent, cx| {
-            this.trigger_search(cx);
-        })
+        cx.subscribe(
+            &search_input,
+            |this: &mut Self, _, _: &InputChangedEvent, cx| {
+                this.trigger_search(cx);
+            },
+        )
         .detach();
 
         // Create glob filter input entity
         let glob_input = cx.new(|cx| {
-            let mut input = SimpleInputState::new(cx)
-                .placeholder("e.g. *.rs, src/**/*.ts");
+            let mut input = SimpleInputState::new(cx).placeholder("e.g. *.rs, src/**/*.ts");
             if !glob_input_text.is_empty() {
                 input.set_value(&glob_input_text, cx);
             }
@@ -184,11 +196,14 @@ impl ContentSearchDialog {
         });
 
         // Subscribe to glob input changes
-        cx.subscribe(&glob_input, |this: &mut Self, _, _: &InputChangedEvent, cx| {
-            let value = this.glob_input.read(cx).value().to_string();
-            this.file_glob = if value.is_empty() { None } else { Some(value) };
-            this.trigger_search(cx);
-        })
+        cx.subscribe(
+            &glob_input,
+            |this: &mut Self, _, _: &InputChangedEvent, cx| {
+                let value = this.glob_input.read(cx).value().to_string();
+                this.file_glob = if value.is_empty() { None } else { Some(value) };
+                this.trigger_search(cx);
+            },
+        )
         .detach();
 
         let has_query = !query.is_empty();
@@ -263,7 +278,11 @@ impl ContentSearchDialog {
     fn open_selected(&self, cx: &mut Context<Self>) {
         if let Some(row) = self.rows.get(self.selected_index) {
             let (path, line) = match row {
-                ResultRow::Match { file_path, line_number, .. } => (file_path.clone(), *line_number),
+                ResultRow::Match {
+                    file_path,
+                    line_number,
+                    ..
+                } => (file_path.clone(), *line_number),
                 ResultRow::FileHeader { file_path, .. } => (file_path.clone(), 1),
             };
             self.save_memory(cx);
@@ -276,7 +295,11 @@ impl ContentSearchDialog {
     }
 
     fn select_next(&mut self) -> bool {
-        crate::list_overlay::select_next(&mut self.selected_index, self.rows.len(), &self.scroll_handle)
+        crate::list_overlay::select_next(
+            &mut self.selected_index,
+            self.rows.len(),
+            &self.scroll_handle,
+        )
     }
 
     /// Trigger a debounced search.
@@ -297,12 +320,17 @@ impl ContentSearchDialog {
         }
 
         // Debounce: wait 200ms before starting search
-        self.debounce_task = Some(cx.spawn(async move |this: WeakEntity<ContentSearchDialog>, cx| {
-            cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
-            this.update(cx, |this, cx| {
-                this.run_search(cx);
-            }).ok();
-        }));
+        self.debounce_task = Some(cx.spawn(
+            async move |this: WeakEntity<ContentSearchDialog>, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(200))
+                    .await;
+                this.update(cx, |this, cx| {
+                    this.run_search(cx);
+                })
+                .ok();
+            },
+        ));
     }
 
     /// Actually run the search on a background thread.
@@ -344,14 +372,9 @@ impl ContentSearchDialog {
                 .background_executor()
                 .spawn(async move {
                     let mut results: Vec<FileSearchResult> = Vec::new();
-                    project_fs.search_content(
-                        &query,
-                        &config,
-                        &cancelled,
-                        &mut |result| {
-                            results.push(result);
-                        },
-                    );
+                    project_fs.search_content(&query, &config, &cancelled, &mut |result| {
+                        results.push(result);
+                    });
                     // Sort files by best match score (highest first) for fuzzy mode
                     results.sort_by(|a, b| b.best_score.cmp(&a.best_score));
                     results
@@ -402,7 +425,11 @@ impl ContentSearchDialog {
             }
         }
 
-        self.selected_index = if self.rows.is_empty() { 0 } else { 1.min(self.rows.len() - 1) };
+        self.selected_index = if self.rows.is_empty() {
+            0
+        } else {
+            1.min(self.rows.len() - 1)
+        };
     }
 
     /// Get syntax-highlighted line for a file. Returns None if not yet cached
@@ -454,13 +481,8 @@ impl ContentSearchDialog {
             let _ = entity.update(cx, |this, cx| {
                 this.loading_files.remove(&fp);
                 if let Ok(content) = result {
-                    let lines = highlight_content(
-                        &content,
-                        &fp,
-                        &this.syntax_set,
-                        5000,
-                        this.is_dark,
-                    );
+                    let lines =
+                        highlight_content(&content, &fp, &this.syntax_set, 5000, this.is_dark);
                     this.highlight_cache.insert(fp, lines);
                 }
                 cx.notify();
@@ -519,7 +541,11 @@ impl ContentSearchDialog {
                     div()
                         .text_size(ui_text_sm(cx))
                         .text_color(rgb(t.text_muted))
-                        .child(format!("{} match{}", match_count, if match_count == 1 { "" } else { "es" })),
+                        .child(format!(
+                            "{} match{}",
+                            match_count,
+                            if match_count == 1 { "" } else { "es" }
+                        )),
                 ),
         )
     }
@@ -534,32 +560,38 @@ impl ContentSearchDialog {
         t: &vryn_core::theme::ThemeColors,
         cx: &App,
     ) -> Div {
-        let styled_text = if let Some(highlighted) = self.get_highlighted_line(file_path, line_number) {
-            if let Some(ranges) = match_ranges {
+        let styled_text =
+            if let Some(highlighted) = self.get_highlighted_line(file_path, line_number) {
+                if let Some(ranges) = match_ranges {
+                    let match_bg = search_match_bg(t.search_match_bg);
+                    let bg_ranges: Vec<(std::ops::Range<usize>, Hsla)> = ranges
+                        .iter()
+                        .filter(|r| r.end <= highlighted.plain_text.len())
+                        .map(|r| (r.clone(), match_bg))
+                        .collect();
+                    build_styled_text_with_backgrounds(&highlighted.spans, &bg_ranges)
+                } else {
+                    build_styled_text_with_backgrounds(&highlighted.spans, &[])
+                }
+            } else if let Some(ranges) = match_ranges {
                 let match_bg = search_match_bg(t.search_match_bg);
-                let bg_ranges: Vec<(std::ops::Range<usize>, Hsla)> = ranges
+                let highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = ranges
                     .iter()
-                    .filter(|r| r.end <= highlighted.plain_text.len())
-                    .map(|r| (r.clone(), match_bg))
+                    .filter(|r| r.end <= line_content.len())
+                    .map(|r| {
+                        (
+                            r.clone(),
+                            HighlightStyle {
+                                background_color: Some(match_bg),
+                                ..Default::default()
+                            },
+                        )
+                    })
                     .collect();
-                build_styled_text_with_backgrounds(&highlighted.spans, &bg_ranges)
+                StyledText::new(line_content.to_string()).with_highlights(highlights)
             } else {
-                build_styled_text_with_backgrounds(&highlighted.spans, &[])
-            }
-        } else if let Some(ranges) = match_ranges {
-            let match_bg = search_match_bg(t.search_match_bg);
-            let highlights: Vec<(std::ops::Range<usize>, HighlightStyle)> = ranges
-                .iter()
-                .filter(|r| r.end <= line_content.len())
-                .map(|r| (r.clone(), HighlightStyle {
-                    background_color: Some(match_bg),
-                    ..Default::default()
-                }))
-                .collect();
-            StyledText::new(line_content.to_string()).with_highlights(highlights)
-        } else {
-            StyledText::new(line_content.to_string())
-        };
+                StyledText::new(line_content.to_string())
+            };
 
         let is_context = match_ranges.is_none();
 
@@ -582,7 +614,11 @@ impl ContentSearchDialog {
                     .text_ellipsis()
                     .text_size(ui_text_ms(cx))
                     .font_family("monospace")
-                    .text_color(rgb(if is_context { t.text_muted } else { t.text_primary }))
+                    .text_color(rgb(if is_context {
+                        t.text_muted
+                    } else {
+                        t.text_primary
+                    }))
                     .child(styled_text),
             )
     }
@@ -618,7 +654,14 @@ impl ContentSearchDialog {
         )
         .gap(px(8.0))
         .pl(px(28.0))
-        .child(self.render_code_line(file_path, line_number, line_content, Some(match_ranges), &t, cx))
+        .child(self.render_code_line(
+            file_path,
+            line_number,
+            line_content,
+            Some(match_ranges),
+            &t,
+            cx,
+        ))
         .into_any_element()
     }
 
@@ -678,7 +721,11 @@ impl ContentSearchDialog {
                 );
         }
 
-        let lines = self.highlight_cache.get(&file_path).cloned().unwrap_or_default();
+        let lines = self
+            .highlight_cache
+            .get(&file_path)
+            .cloned()
+            .unwrap_or_default();
         let line_count = lines.len();
         let match_bg = search_match_bg(t.search_match_bg);
         let current_match_bg = Hsla::from(Rgba {
@@ -735,139 +782,154 @@ impl ContentSearchDialog {
             )
             // File content
             .child(
-                uniform_list(
-                    "preview-lines",
-                    line_count,
-                    move |range, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            let t = theme(cx);
-                            range
-                                .map(|line_idx| {
-                                    let line_number = line_idx + 1;
-                                    let line_num_str = format!("{:>4}", line_number);
+                uniform_list("preview-lines", line_count, move |range, _window, cx| {
+                    view.update(cx, |this, cx| {
+                        let t = theme(cx);
+                        range
+                            .map(|line_idx| {
+                                let line_number = line_idx + 1;
+                                let line_num_str = format!("{:>4}", line_number);
 
-                                    // Check if this line has matches
-                                    let line_match = all_matches_in_file
-                                        .iter()
-                                        .find(|(ln, _)| *ln == line_number);
+                                // Check if this line has matches
+                                let line_match = all_matches_in_file
+                                    .iter()
+                                    .find(|(ln, _)| *ln == line_number);
 
-                                    let is_current_match = line_number == match_line;
+                                let is_current_match = line_number == match_line;
 
-                                    // Combine match highlights with selection highlights
-                                    let line_len = lines.get(line_idx).map_or(0, |hl| hl.plain_text.len());
-                                    let sel_bg_ranges = selection_bg_ranges(&this.preview_selection, line_idx, line_len);
+                                // Combine match highlights with selection highlights
+                                let line_len =
+                                    lines.get(line_idx).map_or(0, |hl| hl.plain_text.len());
+                                let sel_bg_ranges = selection_bg_ranges(
+                                    &this.preview_selection,
+                                    line_idx,
+                                    line_len,
+                                );
 
-                                    let styled_text = if let Some(hl) =
-                                        lines.get(line_idx)
-                                    {
-                                        let mut bg_ranges: Vec<(std::ops::Range<usize>, Hsla)> = Vec::new();
-                                        if let Some((_, ranges)) = line_match {
-                                            let bg = if is_current_match {
-                                                current_match_bg
-                                            } else {
-                                                match_bg
-                                            };
-                                            bg_ranges.extend(
-                                                ranges
-                                                    .iter()
-                                                    .filter(|r| r.end <= hl.plain_text.len())
-                                                    .map(|r| (r.clone(), bg)),
-                                            );
-                                        }
-                                        bg_ranges.extend(sel_bg_ranges);
-                                        build_styled_text_with_backgrounds(
-                                            &hl.spans, &bg_ranges,
-                                        )
-                                    } else {
-                                        StyledText::new(String::new())
-                                    };
+                                let styled_text = if let Some(hl) = lines.get(line_idx) {
+                                    let mut bg_ranges: Vec<(std::ops::Range<usize>, Hsla)> =
+                                        Vec::new();
+                                    if let Some((_, ranges)) = line_match {
+                                        let bg = if is_current_match {
+                                            current_match_bg
+                                        } else {
+                                            match_bg
+                                        };
+                                        bg_ranges.extend(
+                                            ranges
+                                                .iter()
+                                                .filter(|r| r.end <= hl.plain_text.len())
+                                                .map(|r| (r.clone(), bg)),
+                                        );
+                                    }
+                                    bg_ranges.extend(sel_bg_ranges);
+                                    build_styled_text_with_backgrounds(&hl.spans, &bg_ranges)
+                                } else {
+                                    StyledText::new(String::new())
+                                };
 
-                                    let text_layout = styled_text.layout().clone();
-                                    let plain_text = lines.get(line_idx).map(|hl| hl.plain_text.clone()).unwrap_or_default();
+                                let text_layout = styled_text.layout().clone();
+                                let plain_text = lines
+                                    .get(line_idx)
+                                    .map(|hl| hl.plain_text.clone())
+                                    .unwrap_or_default();
 
-                                    let row_bg = if is_current_match {
-                                        Some(current_match_bg)
-                                    } else if line_match.is_some() {
-                                        Some(match_bg)
-                                    } else {
-                                        None
-                                    };
+                                let row_bg = if is_current_match {
+                                    Some(current_match_bg)
+                                } else if line_match.is_some() {
+                                    Some(match_bg)
+                                } else {
+                                    None
+                                };
 
-                                    div()
-                                        .id(ElementId::Name(format!("preview-line-{}", line_idx).into()))
-                                        .flex()
-                                        .items_center()
-                                        .px(px(8.0))
-                                        .h(px(24.0))
-                                        .text_size(ui_text(13.0, cx))
-                                        .font_family("monospace")
-                                        .when_some(row_bg, |d, bg| d.bg(bg))
-                                        .on_mouse_down(MouseButton::Left, {
-                                            let text_layout = text_layout.clone();
-                                            let plain_text = plain_text.clone();
-                                            cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                                div()
+                                    .id(ElementId::Name(
+                                        format!("preview-line-{}", line_idx).into(),
+                                    ))
+                                    .flex()
+                                    .items_center()
+                                    .px(px(8.0))
+                                    .h(px(24.0))
+                                    .text_size(ui_text(13.0, cx))
+                                    .font_family("monospace")
+                                    .when_some(row_bg, |d, bg| d.bg(bg))
+                                    .on_mouse_down(MouseButton::Left, {
+                                        let text_layout = text_layout.clone();
+                                        let plain_text = plain_text.clone();
+                                        cx.listener(
+                                            move |this, event: &MouseDownEvent, _window, cx| {
                                                 let col = text_layout
                                                     .index_for_position(event.position)
                                                     .unwrap_or_else(|ix| ix)
                                                     .min(line_len);
                                                 if event.click_count >= 3 {
-                                                    this.preview_selection.start = Some((line_idx, 0));
-                                                    this.preview_selection.end = Some((line_idx, line_len));
+                                                    this.preview_selection.start =
+                                                        Some((line_idx, 0));
+                                                    this.preview_selection.end =
+                                                        Some((line_idx, line_len));
                                                     this.preview_selection.finish();
                                                 } else if event.click_count == 2 {
-                                                    let (start, end) = find_word_boundaries(&plain_text, col);
-                                                    this.preview_selection.start = Some((line_idx, start));
-                                                    this.preview_selection.end = Some((line_idx, end));
+                                                    let (start, end) =
+                                                        find_word_boundaries(&plain_text, col);
+                                                    this.preview_selection.start =
+                                                        Some((line_idx, start));
+                                                    this.preview_selection.end =
+                                                        Some((line_idx, end));
                                                     this.preview_selection.finish();
                                                 } else {
-                                                    this.preview_selection.start = Some((line_idx, col));
-                                                    this.preview_selection.end = Some((line_idx, col));
+                                                    this.preview_selection.start =
+                                                        Some((line_idx, col));
+                                                    this.preview_selection.end =
+                                                        Some((line_idx, col));
                                                     this.preview_selection.is_selecting = true;
                                                 }
                                                 cx.notify();
-                                            })
-                                        })
-                                        .on_mouse_move({
-                                            let text_layout = text_layout.clone();
-                                            cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
+                                            },
+                                        )
+                                    })
+                                    .on_mouse_move({
+                                        let text_layout = text_layout.clone();
+                                        cx.listener(
+                                            move |this, event: &MouseMoveEvent, _window, cx| {
                                                 if this.preview_selection.is_selecting {
                                                     let col = text_layout
                                                         .index_for_position(event.position)
                                                         .unwrap_or_else(|ix| ix)
                                                         .min(line_len);
-                                                    this.preview_selection.end = Some((line_idx, col));
+                                                    this.preview_selection.end =
+                                                        Some((line_idx, col));
                                                     cx.notify();
                                                 }
-                                            })
-                                        })
-                                        .on_mouse_up(
-                                            MouseButton::Left,
-                                            cx.listener(|this, _, _window, cx| {
-                                                this.preview_selection.finish();
-                                                cx.notify();
-                                            }),
+                                            },
                                         )
-                                        .child(
-                                            div()
-                                                .text_color(rgb(t.text_muted))
-                                                .min_w(px(44.0))
-                                                .flex_shrink_0()
-                                                .text_size(ui_text_ms(cx))
-                                                .child(line_num_str),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .overflow_hidden()
-                                                .text_color(rgb(t.text_primary))
-                                                .child(styled_text),
-                                        )
-                                        .into_any_element()
-                                })
-                                .collect()
-                        })
-                    },
-                )
+                                    })
+                                    .on_mouse_up(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _window, cx| {
+                                            this.preview_selection.finish();
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(rgb(t.text_muted))
+                                            .min_w(px(44.0))
+                                            .flex_shrink_0()
+                                            .text_size(ui_text_ms(cx))
+                                            .child(line_num_str),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .text_color(rgb(t.text_primary))
+                                            .child(styled_text),
+                                    )
+                                    .into_any_element()
+                            })
+                            .collect()
+                    })
+                })
                 .flex_1()
                 .track_scroll(&self.preview_scroll_handle),
             )
@@ -1003,23 +1065,32 @@ impl ContentSearchDialog {
                     // Scope button
                     .child(
                         div()
-                            .id(ElementId::Name(format!("scope-folder-{}", folder_path).into()))
+                            .id(ElementId::Name(
+                                format!("scope-folder-{}", folder_path).into(),
+                            ))
                             .cursor_pointer()
                             .px(px(4.0))
                             .py(px(2.0))
                             .rounded(px(3.0))
                             .text_size(ui_text_sm(cx))
-                            .text_color(rgb(if is_scoped { t.text_primary } else { t.text_muted }))
+                            .text_color(rgb(if is_scoped {
+                                t.text_primary
+                            } else {
+                                t.text_muted
+                            }))
                             .when(is_scoped, |d| d.bg(rgb(t.border_active)))
                             .hover(|s| s.bg(rgb(t.bg_hover)).text_color(rgb(t.text_primary)))
                             .flex_shrink_0()
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _window, cx| {
-                                if this.scope_path.as_ref() == Some(&fp_scope) {
-                                    this.set_scope(None, cx);
-                                } else {
-                                    this.set_scope(Some(fp_scope.clone()), cx);
-                                }
-                            }))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _window, cx| {
+                                    if this.scope_path.as_ref() == Some(&fp_scope) {
+                                        this.set_scope(None, cx);
+                                    } else {
+                                        this.set_scope(Some(fp_scope.clone()), cx);
+                                    }
+                                }),
+                            )
                             .child(if is_scoped { "scoped" } else { "scope" }),
                     )
                     .into_any_element(),
@@ -1086,8 +1157,20 @@ impl ContentSearchDialog {
             .py(px(6.0))
             .border_b_1()
             .border_color(rgb(t.border))
-            .child(self.render_toggle_button("Aa", self.case_sensitive, "Case Sensitive", "case", cx))
-            .child(self.render_toggle_button(".*", self.regex_mode, "Regular Expression", "regex", cx))
+            .child(self.render_toggle_button(
+                "Aa",
+                self.case_sensitive,
+                "Case Sensitive",
+                "case",
+                cx,
+            ))
+            .child(self.render_toggle_button(
+                ".*",
+                self.regex_mode,
+                "Regular Expression",
+                "regex",
+                cx,
+            ))
             .child(self.render_toggle_button("~", self.fuzzy_mode, "Fuzzy Match", "fuzzy", cx))
             .child(self.render_file_filter_button(cx))
             // Glob filter input
@@ -1099,8 +1182,16 @@ impl ContentSearchDialog {
                     .py(px(3.0))
                     .rounded(px(4.0))
                     .text_size(ui_text_sm(cx))
-                    .bg(rgb(if has_glob { t.border_active } else { t.bg_secondary }))
-                    .text_color(rgb(if has_glob { t.text_primary } else { t.text_muted }))
+                    .bg(rgb(if has_glob {
+                        t.border_active
+                    } else {
+                        t.bg_secondary
+                    }))
+                    .text_color(rgb(if has_glob {
+                        t.text_primary
+                    } else {
+                        t.text_muted
+                    }))
                     .child(if has_glob {
                         format!("filter: {}", glob_value)
                     } else {
@@ -1111,39 +1202,50 @@ impl ContentSearchDialog {
                         cx.listener(|this, _, window, cx| {
                             this.glob_editing = !this.glob_editing;
                             if this.glob_editing {
-                                this.glob_input.update(cx, |input, cx| input.focus(window, cx));
+                                this.glob_input
+                                    .update(cx, |input, cx| input.focus(window, cx));
                             } else {
-                                this.search_input.update(cx, |input, cx| input.focus(window, cx));
+                                this.search_input
+                                    .update(cx, |input, cx| input.focus(window, cx));
                             }
                             cx.notify();
                         }),
                     ),
             )
             .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .justify_end()
-                    .child(
-                        div()
-                            .text_size(ui_text_sm(cx))
-                            .text_color(rgb(t.text_muted))
-                            .child(if self.searching {
-                                "Searching...".to_string()
-                            } else if self.total_matches > 0 {
-                                format!(
-                                    "{} match{} in {} file{}",
-                                    self.total_matches,
-                                    if self.total_matches == 1 { "" } else { "es" },
-                                    self.rows.iter().filter(|r| matches!(r, ResultRow::FileHeader { .. })).count(),
-                                    if self.rows.iter().filter(|r| matches!(r, ResultRow::FileHeader { .. })).count() == 1 { "" } else { "s" },
-                                )
-                            } else if !self.search_input.read(cx).value().is_empty() {
-                                "No results".to_string()
-                            } else {
-                                String::new()
-                            }),
-                    ),
+                div().flex_1().flex().justify_end().child(
+                    div()
+                        .text_size(ui_text_sm(cx))
+                        .text_color(rgb(t.text_muted))
+                        .child(if self.searching {
+                            "Searching...".to_string()
+                        } else if self.total_matches > 0 {
+                            format!(
+                                "{} match{} in {} file{}",
+                                self.total_matches,
+                                if self.total_matches == 1 { "" } else { "es" },
+                                self.rows
+                                    .iter()
+                                    .filter(|r| matches!(r, ResultRow::FileHeader { .. }))
+                                    .count(),
+                                if self
+                                    .rows
+                                    .iter()
+                                    .filter(|r| matches!(r, ResultRow::FileHeader { .. }))
+                                    .count()
+                                    == 1
+                                {
+                                    ""
+                                } else {
+                                    "s"
+                                },
+                            )
+                        } else if !self.search_input.read(cx).value().is_empty() {
+                            "No results".to_string()
+                        } else {
+                            String::new()
+                        }),
+                ),
             )
     }
 
@@ -1170,12 +1272,10 @@ impl ContentSearchDialog {
             .font_weight(FontWeight::MEDIUM)
             .tooltip(move |_window, cx| Tooltip::new(tooltip_text.clone()).build(_window, cx))
             .when(active, |d: Stateful<Div>| {
-                d.bg(rgb(t.border_active))
-                    .text_color(rgb(t.text_primary))
+                d.bg(rgb(t.border_active)).text_color(rgb(t.text_primary))
             })
             .when(!active, |d: Stateful<Div>| {
-                d.bg(rgb(t.bg_secondary))
-                    .text_color(rgb(t.text_muted))
+                d.bg(rgb(t.bg_secondary)).text_color(rgb(t.text_muted))
             })
             .hover(|s: StyleRefinement| s.bg(rgb(t.bg_hover)))
             .on_mouse_down(
@@ -1185,11 +1285,15 @@ impl ContentSearchDialog {
                         "case" => this.case_sensitive = !this.case_sensitive,
                         "regex" => {
                             this.regex_mode = !this.regex_mode;
-                            if this.regex_mode { this.fuzzy_mode = false; }
+                            if this.regex_mode {
+                                this.fuzzy_mode = false;
+                            }
                         }
                         "fuzzy" => {
                             this.fuzzy_mode = !this.fuzzy_mode;
-                            if this.fuzzy_mode { this.regex_mode = false; }
+                            if this.fuzzy_mode {
+                                this.regex_mode = false;
+                            }
                         }
                         _ => {}
                     }
@@ -1208,7 +1312,10 @@ impl ContentSearchDialog {
         let entity2 = entity.clone();
 
         crate::list_overlay::file_filter_button(
-            "cs-filter-btn", active_count, &t, cx,
+            "cs-filter-btn",
+            active_count,
+            &t,
+            cx,
             move |_, _, cx| {
                 if let Some(e) = entity.upgrade() {
                     e.update(cx, |this, cx| {
@@ -1250,7 +1357,8 @@ impl Render for ContentSearchDialog {
         // Focus search input on first render
         let search_input_focus = self.search_input.read(cx).focus_handle(cx);
         if !search_input_focus.is_focused(window) && !self.glob_editing {
-            self.search_input.update(cx, |input, cx| input.focus(window, cx));
+            self.search_input
+                .update(cx, |input, cx| input.focus(window, cx));
         }
 
         // Shared key handler for both modes
@@ -1277,14 +1385,14 @@ impl Render for ContentSearchDialog {
                 "escape" => this.close(cx),
                 "c" if event.keystroke.modifiers.platform => {
                     if let Some(file_path) = &this.preview_file
-                        && let Some(lines) = this.highlight_cache.get(file_path) {
-                            let text = extract_selected_text(
-                                &this.preview_selection,
-                                lines.len(),
-                                |i| &lines[i].plain_text,
-                            );
-                            copy_to_clipboard(cx, text);
-                        }
+                        && let Some(lines) = this.highlight_cache.get(file_path)
+                    {
+                        let text =
+                            extract_selected_text(&this.preview_selection, lines.len(), |i| {
+                                &lines[i].plain_text
+                            });
+                        copy_to_clipboard(cx, text);
+                    }
                 }
                 _ => {}
             }
@@ -1343,33 +1451,42 @@ impl Render for ContentSearchDialog {
             let _has_context = self.expanded;
             let view = cx.entity().clone();
 
-            uniform_list("content-search-list", rows.len(), move |range, _window, cx| {
-                view.update(cx, |this, cx| {
-                    range
-                        .map(|i| {
-                            let row = &rows[i];
-                            match row {
-                                ResultRow::FileHeader {
-                                    relative_path,
-                                    match_count,
-                                    ..
-                                } => this
-                                    .render_file_header(i, relative_path, *match_count, cx)
-                                    .into_any_element(),
-                                ResultRow::Match {
-                                    file_path,
-                                    line_number,
-                                    line_content,
-                                    match_ranges,
-                                    ..
-                                } => this.render_match_row(
-                                    i, file_path, *line_number, line_content, match_ranges, cx,
-                                ),
-                            }
-                        })
-                        .collect()
-                })
-            })
+            uniform_list(
+                "content-search-list",
+                rows.len(),
+                move |range, _window, cx| {
+                    view.update(cx, |this, cx| {
+                        range
+                            .map(|i| {
+                                let row = &rows[i];
+                                match row {
+                                    ResultRow::FileHeader {
+                                        relative_path,
+                                        match_count,
+                                        ..
+                                    } => this
+                                        .render_file_header(i, relative_path, *match_count, cx)
+                                        .into_any_element(),
+                                    ResultRow::Match {
+                                        file_path,
+                                        line_number,
+                                        line_content,
+                                        match_ranges,
+                                        ..
+                                    } => this.render_match_row(
+                                        i,
+                                        file_path,
+                                        *line_number,
+                                        line_content,
+                                        match_ranges,
+                                        cx,
+                                    ),
+                                }
+                            })
+                            .collect()
+                    })
+                },
+            )
             .flex_1()
             .track_scroll(&self.scroll_handle)
             .into_any_element()
@@ -1454,32 +1571,44 @@ impl Render for ContentSearchDialog {
                             .id("cs-filter-popover-backdrop")
                             .absolute()
                             .inset_0()
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.filter_popover_open = false;
-                                cx.notify();
-                            }))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, cx| {
+                                    this.filter_popover_open = false;
+                                    cx.notify();
+                                }),
+                            ),
                     )
                 })
-                .when(self.filter_popover_open && self.filter_button_bounds.is_some(), |d| {
-                    let bounds = self.filter_button_bounds.expect("guarded by is_some() in when()");
-                    let entity = cx.entity().downgrade();
-                    d.child(crate::list_overlay::file_filter_popover(
-                        bounds, self.show_ignored, self.show_hidden, &t, cx,
-                        move |filter, _, cx| {
-                            if let Some(e) = entity.upgrade() {
-                                e.update(cx, |this, cx| {
-                                    match filter {
-                                        "ignored" => this.show_ignored = !this.show_ignored,
-                                        "hidden" => this.show_hidden = !this.show_hidden,
-                                        _ => {}
-                                    }
-                                    this.trigger_search(cx);
-                                    cx.notify();
-                                });
-                            }
-                        },
-                    ))
-                })
+                .when(
+                    self.filter_popover_open && self.filter_button_bounds.is_some(),
+                    |d| {
+                        let bounds = self
+                            .filter_button_bounds
+                            .expect("guarded by is_some() in when()");
+                        let entity = cx.entity().downgrade();
+                        d.child(crate::list_overlay::file_filter_popover(
+                            bounds,
+                            self.show_ignored,
+                            self.show_hidden,
+                            &t,
+                            cx,
+                            move |filter, _, cx| {
+                                if let Some(e) = entity.upgrade() {
+                                    e.update(cx, |this, cx| {
+                                        match filter {
+                                            "ignored" => this.show_ignored = !this.show_ignored,
+                                            "hidden" => this.show_hidden = !this.show_hidden,
+                                            _ => {}
+                                        }
+                                        this.trigger_search(cx);
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ))
+                    },
+                )
                 .into_any_element()
         } else {
             // Compact modal mode
@@ -1511,32 +1640,48 @@ impl Render for ContentSearchDialog {
                                     .id("cs-filter-popover-backdrop-compact")
                                     .absolute()
                                     .inset_0()
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                        this.filter_popover_open = false;
-                                        cx.notify();
-                                    }))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            this.filter_popover_open = false;
+                                            cx.notify();
+                                        }),
+                                    ),
                             )
                         })
-                        .when(self.filter_popover_open && self.filter_button_bounds.is_some(), |modal| {
-                            let bounds = self.filter_button_bounds.expect("guarded by is_some() in when()");
-                            let entity = cx.entity().downgrade();
-                            modal.child(crate::list_overlay::file_filter_popover(
-                                bounds, self.show_ignored, self.show_hidden, &t, cx,
-                                move |filter, _, cx| {
-                                    if let Some(e) = entity.upgrade() {
-                                        e.update(cx, |this, cx| {
-                                            match filter {
-                                                "ignored" => this.show_ignored = !this.show_ignored,
-                                                "hidden" => this.show_hidden = !this.show_hidden,
-                                                _ => {}
-                                            }
-                                            this.trigger_search(cx);
-                                            cx.notify();
-                                        });
-                                    }
-                                },
-                            ))
-                        }),
+                        .when(
+                            self.filter_popover_open && self.filter_button_bounds.is_some(),
+                            |modal| {
+                                let bounds = self
+                                    .filter_button_bounds
+                                    .expect("guarded by is_some() in when()");
+                                let entity = cx.entity().downgrade();
+                                modal.child(crate::list_overlay::file_filter_popover(
+                                    bounds,
+                                    self.show_ignored,
+                                    self.show_hidden,
+                                    &t,
+                                    cx,
+                                    move |filter, _, cx| {
+                                        if let Some(e) = entity.upgrade() {
+                                            e.update(cx, |this, cx| {
+                                                match filter {
+                                                    "ignored" => {
+                                                        this.show_ignored = !this.show_ignored
+                                                    }
+                                                    "hidden" => {
+                                                        this.show_hidden = !this.show_hidden
+                                                    }
+                                                    _ => {}
+                                                }
+                                                this.trigger_search(cx);
+                                                cx.notify();
+                                            });
+                                        }
+                                    },
+                                ))
+                            },
+                        ),
                 )
                 .into_any_element()
         }

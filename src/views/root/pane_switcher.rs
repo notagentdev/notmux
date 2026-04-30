@@ -1,7 +1,7 @@
 use crate::theme::theme;
+use crate::ui::tokens::ui_text;
 use crate::views::layout::navigation::PaneMap;
 use crate::workspace::state::Workspace;
-use crate::ui::tokens::ui_text;
 use gpui::*;
 
 use super::RootView;
@@ -111,17 +111,14 @@ impl Render for PaneSwitcher {
 
                 // Try to map key to pane index (0-9, a-z)
                 if let Some(index) = key_to_pane_index(key)
-                    && let Some((project_id, layout_path, _)) = this.panes.get(index) {
-                        this.workspace.update(cx, |ws, cx| {
-                            ws.set_focused_terminal(
-                                project_id.clone(),
-                                layout_path.clone(),
-                                cx,
-                            );
-                        });
-                        cx.emit(PaneSwitcherEvent::Close);
-                        return;
-                    }
+                    && let Some((project_id, layout_path, _)) = this.panes.get(index)
+                {
+                    this.workspace.update(cx, |ws, cx| {
+                        ws.set_focused_terminal(project_id.clone(), layout_path.clone(), cx);
+                    });
+                    cx.emit(PaneSwitcherEvent::Close);
+                    return;
+                }
 
                 // Any other key deactivates without switching
                 cx.emit(PaneSwitcherEvent::Close);
@@ -148,21 +145,24 @@ impl RootView {
     /// Create and show the pane switcher overlay entity.
     pub(super) fn show_pane_switcher(&mut self, pane_map: PaneMap, cx: &mut Context<Self>) {
         // Clear terminal focus so TerminalPane doesn't steal focus from the overlay
-        self.workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        self.workspace
+            .update(cx, |ws, cx| ws.clear_focused_terminal(cx));
 
         let workspace = self.workspace.clone();
         let entity = cx.new(|cx| PaneSwitcher::new(workspace, &pane_map, cx));
 
-        cx.subscribe(&entity, |this, _, event: &PaneSwitcherEvent, cx| {
-            match event {
+        cx.subscribe(
+            &entity,
+            |this, _, event: &PaneSwitcherEvent, cx| match event {
                 PaneSwitcherEvent::Close => {
                     this.pane_switch_active = false;
                     this.pane_switcher_entity = None;
-                    this.workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+                    this.workspace
+                        .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
                     cx.notify();
                 }
-            }
-        })
+            },
+        )
         .detach();
 
         self.pane_switcher_entity = Some(entity);

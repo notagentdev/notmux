@@ -1,5 +1,5 @@
-use vryn_core::process::{command, safe_output};
 use std::collections::{HashMap, HashSet, VecDeque};
+use vryn_core::process::{command, safe_output};
 
 /// Ports to exclude from detection results.
 /// 9229 = Node.js inspector/debugger
@@ -119,9 +119,10 @@ fn build_process_tree_macos() -> HashMap<u32, Vec<u32>> {
     for line in stdout.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() >= 2
-            && let (Ok(pid), Ok(ppid)) = (fields[0].parse::<u32>(), fields[1].parse::<u32>()) {
-                tree.entry(ppid).or_default().push(pid);
-            }
+            && let (Ok(pid), Ok(ppid)) = (fields[0].parse::<u32>(), fields[1].parse::<u32>())
+        {
+            tree.entry(ppid).or_default().push(pid);
+        }
     }
     tree
 }
@@ -265,7 +266,9 @@ fn extract_pids_from_ss_line(line: &str) -> Vec<u32> {
     let mut search = line;
     while let Some(pos) = search.find("pid=") {
         let after = &search[pos + 4..];
-        let num_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        let num_end = after
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(after.len());
         if let Ok(pid) = after[..num_end].parse::<u32>() {
             pids.push(pid);
         }
@@ -301,9 +304,10 @@ pub(crate) fn parse_lsof_output(stdout: &str) -> Vec<(u32, u16)> {
         // NAME field like "*:5173" or "127.0.0.1:3000"
         let name = fields[8];
         if let Some(port_str) = name.rsplit(':').next()
-            && let Ok(port) = port_str.parse::<u16>() {
-                pairs.push((pid, port));
-            }
+            && let Ok(port) = port_str.parse::<u16>()
+        {
+            pairs.push((pid, port));
+        }
     }
     pairs
 }
@@ -326,10 +330,10 @@ pub(crate) fn parse_netstat_output(stdout: &str) -> Vec<(u32, u16)> {
             Err(_) => continue,
         };
         let local_addr = fields[1];
-        if let Some(port_str) = local_addr.rsplit(':').next() {
-            if let Ok(port) = port_str.parse::<u16>() {
-                pairs.push((pid, port));
-            }
+        if let Some(port_str) = local_addr.rsplit(':').next()
+            && let Ok(port) = port_str.parse::<u16>()
+        {
+            pairs.push((pid, port));
         }
     }
     pairs
@@ -423,13 +427,7 @@ Active Connections
 
     #[test]
     fn filtering_removes_debug_and_ephemeral_ports() {
-        let pairs = vec![
-            (1, 5173),
-            (1, 9229),
-            (1, 36435),
-            (1, 37903),
-            (1, 3000),
-        ];
+        let pairs = vec![(1, 5173), (1, 9229), (1, 36435), (1, 37903), (1, 3000)];
         let pids: HashSet<u32> = [1].into_iter().collect();
         let ports = ports_for_pids(&pairs, &pids);
         assert_eq!(ports, vec![3000, 5173]);
@@ -449,11 +447,7 @@ LISTEN 0      128    127.0.0.1:3000      0.0.0.0:*         users:((\"cargo\",pid
     #[test]
     fn ports_for_pids_shared_port_list() {
         // Two services sharing the same port scan results
-        let pairs = vec![
-            (100, 5173),
-            (200, 3000),
-            (300, 8080),
-        ];
+        let pairs = vec![(100, 5173), (200, 3000), (300, 8080)];
         let pids_a: HashSet<u32> = [100].into_iter().collect();
         let pids_b: HashSet<u32> = [200, 300].into_iter().collect();
         assert_eq!(ports_for_pids(&pairs, &pids_a), vec![5173]);

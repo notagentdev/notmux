@@ -1,6 +1,9 @@
 //! Remote connection dialog overlay.
 
 use crate::Cancel;
+use gpui::prelude::*;
+use gpui::*;
+use std::sync::Arc;
 use vryn_core::client::RemoteConnectionConfig;
 use vryn_remote_client::RemoteConnectionManager;
 use vryn_ui::button::{button, button_primary};
@@ -8,10 +11,7 @@ use vryn_ui::input::{input_container, labeled_input};
 use vryn_ui::modal::{modal_backdrop, modal_content, modal_header};
 use vryn_ui::simple_input::{SimpleInput, SimpleInputState};
 use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text_ms, ui_text_md, ui_text_sm};
-use gpui::prelude::*;
-use gpui::*;
-use std::sync::Arc;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 
 pub struct RemoteConnectDialog {
     remote_manager: Entity<RemoteConnectionManager>,
@@ -42,13 +42,13 @@ impl ConnectionDialogStatus {
 
 pub enum RemoteConnectDialogEvent {
     Close,
-    Connected {
-        config: RemoteConnectionConfig,
-    },
+    Connected { config: RemoteConnectionConfig },
 }
 
 impl vryn_ui::overlay::CloseEvent for RemoteConnectDialogEvent {
-    fn is_close(&self) -> bool { matches!(self, Self::Close) }
+    fn is_close(&self) -> bool {
+        matches!(self, Self::Close)
+    }
 }
 
 impl EventEmitter<RemoteConnectDialogEvent> for RemoteConnectDialog {}
@@ -244,24 +244,22 @@ impl RemoteConnectDialog {
             }
 
             match pair_result {
-                Ok(Ok(resp)) if resp.status().is_success() => {
-                    match resp.json::<PairResp>().await {
-                        Ok(pair_resp) => {
-                            let mut config = config;
-                            config.saved_token = Some(pair_resp.token);
-                            let _ = this.update(cx, |_this, cx| {
-                                cx.emit(RemoteConnectDialogEvent::Connected { config });
-                            });
-                        }
-                        Err(e) => {
-                            let msg = format!("Invalid pair response: {}", e);
-                            let _ = this.update(cx, |this, cx| {
-                                this.status = ConnectionDialogStatus::ConnectFailed(msg);
-                                cx.notify();
-                            });
-                        }
+                Ok(Ok(resp)) if resp.status().is_success() => match resp.json::<PairResp>().await {
+                    Ok(pair_resp) => {
+                        let mut config = config;
+                        config.saved_token = Some(pair_resp.token);
+                        let _ = this.update(cx, |_this, cx| {
+                            cx.emit(RemoteConnectDialogEvent::Connected { config });
+                        });
                     }
-                }
+                    Err(e) => {
+                        let msg = format!("Invalid pair response: {}", e);
+                        let _ = this.update(cx, |this, cx| {
+                            this.status = ConnectionDialogStatus::ConnectFailed(msg);
+                            cx.notify();
+                        });
+                    }
+                },
                 Ok(Ok(resp)) => {
                     let status_code = resp.status();
                     let body = resp.text().await.unwrap_or_default();

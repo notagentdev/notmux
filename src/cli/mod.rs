@@ -79,8 +79,7 @@ fn save_cli_config(config: &CliConfig) -> Result<(), String> {
     }
     let json =
         serde_json::to_string_pretty(config).map_err(|e| format!("Failed to serialize: {e}"))?;
-    std::fs::write(&path, json.as_bytes())
-        .map_err(|e| format!("Failed to write cli.json: {e}"))?;
+    std::fs::write(&path, json.as_bytes()).map_err(|e| format!("Failed to write cli.json: {e}"))?;
 
     #[cfg(unix)]
     {
@@ -140,9 +139,10 @@ fn ensure_token() -> Result<String, String> {
                 .header("Authorization", format!("Bearer {}", config.token))
                 .timeout(std::time::Duration::from_secs(5))
                 .send()
-                && resp.status().is_success() {
-                    return Ok(config.token);
-                }
+                && resp.status().is_success()
+            {
+                return Ok(config.token);
+            }
         }
     }
 
@@ -162,7 +162,9 @@ fn api_get(path: &str, token: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into());
+        return Err(
+            "Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into(),
+        );
     }
     if !resp.status().is_success() {
         return Err(format!("Server returned {}", resp.status()));
@@ -185,7 +187,9 @@ fn api_post(path: &str, token: &str, body: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into());
+        return Err(
+            "Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into(),
+        );
     }
     if !resp.status().is_success() {
         let status = resp.status();

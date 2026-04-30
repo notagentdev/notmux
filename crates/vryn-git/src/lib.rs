@@ -2,48 +2,19 @@ pub mod branch_names;
 pub mod diff;
 pub mod repository;
 
-pub use diff::{DiffResult, DiffMode, FileDiff, DiffLineType, get_diff_with_options, is_git_repo, get_file_contents_for_diff};
+pub use diff::{
+    DiffLineType, DiffMode, DiffResult, FileDiff, get_diff_with_options,
+    get_file_contents_for_diff, is_git_repo,
+};
 pub use repository::{
-    create_worktree,
-    remove_worktree,
-    remove_worktree_fast,
-    get_available_branches_for_worktree,
-    get_repo_root,
-    resolve_git_root_and_subdir,
-    compute_target_paths,
-    project_path_in_worktree,
-    has_uncommitted_changes,
-    get_current_branch,
-    get_default_branch,
-    rebase_onto,
-    merge_branch,
-    stash_changes,
-    stash_pop,
-    stash_all_including_untracked,
-    stash_apply,
-    stash_drop,
-    stash_show_patch,
-    stash_list,
-    discard_all_tracked,
-    fetch_all,
-    delete_local_branch,
-    delete_remote_branch,
-    push_branch,
-    count_unpushed_commits,
-    get_commit_graph,
-    list_branches,
-    get_working_tree_status,
-    get_file_statuses,
-    FileStatusRefresh,
-    FileSection,
-    stage_file,
-    stage_all,
-    unstage_file,
-    unstage_all,
-    discard_file,
-    commit,
-    uncommit,
-    pull,
+    FileSection, FileStatusRefresh, commit, compute_target_paths, count_unpushed_commits,
+    create_worktree, delete_local_branch, delete_remote_branch, discard_all_tracked, discard_file,
+    fetch_all, get_available_branches_for_worktree, get_commit_graph, get_current_branch,
+    get_default_branch, get_file_statuses, get_repo_root, get_working_tree_status,
+    has_uncommitted_changes, list_branches, merge_branch, project_path_in_worktree, pull,
+    push_branch, rebase_onto, remove_worktree, remove_worktree_fast, resolve_git_root_and_subdir,
+    stage_all, stage_file, stash_all_including_untracked, stash_apply, stash_changes, stash_drop,
+    stash_list, stash_pop, stash_show_patch, uncommit, unstage_all, unstage_file,
 };
 
 /// Validate that a git ref (branch name, commit hash, revision) doesn't look
@@ -118,8 +89,14 @@ impl CiCheckSummary {
     pub fn tooltip_text(&self) -> String {
         match self.status {
             CiStatus::Success => format!("{}/{} checks passed", self.passed, self.total),
-            CiStatus::Failure => format!("{} failed, {} passed of {} checks", self.failed, self.passed, self.total),
-            CiStatus::Pending => format!("{} pending, {} passed of {} checks", self.pending, self.passed, self.total),
+            CiStatus::Failure => format!(
+                "{} failed, {} passed of {} checks",
+                self.failed, self.passed, self.total
+            ),
+            CiStatus::Pending => format!(
+                "{} pending, {} passed of {} checks",
+                self.pending, self.passed, self.total
+            ),
         }
     }
 }
@@ -243,13 +220,15 @@ impl WorkingTreeStatus {
 
     /// Number of files with staged changes (excludes untracked)
     pub fn staged_count(&self) -> usize {
-        self.tracked.iter().filter(|f| f.index_status.is_some()).count()
+        self.tracked
+            .iter()
+            .filter(|f| f.index_status.is_some())
+            .count()
     }
 
     /// Whether all tracked files are fully staged (untracked are ignored).
     pub fn all_staged(&self) -> bool {
-        !self.tracked.is_empty()
-            && self.tracked.iter().all(|f| f.is_fully_staged())
+        !self.tracked.is_empty() && self.tracked.iter().all(|f| f.is_fully_staged())
     }
 }
 
@@ -361,14 +340,18 @@ pub fn get_git_status(path: &Path) -> Option<GitStatus> {
 pub fn refresh_git_status(path: &Path) -> Option<GitStatus> {
     let path_buf = path.to_path_buf();
     let status = repository::get_status(path);
-    with_cache(|cache| { cache.insert(path_buf, status.clone()); });
+    with_cache(|cache| {
+        cache.insert(path_buf, status.clone());
+    });
     status
 }
 
 /// Invalidate cache for a specific path (call when you know files changed)
 #[allow(dead_code)]
 pub fn invalidate_cache(path: &Path) {
-    with_cache(|cache| { cache.remove(path); });
+    with_cache(|cache| {
+        cache.remove(path);
+    });
 }
 
 /// Get per-file diff summary for a repository.
@@ -384,55 +367,67 @@ pub fn get_diff_file_summary(path: &Path) -> Vec<FileDiffSummary> {
     let mut summaries = Vec::new();
 
     // Get tracked file changes with numstat
-    let output = safe_output(
-        command("git").args(["-C", path_str, "diff", "--numstat", "--no-color", "--no-ext-diff", "HEAD"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "diff",
+        "--numstat",
+        "--no-color",
+        "--no-ext-diff",
+        "HEAD",
+    ]))
     .ok();
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 3 {
-                    // Binary files show "-" instead of numbers
-                    let added = parts[0].parse::<usize>().unwrap_or(0);
-                    let removed = parts[1].parse::<usize>().unwrap_or(0);
-                    summaries.push(FileDiffSummary {
-                        path: parts[2].to_string(),
-                        added,
-                        removed,
-                        is_new: false,
-                    });
-                }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                // Binary files show "-" instead of numbers
+                let added = parts[0].parse::<usize>().unwrap_or(0);
+                let removed = parts[1].parse::<usize>().unwrap_or(0);
+                summaries.push(FileDiffSummary {
+                    path: parts[2].to_string(),
+                    added,
+                    removed,
+                    is_new: false,
+                });
             }
         }
+    }
 
     // Get untracked files
-    let output = safe_output(
-        command("git").args(["-C", path_str, "ls-files", "--others", "--exclude-standard"]),
-    )
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ]))
     .ok();
 
     if let Some(output) = output
-        && output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for file in stdout.lines() {
-                if !file.is_empty() {
-                    // Count lines in untracked file
-                    let file_path = path.join(file);
-                    let added = std::fs::read_to_string(&file_path)
-                        .map(|c| c.lines().count())
-                        .unwrap_or(0);
-                    summaries.push(FileDiffSummary {
-                        path: file.to_string(),
-                        added,
-                        removed: 0,
-                        is_new: true,
-                    });
-                }
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for file in stdout.lines() {
+            if !file.is_empty() {
+                // Count lines in untracked file
+                let file_path = path.join(file);
+                let added = std::fs::read_to_string(&file_path)
+                    .map(|c| c.lines().count())
+                    .unwrap_or(0);
+                summaries.push(FileDiffSummary {
+                    path: file.to_string(),
+                    added,
+                    removed: 0,
+                    is_new: true,
+                });
             }
         }
+    }
 
     // Sort by path
     summaries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -445,26 +440,46 @@ mod tests {
 
     #[test]
     fn ci_tooltip_all_passed() {
-        let summary = CiCheckSummary { status: CiStatus::Success, passed: 4, failed: 0, pending: 0, total: 4 };
+        let summary = CiCheckSummary {
+            status: CiStatus::Success,
+            passed: 4,
+            failed: 0,
+            pending: 0,
+            total: 4,
+        };
         assert_eq!(summary.tooltip_text(), "4/4 checks passed");
     }
 
     #[test]
     fn ci_tooltip_failure() {
-        let summary = CiCheckSummary { status: CiStatus::Failure, passed: 3, failed: 1, pending: 0, total: 4 };
+        let summary = CiCheckSummary {
+            status: CiStatus::Failure,
+            passed: 3,
+            failed: 1,
+            pending: 0,
+            total: 4,
+        };
         assert_eq!(summary.tooltip_text(), "1 failed, 3 passed of 4 checks");
     }
 
     #[test]
     fn ci_tooltip_pending() {
-        let summary = CiCheckSummary { status: CiStatus::Pending, passed: 1, failed: 0, pending: 2, total: 3 };
+        let summary = CiCheckSummary {
+            status: CiStatus::Pending,
+            passed: 1,
+            failed: 0,
+            pending: 2,
+            total: 3,
+        };
         assert_eq!(summary.tooltip_text(), "2 pending, 1 passed of 3 checks");
     }
 
     #[test]
     fn format_relative_time_just_now() {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert_eq!(format_relative_time(now), "just now");
         assert_eq!(format_relative_time(now - 30), "just now");
     }
@@ -472,7 +487,9 @@ mod tests {
     #[test]
     fn format_relative_time_minutes() {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert_eq!(format_relative_time(now - 60), "1m ago");
         assert_eq!(format_relative_time(now - 300), "5m ago");
         assert_eq!(format_relative_time(now - 3599), "59m ago");
@@ -481,7 +498,9 @@ mod tests {
     #[test]
     fn format_relative_time_hours() {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert_eq!(format_relative_time(now - 3600), "1h ago");
         assert_eq!(format_relative_time(now - 7200), "2h ago");
     }
@@ -489,7 +508,9 @@ mod tests {
     #[test]
     fn format_relative_time_days() {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert_eq!(format_relative_time(now - 86400), "1d ago");
         assert_eq!(format_relative_time(now - 259200), "3d ago");
     }
@@ -514,7 +535,9 @@ mod tests {
     #[test]
     fn format_relative_time_weeks() {
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert_eq!(format_relative_time(now - 604800), "1w ago");
         assert_eq!(format_relative_time(now - 1209600), "2w ago");
     }

@@ -5,8 +5,10 @@
 
 use gpui::prelude::*;
 use gpui::*;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use vryn_files::clipboard::ExplorerClipboard;
-use vryn_files::dir_listing::{list_directory, DirEntry};
+use vryn_files::dir_listing::{DirEntry, list_directory};
 use vryn_files::fs_ops;
 use vryn_files::theme::theme;
 use vryn_git::{FileStatus, WorkingFile, WorkingTreeStatus};
@@ -15,8 +17,6 @@ use vryn_ui::tokens::ui_text_md;
 use vryn_ui::vscode_icon::vscode_file_icon_sized;
 use vryn_workspace::request_broker::RequestBroker;
 use vryn_workspace::requests::{ExplorerKind, OverlayRequest};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
 use crate::{ExplorerInputCancel, ExplorerInputConfirm};
 
@@ -117,9 +117,11 @@ impl FileExplorer {
     pub fn patch_paths(&mut self, changed: &[PathBuf], cx: &mut Context<Self>) {
         let mut dirs: HashSet<PathBuf> = HashSet::new();
         for p in changed {
-            let parent = p.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| p.clone());
-            if parent.starts_with(&self.project_path)
-                && self.loaded_children.contains_key(&parent)
+            let parent = p
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| p.clone());
+            if parent.starts_with(&self.project_path) && self.loaded_children.contains_key(&parent)
             {
                 dirs.insert(parent);
             }
@@ -137,8 +139,7 @@ impl FileExplorer {
         self.loading_paths.insert(path.clone());
         let owned = path.clone();
         cx.spawn(async move |this, cx| {
-            let entries =
-                smol::unblock(move || list_directory(&owned, false)).await;
+            let entries = smol::unblock(move || list_directory(&owned, false)).await;
             let _ = this.update(cx, |this, cx| {
                 this.loaded_children.insert(path.clone(), entries);
                 this.loading_paths.remove(&path);
@@ -151,10 +152,8 @@ impl FileExplorer {
     fn refresh_git_status(&mut self, cx: &mut Context<Self>) {
         let project_path = self.project_path.clone();
         cx.spawn(async move |this, cx| {
-            let status = smol::unblock(move || {
-                vryn_git::get_working_tree_status(&project_path)
-            })
-            .await;
+            let status =
+                smol::unblock(move || vryn_git::get_working_tree_status(&project_path)).await;
             let _ = this.update(cx, |this, cx| {
                 this.apply_status(status);
                 cx.notify();
@@ -268,7 +267,11 @@ impl FileExplorer {
         let is_dir = target.is_dir();
         let input = cx.new(|cx| {
             let mut s = SimpleInputState::new(cx)
-                .placeholder(if is_dir { "Folder name..." } else { "File name..." })
+                .placeholder(if is_dir {
+                    "Folder name..."
+                } else {
+                    "File name..."
+                })
                 .default_value(&current_name);
             s.select_all(cx);
             s
@@ -312,14 +315,24 @@ impl FileExplorer {
         }
     }
 
-    fn cancel_input_action(&mut self, _: &ExplorerInputCancel, _window: &mut Window, cx: &mut Context<Self>) {
+    fn cancel_input_action(
+        &mut self,
+        _: &ExplorerInputCancel,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.active_input.is_some() {
             self.active_input = None;
             cx.notify();
         }
     }
 
-    fn commit_input_action(&mut self, _: &ExplorerInputConfirm, _window: &mut Window, cx: &mut Context<Self>) {
+    fn commit_input_action(
+        &mut self,
+        _: &ExplorerInputConfirm,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(active) = self.active_input.take() else {
             return;
         };
@@ -387,12 +400,12 @@ impl Render for FileExplorer {
         let t = theme(cx);
 
         // Pull focus into the inline input the first render after start_*.
-        if let Some(active) = self.active_input.as_mut() {
-            if active.needs_focus {
-                let fh = active.input.read(cx).focus_handle(cx);
-                window.focus(&fh, cx);
-                active.needs_focus = false;
-            }
+        if let Some(active) = self.active_input.as_mut()
+            && active.needs_focus
+        {
+            let fh = active.input.read(cx).focus_handle(cx);
+            window.focus(&fh, cx);
+            active.needs_focus = false;
         }
 
         // Flatten visible tree into rows by recursive expansion.
@@ -560,20 +573,36 @@ impl FileExplorer {
         let (name_color, badge): (u32, Option<(String, u32)>) = match effective_status {
             Some(FileStatus::Added) | Some(FileStatus::Untracked) => {
                 let c = t.success;
-                let b = if is_dir { None } else { Some(("U".to_string(), c)) };
+                let b = if is_dir {
+                    None
+                } else {
+                    Some(("U".to_string(), c))
+                };
                 (c, b)
             }
             Some(FileStatus::Deleted) => (
                 t.error,
-                if is_dir { None } else { Some(("D".to_string(), t.error)) },
+                if is_dir {
+                    None
+                } else {
+                    Some(("D".to_string(), t.error))
+                },
             ),
             Some(FileStatus::Conflict) => (
                 t.error,
-                if is_dir { None } else { Some(("!".to_string(), t.error)) },
+                if is_dir {
+                    None
+                } else {
+                    Some(("!".to_string(), t.error))
+                },
             ),
             Some(_) => {
                 let c = t.term_yellow;
-                let b = if is_dir { None } else { Some(("M".to_string(), c)) };
+                let b = if is_dir {
+                    None
+                } else {
+                    Some(("M".to_string(), c))
+                };
                 (c, b)
             }
             None => (t.text_primary, None),
@@ -638,39 +667,42 @@ impl FileExplorer {
                     this.toggle_expand(row_path.clone(), cx);
                 }
             }))
-            .on_mouse_down(MouseButton::Right, cx.listener({
-                let abs_path = abs_path.clone();
-                move |this, event: &MouseDownEvent, _window, cx| {
-                    cx.stop_propagation();
-                    let (kind, parent_dir) = if is_dir {
-                        (ExplorerKind::Folder, abs_path.clone())
-                    } else {
-                        let parent = abs_path
-                            .parent()
-                            .map(|p| p.to_path_buf())
-                            .unwrap_or_else(|| project_root.clone());
-                        (ExplorerKind::File, parent)
-                    };
-                    let has_clipboard = cx
-                        .try_global::<ExplorerClipboard>()
-                        .map(|c| c.is_set())
-                        .unwrap_or(false);
-                    this.context_menu_target = Some(abs_path.clone());
-                    broker.update(cx, |b, cx| {
-                        b.push_overlay_request(
-                            OverlayRequest::ExplorerContextMenu {
-                                kind,
-                                path: abs_path.clone(),
-                                parent_dir,
-                                has_clipboard,
-                                position: event.position,
-                            },
-                            cx,
-                        );
-                    });
-                    cx.notify();
-                }
-            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let abs_path = abs_path.clone();
+                    move |this, event: &MouseDownEvent, _window, cx| {
+                        cx.stop_propagation();
+                        let (kind, parent_dir) = if is_dir {
+                            (ExplorerKind::Folder, abs_path.clone())
+                        } else {
+                            let parent = abs_path
+                                .parent()
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| project_root.clone());
+                            (ExplorerKind::File, parent)
+                        };
+                        let has_clipboard = cx
+                            .try_global::<ExplorerClipboard>()
+                            .map(|c| c.is_set())
+                            .unwrap_or(false);
+                        this.context_menu_target = Some(abs_path.clone());
+                        broker.update(cx, |b, cx| {
+                            b.push_overlay_request(
+                                OverlayRequest::ExplorerContextMenu {
+                                    kind,
+                                    path: abs_path.clone(),
+                                    parent_dir,
+                                    has_clipboard,
+                                    position: event.position,
+                                },
+                                cx,
+                            );
+                        });
+                        cx.notify();
+                    }
+                }),
+            )
             .child(
                 div()
                     .w(px(16.0))
@@ -684,12 +716,7 @@ impl FileExplorer {
                         } else {
                             "icons/chevron-right.svg"
                         };
-                        d.child(
-                            svg()
-                                .path(p)
-                                .size(px(14.0))
-                                .text_color(rgb(t.text_muted)),
-                        )
+                        d.child(svg().path(p).size(px(14.0)).text_color(rgb(t.text_muted)))
                     }),
             )
             .child(if is_dir {
@@ -727,13 +754,7 @@ impl FileExplorer {
                         )
                     })
                     .when_some(dir_dot_color, |d, color| {
-                        d.child(
-                            div()
-                                .w(px(6.0))
-                                .h(px(6.0))
-                                .rounded_full()
-                                .bg(rgb(color)),
-                        )
+                        d.child(div().w(px(6.0)).h(px(6.0)).rounded_full().bg(rgb(color)))
                     }),
             )
             .into_any_element()
@@ -773,7 +794,12 @@ impl FileExplorer {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(svg().path(icon).size(px(18.0)).text_color(rgb(t.text_muted))),
+                    .child(
+                        svg()
+                            .path(icon)
+                            .size(px(18.0))
+                            .text_color(rgb(t.text_muted)),
+                    ),
             )
             .child(div().flex_1().min_w_0().child(SimpleInput::new(&input)))
     }

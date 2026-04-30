@@ -93,7 +93,10 @@ impl ActionDispatcher {
                 // Intercept service actions — these need ServiceManager, not execute_action
                 if let Some(sm) = service_manager {
                     match &action {
-                        ActionRequest::StartService { project_id, service_name } => {
+                        ActionRequest::StartService {
+                            project_id,
+                            service_name,
+                        } => {
                             sm.update(cx, |sm, cx| {
                                 if let Some(path) = sm.project_path(project_id).cloned() {
                                     sm.start_service(project_id, service_name, &path, cx);
@@ -101,11 +104,17 @@ impl ActionDispatcher {
                             });
                             return;
                         }
-                        ActionRequest::StopService { project_id, service_name } => {
+                        ActionRequest::StopService {
+                            project_id,
+                            service_name,
+                        } => {
                             sm.update(cx, |sm, cx| sm.stop_service(project_id, service_name, cx));
                             return;
                         }
-                        ActionRequest::RestartService { project_id, service_name } => {
+                        ActionRequest::RestartService {
+                            project_id,
+                            service_name,
+                        } => {
                             sm.update(cx, |sm, cx| {
                                 if let Some(path) = sm.project_path(project_id).cloned() {
                                     sm.restart_service(project_id, service_name, &path, cx);
@@ -152,7 +161,11 @@ impl ActionDispatcher {
                 // workspace. They never reach the server, so each client has
                 // independent visual state that survives state syncs.
                 match &action {
-                    ActionRequest::UpdateSplitSizes { project_id, path, sizes } => {
+                    ActionRequest::UpdateSplitSizes {
+                        project_id,
+                        path,
+                        sizes,
+                    } => {
                         let pid = project_id.clone();
                         let p = path.clone();
                         let s = sizes.clone();
@@ -163,7 +176,10 @@ impl ActionDispatcher {
                         });
                         return;
                     }
-                    ActionRequest::ToggleMinimized { project_id, terminal_id } => {
+                    ActionRequest::ToggleMinimized {
+                        project_id,
+                        terminal_id,
+                    } => {
                         let pid = project_id.clone();
                         let tid = terminal_id.clone();
                         workspace.update(cx, |ws, cx| {
@@ -171,18 +187,23 @@ impl ActionDispatcher {
                         });
                         return;
                     }
-                    ActionRequest::SetFullscreen { project_id, terminal_id } => {
+                    ActionRequest::SetFullscreen {
+                        project_id,
+                        terminal_id,
+                    } => {
                         let pid = project_id.clone();
                         let tid = terminal_id.clone();
-                        workspace.update(cx, |ws, cx| {
-                            match tid {
-                                Some(tid) => ws.set_fullscreen_terminal(pid, tid, cx),
-                                None => ws.exit_fullscreen(cx),
-                            }
+                        workspace.update(cx, |ws, cx| match tid {
+                            Some(tid) => ws.set_fullscreen_terminal(pid, tid, cx),
+                            None => ws.exit_fullscreen(cx),
                         });
                         return;
                     }
-                    ActionRequest::SetActiveTab { project_id, path, index } => {
+                    ActionRequest::SetActiveTab {
+                        project_id,
+                        path,
+                        index,
+                    } => {
                         let pid = project_id.clone();
                         let p = path.clone();
                         let idx = *index;
@@ -191,15 +212,19 @@ impl ActionDispatcher {
                         });
                         return;
                     }
-                    ActionRequest::FocusTerminal { project_id, terminal_id } => {
+                    ActionRequest::FocusTerminal {
+                        project_id,
+                        terminal_id,
+                    } => {
                         let pid = project_id.clone();
                         let tid = terminal_id.clone();
                         workspace.update(cx, |ws, cx| {
                             if let Some(project) = ws.project(&pid)
                                 && let Some(ref layout) = project.layout
-                                    && let Some(path) = layout.find_terminal_path(&tid) {
-                                        ws.set_focused_terminal(pid, path, cx);
-                                    }
+                                && let Some(path) = layout.find_terminal_path(&tid)
+                            {
+                                ws.set_focused_terminal(pid, path, cx);
+                            }
                         });
                         return;
                     }
@@ -312,13 +337,7 @@ impl vryn_views_terminal::ActionDispatch for ActionDispatcher {
         self.split_terminal(project_id, layout_path, direction, cx);
     }
 
-    fn add_tab(
-        &self,
-        project_id: &str,
-        layout_path: &[usize],
-        in_group: bool,
-        cx: &mut gpui::App,
-    ) {
+    fn add_tab(&self, project_id: &str, layout_path: &[usize], in_group: bool, cx: &mut gpui::App) {
         self.add_tab(project_id, layout_path, in_group, cx);
     }
 }
@@ -511,18 +530,14 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             project_id: s(&project_id),
             new_index,
         },
-        ActionRequest::SetProjectColor { project_id, color } => {
-            ActionRequest::SetProjectColor {
-                project_id: s(&project_id),
-                color,
-            }
-        }
-        ActionRequest::SetFolderColor { folder_id, color } => {
-            ActionRequest::SetFolderColor {
-                folder_id: s(&folder_id),
-                color,
-            }
-        }
+        ActionRequest::SetProjectColor { project_id, color } => ActionRequest::SetProjectColor {
+            project_id: s(&project_id),
+            color,
+        },
+        ActionRequest::SetFolderColor { folder_id, color } => ActionRequest::SetFolderColor {
+            folder_id: s(&folder_id),
+            color,
+        },
         ActionRequest::StartService {
             project_id,
             service_name,
@@ -562,7 +577,11 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             branch,
             create_branch,
         },
-        ActionRequest::GitCommitGraph { project_id, count, branch } => ActionRequest::GitCommitGraph {
+        ActionRequest::GitCommitGraph {
+            project_id,
+            count,
+            branch,
+        } => ActionRequest::GitCommitGraph {
             project_id: s(&project_id),
             count,
             branch,
@@ -573,11 +592,17 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::GitWorkingTreeStatus { project_id } => ActionRequest::GitWorkingTreeStatus {
             project_id: s(&project_id),
         },
-        ActionRequest::GitStageFile { project_id, file_path } => ActionRequest::GitStageFile {
+        ActionRequest::GitStageFile {
+            project_id,
+            file_path,
+        } => ActionRequest::GitStageFile {
             project_id: s(&project_id),
             file_path,
         },
-        ActionRequest::GitUnstageFile { project_id, file_path } => ActionRequest::GitUnstageFile {
+        ActionRequest::GitUnstageFile {
+            project_id,
+            file_path,
+        } => ActionRequest::GitUnstageFile {
             project_id: s(&project_id),
             file_path,
         },
@@ -587,12 +612,21 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::GitUnstageAll { project_id } => ActionRequest::GitUnstageAll {
             project_id: s(&project_id),
         },
-        ActionRequest::GitDiscardFile { project_id, file_path, is_untracked } => ActionRequest::GitDiscardFile {
+        ActionRequest::GitDiscardFile {
+            project_id,
+            file_path,
+            is_untracked,
+        } => ActionRequest::GitDiscardFile {
             project_id: s(&project_id),
             file_path,
             is_untracked,
         },
-        ActionRequest::GitCommit { project_id, message, amend, signoff } => ActionRequest::GitCommit {
+        ActionRequest::GitCommit {
+            project_id,
+            message,
+            amend,
+            signoff,
+        } => ActionRequest::GitCommit {
             project_id: s(&project_id),
             message,
             amend,
@@ -610,44 +644,73 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::GitPush { project_id } => ActionRequest::GitPush {
             project_id: s(&project_id),
         },
-        ActionRequest::ListFiles { project_id, show_ignored, show_hidden } => ActionRequest::ListFiles {
+        ActionRequest::ListFiles {
+            project_id,
+            show_ignored,
+            show_hidden,
+        } => ActionRequest::ListFiles {
             project_id: s(&project_id),
             show_ignored,
             show_hidden,
         },
-        ActionRequest::ReadFile { project_id, relative_path } => ActionRequest::ReadFile {
+        ActionRequest::ReadFile {
+            project_id,
+            relative_path,
+        } => ActionRequest::ReadFile {
             project_id: s(&project_id),
             relative_path,
         },
-        ActionRequest::FileSize { project_id, relative_path } => ActionRequest::FileSize {
+        ActionRequest::FileSize {
+            project_id,
+            relative_path,
+        } => ActionRequest::FileSize {
             project_id: s(&project_id),
             relative_path,
         },
-        ActionRequest::SearchContent { project_id, query, case_sensitive, mode, max_results, file_glob, context_lines } => {
-            ActionRequest::SearchContent {
-                project_id: s(&project_id),
-                query,
-                case_sensitive,
-                mode,
-                max_results,
-                file_glob,
-                context_lines,
-            }
-        }
-        ActionRequest::RenameFile { project_id, relative_path, new_name } => ActionRequest::RenameFile {
+        ActionRequest::SearchContent {
+            project_id,
+            query,
+            case_sensitive,
+            mode,
+            max_results,
+            file_glob,
+            context_lines,
+        } => ActionRequest::SearchContent {
+            project_id: s(&project_id),
+            query,
+            case_sensitive,
+            mode,
+            max_results,
+            file_glob,
+            context_lines,
+        },
+        ActionRequest::RenameFile {
+            project_id,
+            relative_path,
+            new_name,
+        } => ActionRequest::RenameFile {
             project_id: s(&project_id),
             relative_path,
             new_name,
         },
-        ActionRequest::DeleteFile { project_id, relative_path } => ActionRequest::DeleteFile {
+        ActionRequest::DeleteFile {
+            project_id,
+            relative_path,
+        } => ActionRequest::DeleteFile {
             project_id: s(&project_id),
             relative_path,
         },
-        ActionRequest::CreateFile { project_id, relative_path } => ActionRequest::CreateFile {
+        ActionRequest::CreateFile {
+            project_id,
+            relative_path,
+        } => ActionRequest::CreateFile {
             project_id: s(&project_id),
             relative_path,
         },
-        ActionRequest::CreateDirectory { project_id, relative_path } => ActionRequest::CreateDirectory {
+        ActionRequest::CreateDirectory {
+            project_id,
+            relative_path,
+        } => ActionRequest::CreateDirectory {
             project_id: s(&project_id),
             relative_path,
         },
@@ -655,30 +718,46 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             project_id: s(&project_id),
             name,
         },
-        ActionRequest::RenameProjectDirectory { project_id, new_name } => ActionRequest::RenameProjectDirectory {
+        ActionRequest::RenameProjectDirectory {
+            project_id,
+            new_name,
+        } => ActionRequest::RenameProjectDirectory {
             project_id: s(&project_id),
             new_name,
         },
         ActionRequest::DeleteProject { project_id } => ActionRequest::DeleteProject {
             project_id: s(&project_id),
         },
-        ActionRequest::SetProjectShowInOverview { project_id, show } => ActionRequest::SetProjectShowInOverview {
-            project_id: s(&project_id),
-            show,
-        },
-        ActionRequest::RemoveWorktreeProject { project_id, force } => ActionRequest::RemoveWorktreeProject {
-            project_id: s(&project_id),
-            force,
-        },
+        ActionRequest::SetProjectShowInOverview { project_id, show } => {
+            ActionRequest::SetProjectShowInOverview {
+                project_id: s(&project_id),
+                show,
+            }
+        }
+        ActionRequest::RemoveWorktreeProject { project_id, force } => {
+            ActionRequest::RemoveWorktreeProject {
+                project_id: s(&project_id),
+                force,
+            }
+        }
         ActionRequest::CreateFolder { name } => ActionRequest::CreateFolder { name },
         ActionRequest::DeleteFolder { folder_id } => ActionRequest::DeleteFolder { folder_id },
-        ActionRequest::RenameFolder { folder_id, name } => ActionRequest::RenameFolder { folder_id, name },
-        ActionRequest::MoveProjectToFolder { project_id, folder_id, position } => ActionRequest::MoveProjectToFolder {
+        ActionRequest::RenameFolder { folder_id, name } => {
+            ActionRequest::RenameFolder { folder_id, name }
+        }
+        ActionRequest::MoveProjectToFolder {
+            project_id,
+            folder_id,
+            position,
+        } => ActionRequest::MoveProjectToFolder {
             project_id: s(&project_id),
             folder_id,
             position,
         },
-        ActionRequest::MoveProjectOutOfFolder { project_id, top_level_index } => ActionRequest::MoveProjectOutOfFolder {
+        ActionRequest::MoveProjectOutOfFolder {
+            project_id,
+            top_level_index,
+        } => ActionRequest::MoveProjectOutOfFolder {
             project_id: s(&project_id),
             top_level_index,
         },

@@ -1,11 +1,10 @@
-use vryn_extensions::ThemeColors;
-use vryn_ui::tokens::ui_text_sm;
 use gpui::*;
 use gpui_component::h_flex;
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use vryn_extensions::ThemeColors;
+use vryn_ui::tokens::ui_text_sm;
 
 /// Status of the update process.
 #[derive(Clone, Debug)]
@@ -191,11 +190,19 @@ fn theme(cx: &App) -> ThemeColors {
 
 fn open_url(url: &str) {
     #[cfg(target_os = "macos")]
-    { let _ = std::process::Command::new("open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
     #[cfg(target_os = "linux")]
-    { let _ = std::process::Command::new("xdg-open").arg(url).spawn(); }
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
     #[cfg(windows)]
-    { let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn(); }
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn();
+    }
 }
 
 /// Status bar widget that shows update status.
@@ -211,7 +218,9 @@ impl UpdateStatusWidget {
             crate::update_checker::start_update_checker(info, cx);
         }
 
-        Self { _subscription: None }
+        Self {
+            _subscription: None,
+        }
     }
 }
 
@@ -255,7 +264,8 @@ impl Render for UpdateStatusWidget {
                                         cx.spawn(async move |_this, cx| {
                                             let result = smol::unblock({
                                                 move || crate::installer::install_update(&path)
-                                            }).await;
+                                            })
+                                            .await;
                                             match result {
                                                 Ok(_) => {
                                                     info.set_status(UpdateStatus::ReadyToRestart {
@@ -270,10 +280,11 @@ impl Render for UpdateStatusWidget {
                                                 }
                                             }
                                             let _ = _this.update(cx, |_, cx| cx.notify());
-                                        }).detach();
+                                        })
+                                        .detach();
                                     }
                                 }
-                            }))
+                            })),
                     )
                     .child(
                         div()
@@ -284,53 +295,45 @@ impl Render for UpdateStatusWidget {
                             .child("What's new")
                             .on_click(move |_, _, _cx| {
                                 open_url(&release_url);
-                            })
+                            }),
                     )
                     .into_any_element()
             }
-            UpdateStatus::Installing { version } => {
-                div()
-                    .px(px(6.0))
-                    .py(px(1.0))
-                    .text_color(rgb(t.term_yellow))
-                    .text_size(ui_text_sm(cx))
-                    .child(format!("Installing v{}...", version))
-                    .into_any_element()
-            }
-            UpdateStatus::ReadyToRestart { .. } => {
-                div()
-                    .id("update-restart")
-                    .cursor_pointer()
-                    .px(px(6.0))
-                    .py(px(1.0))
-                    .text_color(rgb(t.term_green))
-                    .text_size(ui_text_sm(cx))
-                    .child("Restart to update")
-                    .on_click(move |_, _, cx| {
-                        crate::installer::restart_app(cx);
-                    })
-                    .into_any_element()
-            }
-            UpdateStatus::Downloading { version, progress } => {
-                h_flex()
-                    .gap(px(4.0))
-                    .child(
-                        div()
-                            .text_color(rgb(t.term_yellow))
-                            .text_size(ui_text_sm(cx))
-                            .child(format!("Downloading v{}... {}%", version, progress))
-                    )
-                    .into_any_element()
-            }
-            UpdateStatus::Checking => {
-                div()
-                    .px(px(6.0))
-                    .py(px(1.0))
-                    .text_color(rgb(t.text_muted))
-                    .text_size(ui_text_sm(cx))
-                    .child("Checking for updates...")
-                    .into_any_element()
-            }
+            UpdateStatus::Installing { version } => div()
+                .px(px(6.0))
+                .py(px(1.0))
+                .text_color(rgb(t.term_yellow))
+                .text_size(ui_text_sm(cx))
+                .child(format!("Installing v{}...", version))
+                .into_any_element(),
+            UpdateStatus::ReadyToRestart { .. } => div()
+                .id("update-restart")
+                .cursor_pointer()
+                .px(px(6.0))
+                .py(px(1.0))
+                .text_color(rgb(t.term_green))
+                .text_size(ui_text_sm(cx))
+                .child("Restart to update")
+                .on_click(move |_, _, cx| {
+                    crate::installer::restart_app(cx);
+                })
+                .into_any_element(),
+            UpdateStatus::Downloading { version, progress } => h_flex()
+                .gap(px(4.0))
+                .child(
+                    div()
+                        .text_color(rgb(t.term_yellow))
+                        .text_size(ui_text_sm(cx))
+                        .child(format!("Downloading v{}... {}%", version, progress)),
+                )
+                .into_any_element(),
+            UpdateStatus::Checking => div()
+                .px(px(6.0))
+                .py(px(1.0))
+                .text_color(rgb(t.text_muted))
+                .text_size(ui_text_sm(cx))
+                .child("Checking for updates...")
+                .into_any_element(),
             UpdateStatus::Failed { ref error } => {
                 let info_dismiss = info.clone();
                 div()
@@ -342,7 +345,7 @@ impl Render for UpdateStatusWidget {
                         div()
                             .text_color(rgb(t.term_red))
                             .text_size(ui_text_sm(cx))
-                            .child(format!("Update failed: {}", error))
+                            .child(format!("Update failed: {}", error)),
                     )
                     .child(
                         div()
@@ -353,7 +356,7 @@ impl Render for UpdateStatusWidget {
                             .child("x")
                             .on_click(move |_, _, _cx| {
                                 info_dismiss.dismiss();
-                            })
+                            }),
                     )
                     .into_any_element()
             }
@@ -368,7 +371,7 @@ impl Render for UpdateStatusWidget {
                         div()
                             .text_color(rgb(t.text_muted))
                             .text_size(ui_text_sm(cx))
-                            .child(format!("v{} — brew upgrade vryn", version))
+                            .child(format!("v{} — brew upgrade vryn", version)),
                     )
                     .child(
                         div()
@@ -379,7 +382,7 @@ impl Render for UpdateStatusWidget {
                             .child("x")
                             .on_click(move |_, _, _cx| {
                                 info_dismiss.dismiss();
-                            })
+                            }),
                     )
                     .into_any_element()
             }
@@ -387,4 +390,3 @@ impl Render for UpdateStatusWidget {
         }
     }
 }
-

@@ -38,9 +38,7 @@ pub fn compute_visible_projects<'a>(
             .filter(|p| {
                 p.worktree_info
                     .as_ref()
-                    .is_some_and(|wi| {
-                        folder_project_ids.contains(wi.parent_project_id.as_str())
-                    })
+                    .is_some_and(|wi| folder_project_ids.contains(wi.parent_project_id.as_str()))
             })
             .map(|p| p.id.as_str())
             .collect()
@@ -53,23 +51,24 @@ pub fn compute_visible_projects<'a>(
         if let Some(folder) = data.folders.iter().find(|f| f.id == *id) {
             // When folder filter is active, skip folders that don't match
             if let Some(filter_id) = folder_filter
-                && &folder.id != filter_id {
-                    // Still allow the focused project (or its worktree) through
-                    if focused.is_some() {
-                        for pid in &folder.project_ids {
-                            if let Some(p) = data.projects.iter().find(|p| &p.id == pid) {
-                                push_project_with_worktrees(
-                                    data,
-                                    p,
-                                    focused,
-                                    focus_individual,
-                                    &mut result,
-                                );
-                            }
+                && &folder.id != filter_id
+            {
+                // Still allow the focused project (or its worktree) through
+                if focused.is_some() {
+                    for pid in &folder.project_ids {
+                        if let Some(p) = data.projects.iter().find(|p| &p.id == pid) {
+                            push_project_with_worktrees(
+                                data,
+                                p,
+                                focused,
+                                focus_individual,
+                                &mut result,
+                            );
                         }
                     }
-                    continue;
                 }
+                continue;
+            }
             // Folder: include its projects and their worktree children.
             // Worktree children live in project_order (not folder.project_ids),
             // so we expand them here to keep them positioned within their folder's section.
@@ -115,9 +114,12 @@ pub fn compute_visible_projects<'a>(
         let mut map: HashMap<&str, Vec<&ProjectData>> = HashMap::new();
         for p in &result {
             if let Some(ref wi) = p.worktree_info
-                && result_ids.contains(wi.parent_project_id.as_str()) {
-                    map.entry(wi.parent_project_id.as_str()).or_default().push(p);
-                }
+                && result_ids.contains(wi.parent_project_id.as_str())
+            {
+                map.entry(wi.parent_project_id.as_str())
+                    .or_default()
+                    .push(p);
+            }
         }
         map
     };
@@ -190,9 +192,9 @@ mod tests {
     use super::*;
     use crate::settings::HooksConfig;
     use crate::state::{FolderData, LayoutNode, WorktreeMetadata};
+    use std::collections::HashMap;
     use vryn_core::theme::FolderColor;
     use vryn_terminal::shell_config::ShellType;
-    use std::collections::HashMap;
 
     fn make_project(id: &str, visible: bool) -> ProjectData {
         ProjectData {

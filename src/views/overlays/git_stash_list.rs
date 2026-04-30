@@ -10,11 +10,11 @@ use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
-use vryn_core::theme::ThemeColors;
-use vryn_git::{format_relative_time, StashEntry};
-use vryn_views_git::diff_viewer::provider::GitProvider;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use vryn_core::theme::ThemeColors;
+use vryn_git::{StashEntry, format_relative_time};
+use vryn_views_git::diff_viewer::provider::GitProvider;
 
 pub enum GitStashListEvent {
     /// Overlay was dismissed. Carries the project_id so the git header
@@ -76,8 +76,7 @@ impl GitStashList {
                         this.last_error = None;
                         // Drop cached patches/expansions for indices no longer
                         // present (e.g., after a drop renumbered them).
-                        let valid: HashSet<usize> =
-                            this.entries.iter().map(|e| e.index).collect();
+                        let valid: HashSet<usize> = this.entries.iter().map(|e| e.index).collect();
                         this.expanded.retain(|i| valid.contains(i));
                         this.patches.retain(|i, _| valid.contains(i));
                     }
@@ -174,7 +173,8 @@ impl GitStashList {
                         this.patches.insert(index, text);
                     }
                     Err(e) => {
-                        this.patches.insert(index, format!("Failed to load patch: {}", e));
+                        this.patches
+                            .insert(index, format!("Failed to load patch: {}", e));
                     }
                 }
                 cx.notify();
@@ -205,41 +205,44 @@ impl Render for GitStashList {
             .absolute()
             .inset_0()
             .id("git-stash-list-backdrop")
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
-            .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _window, cx| {
-                this.close(cx);
-            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _, _window, cx| {
+                    this.close(cx);
+                }),
+            )
             .child(deferred(
-                anchored()
-                    .position(position)
-                    .snap_to_window()
-                    .child(
-                        div()
-                            .id("git-stash-list-panel")
-                            .occlude()
-                            .min_w(px(420.0))
-                            .max_w(px(640.0))
-                            .max_h(px(520.0))
-                            .overflow_y_scroll()
-                            .bg(rgb(t.bg_primary))
-                            .border_1()
-                            .border_color(rgb(t.border))
-                            .rounded(px(8.0))
-                            .shadow_xl()
-                            .py(px(8.0))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_mouse_down(MouseButton::Right, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .on_scroll_wheel(|_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .child(panel_body),
-                    ),
+                anchored().position(position).snap_to_window().child(
+                    div()
+                        .id("git-stash-list-panel")
+                        .occlude()
+                        .min_w(px(420.0))
+                        .max_w(px(640.0))
+                        .max_h(px(520.0))
+                        .overflow_y_scroll()
+                        .bg(rgb(t.bg_primary))
+                        .border_1()
+                        .border_color(rgb(t.border))
+                        .rounded(px(8.0))
+                        .shadow_xl()
+                        .py(px(8.0))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_scroll_wheel(|_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .child(panel_body),
+                ),
             ))
     }
 }
@@ -334,12 +337,26 @@ impl GitStashList {
             .child(
                 gpui_component::h_flex()
                     .gap(px(6.0))
-                    .child(action_pill("gsl-apply", index, "Apply", t, cx, |this, idx, cx| {
-                        this.apply(idx, cx);
-                    }))
-                    .child(action_pill("gsl-pop", index, "Pop", t, cx, |this, idx, cx| {
-                        this.pop(idx, cx);
-                    }))
+                    .child(action_pill(
+                        "gsl-apply",
+                        index,
+                        "Apply",
+                        t,
+                        cx,
+                        |this, idx, cx| {
+                            this.apply(idx, cx);
+                        },
+                    ))
+                    .child(action_pill(
+                        "gsl-pop",
+                        index,
+                        "Pop",
+                        t,
+                        cx,
+                        |this, idx, cx| {
+                            this.pop(idx, cx);
+                        },
+                    ))
                     .child(action_pill_destructive(
                         "gsl-drop",
                         index,

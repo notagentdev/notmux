@@ -1,14 +1,14 @@
 use crate::terminal_view_settings;
-use vryn_terminal::terminal::Terminal;
-use vryn_files::theme::theme;
-use vryn_ui::theme::ansi_to_hsla;
-use vryn_ui::color_utils::tint_color;
-use vryn_workspace::settings::CursorShape;
-use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::term::cell::Flags;
 use gpui::*;
 use std::sync::Arc;
+use vryn_files::theme::theme;
+use vryn_terminal::terminal::Terminal;
+use vryn_ui::color_utils::tint_color;
+use vryn_ui::theme::ansi_to_hsla;
+use vryn_workspace::settings::CursorShape;
 
 use super::terminal_input::TerminalInputHandler;
 use super::terminal_rendering::{BatchedTextRun, LayoutRect, is_default_bg};
@@ -27,10 +27,7 @@ pub enum LinkKind {
     /// A web URL (http/https)
     Url,
     /// A file path, optionally with line and column numbers
-    FilePath {
-        line: Option<u32>,
-        col: Option<u32>,
-    },
+    FilePath { line: Option<u32>, col: Option<u32> },
 }
 
 /// A detected URL or file path in the terminal grid
@@ -212,7 +209,8 @@ impl Element for TerminalElement {
         let font_id = text_system.resolve_font(&font);
 
         // Use advance() for proper cell width (like Zed)
-        let cell_width = text_system.advance(font_id, font_size, 'm')
+        let cell_width = text_system
+            .advance(font_id, font_size, 'm')
             .map(|size| size.width)
             .unwrap_or(font_size * 0.6);
 
@@ -365,28 +363,31 @@ impl Element for TerminalElement {
                         std::mem::swap(&mut fg, &mut bg);
                     }
 
-                    let is_selected = if let Some(((start_col, start_row), (end_col, end_row))) = selection {
-                        let (start_row, start_col, end_row, end_col) = if start_row < end_row || (start_row == end_row && start_col <= end_col) {
-                            (start_row, start_col, end_row, end_col)
-                        } else {
-                            (end_row, end_col, start_row, start_col)
-                        };
-                        if buffer_line >= start_row && buffer_line <= end_row {
-                            if start_row == end_row {
-                                col >= start_col && col <= end_col
-                            } else if buffer_line == start_row {
-                                col >= start_col
-                            } else if buffer_line == end_row {
-                                col <= end_col
+                    let is_selected =
+                        if let Some(((start_col, start_row), (end_col, end_row))) = selection {
+                            let (start_row, start_col, end_row, end_col) = if start_row < end_row
+                                || (start_row == end_row && start_col <= end_col)
+                            {
+                                (start_row, start_col, end_row, end_col)
                             } else {
-                                true
+                                (end_row, end_col, start_row, start_col)
+                            };
+                            if buffer_line >= start_row && buffer_line <= end_row {
+                                if start_row == end_row {
+                                    col >= start_col && col <= end_col
+                                } else if buffer_line == start_row {
+                                    col >= start_col
+                                } else if buffer_line == end_row {
+                                    col <= end_col
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
                             }
                         } else {
                             false
-                        }
-                    } else {
-                        false
-                    };
+                        };
 
                     let bg_color = if is_selected {
                         Some(rgb(t.selection_bg).into())
@@ -398,10 +399,17 @@ impl Element for TerminalElement {
 
                     if let Some(color) = bg_color {
                         if let Some(ref mut rect) = current_rect {
-                            if rect.line == visual_line && rect.start_col + rect.num_cells as i32 == col_i32 && rect.color == color {
+                            if rect.line == visual_line
+                                && rect.start_col + rect.num_cells as i32 == col_i32
+                                && rect.color == color
+                            {
                                 rect.extend();
                             } else {
-                                rects.push(current_rect.take().expect("guarded by if let Some(ref mut rect) above"));
+                                rects.push(
+                                    current_rect
+                                        .take()
+                                        .expect("guarded by if let Some(ref mut rect) above"),
+                                );
                                 current_rect = Some(LayoutRect::new(visual_line, col_i32, color));
                             }
                         } else {
@@ -414,7 +422,8 @@ impl Element for TerminalElement {
                     if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                         continue;
                     }
-                    if cell.c == ' ' && !cell.flags.intersects(Flags::UNDERLINE | Flags::STRIKEOUT) {
+                    if cell.c == ' ' && !cell.flags.intersects(Flags::UNDERLINE | Flags::STRIKEOUT)
+                    {
                         continue;
                     }
 
@@ -465,11 +474,25 @@ impl Element for TerminalElement {
                         if batch.can_append(&text_style, visual_line, col_i32) {
                             batch.append_char(cell.c);
                         } else {
-                            batched_runs.push(current_batch.take().expect("guarded by if let Some(ref mut batch) above"));
-                            current_batch = Some(BatchedTextRun::new(visual_line, col_i32, cell.c, text_style));
+                            batched_runs.push(
+                                current_batch
+                                    .take()
+                                    .expect("guarded by if let Some(ref mut batch) above"),
+                            );
+                            current_batch = Some(BatchedTextRun::new(
+                                visual_line,
+                                col_i32,
+                                cell.c,
+                                text_style,
+                            ));
                         }
                     } else {
-                        current_batch = Some(BatchedTextRun::new(visual_line, col_i32, cell.c, text_style));
+                        current_batch = Some(BatchedTextRun::new(
+                            visual_line,
+                            col_i32,
+                            cell.c,
+                            text_style,
+                        ));
                     }
                 }
             }
@@ -497,10 +520,20 @@ impl Element for TerminalElement {
                 let is_current = self.current_match_index == Some(idx);
                 let highlight_color = if is_current {
                     let c = rgb(t.search_current_bg);
-                    Hsla::from(Rgba { r: c.r, g: c.g, b: c.b, a: 0.7 })
+                    Hsla::from(Rgba {
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: 0.7,
+                    })
                 } else {
                     let c = rgb(t.search_match_bg);
-                    Hsla::from(Rgba { r: c.r, g: c.g, b: c.b, a: 0.5 })
+                    Hsla::from(Rgba {
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: 0.5,
+                    })
                 };
 
                 let position = point(
@@ -528,7 +561,12 @@ impl Element for TerminalElement {
                 let url_width = px((cell_width_f * url_match.len as f32).ceil());
 
                 if is_hovered {
-                    let hover_bg = Hsla::from(Rgba { r: 0.0, g: 0.48, b: 0.8, a: 0.2 });
+                    let hover_bg = Hsla::from(Rgba {
+                        r: 0.0,
+                        g: 0.48,
+                        b: 0.8,
+                        a: 0.2,
+                    });
                     let hover_bounds = Bounds {
                         origin: point(url_x, url_y),
                         size: size(url_width, line_height),
@@ -543,7 +581,12 @@ impl Element for TerminalElement {
                     };
                     window.paint_quad(fill(underline_bounds, underline_color));
                 } else {
-                    let underline_color = Hsla::from(Rgba { r: 0.5, g: 0.5, b: 0.5, a: 0.5 });
+                    let underline_color = Hsla::from(Rgba {
+                        r: 0.5,
+                        g: 0.5,
+                        b: 0.5,
+                        a: 0.5,
+                    });
                     let underline_y = url_y + line_height - px(2.0);
                     let underline_bounds = Bounds {
                         origin: point(url_x, underline_y),
@@ -564,12 +607,19 @@ impl Element for TerminalElement {
                 let cursor_visual_line = cursor_point.line.0 + display_offset;
 
                 if cursor_visual_line >= 0 && cursor_visual_line < screen_lines as i32 {
-                    let cursor_x = px((f32::from(origin.x) + cursor_point.column.0 as f32 * cell_width_f).floor());
-                    let cursor_y = px((f32::from(origin.y) + cursor_visual_line as f32 * line_height_f).floor());
+                    let cursor_x = px((f32::from(origin.x)
+                        + cursor_point.column.0 as f32 * cell_width_f)
+                        .floor());
+                    let cursor_y = px((f32::from(origin.y)
+                        + cursor_visual_line as f32 * line_height_f)
+                        .floor());
 
                     let cursor_rgba = rgb(t.cursor);
                     let cursor_color = Hsla::from(Rgba {
-                        r: cursor_rgba.r, g: cursor_rgba.g, b: cursor_rgba.b, a: 0.8,
+                        r: cursor_rgba.r,
+                        g: cursor_rgba.g,
+                        b: cursor_rgba.b,
+                        a: 0.8,
                     });
 
                     let cursor_bounds = match cursor_style {
@@ -595,7 +645,10 @@ impl Element for TerminalElement {
         if !is_focused {
             let bg_rgba = rgb(bg_color);
             let fog = Hsla::from(Rgba {
-                r: bg_rgba.r, g: bg_rgba.g, b: bg_rgba.b, a: 0.2,
+                r: bg_rgba.r,
+                g: bg_rgba.g,
+                b: bg_rgba.b,
+                a: 0.2,
             });
             window.paint_quad(fill(bounds, fog));
         }

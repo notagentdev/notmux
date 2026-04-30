@@ -2,16 +2,207 @@
 
 use super::types::{DiffViewMode, FileTreeNode};
 use super::{DiffViewer, SIDEBAR_WIDTH};
-use vryn_core::theme::ThemeColors;
-use vryn_ui::toggle::segmented_toggle;
-use vryn_ui::tokens::{ui_text_sm, ui_text_ms, ui_text_md, ui_text_xl, ui_text};
-use vryn_git::DiffMode;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
 use std::sync::Arc;
+use vryn_core::theme::ThemeColors;
+use vryn_git::DiffMode;
+use vryn_ui::header_buttons::HeaderAction;
+use vryn_ui::toggle::segmented_toggle;
+use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 
 impl DiffViewer {
+    /// Alpha-blend `fg` over `bg` and return opaque RGB u32.
+    fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
+        let a = alpha as u32;
+        let inv = 255 - a;
+        let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
+        let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
+        let b = (fg & 0xff) * a + (bg & 0xff) * inv;
+        (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
+    }
+
+    fn embedded_header_bg(t: &ThemeColors) -> u32 {
+        Self::blend_u32(t.text_primary, 0x14, t.term_background)
+    }
+
+    pub(super) fn render_embedded_header(
+        &self,
+        file_path: &str,
+        added: usize,
+        removed: usize,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let filename = file_path.rsplit('/').next().unwrap_or(file_path);
+        let dir = file_path.rfind('/').map(|i| &file_path[..=i]).unwrap_or("");
+
+        div()
+            .group("main-diff-header")
+            .flex_shrink_0()
+            .h(px(34.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .border_t_1()
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(Self::embedded_header_bg(t)))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        svg()
+                            .path("icons/diff-multiple.svg")
+                            .size(px(13.0))
+                            .text_color(rgb(t.text_muted)),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_baseline()
+                            .gap(px(6.0))
+                            .text_size(ui_text_md(cx))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .text_color(rgb(t.text_primary))
+                                    .text_ellipsis()
+                                    .overflow_hidden()
+                                    .flex_shrink_0()
+                                    .child(filename.to_string()),
+                            )
+                            .when(!dir.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_color(rgb(t.text_muted))
+                                        .text_ellipsis()
+                                        .overflow_hidden()
+                                        .min_w_0()
+                                        .child(dir.to_string()),
+                                )
+                            })
+                            .when(added > 0 || removed > 0, |d| {
+                                d.child(
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .gap(px(6.0))
+                                        .text_size(ui_text_sm(cx))
+                                        .child(
+                                            div()
+                                                .text_color(rgb(t.diff_added_fg))
+                                                .child(format!("+{}", added)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_color(rgb(t.diff_removed_fg))
+                                                .child(format!("-{}", removed)),
+                                        ),
+                                )
+                            }),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap(px(2.0))
+                    .opacity(0.0)
+                    .group_hover("main-diff-header", |s| s.opacity(1.0))
+                    .child(self.render_embedded_view_button(
+                        "unified",
+                        "icons/split-horizontal.svg",
+                        "Unified Diff",
+                        DiffViewMode::Unified,
+                        t,
+                        cx,
+                    ))
+                    .child(self.render_embedded_view_button(
+                        "split",
+                        "icons/split-vertical.svg",
+                        "Split Diff",
+                        DiffViewMode::SideBySide,
+                        t,
+                        cx,
+                    ))
+                    .child(
+                        self.render_embedded_icon_button(
+                            "close",
+                            HeaderAction::Close.icon(),
+                            "Close Diff",
+                            false,
+                            t,
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, _window, cx| this.close(cx))),
+                    ),
+            )
+    }
+
+    fn render_embedded_view_button(
+        &self,
+        id: &'static str,
+        icon_path: &'static str,
+        tooltip_text: &'static str,
+        mode: DiffViewMode,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.view_mode == mode;
+        self.render_embedded_icon_button(id, icon_path, tooltip_text, active, t, cx)
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.set_view_mode(mode, cx);
+            }))
+    }
+
+    fn render_embedded_icon_button(
+        &self,
+        id: &'static str,
+        icon_path: &'static str,
+        tooltip_text: &'static str,
+        active: bool,
+        t: &ThemeColors,
+        _cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        use gpui_component::tooltip::Tooltip;
+
+        div()
+            .id(format!("main-diff-{}", id))
+            .w(px(24.0))
+            .h(px(24.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .cursor_pointer()
+            .bg(rgb(if active {
+                t.bg_hover
+            } else {
+                Self::embedded_header_bg(t)
+            }))
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(14.0))
+                    .text_color(rgb(if active {
+                        t.border_active
+                    } else {
+                        t.text_secondary
+                    })),
+            )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_header(
         &self,
@@ -26,7 +217,10 @@ impl DiffViewer {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let is_working = *diff_mode == DiffMode::WorkingTree;
-        let hide_mode_toggle = matches!(diff_mode, DiffMode::Commit(_) | DiffMode::BranchCompare { .. });
+        let hide_mode_toggle = matches!(
+            diff_mode,
+            DiffMode::Commit(_) | DiffMode::BranchCompare { .. }
+        );
         let is_unified = self.view_mode == DiffViewMode::Unified;
 
         div()
@@ -45,7 +239,9 @@ impl DiffViewer {
                     .child({
                         let title = match diff_mode {
                             DiffMode::Commit(_) => commit_message.unwrap_or("Commit").to_string(),
-                            DiffMode::BranchCompare { base, head } => format!("{base} \u{2192} {head}"),
+                            DiffMode::BranchCompare { base, head } => {
+                                format!("{base} \u{2192} {head}")
+                            }
                             _ => "Changes".to_string(),
                         };
                         div()
@@ -66,7 +262,11 @@ impl DiffViewer {
                             None
                         },
                         |d, hash| {
-                            let short = if hash.len() > 7 { hash[..7].to_string() } else { hash.clone() };
+                            let short = if hash.len() > 7 {
+                                hash[..7].to_string()
+                            } else {
+                                hash.clone()
+                            };
                             d.child(
                                 div()
                                     .id("commit-hash-copy")
@@ -79,9 +279,14 @@ impl DiffViewer {
                                     .rounded(px(4.0))
                                     .hover(|s| s.bg(rgb(t.bg_hover)))
                                     .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()));
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            hash.clone(),
+                                        ));
                                     })
-                                    .tooltip(|_window, cx| gpui_component::tooltip::Tooltip::new("Copy commit hash").build(_window, cx))
+                                    .tooltip(|_window, cx| {
+                                        gpui_component::tooltip::Tooltip::new("Copy commit hash")
+                                            .build(_window, cx)
+                                    })
                                     .child(short),
                             )
                         },
@@ -141,9 +346,11 @@ impl DiffViewer {
                                 t.bg_secondary
                             }))
                             .hover(|s| s.opacity(0.85))
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.toggle_ignore_whitespace(cx)
-                            }))
+                            .on_click(
+                                cx.listener(|this, _, _window, cx| {
+                                    this.toggle_ignore_whitespace(cx)
+                                }),
+                            )
                             .child(
                                 div()
                                     .text_size(ui_text_md(cx))
@@ -156,13 +363,7 @@ impl DiffViewer {
                             ),
                     )
                     // Separator
-                    .child(
-                        div()
-                            .w(px(1.0))
-                            .h(px(20.0))
-                            .bg(rgb(t.border))
-                            .mx(px(4.0)),
-                    )
+                    .child(div().w(px(1.0)).h(px(20.0)).bg(rgb(t.border)).mx(px(4.0)))
                     // View mode toggle
                     .child(
                         div()
@@ -188,13 +389,7 @@ impl DiffViewer {
                         )
                     })
                     // Separator
-                    .child(
-                        div()
-                            .w(px(1.0))
-                            .h(px(20.0))
-                            .bg(rgb(t.border))
-                            .mx(px(4.0)),
-                    )
+                    .child(div().w(px(1.0)).h(px(20.0)).bg(rgb(t.border)).mx(px(4.0)))
                     // Close button
                     .child(
                         div()
@@ -219,7 +414,11 @@ impl DiffViewer {
     }
 
     /// Commit navigation bar: prev/next arrows, author, date, hash, position indicator.
-    pub(super) fn render_commit_info_bar(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_commit_info_bar(
+        &self,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         use gpui_component::tooltip::Tooltip;
 
         let commit = self.commits.get(self.commit_index);
@@ -239,7 +438,11 @@ impl DiffViewer {
             .child(
                 div()
                     .id("commit-nav-prev")
-                    .cursor(if can_prev { CursorStyle::PointingHand } else { CursorStyle::default() })
+                    .cursor(if can_prev {
+                        CursorStyle::PointingHand
+                    } else {
+                        CursorStyle::default()
+                    })
                     .w(px(24.0))
                     .h(px(22.0))
                     .flex()
@@ -248,12 +451,18 @@ impl DiffViewer {
                     .rounded(px(4.0))
                     .when(can_prev, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
                     .text_size(ui_text_md(cx))
-                    .text_color(rgb(if can_prev { t.text_secondary } else { t.text_muted }))
+                    .text_color(rgb(if can_prev {
+                        t.text_secondary
+                    } else {
+                        t.text_muted
+                    }))
                     .when(can_prev, |d| {
                         d.on_click(cx.listener(|this, _, _window, cx| this.prev_commit(cx)))
                     })
                     .child("\u{25C0}")
-                    .tooltip(move |_window, cx| Tooltip::new("Previous commit  [").build(_window, cx)),
+                    .tooltip(move |_window, cx| {
+                        Tooltip::new("Previous commit  [").build(_window, cx)
+                    }),
             )
             // Position
             .child(
@@ -268,7 +477,11 @@ impl DiffViewer {
             .child(
                 div()
                     .id("commit-nav-next")
-                    .cursor(if can_next { CursorStyle::PointingHand } else { CursorStyle::default() })
+                    .cursor(if can_next {
+                        CursorStyle::PointingHand
+                    } else {
+                        CursorStyle::default()
+                    })
                     .w(px(24.0))
                     .h(px(22.0))
                     .flex()
@@ -277,7 +490,11 @@ impl DiffViewer {
                     .rounded(px(4.0))
                     .when(can_next, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
                     .text_size(ui_text_md(cx))
-                    .text_color(rgb(if can_next { t.text_secondary } else { t.text_muted }))
+                    .text_color(rgb(if can_next {
+                        t.text_secondary
+                    } else {
+                        t.text_muted
+                    }))
                     .when(can_next, |d| {
                         d.on_click(cx.listener(|this, _, _window, cx| this.next_commit(cx)))
                     })
@@ -289,7 +506,11 @@ impl DiffViewer {
             // Commit metadata
             .when_some(commit.cloned(), |d, commit| {
                 let hash = commit.hash.clone();
-                let short = if hash.len() > 7 { hash[..7].to_string() } else { hash.clone() };
+                let short = if hash.len() > 7 {
+                    hash[..7].to_string()
+                } else {
+                    hash.clone()
+                };
                 let time_str = vryn_git::format_relative_time(commit.timestamp);
                 d
                     // Hash (clickable, copies to clipboard)
@@ -349,46 +570,90 @@ impl DiffViewer {
             .min_h_0()
             .when(loading, |d| {
                 d.child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .text_size(ui_text_xl(cx))
-                                .text_color(rgb(t.text_muted))
-                                .child("Loading..."),
-                        ),
+                    div().flex_1().flex().items_center().justify_center().child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child("Loading..."),
+                    ),
                 )
             })
             .when(!loading && has_error, |d| {
                 d.child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .text_size(ui_text_xl(cx))
-                                .text_color(rgb(t.text_muted))
-                                .child(error_message.unwrap_or_default()),
-                        ),
+                    div().flex_1().flex().items_center().justify_center().child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(error_message.unwrap_or_default()),
+                    ),
                 )
             })
             .when(!loading && !has_error && has_files, |d| {
-                d.child(self.render_sidebar(t, tree_elements, cx)).child(
-                    self.render_diff_pane(
+                d.child(self.render_sidebar(t, tree_elements, cx))
+                    .child(self.render_diff_pane(
                         t,
                         is_binary,
                         file_path,
                         line_count,
                         gutter_width,
                         theme_colors,
+                        true,
                         cx,
+                    ))
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_embedded_content(
+        &mut self,
+        t: &ThemeColors,
+        loading: bool,
+        has_error: bool,
+        error_message: Option<String>,
+        has_files: bool,
+        is_binary: bool,
+        file_path: String,
+        line_count: usize,
+        gutter_width: f32,
+        theme_colors: Arc<ThemeColors>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .min_h_0()
+            .min_w_0()
+            .when(loading, |d| {
+                d.child(
+                    div().flex_1().flex().items_center().justify_center().child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child("Loading..."),
                     ),
                 )
+            })
+            .when(!loading && has_error, |d| {
+                d.child(
+                    div().flex_1().flex().items_center().justify_center().child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(error_message.unwrap_or_default()),
+                    ),
+                )
+            })
+            .when(!loading && !has_error && has_files, |d| {
+                d.child(self.render_diff_pane(
+                    t,
+                    is_binary,
+                    file_path,
+                    line_count,
+                    gutter_width,
+                    theme_colors,
+                    false,
+                    cx,
+                ))
             })
     }
 
@@ -438,6 +703,7 @@ impl DiffViewer {
         line_count: usize,
         gutter_width: f32,
         theme_colors: Arc<ThemeColors>,
+        show_file_header: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let scrollbar_geometry = self.get_scrollbar_geometry();
@@ -475,31 +741,28 @@ impl DiffViewer {
             .flex_col()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .px(px(16.0))
-                    .py(px(10.0))
-                    .border_b_1()
-                    .border_color(rgb(t.border))
-                    .bg(rgb(t.bg_header))
-                    .text_size(ui_text_md(cx))
-                    .font_family("monospace")
-                    .text_color(rgb(t.text_secondary))
-                    .child(file_path),
-            )
-            .when(is_binary, |d| {
+            .when(show_file_header, |d| {
                 d.child(
                     div()
-                        .flex_1()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            div()
-                                .text_size(ui_text_xl(cx))
-                                .text_color(rgb(t.text_muted))
-                                .child("Binary file - cannot display diff"),
-                        ),
+                        .px(px(16.0))
+                        .py(px(10.0))
+                        .border_b_1()
+                        .border_color(rgb(t.border))
+                        .bg(rgb(t.bg_header))
+                        .text_size(ui_text_md(cx))
+                        .font_family("monospace")
+                        .text_color(rgb(t.text_secondary))
+                        .child(file_path),
+                )
+            })
+            .when(is_binary, |d| {
+                d.child(
+                    div().flex_1().flex().items_center().justify_center().child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child("Binary file - cannot display diff"),
+                    ),
                 )
             })
             .when(!is_binary, |d| {
@@ -516,14 +779,12 @@ impl DiffViewer {
                         .child(
                             uniform_list("diff-lines", item_count, move |range, _window, cx| {
                                 let tc = tc.clone();
-                                view.update(cx, |this, cx| {
-                                    match view_mode {
-                                        DiffViewMode::Unified => {
-                                            this.render_visible_lines(range, &tc, gutter_width, cx)
-                                        }
-                                        DiffViewMode::SideBySide => {
-                                            this.render_side_by_side_lines(range, &tc, cx)
-                                        }
+                                view.update(cx, |this, cx| match view_mode {
+                                    DiffViewMode::Unified => {
+                                        this.render_visible_lines(range, &tc, gutter_width, cx)
+                                    }
+                                    DiffViewMode::SideBySide => {
+                                        this.render_side_by_side_lines(range, &tc, cx)
                                     }
                                 })
                             })
@@ -537,13 +798,16 @@ impl DiffViewer {
                                 list.style().restrict_scroll_to_axis = Some(true);
                                 list
                             })
-                            .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _window, cx| {
-                                this.handle_scroll_x(event, cx);
-                            }))
+                            .on_scroll_wheel(cx.listener(
+                                move |this, event: &ScrollWheelEvent, _window, cx| {
+                                    this.handle_scroll_x(event, cx);
+                                },
+                            ))
                             .track_scroll(&self.scroll_handle),
                         )
                         .when(scrollbar_geometry.is_some(), |d| {
-                            let (_, _, thumb_y, thumb_height) = scrollbar_geometry.expect("guarded by is_some() in when()");
+                            let (_, _, thumb_y, thumb_height) =
+                                scrollbar_geometry.expect("guarded by is_some() in when()");
                             d.child(self.render_scrollbar_thumb(
                                 t,
                                 thumb_y,
@@ -767,7 +1031,7 @@ impl DiffViewer {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        use vryn_files::file_tree::{expandable_folder_row, expandable_file_row};
+        use vryn_files::file_tree::{expandable_file_row, expandable_folder_row};
 
         let mut elements: Vec<AnyElement> = Vec::new();
 

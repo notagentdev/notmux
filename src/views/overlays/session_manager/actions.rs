@@ -83,7 +83,8 @@ impl SessionManager {
     }
 
     pub(super) fn confirm_rename(&mut self, cx: &mut Context<Self>) {
-        let new_name = self.rename_input
+        let new_name = self
+            .rename_input
             .as_ref()
             .map(|input| input.read(cx).value().trim().to_string())
             .unwrap_or_default();

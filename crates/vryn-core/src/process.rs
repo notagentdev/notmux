@@ -29,9 +29,10 @@ pub fn safe_output(cmd: &mut std::process::Command) -> std::io::Result<std::proc
                 "unknown panic".to_string()
             };
             log::error!("Command::output() panicked: {}", msg);
-            Err(std::io::Error::other(
-                format!("Command::output() panicked: {}", msg),
-            ))
+            Err(std::io::Error::other(format!(
+                "Command::output() panicked: {}",
+                msg
+            )))
         }
     }
 }
@@ -44,7 +45,8 @@ pub fn safe_output_with_timeout(
     timeout: std::time::Duration,
 ) -> std::io::Result<std::process::Output> {
     // Spawn the child so we can kill it on timeout.
-    let mut child = cmd.stdout(std::process::Stdio::piped())
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
@@ -55,17 +57,29 @@ pub fn safe_output_with_timeout(
         match child.try_wait() {
             Ok(Some(status)) => {
                 // Process finished – collect output.
-                let stdout = child.stdout.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                }).unwrap_or_default();
-                let stderr = child.stderr.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                    buf
-                }).unwrap_or_default();
-                return Ok(std::process::Output { status, stdout, stderr });
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                        buf
+                    })
+                    .unwrap_or_default();
+                return Ok(std::process::Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
