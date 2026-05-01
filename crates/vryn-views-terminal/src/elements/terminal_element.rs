@@ -165,6 +165,7 @@ impl Element for TerminalElement {
             family: font_family.into(),
             features: FontFeatures::disable_ligatures(),
             fallbacks: Some(FontFallbacks::from_fonts(vec![
+                "Cascadia Mono".into(),
                 "JetBrains Mono".into(),
                 "Menlo".into(),
                 "SF Mono".into(),
@@ -179,6 +180,7 @@ impl Element for TerminalElement {
             family: font_family.into(),
             features: FontFeatures::disable_ligatures(),
             fallbacks: Some(FontFallbacks::from_fonts(vec![
+                "Cascadia Mono".into(),
                 "JetBrains Mono".into(),
                 "DejaVu Sans Mono".into(),
                 "Liberation Mono".into(),

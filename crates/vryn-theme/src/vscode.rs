@@ -432,13 +432,22 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     ])
     .unwrap_or(fallback.border);
     let border = ensure_subtle_border(border_raw, bg_primary, text_primary);
-    // "Active" accent: the color drawn for selected tabs, cursor-row indicators,
-    // primary action borders. Zed's converter uses `focusBorder` here.
+    // "Active" accent: the color drawn for selected tabs, splitter hovers,
+    // cursor-row indicators, primary action borders. Prefer explicit accent
+    // surfaces over `focusBorder`: themes like One Dark and Alucard use
+    // `focusBorder` for neutral focus outlines, while `sash.hoverBorder` or
+    // active tab/activity colors carry the actual accent.
     let border_active_raw = look(&[
+        "sash.hoverBorder",
+        "tab.activeBorderTop",
+        "activityBar.activeBorder",
+        "panelTitle.activeBorder",
+        "progressBar.background",
+        "textLink.foreground",
+        "editorLink.activeForeground",
+        "inputOption.activeBorder",
         "tab.activeBorder",
         "focusBorder",
-        "activityBar.activeBorder",
-        "inputOption.activeBorder",
     ])
     .unwrap_or(fallback.border_active);
     let border_active = ensure_visible_border(border_active_raw, bg_primary, text_primary);

@@ -555,9 +555,9 @@ impl ProjectColumn {
                                         })
                                         .child(
                                             svg()
-                                                .path("icons/fullscreen.svg")
+                                                .path("icons/focus.svg")
                                                 .size(px(14.0))
-                                                .text_color(rgb(t.text_secondary)),
+                                                .text_color(rgb(t.border_active)),
                                         )
                                         .tooltip(|_window, cx| {
                                             Tooltip::new("Focus Project").build(_window, cx)

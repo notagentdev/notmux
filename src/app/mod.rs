@@ -248,13 +248,15 @@ impl Vryn {
             rm.start_token_refresh_task(cx);
         });
 
-        // Observe window bounds changes: trigger re-render and persist size.
+        // Observe window bounds changes: trigger re-render and persist size/position.
         cx.observe_window_bounds(window, |_this, window, cx| {
             let bounds = window.window_bounds().get_bounds();
+            let x: f32 = bounds.origin.x.into();
+            let y: f32 = bounds.origin.y.into();
             let w: f32 = bounds.size.width.into();
             let h: f32 = bounds.size.height.into();
             cx.global::<GlobalSettings>().0.clone().update(cx, |s, cx| {
-                s.set_window_size(w, h, cx);
+                s.set_window_bounds(x, y, w, h, cx);
             });
             cx.notify();
         })

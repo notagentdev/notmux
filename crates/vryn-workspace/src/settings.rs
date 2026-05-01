@@ -154,6 +154,10 @@ pub struct WindowSettings {
     pub width: f32,
     #[serde(default = "default_window_height")]
     pub height: f32,
+    #[serde(default)]
+    pub x: Option<f32>,
+    #[serde(default)]
+    pub y: Option<f32>,
 }
 
 impl Default for WindowSettings {
@@ -161,6 +165,8 @@ impl Default for WindowSettings {
         Self {
             width: DEFAULT_WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
+            x: None,
+            y: None,
         }
     }
 }

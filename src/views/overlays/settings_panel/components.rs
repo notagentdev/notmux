@@ -14,6 +14,7 @@ pub use vryn_ui::toggle::toggle_switch;
 /// Available monospace font families
 pub(super) const FONT_FAMILIES: &[&str] = &[
     "JetBrains Mono",
+    "Cascadia Mono",
     "Menlo",
     "SF Mono",
     "Monaco",

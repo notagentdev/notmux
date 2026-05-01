@@ -689,7 +689,10 @@ fn main() {
                     })
                 },
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
-                    origin: Point::default(),
+                    origin: match (app_settings.window.x, app_settings.window.y) {
+                        (Some(x), Some(y)) => Point { x: px(x), y: px(y) },
+                        _ => Point::default(),
+                    },
                     size: size(px(app_settings.window.width), px(app_settings.window.height)),
                 })),
                 is_resizable: true,

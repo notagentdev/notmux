@@ -148,4 +148,17 @@ mod tests {
         assert_ne!(colors.term_magenta, DARK_THEME.term_magenta);
         assert_ne!(colors.term_green, DARK_THEME.term_green);
     }
+
+    #[test]
+    fn onedark_active_border_uses_blue_accent() {
+        let colors = builtin_colors_by_id("builtin-onedark-pro").unwrap();
+        assert_eq!(colors.border_active, 0x61afef);
+    }
+
+    #[test]
+    fn alucard_active_border_uses_purple_sash_accent() {
+        let colors = builtin_colors_by_id("builtin-alucard").unwrap();
+        assert_eq!(colors.border_active, 0x644ac9);
+        assert_eq!(colors.border_focused, 0xbcbab3);
+    }
 }

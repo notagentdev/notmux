@@ -26,6 +26,18 @@ pub fn embedded_fonts() -> Vec<Cow<'static, [u8]>> {
         Assets::get("fonts/JetBrainsMono-BoldItalic.ttf")
             .expect("JetBrainsMono-BoldItalic.ttf not found")
             .data,
+        Assets::get("fonts/CascadiaMono-Regular.ttf")
+            .expect("CascadiaMono-Regular.ttf not found")
+            .data,
+        Assets::get("fonts/CascadiaMono-Bold.ttf")
+            .expect("CascadiaMono-Bold.ttf not found")
+            .data,
+        Assets::get("fonts/CascadiaMono-Italic.ttf")
+            .expect("CascadiaMono-Italic.ttf not found")
+            .data,
+        Assets::get("fonts/CascadiaMono-BoldItalic.ttf")
+            .expect("CascadiaMono-BoldItalic.ttf not found")
+            .data,
     ]
 }
 

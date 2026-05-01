@@ -194,15 +194,36 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
-    /// Set persisted window size (width/height in px).
-    pub fn set_window_size(&mut self, width: f32, height: f32, cx: &mut Context<Self>) {
+    /// Set persisted window bounds in px.
+    pub fn set_window_bounds(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let new_x = x;
+        let new_y = y;
         let new_w = width.max(400.0);
         let new_h = height.max(300.0);
         if (self.settings.window.width - new_w).abs() < 0.5
             && (self.settings.window.height - new_h).abs() < 0.5
+            && self
+                .settings
+                .window
+                .x
+                .is_some_and(|old_x| (old_x - new_x).abs() < 0.5)
+            && self
+                .settings
+                .window
+                .y
+                .is_some_and(|old_y| (old_y - new_y).abs() < 0.5)
         {
             return;
         }
+        self.settings.window.x = Some(new_x);
+        self.settings.window.y = Some(new_y);
         self.settings.window.width = new_w;
         self.settings.window.height = new_h;
         self.save_and_notify(cx);
