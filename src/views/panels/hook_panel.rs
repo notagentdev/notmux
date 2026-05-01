@@ -141,6 +141,7 @@ impl HookPanel {
         let terminals = self.terminals.clone();
         let pid = self.project_id.clone();
         let tid = terminal_id.to_string();
+        let slot_id = format!("hook-{}", tid);
 
         let pane = cx.new(move |cx| {
             TerminalPane::new(
@@ -149,6 +150,7 @@ impl HookPanel {
                 pid,
                 project_path,
                 vec![usize::MAX],
+                slot_id,
                 Some(tid),
                 false,
                 false,

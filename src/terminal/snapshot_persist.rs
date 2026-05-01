@@ -13,10 +13,11 @@ fn collect_terminal_keys(
 ) {
     match node {
         vryn_workspace::state::LayoutNode::Terminal {
+            slot_id,
             terminal_id: Some(tid),
             ..
         } => {
-            let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, path);
+            let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
             out.push((project_path.to_string(), key, tid.clone()));
         }
         vryn_workspace::state::LayoutNode::Terminal { .. } => {}
@@ -38,10 +39,8 @@ fn collect_terminal_snapshot_keys(
     out: &mut HashSet<String>,
 ) {
     match node {
-        vryn_workspace::state::LayoutNode::Terminal { .. } => {
-            out.insert(vryn_terminal::scrollback_snapshot::snapshot_key(
-                project_id, path,
-            ));
+        vryn_workspace::state::LayoutNode::Terminal { slot_id, .. } => {
+            out.insert(vryn_terminal::scrollback_snapshot::snapshot_key(slot_id));
         }
         vryn_workspace::state::LayoutNode::Split { children, .. }
         | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
@@ -69,7 +68,7 @@ pub fn save_terminal_snapshot(
         terminal.capture_scrollback_snapshot(&dir, key, max_lines, cwd.as_deref(), reason);
 
     log::info!(
-        "Scrollback snapshot capture key={} reason={:?} size={} cols={} rows={} pending={} replay={} restored={} had_input={} gen={} resize_stable={}",
+        "Scrollback snapshot capture key={} reason={:?} size={} cols={} rows={} pending={} replay={} restored={} restored_from_snapshot={} had_input={} gen={} resize_stable={}",
         key,
         reason,
         bytes.len(),
@@ -78,6 +77,7 @@ pub fn save_terminal_snapshot(
         stats.pending_output_len,
         stats.replay_buffer_len,
         stats.restored_replay_buffer_len,
+        stats.restored_from_snapshot,
         stats.had_user_input,
         stats.content_generation,
         stats.resize_stable,
@@ -104,11 +104,11 @@ pub fn save_terminal_snapshot(
     }
 }
 
-pub fn clear_terminal_snapshot(project_path: &str, project_id: &str, path: &[usize]) {
+pub fn clear_slot_snapshot(project_path: &str, slot_id: &str) {
     let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
-    let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, path);
+    let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
     vryn_terminal::scrollback_snapshot::clear(&dir, &key);
-    log::info!("Cleared scrollback snapshot for closed terminal {}", key);
+    log::info!("Cleared scrollback snapshot for terminal slot {}", key);
 }
 
 pub fn purge_stale_snapshots(cx: &mut App) {

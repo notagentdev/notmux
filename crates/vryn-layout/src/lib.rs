@@ -15,11 +15,17 @@ fn default_zoom_level() -> f32 {
     1.0
 }
 
+fn default_slot_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 /// Recursive layout tree node
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum LayoutNode {
     Terminal {
+        #[serde(default = "default_slot_id")]
+        slot_id: String,
         terminal_id: Option<String>,
         #[serde(default)]
         minimized: bool,
@@ -76,6 +82,7 @@ impl LayoutNode {
     /// Create a new empty terminal node
     pub fn new_terminal() -> Self {
         LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: None,
             minimized: false,
             detached: false,
@@ -101,6 +108,7 @@ impl LayoutNode {
         };
 
         LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: None,
             minimized: false,
             detached: false,
@@ -187,6 +195,34 @@ impl LayoutNode {
     /// Find the layout path to a terminal by its ID
     pub fn find_terminal_path(&self, target_id: &str) -> Option<Vec<usize>> {
         self.find_terminal_path_recursive(target_id, vec![])
+    }
+
+    pub fn terminal_slot_id_at_path(&self, path: &[usize]) -> Option<String> {
+        match self.get_at_path(path)? {
+            LayoutNode::Terminal { slot_id, .. } => Some(slot_id.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn find_terminal_slot_id(&self, target_id: &str) -> Option<String> {
+        match self {
+            LayoutNode::Terminal {
+                slot_id,
+                terminal_id,
+                ..
+            } => {
+                if terminal_id.as_deref() == Some(target_id) {
+                    Some(slot_id.clone())
+                } else {
+                    None
+                }
+            }
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                children
+                    .iter()
+                    .find_map(|child| child.find_terminal_slot_id(target_id))
+            }
+        }
     }
 
     fn find_terminal_path_recursive(
@@ -621,6 +657,7 @@ impl LayoutNode {
                 zoom_level,
                 ..
             } => LayoutNode::Terminal {
+                slot_id: default_slot_id(),
                 terminal_id: None,
                 minimized: false,
                 detached: false,
@@ -658,6 +695,7 @@ impl LayoutNode {
         match (server, local) {
             (
                 LayoutNode::Terminal {
+                    slot_id,
                     terminal_id: s_id,
                     shell_type,
                     zoom_level,
@@ -670,6 +708,7 @@ impl LayoutNode {
                     ..
                 },
             ) if s_id == l_id => LayoutNode::Terminal {
+                slot_id: slot_id.clone(),
                 terminal_id: s_id.clone(),
                 minimized: *minimized,
                 detached: *detached,
@@ -783,6 +822,7 @@ impl LayoutNode {
                 minimized,
                 detached,
             } => LayoutNode::Terminal {
+                slot_id: default_slot_id(),
                 terminal_id: terminal_id.clone(),
                 minimized: *minimized,
                 detached: *detached,
@@ -817,6 +857,7 @@ impl LayoutNode {
                 minimized,
                 detached,
             } => LayoutNode::Terminal {
+                slot_id: default_slot_id(),
                 terminal_id: terminal_id.as_ref().map(|id| format!("{}:{}", prefix, id)),
                 minimized: *minimized,
                 detached: *detached,
@@ -883,12 +924,13 @@ impl LayoutNode {
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutNode, SplitDirection};
+    use super::{default_slot_id, LayoutNode, SplitDirection};
     use std::collections::HashSet;
     use vryn_terminal::shell_config::ShellType;
 
     fn terminal(id: &str) -> LayoutNode {
         LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: Some(id.to_string()),
             minimized: false,
             detached: false,
@@ -899,6 +941,7 @@ mod tests {
 
     fn terminal_minimized(id: &str) -> LayoutNode {
         LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: Some(id.to_string()),
             minimized: true,
             detached: false,
@@ -909,6 +952,7 @@ mod tests {
 
     fn terminal_detached(id: &str) -> LayoutNode {
         LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: Some(id.to_string()),
             minimized: false,
             detached: true,
@@ -1470,6 +1514,7 @@ mod tests {
     fn merge_matching_terminals_preserves_visual_flags() {
         let server = terminal("t1");
         let local = LayoutNode::Terminal {
+            slot_id: default_slot_id(),
             terminal_id: Some("t1".to_string()),
             minimized: true,
             detached: true,
@@ -1612,6 +1657,7 @@ mod tests {
             sizes: vec![25.0, 75.0],
             children: vec![
                 LayoutNode::Terminal {
+                    slot_id: default_slot_id(),
                     terminal_id: Some("t1".to_string()),
                     minimized: true,
                     detached: false,

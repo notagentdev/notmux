@@ -91,6 +91,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
     fn ensure_terminal_pane(
         &mut self,
+        slot_id: String,
         terminal_id: Option<String>,
         minimized: bool,
         detached: bool,
@@ -99,8 +100,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let needs_new_pane = match &self.terminal_pane {
             None => true,
             Some(pane) => {
-                let current_id = pane.read(cx).terminal_id();
-                current_id != terminal_id
+                let pane = pane.read(cx);
+                pane.terminal_id() != terminal_id
+                    || (terminal_id.is_none() && pane.slot_id() != slot_id)
             }
         };
 
@@ -110,6 +112,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             let project_id = self.project_id.clone();
             let project_path = self.project_path.clone();
             let layout_path = self.layout_path.clone();
+            let slot_id = slot_id.clone();
             let backend = self.backend.clone();
             let terminals = self.terminals.clone();
             let remote_ctx = self.action_dispatcher.clone();
@@ -121,6 +124,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     project_id,
                     project_path,
                     layout_path,
+                    slot_id,
                     terminal_id,
                     minimized,
                     detached,
@@ -229,13 +233,14 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
     fn render_terminal(
         &mut self,
+        slot_id: String,
         terminal_id: Option<String>,
         minimized: bool,
         detached: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.ensure_terminal_pane(terminal_id.clone(), minimized, detached, cx);
+        self.ensure_terminal_pane(slot_id, terminal_id.clone(), minimized, detached, cx);
 
         let in_tab_group = self.is_in_tab_group(cx);
         let is_zoomed = terminal_id.as_ref().is_some_and(|tid| {
@@ -558,12 +563,13 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
 
         match layout {
             Some(LayoutNode::Terminal {
+                slot_id,
                 terminal_id,
                 minimized,
                 detached,
                 ..
             }) => self
-                .render_terminal(terminal_id.clone(), minimized, detached, window, cx)
+                .render_terminal(slot_id, terminal_id.clone(), minimized, detached, window, cx)
                 .into_any_element(),
 
             Some(LayoutNode::Split {

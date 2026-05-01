@@ -283,6 +283,7 @@ pub struct SnapshotStats {
     pub pending_output_len: usize,
     pub replay_buffer_len: usize,
     pub restored_replay_buffer_len: usize,
+    pub restored_from_snapshot: bool,
     pub had_user_input: bool,
     pub content_generation: u64,
     pub resize_stable: bool,
@@ -319,6 +320,12 @@ pub struct Terminal {
     /// back instead of the visible buffer that includes restore UI text and a
     /// freshly spawned shell prompt.
     restored_replay_buffer: Mutex<Vec<u8>>,
+    /// Whether this terminal instance was revived from a persisted snapshot.
+    ///
+    /// Kept separate from `restored_replay_buffer` so an empty raw revive buffer
+    /// still has explicit lifecycle semantics and fresh terminals are never
+    /// mistaken for restored sessions.
+    restored_from_snapshot: AtomicBool,
     /// True while replaying persisted bytes into the local emulator.
     suppress_pty_responses: Arc<AtomicBool>,
     /// Dirty flag - set when terminal content changes, cleared after render
@@ -385,6 +392,7 @@ impl Terminal {
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
             restored_replay_buffer: Mutex::new(Vec::new()),
+            restored_from_snapshot: AtomicBool::new(false),
             suppress_pty_responses,
             dirty: AtomicBool::new(false),
             content_generation: AtomicU64::new(0),
@@ -415,10 +423,12 @@ impl Terminal {
         max_lines: u32,
         cwd: Option<&str>,
     ) -> Vec<u8> {
-        let restored_replay_bytes = self.restored_replay_buffer.lock().clone();
         let size = self.resize_state.lock().size;
 
-        if !restored_replay_bytes.is_empty() {
+        if self.restored_from_snapshot.load(Ordering::Relaxed)
+            && !self.had_user_input.load(Ordering::Relaxed)
+        {
+            let restored_replay_bytes = self.restored_replay_buffer.lock().clone();
             return crate::scrollback_snapshot::capture_raw(
                 &restored_replay_bytes,
                 size.cols,
@@ -476,6 +486,7 @@ impl Terminal {
         if data.is_empty() {
             return;
         }
+        self.restored_from_snapshot.store(true, Ordering::Relaxed);
         self.restored_replay_buffer.lock().extend_from_slice(data);
         self.record_replay_bytes(data);
         self.process_output_inner(data, false, true);
@@ -490,19 +501,66 @@ impl Terminal {
             return;
         }
 
+        self.restored_from_snapshot.store(true, Ordering::Relaxed);
         self.restored_replay_buffer.lock().extend_from_slice(raw);
+        self.process_output_inner(raw, false, true);
+
+        let initial_text = self.initial_text_after_restored_cursor(initial_text);
         {
             let mut replay = self.replay_buffer.lock();
             replay.extend_from_slice(raw);
-            replay.extend_from_slice(initial_text);
+            replay.extend_from_slice(&initial_text);
             if replay.len() > REPLAY_BUFFER_MAX_BYTES {
                 let overflow = replay.len() - REPLAY_BUFFER_MAX_BYTES;
                 replay.drain(..overflow);
             }
         }
 
-        self.process_output_inner(raw, false, true);
-        self.process_output_inner(initial_text, false, true);
+        self.process_output_inner(&initial_text, false, true);
+    }
+
+    fn initial_text_after_restored_cursor(&self, initial_text: &[u8]) -> Vec<u8> {
+        if initial_text.is_empty() {
+            return Vec::new();
+        }
+
+        let blank_lines = self.lines_needed_below_restored_cursor();
+        if blank_lines == 0 {
+            return initial_text.to_vec();
+        }
+
+        let mut out = Vec::with_capacity(blank_lines * 2 + initial_text.len());
+        for _ in 0..blank_lines {
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(initial_text);
+        out
+    }
+
+    fn lines_needed_below_restored_cursor(&self) -> usize {
+        let term = self.term.lock();
+        let grid = term.grid();
+        let cursor_line = grid.cursor.point.line.0;
+        let screen_lines = grid.screen_lines() as i32;
+        let cols = grid.columns();
+        let mut last_text_line = None;
+
+        for row in (cursor_line + 1)..screen_lines {
+            for col in 0..cols {
+                let cell = &grid[Point::new(Line(row), Column(col))];
+                if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                if cell.c != ' ' || cell.zerowidth().is_some_and(|chars| !chars.is_empty()) {
+                    last_text_line = Some(row);
+                    break;
+                }
+            }
+        }
+
+        last_text_line
+            .map(|line| (line - cursor_line + 1).max(0) as usize)
+            .unwrap_or(0)
     }
 
     fn process_output_inner(&self, data: &[u8], record_replay: bool, suppress_replies: bool) {
@@ -541,6 +599,7 @@ impl Terminal {
 
     fn mark_session_interaction(&self) {
         self.had_user_input.store(true, Ordering::Relaxed);
+        self.restored_from_snapshot.store(false, Ordering::Relaxed);
         self.restored_replay_buffer.lock().clear();
     }
 
@@ -593,6 +652,7 @@ impl Terminal {
             pending_output_len: self.pending_output.lock().len(),
             replay_buffer_len: self.replay_buffer.lock().len(),
             restored_replay_buffer_len: self.restored_replay_buffer.lock().len(),
+            restored_from_snapshot: self.restored_from_snapshot.load(Ordering::Relaxed),
             had_user_input: self.had_user_input.load(Ordering::Relaxed),
             content_generation: self.content_generation.load(Ordering::Relaxed),
             resize_stable,
@@ -2409,9 +2469,12 @@ mod tests {
         );
         terminal.process_output(b"fresh prompt % ");
 
-        let snapshot = terminal.capture_scrollback_merged(&dir, "term", 100, None);
+        let (snapshot, stats) =
+            terminal.capture_scrollback_snapshot(&dir, "term", 100, None, SnapshotReason::AppQuit);
         let body = &snapshot[10..];
 
+        assert!(stats.restored_from_snapshot);
+        assert!(!stats.had_user_input);
         assert!(
             body.windows(b"old output".len())
                 .any(|w| w == b"old output"),
@@ -2458,9 +2521,12 @@ mod tests {
         terminal.send_input("ls\r");
         terminal.process_output(b"ls\r\n");
 
-        let snapshot = terminal.capture_scrollback_merged(&dir, "term", 100, None);
+        let (snapshot, stats) =
+            terminal.capture_scrollback_snapshot(&dir, "term", 100, None, SnapshotReason::AppQuit);
         let body = &snapshot[10..];
 
+        assert!(!stats.restored_from_snapshot);
+        assert!(stats.had_user_input);
         for expected in [
             b"old output" as &[u8],
             b"History restored",
@@ -2473,6 +2539,38 @@ mod tests {
                 String::from_utf8_lossy(body)
             );
         }
+
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn empty_restore_without_user_input_does_not_persist_marker() {
+        let dir = std::env::temp_dir().join(format!(
+            "vryn-terminal-empty-restore-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.restore_scrollback_with_initial_text(
+            b"",
+            b"\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
+        );
+        terminal.process_output(b"fresh prompt % ");
+
+        let (snapshot, stats) =
+            terminal.capture_scrollback_snapshot(&dir, "term", 100, None, SnapshotReason::AppQuit);
+
+        assert!(snapshot.is_empty());
+        assert!(stats.restored_from_snapshot);
+        assert!(!stats.had_user_input);
 
         let _ = std::fs::remove_dir(dir);
     }
@@ -2519,6 +2617,45 @@ mod tests {
         assert!(marker < new_output);
 
         let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn restored_scrollback_marker_does_not_overwrite_text_below_cursor() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.restore_scrollback_with_initial_text(
+            b"top\r\nmiddle\r\nbottom\x1b[1;1H",
+            b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
+        );
+
+        let line_text = |row: i32| {
+            let term = terminal.term.lock();
+            let grid = term.grid();
+            let mut text = String::new();
+            for col in 0..grid.columns() {
+                text.push(grid[Point::new(Line(row), Column(col))].c);
+            }
+            text
+        };
+
+        assert!(
+            line_text(1).contains("middle"),
+            "line below cursor should survive restore marker"
+        );
+        assert!(
+            line_text(2).contains("bottom"),
+            "lower line should survive restore marker"
+        );
+        assert!(
+            (3..8).any(|row| line_text(row).contains("History restored")),
+            "restore marker should be moved below restored content"
+        );
     }
 
     #[test]

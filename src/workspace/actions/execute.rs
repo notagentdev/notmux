@@ -67,8 +67,10 @@ pub fn execute_action(
             let path = find_terminal_path(ws, &project_id, &terminal_id);
             match path {
                 Some(path) => {
-                    if let Some(project_path) = ws.project(&project_id).map(|p| p.path.clone()) {
-                        clear_terminal_snapshot_before_close(&project_path, &project_id, &path);
+                    if let Some((project_path, slot_id)) =
+                        terminal_snapshot_target(ws, &project_id, &path)
+                    {
+                        clear_slot_snapshot_before_close(&project_path, &slot_id);
                     }
                     backend.kill(&terminal_id);
                     terminals.lock().remove(&terminal_id);
@@ -87,8 +89,10 @@ pub fn execute_action(
                 let path = find_terminal_path(ws, &project_id, terminal_id);
                 match path {
                     Some(path) => {
-                        if let Some(project_path) = ws.project(&project_id).map(|p| p.path.clone()) {
-                            clear_terminal_snapshot_before_close(&project_path, &project_id, &path);
+                        if let Some((project_path, slot_id)) =
+                            terminal_snapshot_target(ws, &project_id, &path)
+                        {
+                            clear_slot_snapshot_before_close(&project_path, &slot_id);
                         }
                         backend.kill(terminal_id);
                         terminals.lock().remove(terminal_id);
@@ -1077,8 +1081,18 @@ pub fn find_terminal_path(
         .find_terminal_path(terminal_id)
 }
 
-fn clear_terminal_snapshot_before_close(project_path: &str, project_id: &str, path: &[usize]) {
-    crate::terminal::snapshot_persist::clear_terminal_snapshot(project_path, project_id, path);
+fn terminal_snapshot_target(
+    ws: &Workspace,
+    project_id: &str,
+    path: &[usize],
+) -> Option<(String, String)> {
+    let project = ws.project(project_id)?;
+    let slot_id = project.layout.as_ref()?.terminal_slot_id_at_path(path)?;
+    Some((project.path.clone(), slot_id))
+}
+
+fn clear_slot_snapshot_before_close(project_path: &str, slot_id: &str) {
+    crate::terminal::snapshot_persist::clear_slot_snapshot(project_path, slot_id);
 }
 
 /// Canonicalize a relative path within a project directory and verify it doesn't

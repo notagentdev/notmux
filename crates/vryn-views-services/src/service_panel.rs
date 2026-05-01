@@ -204,6 +204,7 @@ impl<D: ActionDispatch + Send + Sync> ServicePanel<D> {
             let backend = self.backend.clone();
             let terminals = self.terminals.clone();
             let pid = self.project_id.clone();
+            let slot_id = format!("service-{}", tid);
 
             let pane = cx.new(move |cx| {
                 TerminalPane::new(
@@ -212,6 +213,7 @@ impl<D: ActionDispatch + Send + Sync> ServicePanel<D> {
                     pid,
                     project_path,
                     vec![usize::MAX],
+                    slot_id,
                     Some(tid),
                     false,
                     false,

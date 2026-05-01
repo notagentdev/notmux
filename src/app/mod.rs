@@ -637,7 +637,7 @@ impl Vryn {
                         // This is critical for dtach: the PTY exit only means the client disconnected,
                         // but the dtach daemon keeps running. kill() ensures kill_session() is called
                         // to SIGTERM the daemon and remove the socket file.
-                        let snapshots_to_clear: Vec<_> = {
+                        let slots_to_clear: Vec<_> = {
                             let ws = this.workspace.read(cx);
                             exit_events
                                 .iter()
@@ -647,18 +647,19 @@ impl Vryn {
                                 })
                                 .filter_map(|(terminal_id, _)| {
                                     let project = ws.find_project_for_terminal(terminal_id)?;
-                                    let path =
-                                        project.layout.as_ref()?.find_terminal_path(terminal_id)?;
-                                    Some((project.path.clone(), project.id.clone(), path))
+                                    let slot_id = project
+                                        .layout
+                                        .as_ref()?
+                                        .find_terminal_slot_id(terminal_id)?;
+                                    Some((project.path.clone(), slot_id))
                                 })
                                 .collect()
                         };
 
-                        for (project_path, project_id, path) in snapshots_to_clear {
-                            crate::terminal::snapshot_persist::clear_terminal_snapshot(
+                        for (project_path, slot_id) in slots_to_clear {
+                            crate::terminal::snapshot_persist::clear_slot_snapshot(
                                 &project_path,
-                                &project_id,
-                                &path,
+                                &slot_id,
                             );
                         }
                         {

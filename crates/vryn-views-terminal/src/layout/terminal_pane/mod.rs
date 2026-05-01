@@ -35,6 +35,7 @@ pub struct TerminalPane<D: ActionDispatch> {
     project_id: String,
     project_path: String,
     layout_path: Vec<usize>,
+    slot_id: String,
 
     // Terminal state
     terminal: Option<Arc<Terminal>>,
@@ -69,6 +70,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         project_id: String,
         project_path: String,
         layout_path: Vec<usize>,
+        slot_id: String,
         terminal_id: Option<String>,
         minimized: bool,
         detached: bool,
@@ -106,6 +108,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             project_id,
             project_path,
             layout_path,
+            slot_id,
             terminal: None,
             terminal_id,
             backend,
@@ -344,8 +347,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         );
 
         let cwd = resolve_revival_cwd(
-            &self.project_id,
-            &self.layout_path,
+            &self.slot_id,
             &self.project_path,
             self.backend.is_remote(),
         );
@@ -372,7 +374,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         replay_persisted_scrollback(
             &self.project_id,
             &self.project_path,
-            &self.layout_path,
+            &self.slot_id,
             &terminal,
             &settings,
         );
@@ -453,8 +455,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         }
 
         let cwd = resolve_revival_cwd(
-            &self.project_id,
-            &self.layout_path,
+            &self.slot_id,
             &project_path,
             self.backend.is_remote(),
         );
@@ -484,7 +485,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                     replay_persisted_scrollback_raw(
                         &self.project_id,
                         &project_path,
-                        &self.layout_path,
+                        &self.slot_id,
                         &terminal,
                     );
                 }
@@ -518,6 +519,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
     pub fn terminal_id(&self) -> Option<String> {
         self.terminal_id.clone()
+    }
+
+    pub fn slot_id(&self) -> &str {
+        &self.slot_id
     }
 
     pub fn set_detached(&mut self, detached: bool, cx: &mut Context<Self>) {
@@ -568,8 +573,7 @@ impl<D: ActionDispatch + Send + Sync> gpui::Focusable for TerminalPane<D> {
 /// Otherwise fall back to the project path. Skipped for remote backends —
 /// the path namespace there belongs to the remote host.
 fn resolve_revival_cwd(
-    project_id: &str,
-    layout_path: &[usize],
+    slot_id: &str,
     fallback: &str,
     is_remote: bool,
 ) -> String {
@@ -577,7 +581,7 @@ fn resolve_revival_cwd(
         return fallback.to_string();
     }
     let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(fallback);
-    let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
+    let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
     let Some(meta) = vryn_terminal::scrollback_snapshot::peek_metadata(&dir, &key) else {
         return fallback.to_string();
     };
@@ -611,25 +615,25 @@ fn resolve_revival_cwd(
 fn replay_persisted_scrollback(
     project_id: &str,
     project_path: &str,
-    layout_path: &[usize],
+    slot_id: &str,
     terminal: &Terminal,
     settings: &crate::TerminalViewSettings,
 ) {
     if !settings.persist_scrollback || settings.persist_scrollback_lines == 0 {
         return;
     }
-    replay_persisted_scrollback_raw(project_id, project_path, layout_path, terminal);
+    replay_persisted_scrollback_raw(project_id, project_path, slot_id, terminal);
 }
 
 /// Inner replay: caller has already verified the feature is enabled.
 fn replay_persisted_scrollback_raw(
-    project_id: &str,
+    _project_id: &str,
     project_path: &str,
-    layout_path: &[usize],
+    slot_id: &str,
     terminal: &Terminal,
 ) {
     let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
-    let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
+    let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
     match vryn_terminal::scrollback_snapshot::load(&dir, &key) {
         Some(snap) => {
             log::info!(

@@ -11,36 +11,32 @@ const SNAPSHOT_EXT: &str = "snap";
 const SNAPSHOT_DIR: &str = ".vryn/scrollback";
 
 /// File-format magic for vryn scrollback snapshots. Header layout:
-///   [VRN3][u16 BE cols][u16 BE rows][u16 BE cwd_len][cwd_bytes...][PTY bytes]
+///   [VRN4][u16 BE cols][u16 BE rows][u16 BE cwd_len][cwd_bytes...][PTY bytes]
 ///
 /// `cols`/`rows` are retained as capture metadata for diagnostics and future
 /// migrations. `cwd` is the working directory captured at quit time so the new
 /// shell process starts where the last one was, mirroring VSCode's
 /// `processDetails.cwd` revival.
 ///
-/// `VRN3` intentionally invalidates earlier snapshots. `VRNS` encoded screen
-/// columns as synthetic spaces/CUF sequences, and `VRN2` could survive too
-/// long for reused layout slots during the snapshot lifecycle hardening.
-const SNAPSHOT_MAGIC: &[u8; 4] = b"VRN3";
+/// `VRN4` intentionally invalidates earlier snapshots. `VRNS` encoded screen
+/// columns as synthetic spaces/CUF sequences, `VRN2` could survive too long for
+/// reused layout slots, and `VRN3` existed before project-wide close cleanup.
+const SNAPSHOT_MAGIC: &[u8; 4] = b"VRN4";
 /// Fixed-size prefix: 4 magic + 2 cols + 2 rows + 2 cwd_len = 10 bytes.
 const SNAPSHOT_FIXED_LEN: usize = 10;
 
-/// Build the snapshot file key from a project id + layout path. We key on
-/// layout position rather than terminal_id because workspace persistence
-/// strips terminal_ids on restart when no session backend is available
-/// (`validate_workspace_data` in vryn-workspace), so the next launch picks
-/// new UUIDs. The layout slot, however, survives across restarts.
-pub fn snapshot_key(project_id: &str, layout_path: &[usize]) -> String {
-    let path = layout_path
-        .iter()
-        .map(|n| n.to_string())
-        .collect::<Vec<_>>()
-        .join("_");
-    if path.is_empty() {
-        format!("{}__root", project_id)
-    } else {
-        format!("{}__{}", project_id, path)
-    }
+/// Build the snapshot file key from a stable terminal slot id.
+pub fn snapshot_key(slot_id: &str) -> String {
+    slot_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn snapshot_path(dir: &Path, key: &str) -> PathBuf {
@@ -298,7 +294,7 @@ mod tests {
     #[test]
     fn capture_raw_keeps_last_complete_lines() {
         let snapshot = capture_raw(b"one\r\ntwo\r\nthree\r\n", 80, 24, 2, None);
-        assert_eq!(&snapshot[..4], b"VRN3");
+        assert_eq!(&snapshot[..4], b"VRN4");
         assert_eq!(&snapshot[SNAPSHOT_FIXED_LEN..], b"two\r\nthree\r\n");
     }
 
