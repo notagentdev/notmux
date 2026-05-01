@@ -67,6 +67,9 @@ pub fn execute_action(
             let path = find_terminal_path(ws, &project_id, &terminal_id);
             match path {
                 Some(path) => {
+                    if let Some(project_path) = ws.project(&project_id).map(|p| p.path.clone()) {
+                        clear_terminal_snapshot_before_close(&project_path, &project_id, &path);
+                    }
                     backend.kill(&terminal_id);
                     terminals.lock().remove(&terminal_id);
                     ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
@@ -84,6 +87,9 @@ pub fn execute_action(
                 let path = find_terminal_path(ws, &project_id, terminal_id);
                 match path {
                     Some(path) => {
+                        if let Some(project_path) = ws.project(&project_id).map(|p| p.path.clone()) {
+                            clear_terminal_snapshot_before_close(&project_path, &project_id, &path);
+                        }
                         backend.kill(terminal_id);
                         terminals.lock().remove(terminal_id);
                         ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
@@ -1069,6 +1075,10 @@ pub fn find_terminal_path(
         .layout
         .as_ref()?
         .find_terminal_path(terminal_id)
+}
+
+fn clear_terminal_snapshot_before_close(project_path: &str, project_id: &str, path: &[usize]) {
+    crate::terminal::snapshot_persist::clear_terminal_snapshot(project_path, project_id, path);
 }
 
 /// Canonicalize a relative path within a project directory and verify it doesn't

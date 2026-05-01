@@ -3,25 +3,25 @@
 //! the terminal emulator; on replay they feed the vte parser directly via
 //! `Terminal::process_output`, so the shell never sees them.
 //!
-//! Path layout: `{config_dir}/scrollback/{snapshot_key}.snap`. The directory
-//! is provided by the caller (vryn-workspace owns config-dir resolution).
+//! Path layout: `{project_dir}/.vryn/scrollback/{snapshot_key}.snap`.
 
 use std::path::{Path, PathBuf};
 
 const SNAPSHOT_EXT: &str = "snap";
+const SNAPSHOT_DIR: &str = ".vryn/scrollback";
 
 /// File-format magic for vryn scrollback snapshots. Header layout:
-///   [VRN2][u16 BE cols][u16 BE rows][u16 BE cwd_len][cwd_bytes...][PTY bytes]
+///   [VRN3][u16 BE cols][u16 BE rows][u16 BE cwd_len][cwd_bytes...][PTY bytes]
 ///
 /// `cols`/`rows` are retained as capture metadata for diagnostics and future
 /// migrations. `cwd` is the working directory captured at quit time so the new
 /// shell process starts where the last one was, mirroring VSCode's
 /// `processDetails.cwd` revival.
 ///
-/// `VRN2` intentionally invalidates the previous grid-serialized `VRNS`
-/// snapshots. Those encoded screen columns as synthetic spaces/CUF sequences,
-/// which made restored command output look stretched.
-const SNAPSHOT_MAGIC: &[u8; 4] = b"VRN2";
+/// `VRN3` intentionally invalidates earlier snapshots. `VRNS` encoded screen
+/// columns as synthetic spaces/CUF sequences, and `VRN2` could survive too
+/// long for reused layout slots during the snapshot lifecycle hardening.
+const SNAPSHOT_MAGIC: &[u8; 4] = b"VRN3";
 /// Fixed-size prefix: 4 magic + 2 cols + 2 rows + 2 cwd_len = 10 bytes.
 const SNAPSHOT_FIXED_LEN: usize = 10;
 
@@ -45,6 +45,10 @@ pub fn snapshot_key(project_id: &str, layout_path: &[usize]) -> String {
 
 fn snapshot_path(dir: &Path, key: &str) -> PathBuf {
     dir.join(format!("{}.{}", key, SNAPSHOT_EXT))
+}
+
+pub fn project_snapshot_dir(project_path: impl AsRef<Path>) -> PathBuf {
+    project_path.as_ref().join(SNAPSHOT_DIR)
 }
 
 /// Build a snapshot from raw PTY replay bytes. This mirrors VS Code's
@@ -294,7 +298,7 @@ mod tests {
     #[test]
     fn capture_raw_keeps_last_complete_lines() {
         let snapshot = capture_raw(b"one\r\ntwo\r\nthree\r\n", 80, 24, 2, None);
-        assert_eq!(&snapshot[..4], b"VRN2");
+        assert_eq!(&snapshot[..4], b"VRN3");
         assert_eq!(&snapshot[SNAPSHOT_FIXED_LEN..], b"two\r\nthree\r\n");
     }
 

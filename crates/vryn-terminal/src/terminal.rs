@@ -271,6 +271,23 @@ pub struct ResizeState {
     pub last_local_resize: std::time::Instant,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotReason {
+    AppQuit,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SnapshotStats {
+    pub cols: u16,
+    pub rows: u16,
+    pub pending_output_len: usize,
+    pub replay_buffer_len: usize,
+    pub restored_replay_buffer_len: usize,
+    pub had_user_input: bool,
+    pub content_generation: u64,
+    pub resize_stable: bool,
+}
+
 /// A terminal instance wrapping alacritty_terminal
 pub struct Terminal {
     term: Arc<Mutex<Term<ZedEventListener>>>,
@@ -425,6 +442,21 @@ impl Terminal {
         )
     }
 
+    pub fn capture_scrollback_snapshot(
+        &self,
+        dir: &std::path::Path,
+        key: &str,
+        max_lines: u32,
+        cwd: Option<&str>,
+        _reason: SnapshotReason,
+    ) -> (Vec<u8>, SnapshotStats) {
+        self.drain_pending_output_for_snapshot();
+        let stats = self.snapshot_stats();
+
+        let bytes = self.capture_scrollback_merged(dir, key, max_lines, cwd);
+        (bytes, stats)
+    }
+
     /// Process output from PTY
     pub fn process_output(&self, data: &[u8]) {
         self.process_output_inner(data, true, false);
@@ -523,10 +555,9 @@ impl Terminal {
         *self.last_output_time.lock() = Instant::now();
     }
 
-    /// Drain all pending output and feed it into the terminal emulator.
-    ///
-    /// Called automatically by `with_content` before rendering.
-    fn drain_pending_output(&self) {
+    /// Drain all pending output and feed it into the terminal emulator before
+    /// capturing a snapshot.
+    pub fn drain_pending_output_for_snapshot(&self) {
         let data = {
             let mut pending = self.pending_output.lock();
             if pending.is_empty() {
@@ -539,6 +570,33 @@ impl Terminal {
         let mut processor = self.processor.lock();
         processor.advance(&mut *term, &data);
         self.content_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Drain all pending output and feed it into the terminal emulator.
+    ///
+    /// Called automatically by `with_content` before rendering.
+    fn drain_pending_output(&self) {
+        self.drain_pending_output_for_snapshot();
+    }
+
+    pub fn snapshot_stats(&self) -> SnapshotStats {
+        let rs = self.resize_state.lock();
+        let resize_stable = rs.pending_pty_resize.is_none()
+            && !rs.flush_timer_active
+            && rs.last_local_resize.elapsed().as_millis() >= 500;
+        let size = rs.size;
+        drop(rs);
+
+        SnapshotStats {
+            cols: size.cols,
+            rows: size.rows,
+            pending_output_len: self.pending_output.lock().len(),
+            replay_buffer_len: self.replay_buffer.lock().len(),
+            restored_replay_buffer_len: self.restored_replay_buffer.lock().len(),
+            had_user_input: self.had_user_input.load(Ordering::Relaxed),
+            content_generation: self.content_generation.load(Ordering::Relaxed),
+            resize_stable,
+        }
     }
 
     /// Check if terminal has pending changes (and clear the flag).
@@ -2297,6 +2355,38 @@ mod tests {
             "snapshot body should not encode simple spaces as cursor-forward escapes: {:?}",
             String::from_utf8_lossy(body)
         );
+    }
+
+    #[test]
+    fn snapshot_capture_drains_pending_output_before_saving() {
+        let dir = std::env::temp_dir().join(format!(
+            "vryn-terminal-pending-snapshot-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.enqueue_output(b"pending output\r\n");
+        let (snapshot, stats) =
+            terminal.capture_scrollback_snapshot(&dir, "term", 100, None, SnapshotReason::AppQuit);
+        let body = &snapshot[10..];
+
+        assert_eq!(stats.pending_output_len, 0);
+        assert!(
+            body.windows(b"pending output".len())
+                .any(|w| w == b"pending output"),
+            "pending output should be included in snapshot: {:?}",
+            String::from_utf8_lossy(body)
+        );
+
+        let _ = std::fs::remove_dir(dir);
     }
 
     #[test]

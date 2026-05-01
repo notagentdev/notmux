@@ -146,6 +146,7 @@ impl Vryn {
         // Create workspace entity
         let workspace = cx.new(|_cx| Workspace::new(workspace_data));
         cx.set_global(GlobalWorkspace(workspace.clone()));
+        crate::terminal::snapshot_persist::purge_stale_snapshots(cx);
 
         // Create request broker entity (decoupled UI request routing)
         let request_broker = cx.new(|_| RequestBroker::new());
@@ -636,6 +637,30 @@ impl Vryn {
                         // This is critical for dtach: the PTY exit only means the client disconnected,
                         // but the dtach daemon keeps running. kill() ensures kill_session() is called
                         // to SIGTERM the daemon and remove the socket file.
+                        let snapshots_to_clear: Vec<_> = {
+                            let ws = this.workspace.read(cx);
+                            exit_events
+                                .iter()
+                                .filter(|(terminal_id, _)| {
+                                    !service_tids.contains(terminal_id)
+                                        && !hook_tids.contains(terminal_id)
+                                })
+                                .filter_map(|(terminal_id, _)| {
+                                    let project = ws.find_project_for_terminal(terminal_id)?;
+                                    let path =
+                                        project.layout.as_ref()?.find_terminal_path(terminal_id)?;
+                                    Some((project.path.clone(), project.id.clone(), path))
+                                })
+                                .collect()
+                        };
+
+                        for (project_path, project_id, path) in snapshots_to_clear {
+                            crate::terminal::snapshot_persist::clear_terminal_snapshot(
+                                &project_path,
+                                &project_id,
+                                &path,
+                            );
+                        }
                         {
                             let mut reg = this.terminals.lock();
                             for (terminal_id, _) in &exit_events {

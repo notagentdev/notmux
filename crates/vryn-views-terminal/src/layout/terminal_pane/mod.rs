@@ -369,7 +369,13 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         if let Some(pid) = self.backend.get_foreground_shell_pid(&terminal_id) {
             terminal.set_shell_pid(pid);
         }
-        replay_persisted_scrollback(&self.project_id, &self.layout_path, &terminal, &settings);
+        replay_persisted_scrollback(
+            &self.project_id,
+            &self.project_path,
+            &self.layout_path,
+            &terminal,
+            &settings,
+        );
         self.terminals.lock().insert(terminal_id, terminal.clone());
         self.terminal = Some(terminal.clone());
         self.update_child_terminals(terminal, cx);
@@ -475,7 +481,12 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                     terminal.set_shell_pid(pid);
                 }
                 if persist_scrollback && persist_lines > 0 {
-                    replay_persisted_scrollback_raw(&self.project_id, &self.layout_path, &terminal);
+                    replay_persisted_scrollback_raw(
+                        &self.project_id,
+                        &project_path,
+                        &self.layout_path,
+                        &terminal,
+                    );
                 }
                 self.terminals
                     .lock()
@@ -565,7 +576,7 @@ fn resolve_revival_cwd(
     if is_remote {
         return fallback.to_string();
     }
-    let dir = vryn_workspace::persistence::get_config_dir().join("scrollback");
+    let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(fallback);
     let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
     let Some(meta) = vryn_terminal::scrollback_snapshot::peek_metadata(&dir, &key) else {
         return fallback.to_string();
@@ -599,6 +610,7 @@ fn resolve_revival_cwd(
 /// vte parser directly via `process_output` — the shell never sees them.
 fn replay_persisted_scrollback(
     project_id: &str,
+    project_path: &str,
     layout_path: &[usize],
     terminal: &Terminal,
     settings: &crate::TerminalViewSettings,
@@ -606,12 +618,17 @@ fn replay_persisted_scrollback(
     if !settings.persist_scrollback || settings.persist_scrollback_lines == 0 {
         return;
     }
-    replay_persisted_scrollback_raw(project_id, layout_path, terminal);
+    replay_persisted_scrollback_raw(project_id, project_path, layout_path, terminal);
 }
 
 /// Inner replay: caller has already verified the feature is enabled.
-fn replay_persisted_scrollback_raw(project_id: &str, layout_path: &[usize], terminal: &Terminal) {
-    let dir = vryn_workspace::persistence::get_config_dir().join("scrollback");
+fn replay_persisted_scrollback_raw(
+    project_id: &str,
+    project_path: &str,
+    layout_path: &[usize],
+    terminal: &Terminal,
+) {
+    let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
     let key = vryn_terminal::scrollback_snapshot::snapshot_key(project_id, layout_path);
     match vryn_terminal::scrollback_snapshot::load(&dir, &key) {
         Some(snap) => {
