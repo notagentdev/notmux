@@ -440,7 +440,7 @@ impl Render for FileExplorer {
             .size_full()
             .overflow_y_scroll()
             .track_scroll(&self.scroll_handle)
-            .bg(rgb(t.bg_primary))
+            .bg(rgb(t.bg_secondary))
             .when(has_active_input, |d| {
                 d.key_context("ExplorerInput")
                     .on_action(cx.listener(Self::commit_input_action))

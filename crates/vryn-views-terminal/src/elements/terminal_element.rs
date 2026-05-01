@@ -2,8 +2,10 @@ use crate::terminal_view_settings;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::vte::ansi::Color;
 use gpui::*;
 use std::sync::Arc;
+use vryn_core::theme::ThemeColors;
 use vryn_files::theme::theme;
 use vryn_terminal::terminal::Terminal;
 use vryn_ui::color_utils::tint_color;
@@ -40,6 +42,31 @@ pub struct URLMatch {
     pub kind: LinkKind,
     /// Group ID: segments of the same wrapped URL share the same group
     pub link_group: usize,
+}
+
+fn blend_rgb(fg: u32, alpha: u8, bg: u32) -> u32 {
+    let a = alpha as u32;
+    let inv = 255 - a;
+    let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
+    let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
+    let b = (fg & 0xff) * a + (bg & 0xff) * inv;
+    (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
+}
+
+fn dimmed_ansi_to_hsla(t: &ThemeColors, fg: &Color, bg: &Color) -> Hsla {
+    let fg_rgb = t.ansi_to_argb(fg) & 0x00ff_ffff;
+    let bg_rgb = if is_default_bg(bg, t) {
+        t.term_background
+    } else {
+        t.ansi_to_argb(bg) & 0x00ff_ffff
+    };
+    let rgb = blend_rgb(fg_rgb, 0x80, bg_rgb);
+    Hsla::from(Rgba {
+        r: ((rgb >> 16) & 0xff) as f32 / 255.0,
+        g: ((rgb >> 8) & 0xff) as f32 / 255.0,
+        b: (rgb & 0xff) as f32 / 255.0,
+        a: 1.0,
+    })
 }
 
 /// Custom GPUI element for rendering a terminal
@@ -429,15 +456,15 @@ impl Element for TerminalElement {
                         continue;
                     }
 
-                    let mut fg_color = if is_selected {
+                    let fg_is_dim =
+                        cell.flags.contains(Flags::DIM) && !cell.flags.contains(Flags::BOLD);
+                    let fg_color = if is_selected {
                         rgb(t.selection_fg).into()
+                    } else if fg_is_dim {
+                        dimmed_ansi_to_hsla(&t, &fg, &bg)
                     } else {
                         ansi_to_hsla(&t, &fg)
                     };
-
-                    if cell.flags.contains(Flags::DIM) && !cell.flags.contains(Flags::BOLD) {
-                        fg_color.l = (fg_color.l * 0.66).clamp(0.0, 1.0);
-                    }
 
                     let is_bold = cell.flags.contains(Flags::BOLD);
                     let is_italic = cell.flags.contains(Flags::ITALIC);

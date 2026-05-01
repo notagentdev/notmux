@@ -728,7 +728,7 @@ impl GitHeader {
         v_flex()
             .id("git-panel-content")
             .size_full()
-            .bg(rgb(t.bg_primary))
+            .bg(rgb(t.bg_secondary))
             // Header row with tab-switch buttons
             .child(self.render_panel_header(t, cx))
             // Active tab content

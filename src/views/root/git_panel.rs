@@ -148,6 +148,7 @@ impl RootView {
             .id("git-panel-container")
             .h_full()
             .w(px(git_panel_width))
+            .bg(rgb(t.bg_secondary))
             .overflow_hidden()
             .flex_shrink_0()
             .child(div().w(px(configured_width)).h_full().child(content));

@@ -668,7 +668,7 @@ impl DiffViewer {
             .h_full()
             .border_r_1()
             .border_color(rgb(t.border))
-            .bg(rgb(t.bg_primary))
+            .bg(rgb(t.bg_secondary))
             .flex()
             .flex_col()
             .child(

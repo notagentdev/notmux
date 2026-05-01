@@ -401,6 +401,7 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
     .unwrap_or(fallback.text_muted);
 
     let bg_secondary = look(&[
+        "sideBar.background",
         "sideBarSectionHeader.background",
         "tab.inactiveBackground",
         "panel.background",
@@ -887,6 +888,26 @@ mod tests {
         assert_eq!(mapped.bg_primary, 0x111111);
         assert_eq!(mapped.text_primary, 0xeeeeee);
         assert_eq!(mapped.term_red, 0xff0000);
+    }
+
+    #[test]
+    fn maps_sidebar_background_to_secondary_surface() {
+        let mut colors = HashMap::new();
+        colors.insert("editor.background".to_string(), "#282c34".to_string());
+        colors.insert("sideBar.background".to_string(), "#21252b".to_string());
+        colors.insert(
+            "sideBarSectionHeader.background".to_string(),
+            "#282c34".to_string(),
+        );
+        let theme = VsCodeTheme {
+            name: Some("One Dark Pro".into()),
+            kind: Some("dark".into()),
+            include: None,
+            colors,
+        };
+        let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
+        assert_eq!(mapped.bg_primary, 0x282c34);
+        assert_eq!(mapped.bg_secondary, 0x21252b);
     }
 
     #[test]
