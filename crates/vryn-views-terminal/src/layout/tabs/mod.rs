@@ -579,6 +579,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                             .justify_center()
                                             .rounded(px(4.0))
                                             .cursor_pointer()
+                                            .opacity(0.0)
+                                            .group_hover(tab_group.clone(), |s| s.opacity(1.0))
                                             .hover(move |s| s.bg(rgb(bg_hover)))
                                             .child(
                                                 svg()
