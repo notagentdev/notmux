@@ -54,6 +54,12 @@ mod tests {
                                 hooks: s.settings.hooks.clone(),
                                 persist_scrollback: s.settings.persist_scrollback,
                                 persist_scrollback_lines: s.settings.persist_scrollback_lines,
+                                terminal_env: s.settings.terminal_env.clone(),
+                                terminal_working_directory: s
+                                    .settings
+                                    .terminal_working_directory
+                                    .clone(),
+                                option_as_meta: s.settings.option_as_meta,
                             })
                             .ok()
                         }
@@ -117,6 +123,9 @@ mod tests {
                 folders: vec![],
                 service_panel_heights: Default::default(),
                 hook_panel_heights: Default::default(),
+                focused_project_id: None,
+                focus_project_individual: false,
+                focused_terminal: None,
             })
         });
     }

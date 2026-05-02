@@ -3,10 +3,12 @@
 use crate::elements::terminal_element::{LinkKind, SearchMatch, TerminalElement};
 use crate::layout::navigation::register_pane_bounds;
 use crate::terminal_view_settings;
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use vryn_files::theme::theme;
+use vryn_terminal::command_tracking::{CommandStatus, TrackedCommand};
 use vryn_terminal::terminal::Terminal;
 use vryn_ui::color_utils::tint_color;
 use vryn_workspace::state::Workspace;
@@ -42,6 +44,8 @@ pub struct TerminalContent {
     scroll_accumulator: f32,
     mouse_down_cell: Option<(usize, i32)>,
     forwarded_button: Option<(u8, u8)>,
+    hovered_command_id: Option<u64>,
+    hover_position: Option<Point<Pixels>>,
 }
 
 impl TerminalContent {
@@ -72,6 +76,8 @@ impl TerminalContent {
             scroll_accumulator: 0.0,
             mouse_down_cell: None,
             forwarded_button: None,
+            hovered_command_id: None,
+            hover_position: None,
         }
     }
 
@@ -161,6 +167,7 @@ impl TerminalContent {
     }
 
     const TERMINAL_PADDING: f32 = 4.0;
+    const TERMINAL_LEFT_PADDING: f32 = 22.0;
 
     fn pixel_to_cell(
         &self,
@@ -170,7 +177,10 @@ impl TerminalContent {
         let terminal = self.terminal.as_ref()?;
         let (cell_width, cell_height) = terminal.cell_dimensions();
 
-        let x = (f32::from(pos.x) - f32::from(bounds.origin.x) - Self::TERMINAL_PADDING).max(0.0);
+        let x = (f32::from(pos.x)
+            - f32::from(bounds.origin.x)
+            - Self::TERMINAL_LEFT_PADDING)
+            .max(0.0);
         let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING).max(0.0);
 
         let col_exact = x / cell_width;
@@ -197,12 +207,66 @@ impl TerminalContent {
         cell_height: f32,
     ) -> (usize, usize) {
         if let Some(bounds) = self.element_bounds {
-            let x = (f32::from(pos.x) - f32::from(bounds.origin.x)).max(0.0);
-            let y = (f32::from(pos.y) - f32::from(bounds.origin.y)).max(0.0);
+            let x = (f32::from(pos.x)
+                - f32::from(bounds.origin.x)
+                - Self::TERMINAL_LEFT_PADDING)
+                .max(0.0);
+            let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING)
+                .max(0.0);
             ((x / cell_width) as usize, (y / cell_height) as usize)
         } else {
             (0, 0)
         }
+    }
+
+    fn update_command_hover(&mut self, position: Point<Pixels>) -> bool {
+        let Some(terminal) = self.terminal.as_ref() else {
+            return self.clear_command_hover();
+        };
+        if terminal.is_alt_screen() {
+            return self.clear_command_hover();
+        }
+        let Some(bounds) = self.element_bounds else {
+            return self.clear_command_hover();
+        };
+
+        let (_cell_width, cell_height) = terminal.cell_dimensions();
+        let rel_x = f32::from(position.x) - f32::from(bounds.origin.x);
+        let rel_y = f32::from(position.y) - f32::from(bounds.origin.y);
+        let icon_left = Self::TERMINAL_LEFT_PADDING - 17.0;
+        let icon_right = icon_left + 16.0;
+        if rel_x < icon_left || rel_x > icon_right || rel_y < Self::TERMINAL_PADDING {
+            return self.clear_command_hover();
+        }
+
+        let display_offset = terminal.display_offset() as i32;
+        let row = ((rel_y - Self::TERMINAL_PADDING) / cell_height).floor() as i32;
+        let hovered = terminal
+            .command_history()
+            .into_iter()
+            .find(|command| command.command_row + display_offset == row)
+            .and_then(|command| {
+                if matches!(
+                    command.status,
+                    CommandStatus::Running | CommandStatus::Unknown
+                ) {
+                    None
+                } else {
+                    Some(command.id)
+                }
+            });
+
+        let changed = self.hovered_command_id != hovered || self.hover_position != Some(position);
+        self.hovered_command_id = hovered;
+        self.hover_position = hovered.map(|_| position);
+        changed
+    }
+
+    fn clear_command_hover(&mut self) -> bool {
+        let changed = self.hovered_command_id.is_some() || self.hover_position.is_some();
+        self.hovered_command_id = None;
+        self.hover_position = None;
+        changed
     }
 
     fn handle_mouse_down(
@@ -288,10 +352,16 @@ impl TerminalContent {
 
     fn handle_mouse_move(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
         if let Some((col, row, _side)) = self.pixel_to_cell(event.position) {
+            if self.update_command_hover(event.position) {
+                cx.notify();
+            }
             if self.url_detector.update_hover(col, row) {
                 cx.notify();
             }
         } else if self.url_detector.clear_hover() {
+            if self.clear_command_hover() {
+                cx.notify();
+            }
             cx.notify();
         }
 
@@ -418,6 +488,16 @@ impl Render for TerminalContent {
         };
 
         let terminal_clone = terminal.clone();
+        let hovered_command = if terminal.is_alt_screen() {
+            None
+        } else {
+            self.hovered_command_id.and_then(|id| {
+                terminal
+                    .command_history()
+                    .into_iter()
+                    .find(|command| command.id == id)
+            })
+        };
         let focus_handle = self.focus_handle.clone();
         let zoom_level = self
             .workspace
@@ -531,18 +611,32 @@ impl Render for TerminalContent {
                     .size_full(),
             )
             .child(
-                div().size_full().p(px(4.0)).bg(rgb(term_bg)).child(
-                    TerminalElement::new(terminal_clone, focus_handle)
-                        .with_zoom(zoom_level)
-                        .with_bg_tint(bg_tint)
-                        .with_search(self.search_matches.clone(), self.search_current_index)
-                        .with_urls(
-                            self.url_detector.matches_arc(),
-                            self.url_detector.hovered_group(),
-                        )
-                        .with_cursor_visible(self.cursor_visible)
-                        .with_cursor_style(render_settings.cursor_style),
-                ),
+                div()
+                    .size_full()
+                    .pt(px(Self::TERMINAL_PADDING))
+                    .pr(px(Self::TERMINAL_PADDING))
+                    .pb(px(Self::TERMINAL_PADDING))
+                    .pl(px(Self::TERMINAL_LEFT_PADDING))
+                    .bg(rgb(term_bg))
+                    .child(
+                        TerminalElement::new(terminal_clone, focus_handle)
+                            .with_zoom(zoom_level)
+                            .with_bg_tint(bg_tint)
+                            .with_search(self.search_matches.clone(), self.search_current_index)
+                            .with_urls(
+                                self.url_detector.matches_arc(),
+                                self.url_detector.hovered_group(),
+                            )
+                            .with_hovered_command(self.hovered_command_id)
+                            .with_cursor_visible(self.cursor_visible)
+                            .with_cursor_style(render_settings.cursor_style),
+                    ),
+            )
+            .when_some(
+                hovered_command.zip(self.hover_position),
+                |el, (command, position)| {
+                    el.child(command_hover(command, position, &t))
+                },
             )
             .child(self.scrollbar.clone())
             .into_any_element()
@@ -550,3 +644,76 @@ impl Render for TerminalContent {
 }
 
 impl EventEmitter<TerminalContentEvent> for TerminalContent {}
+
+fn command_hover(
+    command: TrackedCommand,
+    position: Point<Pixels>,
+    t: &vryn_core::theme::ThemeColors,
+) -> impl IntoElement {
+    deferred(
+        anchored()
+            .position(point(position.x + px(12.0), position.y + px(12.0)))
+            .snap_to_window()
+            .child(
+                div()
+                    .id("terminal-command-hover")
+                    .max_w(px(420.0))
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(t.border))
+                    .bg(rgb(t.bg_secondary))
+                    .shadow_md()
+                    .text_size(px(12.0))
+                    .text_color(rgb(t.text_primary))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .child(command.command.clone()),
+                    )
+                    .child(
+                        div()
+                            .mt_1()
+                            .text_color(rgb(t.text_muted))
+                            .child(command_hover_meta(&command)),
+                    ),
+            ),
+    )
+}
+
+fn command_hover_meta(command: &TrackedCommand) -> String {
+    let status = match command.status {
+        CommandStatus::Running => "running".to_string(),
+        CommandStatus::Success => "success".to_string(),
+        CommandStatus::Error => match command.exit_code {
+            Some(code) => format!("failed ({code})"),
+            None => "failed".to_string(),
+        },
+        CommandStatus::Unknown => "unknown".to_string(),
+    };
+    let duration = command
+        .duration
+        .map(format_duration)
+        .unwrap_or_else(|| "running".to_string());
+    let started = format_system_time(command.started_at);
+    match command.cwd.as_deref() {
+        Some(cwd) => format!("{status} · {duration} · {started} · {cwd}"),
+        None => format!("{status} · {duration} · {started}"),
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis < 1_000 {
+        format!("{millis} ms")
+    } else {
+        format!("{:.1} s", millis as f64 / 1_000.0)
+    }
+}
+
+fn format_system_time(time: SystemTime) -> String {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => format!("started {}", duration.as_secs()),
+        Err(_) => "started unknown".to_string(),
+    }
+}

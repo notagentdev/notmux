@@ -2,15 +2,18 @@
 set -euo pipefail
 
 # macOS App Bundle Script for Vryn
-# Usage: ./scripts/bundle-macos.sh [--target <target>] [--skip-build] [--dmg]
+# Usage: ./scripts/bundle-macos.sh [--target <target>] [--skip-build] [--dmg] [--pkg]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+export COPYFILE_DISABLE=1
 
 # Defaults
 TARGET=""
 SKIP_BUILD=false
 CREATE_DMG=false
+CREATE_PKG=false
 APP_NAME="Vryn-WS"
 BUNDLE_ID="dev.vryn.ws"
 BIN_NAME="vrynws"
@@ -28,6 +31,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dmg)
             CREATE_DMG=true
+            shift
+            ;;
+        --pkg)
+            CREATE_PKG=true
             shift
             ;;
         *)
@@ -133,6 +140,8 @@ echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 echo "==> Ad-hoc code signing..."
 codesign --force --sign - "$MACOS_DIR/$BIN_NAME"
 codesign --force --sign - "$APP_BUNDLE"
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+find "$APP_BUNDLE" -name '._*' -delete
 
 echo "==> App bundle created at: $APP_BUNDLE"
 
@@ -178,8 +187,36 @@ if [[ "$CREATE_DMG" == true ]]; then
     echo "==> DMG created at: $DMG_PATH"
 fi
 
+# Create installer package if requested
+if [[ "$CREATE_PKG" == true ]]; then
+    echo "==> Creating installer package..."
+    PKG_NAME="$APP_NAME-$VERSION-$TARGET.pkg"
+    PKG_PATH="$DIST_DIR/$PKG_NAME"
+    PKG_ROOT="$DIST_DIR/pkg-root"
+
+    rm -f "$PKG_PATH"
+    rm -rf "$PKG_ROOT"
+    mkdir -p "$PKG_ROOT/Applications"
+    ditto --norsrc --noextattr "$APP_BUNDLE" "$PKG_ROOT/Applications/$APP_NAME.app"
+    find "$PKG_ROOT" -name '._*' -delete
+
+    pkgbuild \
+        --root "$PKG_ROOT" \
+        --install-location / \
+        --identifier "$BUNDLE_ID" \
+        --version "$VERSION" \
+        "$PKG_PATH"
+
+    rm -rf "$PKG_ROOT"
+
+    echo "==> Installer package created at: $PKG_PATH"
+fi
+
 echo "==> Done!"
 echo ""
 echo "To install, either:"
 echo "  1. Drag '$APP_NAME.app' to /Applications"
 echo "  2. Run: cp -R \"$APP_BUNDLE\" /Applications/"
+if [[ "$CREATE_PKG" == true ]]; then
+    echo "  3. Run: sudo installer -pkg \"$PKG_PATH\" -target /"
+fi

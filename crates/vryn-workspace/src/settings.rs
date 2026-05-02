@@ -219,10 +219,11 @@ impl Default for FileExplorerSettings {
 pub const SETTINGS_VERSION: u32 = 6;
 
 /// Strategy for choosing the working directory of new terminals.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TerminalWorkingDirectory {
     /// Start in the current project directory.
+    #[default]
     CurrentProjectDirectory,
     /// Start in the first project directory in the workspace.
     FirstProjectDirectory,
@@ -230,12 +231,6 @@ pub enum TerminalWorkingDirectory {
     AlwaysHome,
     /// Start in a fixed directory. Supports `~`, `$VAR`, and `${VAR}` expansion.
     Always { directory: String },
-}
-
-impl Default for TerminalWorkingDirectory {
-    fn default() -> Self {
-        Self::CurrentProjectDirectory
-    }
 }
 
 impl TerminalWorkingDirectory {

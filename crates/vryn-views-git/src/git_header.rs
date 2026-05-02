@@ -66,8 +66,6 @@ enum GitPanelTab {
     /// Commit tab — staging + commit message + remote operations
     #[default]
     Commit,
-    /// Changed files view (read-only)
-    Changes,
     /// Commit graph / history view
     History,
 }
@@ -810,7 +808,6 @@ impl GitHeader {
             // Active tab content
             .child(match self.active_tab {
                 GitPanelTab::Commit => self.render_commit_tab(t, cx),
-                GitPanelTab::Changes => self.render_changes_tab(t, cx),
                 GitPanelTab::History => self.render_history_tab(t, cx),
             })
             .child(self.render_last_commit_popover(t, cx))
@@ -874,14 +871,6 @@ impl GitHeader {
                 "icons/git-commit.svg",
                 "Commit",
                 GitPanelTab::Commit,
-                t,
-                cx,
-            ))
-            .child(self.render_panel_header_button(
-                "git-btn-changes",
-                "icons/diff-multiple.svg",
-                "Changes",
-                GitPanelTab::Changes,
                 t,
                 cx,
             ))
@@ -2416,148 +2405,6 @@ impl GitHeader {
             });
         })
         .detach();
-    }
-
-    /// Render the Changes tab (diff file list).
-    fn render_changes_tab(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
-        if self.diff_file_summaries.is_empty() {
-            return v_flex()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .gap(px(8.0))
-                .p(px(20.0))
-                .child(
-                    svg()
-                        .path("icons/file.svg")
-                        .size(px(32.0))
-                        .text_color(rgb(t.text_muted)),
-                )
-                .child(
-                    div()
-                        .text_size(ui_text_md(cx))
-                        .text_color(rgb(t.text_muted))
-                        .child("No changes"),
-                )
-                .child(
-                    div()
-                        .text_size(ui_text_sm(cx))
-                        .text_color(rgb(t.text_muted))
-                        .child("Working tree is clean"),
-                )
-                .into_any_element();
-        }
-
-        let request_broker = self.request_broker.clone();
-        let project_id = self.project_id.clone();
-        let total_added: usize = self.diff_file_summaries.iter().map(|f| f.added).sum();
-        let total_removed: usize = self.diff_file_summaries.iter().map(|f| f.removed).sum();
-        let file_count = self.diff_file_summaries.len();
-        let project_id_for_view_all = project_id.clone();
-        let broker_for_view_all = request_broker.clone();
-
-        let tree_elements = project_header::render_diff_file_list_interactive(
-            &self.diff_file_summaries,
-            move |file_path, _window, cx| {
-                let file_path = file_path.to_string();
-                let pid = project_id.clone();
-                request_broker.update(cx, |broker, cx| {
-                    broker.push_overlay_request(
-                        OverlayRequest::MainDiffViewer {
-                            project_id: pid,
-                            file: Some(file_path),
-                            mode: None,
-                            commit_message: None,
-                            commits: None,
-                            commit_index: None,
-                        },
-                        cx,
-                    );
-                });
-            },
-            t,
-            cx,
-        );
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            // Summary bar
-            .child(
-                h_flex()
-                    .px(px(10.0))
-                    .py(px(6.0))
-                    .gap(px(6.0))
-                    .items_center()
-                    .border_b_1()
-                    .border_color(rgb(t.border))
-                    .child(
-                        div()
-                            .text_size(ui_text_sm(cx))
-                            .text_color(rgb(t.text_secondary))
-                            .child(format!("{} files", file_count)),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .justify_end()
-                            .gap(px(6.0))
-                            .text_size(ui_text_sm(cx))
-                            .child(
-                                div()
-                                    .text_color(rgb(t.term_green))
-                                    .child(format!("+{}", total_added)),
-                            )
-                            .child(
-                                div()
-                                    .text_color(rgb(t.term_red))
-                                    .child(format!("-{}", total_removed)),
-                            )
-                            .child(
-                                div()
-                                    .id("view-all-diff")
-                                    .cursor_pointer()
-                                    .px(px(6.0))
-                                    .py(px(2.0))
-                                    .ml(px(4.0))
-                                    .rounded(px(4.0))
-                                    .bg(rgb(t.bg_hover))
-                                    .hover(|s| s.bg(rgb(t.bg_selection)))
-                                    .text_color(rgb(t.text_secondary))
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation();
-                                    })
-                                    .on_click(cx.listener(move |_this, _, _window, cx| {
-                                        let pid = project_id_for_view_all.clone();
-                                        broker_for_view_all.update(cx, |broker, cx| {
-                                            broker.push_overlay_request(
-                                                OverlayRequest::DiffViewer {
-                                                    project_id: pid,
-                                                    file: None,
-                                                    mode: None,
-                                                    commit_message: None,
-                                                    commits: None,
-                                                    commit_index: None,
-                                                },
-                                                cx,
-                                            );
-                                        });
-                                    }))
-                                    .child("View All"),
-                            ),
-                    ),
-            )
-            // File list
-            .child(
-                div()
-                    .id("diff-files-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .py(px(4.0))
-                    .children(tree_elements),
-            )
-            .into_any_element()
     }
 
     /// Render the History tab (commit log with graph).

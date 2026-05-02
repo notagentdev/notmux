@@ -5,7 +5,6 @@ use std::collections::HashSet;
 use vryn_terminal::terminal::{SnapshotReason, Terminal};
 
 fn collect_terminal_keys(
-    project_id: &str,
     project_path: &str,
     node: &vryn_workspace::state::LayoutNode,
     path: &mut Vec<usize>,
@@ -25,7 +24,7 @@ fn collect_terminal_keys(
         | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 path.push(i);
-                collect_terminal_keys(project_id, project_path, child, path, out);
+                collect_terminal_keys(project_path, child, path, out);
                 path.pop();
             }
         }
@@ -33,7 +32,6 @@ fn collect_terminal_keys(
 }
 
 fn collect_terminal_snapshot_keys(
-    project_id: &str,
     node: &vryn_workspace::state::LayoutNode,
     path: &mut Vec<usize>,
     out: &mut HashSet<String>,
@@ -46,7 +44,7 @@ fn collect_terminal_snapshot_keys(
         | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 path.push(i);
-                collect_terminal_snapshot_keys(project_id, child, path, out);
+                collect_terminal_snapshot_keys(child, path, out);
                 path.pop();
             }
         }
@@ -130,7 +128,7 @@ pub fn purge_stale_snapshots(cx: &mut App) {
         for project in &data.projects {
             let mut keys = HashSet::new();
             if let Some(root) = project.layout.as_ref() {
-                collect_terminal_snapshot_keys(&project.id, root, &mut Vec::new(), &mut keys);
+                collect_terminal_snapshot_keys(root, &mut Vec::new(), &mut keys);
             }
             projects.push((project.id.clone(), project.path.clone(), keys));
         }
@@ -188,13 +186,7 @@ pub fn save_all_snapshots(cx: &mut App, reason: SnapshotReason) {
         let mut out: Vec<(String, String, String)> = Vec::new();
         for project in &data.projects {
             if let Some(root) = project.layout.as_ref() {
-                collect_terminal_keys(
-                    &project.id,
-                    &project.path,
-                    root,
-                    &mut Vec::new(),
-                    &mut out,
-                );
+                collect_terminal_keys(&project.path, root, &mut Vec::new(), &mut out);
             }
         }
         out

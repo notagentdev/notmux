@@ -342,7 +342,11 @@ impl PtyManager {
             _ => None,
         };
 
-        let mut cmd = if let Some((program, args)) = self.session_backend.build_command(
+        let mut cmd = if matches!(self.session_backend, ResolvedBackend::None)
+            && let Some(cmd) = crate::shell_integration::build_command(cwd, shell)
+        {
+            cmd
+        } else if let Some((program, args)) = self.session_backend.build_command(
             &self.session_backend.session_name(terminal_id),
             cwd,
             custom_command,
