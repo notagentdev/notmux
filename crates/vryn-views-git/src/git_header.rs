@@ -155,11 +155,12 @@ pub struct GitHeader {
     last_commit_popover_visible: bool,
     last_commit_hover_token: Arc<AtomicU64>,
     last_commit_bounds: Bounds<Pixels>,
+    last_commit_popover_anchor: Option<Point<Pixels>>,
     /// Running soft reset of the last commit.
     uncommitting: bool,
     /// Commit footer options menu state (Amend / Sign-off).
     commit_options_menu_visible: bool,
-    commit_options_button_bounds: Bounds<Pixels>,
+    commit_options_menu_anchor: Option<Point<Pixels>>,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -221,9 +222,10 @@ impl GitHeader {
             last_commit_popover_visible: false,
             last_commit_hover_token: Arc::new(AtomicU64::new(0)),
             last_commit_bounds: Bounds::default(),
+            last_commit_popover_anchor: None,
             uncommitting: false,
             commit_options_menu_visible: false,
-            commit_options_button_bounds: Bounds::default(),
+            commit_options_menu_anchor: None,
         }
     }
 
@@ -307,10 +309,27 @@ impl GitHeader {
             return;
         }
         self.last_commit_hover_token.fetch_add(1, Ordering::SeqCst);
+        if self.last_commit_popover_anchor.is_none()
+            && self.last_commit_bounds.size.width > px(0.0)
+        {
+            self.last_commit_popover_anchor = Some(self.last_commit_bounds.origin);
+        }
         if !self.last_commit_popover_visible {
             self.last_commit_popover_visible = true;
             cx.notify();
         }
+    }
+
+    fn show_last_commit_popover_at(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.latest_commit().is_none() {
+            return;
+        }
+        self.last_commit_popover_anchor = Some(position);
+        self.show_last_commit_popover(cx);
     }
 
     fn hide_last_commit_popover(&mut self, cx: &mut Context<Self>) {
@@ -327,6 +346,7 @@ impl GitHeader {
             let _ = this.update(cx, |this, cx| {
                 if this.last_commit_popover_visible {
                     this.last_commit_popover_visible = false;
+                    this.last_commit_popover_anchor = None;
                     cx.notify();
                 }
             });
@@ -783,6 +803,7 @@ impl GitHeader {
         v_flex()
             .id("git-panel-content")
             .size_full()
+            .relative()
             .bg(rgb(t.bg_secondary))
             // Header row with tab-switch buttons
             .child(self.render_panel_header(t, cx))
@@ -1733,6 +1754,11 @@ impl GitHeader {
                     } else {
                         t.text_muted
                     }))
+                    .cursor(if has_latest {
+                        CursorStyle::PointingHand
+                    } else {
+                        CursorStyle::Arrow
+                    })
                     .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
                         if *hovered {
                             this.show_last_commit_popover(cx);
@@ -1740,7 +1766,20 @@ impl GitHeader {
                             this.hide_last_commit_popover(cx);
                         }
                     }))
-                    .child(label.to_string()),
+                    .when(has_latest, |d| {
+                        d.on_any_mouse_down(cx.listener(
+                            |this, event: &MouseDownEvent, _window, cx| {
+                                if event.button == MouseButton::Left {
+                                    this.show_last_commit_popover_at(event.position, cx);
+                                    cx.stop_propagation();
+                                }
+                            },
+                        ))
+                        .on_click(cx.listener(|this, event: &ClickEvent, _window, cx| {
+                            this.show_last_commit_popover_at(event.position(), cx);
+                        }))
+                    })
+                    .child(label.to_string())
             )
             .child(
                 div()
@@ -1814,13 +1853,20 @@ impl GitHeader {
             commit.full_hash.clone()
         };
         let short_hash = commit.hash.clone();
-        let position = point(
-            self.last_commit_bounds.origin.x + px(8.0),
-            self.last_commit_bounds.origin.y - px(290.0),
-        );
+        let position = if let Some(position) = self.last_commit_popover_anchor {
+            position
+        } else if self.last_commit_bounds.size.width > px(0.0) {
+            self.last_commit_bounds.origin
+        } else {
+            Point::default()
+        };
 
         deferred(
-            anchored().position(position).snap_to_window().child(
+            anchored()
+                .position(position)
+                .anchor(Corner::BottomLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(
                 v_flex()
                     .id("last-commit-popover")
                     .occlude()
@@ -1941,12 +1987,10 @@ impl GitHeader {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let entity_handle = cx.entity().clone();
         let active = self.commit_options_amend || self.commit_options_signoff;
 
         div()
             .id("commit-options-btn")
-            .relative()
             .flex_shrink_0()
             .w(px(28.0))
             .h(px(24.0))
@@ -1957,12 +2001,13 @@ impl GitHeader {
             .cursor_pointer()
             .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
             .hover(|s| s.bg(rgb(t.bg_selection)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_click(cx.listener(|this, _, _window, cx| {
-                this.commit_options_menu_visible = !this.commit_options_menu_visible;
-                cx.notify();
+            .on_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                if event.button == MouseButton::Left {
+                    this.commit_options_menu_anchor = Some(event.position);
+                    this.commit_options_menu_visible = !this.commit_options_menu_visible;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
             }))
             .tooltip(|_window, cx| Tooltip::new("Commit Options").build(_window, cx))
             .child(
@@ -1975,19 +2020,6 @@ impl GitHeader {
                         t.text_secondary
                     })),
             )
-            .child(
-                canvas(
-                    move |bounds, _window, app| {
-                        entity_handle.update(app, |this, _cx| {
-                            this.commit_options_button_bounds = bounds;
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0()
-                .size_full(),
-            )
     }
 
     fn render_commit_options_menu(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
@@ -1995,41 +2027,51 @@ impl GitHeader {
             return div().size_0().into_any_element();
         }
 
-        let bounds = self.commit_options_button_bounds;
-        let position = point(bounds.origin.x, bounds.origin.y - px(86.0));
+        let position = self.commit_options_menu_anchor.unwrap_or_default();
 
         deferred(
-            anchored().position(position).snap_to_window().child(
-                v_flex()
-                    .id("commit-options-menu")
-                    .occlude()
-                    .w(px(180.0))
-                    .bg(rgb(t.bg_primary))
-                    .border_1()
-                    .border_color(rgb(t.border))
-                    .rounded(px(6.0))
-                    .shadow_lg()
-                    .py(px(4.0))
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(self.render_commit_option_menu_item(
-                        "commit-menu-amend",
-                        "Amend",
-                        self.commit_options_amend,
-                        |this| this.commit_options_amend = !this.commit_options_amend,
-                        t,
-                        cx,
-                    ))
-                    .child(self.render_commit_option_menu_item(
-                        "commit-menu-signoff",
-                        "Sign-off",
-                        self.commit_options_signoff,
-                        |this| this.commit_options_signoff = !this.commit_options_signoff,
-                        t,
-                        cx,
-                    )),
-            ),
+            anchored()
+                .position(position)
+                .anchor(Corner::BottomLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(
+                    v_flex()
+                        .id("commit-options-menu")
+                        .occlude()
+                        .w(px(180.0))
+                        .bg(rgb(t.bg_primary))
+                        .border_1()
+                        .border_color(rgb(t.border))
+                        .rounded(px(6.0))
+                        .shadow_lg()
+                        .py(px(4.0))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_mouse_down_out(cx.listener(|this, _, _window, cx| {
+                            this.commit_options_menu_visible = false;
+                            cx.notify();
+                        }))
+                        .child(self.render_commit_option_menu_item(
+                            "commit-menu-amend",
+                            "Amend",
+                            self.commit_options_amend,
+                            |this| this.commit_options_amend = !this.commit_options_amend,
+                            t,
+                            cx,
+                        ))
+                        .child(self.render_commit_option_menu_item(
+                            "commit-menu-signoff",
+                            "Sign-off",
+                            self.commit_options_signoff,
+                            |this| this.commit_options_signoff = !this.commit_options_signoff,
+                            t,
+                            cx,
+                        )),
+                ),
         )
         .into_any_element()
     }
@@ -2229,6 +2271,7 @@ impl GitHeader {
                 } else {
                     this.last_error = None;
                     this.last_commit_popover_visible = false;
+                    this.last_commit_popover_anchor = None;
                     this.refresh_after_commit(cx);
                 }
                 this.refresh_working_tree_status(cx);
