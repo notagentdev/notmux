@@ -206,6 +206,8 @@ impl RootView {
                     vryn_views_sidebar::SidebarSettings {
                         worktree_path_template: app_settings.worktree.path_template.clone(),
                         hooks: app_settings.hooks.clone(),
+                        show_all_projects_on_projects_click: app_settings
+                            .show_all_projects_on_projects_click,
                     }
                 }));
             });

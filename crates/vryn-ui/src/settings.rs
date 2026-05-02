@@ -33,9 +33,9 @@ pub fn settings_row(
     label: &str,
     t: &ThemeColors,
     cx: &App,
-    has_border: bool,
+    _has_border: bool,
 ) -> Stateful<Div> {
-    let row = div()
+    div()
         .id(ElementId::Name(id.into()))
         .px(px(12.0))
         .py(px(8.0))
@@ -47,13 +47,7 @@ pub fn settings_row(
                 .text_size(ui_text(13.0, cx))
                 .text_color(rgb(t.text_primary))
                 .child(label.to_string()),
-        );
-
-    if has_border {
-        row.border_b_1().border_color(rgb(t.border))
-    } else {
-        row
-    }
+        )
 }
 
 /// Render a settings row with label and description.
@@ -63,9 +57,9 @@ pub fn settings_row_with_desc(
     desc: &str,
     t: &ThemeColors,
     cx: &App,
-    has_border: bool,
+    _has_border: bool,
 ) -> Stateful<Div> {
-    let row = div()
+    div()
         .id(ElementId::Name(id.into()))
         .px(px(12.0))
         .py(px(8.0))
@@ -87,13 +81,7 @@ pub fn settings_row_with_desc(
                         .text_color(rgb(t.text_muted))
                         .child(desc.to_string()),
                 ),
-        );
-
-    if has_border {
-        row.border_b_1().border_color(rgb(t.border))
-    } else {
-        row
-    }
+        )
 }
 
 /// Render a +/- stepper button.

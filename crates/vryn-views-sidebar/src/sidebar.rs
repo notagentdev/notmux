@@ -52,6 +52,7 @@ pub type GetSettingsFn = Box<dyn Fn(&App) -> SidebarSettings>;
 pub struct SidebarSettings {
     pub worktree_path_template: String,
     pub hooks: vryn_workspace::settings::HooksConfig,
+    pub show_all_projects_on_projects_click: bool,
 }
 
 /// Snapshot of a remote connection for rendering.
@@ -1690,6 +1691,8 @@ impl Sidebar {
     fn render_projects_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let workspace_entity = self.workspace.clone();
+        let show_all_projects_on_projects_click =
+            self.sidebar_settings(cx).show_all_projects_on_projects_click;
 
         div()
             .h(px(28.0))
@@ -1697,14 +1700,17 @@ impl Sidebar {
             .flex()
             .items_center()
             .justify_between()
-            .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .when(show_all_projects_on_projects_click, |d| {
+                d.cursor_pointer().hover(|s| s.bg(rgb(t.bg_hover)))
+            })
             .id("projects-header")
             .on_click(move |_, _window, cx| {
-                workspace_entity.update(cx, |ws, cx| {
-                    ws.set_focused_project(None, cx);
-                    ws.set_folder_filter(None, cx);
-                });
+                if show_all_projects_on_projects_click {
+                    workspace_entity.update(cx, |ws, cx| {
+                        ws.set_focused_project(None, cx);
+                        ws.set_folder_filter(None, cx);
+                    });
+                }
             })
             .child(
                 div()

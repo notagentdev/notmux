@@ -216,7 +216,7 @@ impl Default for FileExplorerSettings {
 }
 
 /// Current settings schema version - increment when making breaking changes
-pub const SETTINGS_VERSION: u32 = 6;
+pub const SETTINGS_VERSION: u32 = 7;
 
 /// Strategy for choosing the working directory of new terminals.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -362,6 +362,9 @@ pub struct AppSettings {
     /// Tint project backgrounds with the folder color
     #[serde(default)]
     pub color_tinted_background: bool,
+    /// Clicking the Projects label exits single-project view and shows all projects.
+    #[serde(default)]
+    pub show_all_projects_on_projects_click: bool,
 
     // Font settings
     /// Terminal font size (default: 14.0)
@@ -503,6 +506,7 @@ impl Default for AppSettings {
             file_explorer: FileExplorerSettings::default(),
             show_focused_border: default_show_focused_border(),
             color_tinted_background: false,
+            show_all_projects_on_projects_click: false,
             font_size: default_font_size(),
             font_family: default_font_family(),
             line_height: default_line_height(),
@@ -734,6 +738,12 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     if let Some(v) = obj.get("color_tinted_background").and_then(|v| v.as_bool()) {
         settings.color_tinted_background = v;
     }
+    if let Some(v) = obj
+        .get("show_all_projects_on_projects_click")
+        .and_then(|v| v.as_bool())
+    {
+        settings.show_all_projects_on_projects_click = v;
+    }
 
     if let Some(v) = obj.get("font_size").and_then(|v| v.as_f64()) {
         settings.font_size = (v as f32).clamp(8.0, 48.0);
@@ -869,6 +879,12 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     if settings.version == 5 {
         log::info!("Migrating settings from v5 to v6 (terminal spawn settings)");
         settings.version = 6;
+    }
+
+    // v6 -> v7: add explicit Projects-click overview setting. Default is off.
+    if settings.version == 6 {
+        log::info!("Migrating settings from v6 to v7 (Projects click overview setting)");
+        settings.version = 7;
     }
 
     // Ensure version is current
@@ -1104,6 +1120,12 @@ mod tests {
                 directory: "/tmp".to_string()
             }
         );
+    }
+
+    #[test]
+    fn show_all_projects_on_projects_click_defaults_off() {
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.show_all_projects_on_projects_click);
     }
 
     #[test]

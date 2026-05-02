@@ -53,9 +53,6 @@ impl SettingsPanel {
             .items_center()
             .gap(px(12.0))
             .cursor_pointer()
-            .when(index + 1 < theme_entries().len(), |d| {
-                d.border_b_1().border_color(rgb(t.border))
-            })
             .when(is_selected, |d| d.bg(rgb(t.bg_secondary)))
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_mouse_down(

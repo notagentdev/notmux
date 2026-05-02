@@ -35,11 +35,11 @@ pub(super) fn hook_input_row(
     input: &Entity<SimpleInputState>,
     placeholder: &str,
     t: &ThemeColors,
-    has_border: bool,
+    _has_border: bool,
     cx: &App,
 ) -> Stateful<Div> {
     let _ = placeholder; // placeholder is set on the entity itself
-    let row = div()
+    div()
         .id(ElementId::Name(id.into()))
         .px(px(12.0))
         .py(px(8.0))
@@ -69,13 +69,7 @@ pub(super) fn hook_input_row(
                 .border_color(rgb(t.border))
                 .rounded(px(4.0))
                 .child(SimpleInput::new(input).text_size(ui_text_md(cx))),
-        );
-
-    if has_border {
-        row.border_b_1().border_color(rgb(t.border))
-    } else {
-        row
-    }
+        )
 }
 
 /// Convert empty string to None, non-empty to Some

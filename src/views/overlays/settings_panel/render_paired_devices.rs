@@ -35,13 +35,11 @@ impl SettingsPanel {
             .unwrap_or_default()
             .as_secs();
 
-        let device_count = self.paired_devices.len();
         let items: Vec<_> = self
             .paired_devices
             .iter()
             .enumerate()
             .map(|(i, info)| {
-                let is_last = i == device_count - 1;
                 let id_str = info.id.clone();
                 let display_name = info
                     .name
@@ -107,13 +105,7 @@ impl SettingsPanel {
                             ),
                     );
 
-                if is_last {
-                    row.into_any_element()
-                } else {
-                    row.border_b_1()
-                        .border_color(rgb(t.border))
-                        .into_any_element()
-                }
+                row.into_any_element()
             })
             .collect();
 
