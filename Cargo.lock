@@ -7921,6 +7921,7 @@ dependencies = [
  "serde_json",
  "smol",
  "syntect",
+ "time",
  "tokio",
  "vryn-core",
  "vryn-extensions",

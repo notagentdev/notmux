@@ -150,6 +150,16 @@ pub struct GitHeader {
     /// the working-tree status. Drives Stash Pop / Show Stash enabled
     /// state in the overflow menu.
     has_stash: bool,
+    /// Hover popover state for the last-commit summary shown below the
+    /// commit-message input.
+    last_commit_popover_visible: bool,
+    last_commit_hover_token: Arc<AtomicU64>,
+    last_commit_bounds: Bounds<Pixels>,
+    /// Running soft reset of the last commit.
+    uncommitting: bool,
+    /// Commit footer options menu state (Amend / Sign-off).
+    commit_options_menu_visible: bool,
+    commit_options_button_bounds: Bounds<Pixels>,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -208,6 +218,12 @@ impl GitHeader {
             commit_file_scroll: UniformListScrollHandle::new(),
             overflow_button_bounds: Bounds::default(),
             has_stash: false,
+            last_commit_popover_visible: false,
+            last_commit_hover_token: Arc::new(AtomicU64::new(0)),
+            last_commit_bounds: Bounds::default(),
+            uncommitting: false,
+            commit_options_menu_visible: false,
+            commit_options_button_bounds: Bounds::default(),
         }
     }
 
@@ -272,6 +288,45 @@ impl GitHeader {
             let _ = this.update(cx, |this, cx| {
                 if hover_token.load(Ordering::SeqCst) == token && this.diff_popover_visible {
                     this.diff_popover_visible = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn latest_commit(&self) -> Option<&CommitLogEntry> {
+        self.commit_log_entries.iter().find_map(|row| match row {
+            git::GraphRow::Commit(entry) => Some(entry),
+            git::GraphRow::Connector(_) => None,
+        })
+    }
+
+    fn show_last_commit_popover(&mut self, cx: &mut Context<Self>) {
+        if self.latest_commit().is_none() {
+            return;
+        }
+        self.last_commit_hover_token.fetch_add(1, Ordering::SeqCst);
+        if !self.last_commit_popover_visible {
+            self.last_commit_popover_visible = true;
+            cx.notify();
+        }
+    }
+
+    fn hide_last_commit_popover(&mut self, cx: &mut Context<Self>) {
+        let token = self.last_commit_hover_token.fetch_add(1, Ordering::SeqCst) + 1;
+        let hover_token = self.last_commit_hover_token.clone();
+
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            smol::Timer::after(Duration::from_millis(150)).await;
+
+            if hover_token.load(Ordering::SeqCst) != token {
+                return;
+            }
+
+            let _ = this.update(cx, |this, cx| {
+                if this.last_commit_popover_visible {
+                    this.last_commit_popover_visible = false;
                     cx.notify();
                 }
             });
@@ -737,6 +792,8 @@ impl GitHeader {
                 GitPanelTab::Changes => self.render_changes_tab(t, cx),
                 GitPanelTab::History => self.render_history_tab(t, cx),
             })
+            .child(self.render_last_commit_popover(t, cx))
+            .child(self.render_commit_options_menu(t, cx))
             .into_any_element()
     }
 
@@ -759,7 +816,7 @@ impl GitHeader {
         div()
             .id(id)
             .w(px(28.0))
-            .h(px(28.0))
+            .h(px(32.0))
             .flex()
             .items_center()
             .justify_center()
@@ -945,6 +1002,8 @@ impl GitHeader {
             } else {
                 self.render_file_sections(t, cx).into_any_element()
             })
+            // Last commit row — first line of the lower block.
+            .child(self.render_last_commit_row(t, cx))
             // Branch/remote footer bar
             .child(self.render_branch_bar(t, cx))
             // Commit message input + button
@@ -1562,7 +1621,7 @@ impl GitHeader {
                 let input = self.commit_message_input.clone();
                 div()
                     .id("commit-message-wrap")
-                    .p(px(8.0))
+                    .pb(px(8.0))
                     // Clear the workspace's "currently focused terminal" claim
                     // and explicitly focus the input. Without this the
                     // TerminalPane re-grabs GPUI focus on the next render,
@@ -1583,8 +1642,8 @@ impl GitHeader {
                             .min_h(px(96.0))
                             .max_h(px(180.0))
                             .bg(rgb(t.bg_primary))
-                            .px(px(6.0))
-                            .py(px(4.0))
+                            .px(px(8.0))
+                            .py(px(6.0))
                             .child(self.commit_message_input.clone()),
                     )
             })
@@ -1595,33 +1654,19 @@ impl GitHeader {
                     .pb(px(8.0))
                     .gap(px(6.0))
                     .items_center()
-                    // Amend toggle
-                    .child(self.render_option_toggle(
-                        "opt-amend",
-                        "Amend",
-                        self.commit_options_amend,
-                        |this| this.commit_options_amend = !this.commit_options_amend,
-                        t,
-                        cx,
-                    ))
-                    // Signoff toggle
-                    .child(self.render_option_toggle(
-                        "opt-signoff",
-                        "Sign-off",
-                        self.commit_options_signoff,
-                        |this| this.commit_options_signoff = !this.commit_options_signoff,
-                        t,
-                        cx,
-                    ))
+                    .child(self.render_commit_options_button(t, cx))
                     // Spacer
                     .child(div().flex_1())
                     // Commit button
                     .child(
                         div()
                             .id("commit-btn")
+                            .h(px(24.0))
                             .px(px(12.0))
-                            .py(px(5.0))
                             .rounded(px(4.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .text_size(ui_text_sm(cx))
                             .font_weight(FontWeight::MEDIUM)
                             .when(can_commit, |d| {
@@ -1646,8 +1691,350 @@ impl GitHeader {
             )
     }
 
-    /// Render a toggleable option button (Amend / Sign-off).
-    fn render_option_toggle(
+    fn render_last_commit_row(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity_handle = cx.entity().clone();
+        let latest = self.latest_commit().cloned();
+        let has_latest = latest.is_some();
+        let can_uncommit = has_latest && !self.uncommitting && !self.committing;
+        let label = latest
+            .as_ref()
+            .map(|commit| commit.message.as_str())
+            .unwrap_or("No commits yet");
+
+        h_flex()
+            .id("last-commit-row")
+            .relative()
+            .h(px(28.0))
+            .px(px(10.0))
+            .items_center()
+            .gap(px(6.0))
+            .bg(rgb(t.bg_primary))
+            .border_t_1()
+            .border_color(rgb(t.border))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child("Last commit:"),
+            )
+            .child(
+                div()
+                    .id("last-commit-name")
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(if has_latest {
+                        t.text_secondary
+                    } else {
+                        t.text_muted
+                    }))
+                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                        if *hovered {
+                            this.show_last_commit_popover(cx);
+                        } else {
+                            this.hide_last_commit_popover(cx);
+                        }
+                    }))
+                    .child(label.to_string()),
+            )
+            .child(
+                div()
+                    .id("git-btn-uncommit")
+                    .flex_shrink_0()
+                    .w(px(22.0))
+                    .h(px(22.0))
+                    .rounded(px(3.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(can_uncommit, |d| {
+                        d.cursor_pointer().hover(|s| s.bg(rgb(t.bg_hover)))
+                    })
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .when(can_uncommit, |d| {
+                        d.on_click(cx.listener(|this, _, _window, cx| {
+                            this.handle_uncommit(cx);
+                        }))
+                    })
+                    .tooltip(|_window, cx| {
+                        Tooltip::new("Undo last commit: git reset --soft HEAD~1")
+                            .build(_window, cx)
+                    })
+                    .child(
+                        svg()
+                            .path("icons/history.svg")
+                            .size(px(13.0))
+                            .text_color(rgb(if can_uncommit {
+                                t.text_secondary
+                            } else {
+                                t.text_muted
+                            })),
+                    ),
+            )
+            .child(
+                canvas(
+                    move |bounds, _window, app| {
+                        entity_handle.update(app, |this, _cx| {
+                            this.last_commit_bounds = bounds;
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
+    }
+
+    fn render_last_commit_popover(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
+        if !self.last_commit_popover_visible || self.active_tab != GitPanelTab::Commit {
+            return div().size_0().into_any_element();
+        }
+        let Some(commit) = self.latest_commit().cloned() else {
+            return div().size_0().into_any_element();
+        };
+
+        let branch = self
+            .working_tree_status
+            .as_ref()
+            .and_then(|s| s.branch.clone())
+            .or_else(|| self.current_branch.clone())
+            .unwrap_or_else(|| "Detached HEAD".to_string());
+        let date = format_commit_timestamp(commit.timestamp);
+        let hash = if commit.full_hash.is_empty() {
+            commit.hash.clone()
+        } else {
+            commit.full_hash.clone()
+        };
+        let short_hash = commit.hash.clone();
+        let position = point(
+            self.last_commit_bounds.origin.x + px(8.0),
+            self.last_commit_bounds.origin.y - px(290.0),
+        );
+
+        deferred(
+            anchored().position(position).snap_to_window().child(
+                v_flex()
+                    .id("last-commit-popover")
+                    .occlude()
+                    .w(px(460.0))
+                    .max_h(px(300.0))
+                    .overflow_y_scroll()
+                    .bg(rgb(t.bg_primary))
+                    .border_1()
+                    .border_color(rgb(t.border))
+                    .rounded(px(6.0))
+                    .shadow_lg()
+                    .p(px(10.0))
+                    .gap(px(8.0))
+                    .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                        if *hovered {
+                            this.show_last_commit_popover(cx);
+                        } else {
+                            this.hide_last_commit_popover(cx);
+                        }
+                    }))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(self.render_commit_detail("Commit", commit.message, t, cx))
+                    .child(self.render_commit_detail("Branch", branch, t, cx))
+                    .child(self.render_commit_detail("Author", commit.author, t, cx))
+                    .child(self.render_commit_detail("Date", date, t, cx))
+                    .child(
+                        h_flex()
+                            .gap(px(8.0))
+                            .items_start()
+                            .child(
+                                div()
+                                    .w(px(56.0))
+                                    .flex_shrink_0()
+                                    .text_size(ui_text_sm(cx))
+                                    .text_color(rgb(t.text_muted))
+                                    .child("ID"),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(ui_text_sm(cx))
+                                    .text_color(rgb(t.text_secondary))
+                                    .child(hash.clone()),
+                            )
+                            .child(
+                                div()
+                                    .id("copy-last-commit-id")
+                                    .flex_shrink_0()
+                                    .w(px(22.0))
+                                    .h(px(22.0))
+                                    .rounded(px(3.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .on_click(move |_, _window, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            hash.clone(),
+                                        ));
+                                    })
+                                    .tooltip(|_window, cx| {
+                                        Tooltip::new("Copy commit ID").build(_window, cx)
+                                    })
+                                    .child(
+                                        svg()
+                                            .path("icons/copy.svg")
+                                            .size(px(12.0))
+                                            .text_color(rgb(t.text_secondary)),
+                                    ),
+                            ),
+                    )
+                    .when(!commit.refs.is_empty(), |d| {
+                        d.child(self.render_commit_detail("Refs", commit.refs.join(", "), t, cx))
+                    })
+                    .child(self.render_commit_detail("Short", short_hash, t, cx)),
+            ),
+        )
+        .into_any_element()
+    }
+
+    fn render_commit_detail(
+        &self,
+        label: &'static str,
+        value: String,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        h_flex()
+            .gap(px(8.0))
+            .items_start()
+            .child(
+                div()
+                    .w(px(56.0))
+                    .flex_shrink_0()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_muted))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_secondary))
+                    .child(value),
+            )
+    }
+
+    fn render_commit_options_button(
+        &self,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let entity_handle = cx.entity().clone();
+        let active = self.commit_options_amend || self.commit_options_signoff;
+
+        div()
+            .id("commit-options-btn")
+            .relative()
+            .flex_shrink_0()
+            .w(px(28.0))
+            .h(px(24.0))
+            .rounded(px(4.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
+            .hover(|s| s.bg(rgb(t.bg_selection)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(|this, _, _window, cx| {
+                this.commit_options_menu_visible = !this.commit_options_menu_visible;
+                cx.notify();
+            }))
+            .tooltip(|_window, cx| Tooltip::new("Commit Options").build(_window, cx))
+            .child(
+                svg()
+                    .path("icons/more-vertical.svg")
+                    .size(px(14.0))
+                    .text_color(rgb(if active {
+                        t.border_active
+                    } else {
+                        t.text_secondary
+                    })),
+            )
+            .child(
+                canvas(
+                    move |bounds, _window, app| {
+                        entity_handle.update(app, |this, _cx| {
+                            this.commit_options_button_bounds = bounds;
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
+            )
+    }
+
+    fn render_commit_options_menu(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
+        if !self.commit_options_menu_visible || self.active_tab != GitPanelTab::Commit {
+            return div().size_0().into_any_element();
+        }
+
+        let bounds = self.commit_options_button_bounds;
+        let position = point(bounds.origin.x, bounds.origin.y - px(86.0));
+
+        deferred(
+            anchored().position(position).snap_to_window().child(
+                v_flex()
+                    .id("commit-options-menu")
+                    .occlude()
+                    .w(px(180.0))
+                    .bg(rgb(t.bg_primary))
+                    .border_1()
+                    .border_color(rgb(t.border))
+                    .rounded(px(6.0))
+                    .shadow_lg()
+                    .py(px(4.0))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(self.render_commit_option_menu_item(
+                        "commit-menu-amend",
+                        "Amend",
+                        self.commit_options_amend,
+                        |this| this.commit_options_amend = !this.commit_options_amend,
+                        t,
+                        cx,
+                    ))
+                    .child(self.render_commit_option_menu_item(
+                        "commit-menu-signoff",
+                        "Sign-off",
+                        self.commit_options_signoff,
+                        |this| this.commit_options_signoff = !this.commit_options_signoff,
+                        t,
+                        cx,
+                    )),
+            ),
+        )
+        .into_any_element()
+    }
+
+    fn render_commit_option_menu_item(
         &self,
         id: &'static str,
         label: &'static str,
@@ -1656,28 +2043,44 @@ impl GitHeader {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
+        h_flex()
             .id(id)
-            .px(px(6.0))
-            .py(px(2.0))
-            .rounded(px(4.0))
-            .text_size(ui_text_sm(cx))
+            .h(px(28.0))
+            .px(px(10.0))
+            .gap(px(8.0))
+            .items_center()
             .cursor_pointer()
-            .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
-            .text_color(rgb(if active {
-                t.border_active
-            } else {
-                t.text_muted
-            }))
-            .hover(|s| s.bg(rgb(t.bg_selection)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
+            .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 toggle(this);
                 cx.notify();
             }))
-            .child(label)
+            .child(
+                div()
+                    .w(px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(if active {
+                        svg()
+                            .path("icons/check.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.border_active))
+                            .into_any_element()
+                    } else {
+                        div().size(px(12.0)).into_any_element()
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(if active {
+                        t.border_active
+                    } else {
+                        t.text_secondary
+                    }))
+                    .child(label),
+            )
     }
 
     // ── Commit tab action handlers ─────────────────────────────────
@@ -1799,6 +2202,33 @@ impl GitHeader {
                     });
                     this.commit_options_amend = false;
                     // Refresh commit log too since a new commit exists
+                    this.refresh_after_commit(cx);
+                }
+                this.refresh_working_tree_status(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn handle_uncommit(&mut self, cx: &mut Context<Self>) {
+        if self.uncommitting || self.latest_commit().is_none() {
+            return;
+        }
+
+        self.uncommitting = true;
+        self.last_error = None;
+        cx.notify();
+
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let result = smol::unblock(move || provider.uncommit()).await;
+            let _ = this.update(cx, |this, cx| {
+                this.uncommitting = false;
+                if let Err(e) = result {
+                    this.last_error = Some(e);
+                } else {
+                    this.last_error = None;
+                    this.last_commit_popover_visible = false;
                     this.refresh_after_commit(cx);
                 }
                 this.refresh_working_tree_status(cx);
@@ -2983,6 +3413,22 @@ fn commit_button_label(
         (false, false, true) => "Commit Tracked",
         (false, false, false) => "Commit",
     }
+}
+
+fn format_commit_timestamp(timestamp: i64) -> String {
+    let Ok(utc) = time::OffsetDateTime::from_unix_timestamp(timestamp) else {
+        return "Unknown".to_string();
+    };
+    let local_offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let local = utc.to_offset(local_offset);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}",
+        local.year(),
+        u8::from(local.month()),
+        local.day(),
+        local.hour(),
+        local.minute()
+    )
 }
 
 #[cfg(test)]

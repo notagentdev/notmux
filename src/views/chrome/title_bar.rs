@@ -28,6 +28,7 @@ pub struct TitleBar {
     sidebar_open: bool,
     git_panel_open: bool,
     workspace: Entity<Workspace>,
+    action_focus_handle: Option<FocusHandle>,
     _workspace_subscription: Subscription,
     /// Flag for Linux compositor-driven window move (set on mouse-down, consumed on mouse-move)
     #[cfg(target_os = "linux")]
@@ -47,10 +48,15 @@ impl TitleBar {
             sidebar_open: true,
             git_panel_open: false,
             workspace,
+            action_focus_handle: None,
             _workspace_subscription: subscription,
             #[cfg(target_os = "linux")]
             should_move: false,
         }
+    }
+
+    pub fn set_action_focus_handle(&mut self, focus_handle: FocusHandle) {
+        self.action_focus_handle = Some(focus_handle);
     }
 
     fn focused_project_name(&self, cx: &App) -> Option<SharedString> {
@@ -346,6 +352,7 @@ impl TitleBar {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let t = theme(cx);
+        let action_focus_handle = self.action_focus_handle.clone();
         let color = if active {
             t.term_blue
         } else {
@@ -367,6 +374,9 @@ impl TitleBar {
             })
             .on_click(move |_, window, cx| {
                 cx.stop_propagation();
+                if let Some(focus_handle) = action_focus_handle.as_ref() {
+                    window.focus(focus_handle, cx);
+                }
                 window.dispatch_action(action.boxed_clone(), cx);
             })
     }
@@ -376,6 +386,7 @@ impl Render for TitleBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_maximized = window.is_maximized();
+        let action_focus_handle = self.action_focus_handle.clone();
         // On Windows, always show custom window controls since we use a custom titlebar
         // On macOS, use native traffic lights (server decorations)
         // On Linux, check runtime decorations
@@ -490,8 +501,11 @@ impl Render for TitleBar {
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                     cx.stop_propagation();
                                 })
-                                .on_click(|_, window, cx| {
+                                .on_click(move |_, window, cx| {
                                     cx.stop_propagation();
+                                    if let Some(focus_handle) = action_focus_handle.as_ref() {
+                                        window.focus(focus_handle, cx);
+                                    }
                                     window.dispatch_action(Box::new(ToggleSidebar), cx);
                                 }),
                         )

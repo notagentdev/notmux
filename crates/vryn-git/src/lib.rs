@@ -271,6 +271,9 @@ impl GitStatus {
 pub struct CommitLogEntry {
     /// Short hash (7 chars)
     pub hash: String,
+    /// Full commit hash.
+    #[serde(default)]
+    pub full_hash: String,
     /// Commit subject (first line)
     pub message: String,
     /// Author name

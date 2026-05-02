@@ -1034,7 +1034,7 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
         path_str.to_string(),
         "log".to_string(),
         "--graph".to_string(),
-        format!("--format=%x00%h%x01%s%x01%an%x01%at%x01%P%x01%D"),
+        format!("--format=%x00%h%x01%H%x01%s%x01%an%x01%at%x01%P%x01%D"),
         format!("-n{}", limit),
         "--no-color".to_string(),
     ];
@@ -1054,7 +1054,7 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
     }
 }
 
-/// Parse `git log --graph --format="%x00%h%x01%s%x01%an%x01%at%x01%P"` output.
+/// Parse `git log --graph` output from `get_commit_graph`.
 ///
 /// Lines containing `\x00` are commit lines — everything before is the graph prefix.
 /// Lines without `\x00` are graph connector lines (branch/merge topology).
@@ -1067,25 +1067,39 @@ pub(crate) fn parse_commit_graph_output(stdout: &str) -> Vec<super::GraphRow> {
             let graph = line[..null_pos].to_string();
             let data = &line[null_pos + 1..];
 
-            // Fields: hash \x01 message \x01 author \x01 timestamp \x01 parents \x01 decorations
+            // Fields, current format:
+            // hash \x01 full_hash \x01 message \x01 author \x01 timestamp \x01 parents \x01 decorations
+            // Older tests/clients omitted full_hash, so keep that layout readable.
             let parts: Vec<&str> = data.split('\x01').collect();
             if parts.len() < 4 {
                 continue;
             }
 
+            let has_full_hash = parts.len() >= 7;
             let hash = parts[0].to_string();
-            let message = parts[1].to_string();
-            let author = parts[2].to_string();
-            let timestamp = parts[3].parse::<i64>().unwrap_or(0);
-            let is_merge = parts.get(4).is_some_and(|p| p.contains(' '));
+            let full_hash = if has_full_hash {
+                parts[1].to_string()
+            } else {
+                hash.clone()
+            };
+            let message_idx = if has_full_hash { 2 } else { 1 };
+            let author_idx = if has_full_hash { 3 } else { 2 };
+            let timestamp_idx = if has_full_hash { 4 } else { 3 };
+            let parents_idx = if has_full_hash { 5 } else { 4 };
+            let refs_idx = if has_full_hash { 6 } else { 5 };
+            let message = parts[message_idx].to_string();
+            let author = parts[author_idx].to_string();
+            let timestamp = parts[timestamp_idx].parse::<i64>().unwrap_or(0);
+            let is_merge = parts.get(parents_idx).is_some_and(|p| p.contains(' '));
             let refs: Vec<String> = parts
-                .get(5)
+                .get(refs_idx)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.split(", ").map(|r| r.to_string()).collect())
                 .unwrap_or_default();
 
             rows.push(super::GraphRow::Commit(super::CommitLogEntry {
                 hash,
+                full_hash,
                 message,
                 author,
                 timestamp,

@@ -134,6 +134,9 @@ impl RootView {
             )
         });
 
+        // Create focus handle for global keybindings and titlebar action dispatch.
+        let focus_handle = cx.focus_handle();
+
         // Create title bar entity (sync initial sidebar + git-panel state)
         let sidebar_initially_open = sidebar_ctrl.is_open();
         let git_panel_initially_open = git_panel_ctrl.is_open();
@@ -142,6 +145,7 @@ impl RootView {
             let mut tb = TitleBar::new("Vryn", workspace_for_title, cx);
             tb.set_sidebar_open(sidebar_initially_open, cx);
             tb.set_git_panel_open(git_panel_initially_open, cx);
+            tb.set_action_focus_handle(focus_handle.clone());
             tb
         });
 
@@ -171,9 +175,6 @@ impl RootView {
             }
         })
         .detach();
-
-        // Create focus handle for global keybindings
-        let focus_handle = cx.focus_handle();
 
         // Wrap PtyManager in LocalBackend for the TerminalBackend trait
         let backend: Arc<dyn TerminalBackend> = Arc::new(LocalBackend::new(pty_manager));
