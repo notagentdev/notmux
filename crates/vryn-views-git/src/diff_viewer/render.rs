@@ -195,11 +195,7 @@ impl DiffViewer {
                 svg()
                     .path(icon_path)
                     .size(px(14.0))
-                    .text_color(rgb(if active {
-                        t.border_active
-                    } else {
-                        t.text_secondary
-                    })),
+                    .text_color(rgb(0xffffff)),
             )
     }
 
@@ -406,7 +402,7 @@ impl DiffViewer {
                             .child(
                                 div()
                                     .text_size(ui_text(16.0, cx))
-                                    .text_color(rgb(t.text_muted))
+                                    .text_color(rgb(0xffffff))
                                     .child("\u{00D7}"),
                             ),
                     ),

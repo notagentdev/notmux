@@ -277,7 +277,7 @@ pub fn render_service_panel_header(
                         .rounded(px(3.0))
                         .hover(|s| s.bg(rgb(t.bg_hover)))
                         .text_size(ui_text_md(cx))
-                        .text_color(rgb(t.text_secondary))
+                        .text_color(rgb(0xffffff))
                         .child("\u{2715}")
                         .on_click(move |_, window, cx| {
                             on_close(window, cx);

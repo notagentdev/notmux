@@ -829,11 +829,6 @@ impl GitHeader {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let active = self.active_tab == target;
-        let color = if active {
-            t.term_blue
-        } else {
-            t.text_secondary
-        };
         div()
             .id(id)
             .w(px(28.0))
@@ -845,7 +840,12 @@ impl GitHeader {
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(active, |d| d.bg(rgb(t.bg_hover)))
-            .child(svg().path(icon_path).size(px(16.0)).text_color(rgb(color)))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(16.0))
+                    .text_color(rgb(0xffffff)),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -923,7 +923,7 @@ impl GitHeader {
                 svg()
                     .path("icons/more-vertical.svg")
                     .size(px(14.0))
-                    .text_color(rgb(t.text_secondary)),
+                    .text_color(rgb(0xffffff)),
             )
             .child(
                 canvas(
@@ -2014,11 +2014,7 @@ impl GitHeader {
                 svg()
                     .path("icons/more-vertical.svg")
                     .size(px(14.0))
-                    .text_color(rgb(if active {
-                        t.border_active
-                    } else {
-                        t.text_secondary
-                    })),
+                    .text_color(rgb(0xffffff)),
             )
     }
 

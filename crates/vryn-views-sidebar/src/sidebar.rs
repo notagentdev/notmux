@@ -1578,11 +1578,7 @@ impl Sidebar {
                         svg()
                             .path("icons/terminal.svg")
                             .size(px(14.0))
-                            .text_color(rgb(if !is_files {
-                                t.term_blue
-                            } else {
-                                t.text_secondary
-                            })),
+                            .text_color(rgb(0xffffff)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.set_view(SidebarView::Projects, cx);
@@ -1605,11 +1601,7 @@ impl Sidebar {
                         svg()
                             .path("icons/folder.svg")
                             .size(px(14.0))
-                            .text_color(rgb(if is_files {
-                                t.term_blue
-                            } else {
-                                t.text_secondary
-                            })),
+                            .text_color(rgb(0xffffff)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.set_view(SidebarView::Files, cx);
@@ -1660,7 +1652,7 @@ impl Sidebar {
                                 .child(
                                     div()
                                         .text_size(ui_text_xl(cx))
-                                        .text_color(rgb(t.text_secondary))
+                                        .text_color(rgb(0xffffff))
                                         .child("+"),
                                 )
                                 .child(

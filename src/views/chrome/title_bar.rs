@@ -353,11 +353,6 @@ impl TitleBar {
     ) -> impl IntoElement {
         let t = theme(cx);
         let action_focus_handle = self.action_focus_handle.clone();
-        let color = if active {
-            t.term_blue
-        } else {
-            t.text_secondary
-        };
         div()
             .id(id)
             .cursor_pointer()
@@ -367,8 +362,14 @@ impl TitleBar {
             .items_center()
             .justify_center()
             .rounded(px(4.0))
+            .when(active, |d| d.bg(rgb(t.bg_hover)))
             .hover(|s| s.bg(rgb(t.bg_hover)))
-            .child(svg().path(icon_path).size(px(16.0)).text_color(rgb(color)))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(16.0))
+                    .text_color(rgb(0xffffff)),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -379,6 +380,24 @@ impl TitleBar {
                 }
                 window.dispatch_action(action.boxed_clone(), cx);
             })
+    }
+
+    /// Render a side-panel toggle with separate VS Code-style glyph states.
+    fn render_panel_toggle_button(
+        &self,
+        id: &'static str,
+        on_icon_path: &'static str,
+        off_icon_path: &'static str,
+        active: bool,
+        action: Box<dyn gpui::Action>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let icon_path = if active {
+            on_icon_path
+        } else {
+            off_icon_path
+        };
+        self.render_action_button(id, icon_path, active, action, cx)
     }
 }
 
@@ -490,11 +509,8 @@ impl Render for TitleBar {
                                 .rounded(px(4.0))
                                 .hover(|s| s.bg(rgb(t.bg_hover)))
                                 .text_size(ui_text_xl(cx))
-                                .text_color(if self.sidebar_open {
-                                    rgb(t.term_blue)
-                                } else {
-                                    rgb(t.text_secondary)
-                                })
+                                .when(self.sidebar_open, |d| d.bg(rgb(t.bg_hover)))
+                                .text_color(rgb(0xffffff))
                                 .child("☰")
                                 .id("sidebar-toggle")
                                 // Stop propagation to prevent title bar drag from capturing the click
@@ -571,17 +587,19 @@ impl Render for TitleBar {
                     .pr(px(4.0))
                     .items_center()
                     // Left sidebar toggle
-                    .child(self.render_action_button(
+                    .child(self.render_panel_toggle_button(
                         "tb-toggle-sidebar",
                         "icons/layout-sidebar-left.svg",
+                        "icons/layout-sidebar-left-off.svg",
                         self.sidebar_open,
                         Box::new(ToggleSidebar),
                         cx,
                     ))
                     // Right git panel toggle
-                    .child(self.render_action_button(
+                    .child(self.render_panel_toggle_button(
                         "tb-toggle-git-panel",
                         "icons/layout-sidebar-right.svg",
+                        "icons/layout-sidebar-right-off.svg",
                         self.git_panel_open,
                         Box::new(ToggleGitPanel),
                         cx,

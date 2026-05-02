@@ -48,6 +48,6 @@ pub fn icon_button_sized(
             svg()
                 .path(icon)
                 .size(px(icon_size))
-                .text_color(rgb(t.text_secondary)),
+                .text_color(rgb(0xffffff)),
         )
 }

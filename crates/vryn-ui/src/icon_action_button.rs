@@ -24,7 +24,7 @@ pub fn icon_action_button(
 pub fn icon_action_button_sized(
     id: impl Into<ElementId>,
     icon_char: impl Into<SharedString>,
-    icon_color: u32,
+    _icon_color: u32,
     size: f32,
     t: &ThemeColors,
     cx: &App,
@@ -45,7 +45,7 @@ pub fn icon_action_button_sized(
         .child(
             div()
                 .text_size(ui_text_sm(cx))
-                .text_color(rgb(icon_color))
+                .text_color(rgb(0xffffff))
                 .child(icon_char.into()),
         )
 }

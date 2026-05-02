@@ -629,7 +629,7 @@ impl HookPanel {
                                 svg()
                                     .path("icons/trash.svg")
                                     .size(px(12.0))
-                                    .text_color(rgb(t.term_red)),
+                                    .text_color(rgb(0xffffff)),
                             )
                             .on_click(move |_, _window, cx| {
                                 cx.stop_propagation();
@@ -669,7 +669,7 @@ impl HookPanel {
                                 svg()
                                     .path("icons/chevron-down.svg")
                                     .size(px(14.0))
-                                    .text_color(rgb(t.text_secondary)),
+                                    .text_color(rgb(0xffffff)),
                             )
                             .on_click(move |_, _window, cx| {
                                 if let Some(e) = entity_close.upgrade() {
