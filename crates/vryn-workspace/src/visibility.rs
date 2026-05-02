@@ -203,6 +203,7 @@ mod tests {
             path: "/tmp/test".to_string(),
             show_in_overview: visible,
             layout: Some(LayoutNode::Terminal {
+                slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
                 minimized: false,
                 detached: false,

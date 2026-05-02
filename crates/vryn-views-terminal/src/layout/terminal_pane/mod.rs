@@ -345,15 +345,23 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                 .and_then(|p| p.default_shell.as_ref()),
             &settings.default_shell,
         );
+        let first_project_path = ws
+            .data()
+            .projects
+            .first()
+            .map(|project| project.path.as_str());
 
-        let cwd = resolve_revival_cwd(
+        let revived_cwd = resolve_revival_cwd(
             &self.slot_id,
             &self.project_path,
             self.backend.is_remote(),
         );
+        let cwd = settings
+            .terminal_working_directory
+            .resolve(&revived_cwd, first_project_path);
         match self
             .backend
-            .reconnect_terminal(&terminal_id, &cwd, Some(&shell))
+            .reconnect_terminal_with_env(&terminal_id, &cwd, Some(&shell), &settings.terminal_env)
         {
             Ok(_) => {}
             Err(e) => {
@@ -405,6 +413,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             is_worktree,
             folder_id,
             folder_name,
+            first_project_path,
         ) = {
             let project = ws.project(&self.project_id);
             let path = project
@@ -420,7 +429,8 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             let folder = ws.folder_for_project_or_parent(&self.project_id);
             let fid = folder.map(|f| f.id.clone());
             let fname = folder.map(|f| f.name.clone());
-            (path, name, hooks_cfg, parent, is_wt, fid, fname)
+            let first_path = ws.data().projects.first().map(|p| p.path.clone());
+            (path, name, hooks_cfg, parent, is_wt, fid, fname, first_path)
         };
 
         let env = hooks::terminal_hook_env(
@@ -438,7 +448,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let persist_lines = settings.persist_scrollback_lines;
 
         // Apply shell_wrapper if configured
-        let global_hooks = settings.hooks;
+        let global_hooks = settings.hooks.clone();
         if let Some(wrapper) =
             hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks)
         {
@@ -454,12 +464,18 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             shell = hooks::apply_on_create(&shell, &cmd, &env);
         }
 
-        let cwd = resolve_revival_cwd(
+        let revived_cwd = resolve_revival_cwd(
             &self.slot_id,
             &project_path,
             self.backend.is_remote(),
         );
-        match self.backend.create_terminal(&cwd, Some(&shell)) {
+        let cwd = settings
+            .terminal_working_directory
+            .resolve(&revived_cwd, first_project_path.as_deref());
+        match self
+            .backend
+            .create_terminal_with_env(&cwd, Some(&shell), &settings.terminal_env)
+        {
             Ok(terminal_id) => {
                 self.terminal_id = Some(terminal_id.clone());
                 self.workspace.update(cx, |ws, cx| {

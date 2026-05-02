@@ -216,7 +216,126 @@ impl Default for FileExplorerSettings {
 }
 
 /// Current settings schema version - increment when making breaking changes
-pub const SETTINGS_VERSION: u32 = 5;
+pub const SETTINGS_VERSION: u32 = 6;
+
+/// Strategy for choosing the working directory of new terminals.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TerminalWorkingDirectory {
+    /// Start in the current project directory.
+    CurrentProjectDirectory,
+    /// Start in the first project directory in the workspace.
+    FirstProjectDirectory,
+    /// Start in the user's home directory.
+    AlwaysHome,
+    /// Start in a fixed directory. Supports `~`, `$VAR`, and `${VAR}` expansion.
+    Always { directory: String },
+}
+
+impl Default for TerminalWorkingDirectory {
+    fn default() -> Self {
+        Self::CurrentProjectDirectory
+    }
+}
+
+impl TerminalWorkingDirectory {
+    pub fn resolve(&self, project_path: &str, first_project_path: Option<&str>) -> String {
+        match self {
+            TerminalWorkingDirectory::CurrentProjectDirectory => {
+                valid_dir(project_path).unwrap_or_else(fallback_home)
+            }
+            TerminalWorkingDirectory::FirstProjectDirectory => first_project_path
+                .and_then(valid_dir)
+                .or_else(|| valid_dir(project_path))
+                .unwrap_or_else(fallback_home),
+            TerminalWorkingDirectory::AlwaysHome => fallback_home(),
+            TerminalWorkingDirectory::Always { directory } => {
+                let expanded = expand_fixed_directory(directory);
+                valid_dir(&expanded)
+                    .or_else(|| valid_dir(project_path))
+                    .unwrap_or_else(fallback_home)
+            }
+        }
+    }
+}
+
+fn fallback_home() -> String {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string())
+}
+
+fn valid_dir(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return None;
+    }
+    let path = std::path::Path::new(path);
+    if path.is_dir() {
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
+fn expand_fixed_directory(value: &str) -> String {
+    let mut out = if let Some(rest) = value.strip_prefix("~/") {
+        format!("{}/{}", fallback_home(), rest)
+    } else if value == "~" {
+        fallback_home()
+    } else {
+        value.to_string()
+    };
+
+    out = expand_env_vars(&out);
+    out
+}
+
+fn expand_env_vars(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '$' {
+            out.push(ch);
+            continue;
+        }
+
+        if chars.peek() == Some(&'{') {
+            chars.next();
+            let mut name = String::new();
+            for c in chars.by_ref() {
+                if c == '}' {
+                    break;
+                }
+                name.push(c);
+            }
+            if name.is_empty() {
+                out.push_str("${}");
+            } else if let Ok(value) = std::env::var(&name) {
+                out.push_str(&value);
+            }
+            continue;
+        }
+
+        let mut name = String::new();
+        while let Some(&c) = chars.peek() {
+            if c == '_' || c.is_ascii_alphanumeric() {
+                name.push(c);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+
+        if name.is_empty() {
+            out.push('$');
+        } else if let Ok(value) = std::env::var(&name) {
+            out.push_str(&value);
+        }
+    }
+
+    out
+}
 
 /// App settings (persisted separately from workspace)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -286,6 +405,15 @@ pub struct AppSettings {
     /// Number of lines to persist/restore per terminal (default: 100, max: 50000).
     #[serde(default = "default_persist_scrollback_lines")]
     pub persist_scrollback_lines: u32,
+    /// Environment variables injected into every new local terminal.
+    #[serde(default)]
+    pub terminal_env: HashMap<String, String>,
+    /// Strategy for selecting the working directory of new terminals.
+    #[serde(default)]
+    pub terminal_working_directory: TerminalWorkingDirectory,
+    /// macOS: treat Option/Alt printable keys as Meta (ESC-prefixed input).
+    #[serde(default)]
+    pub option_as_meta: bool,
 
     // Shell settings
     /// Default shell type for new terminals
@@ -301,7 +429,7 @@ pub struct AppSettings {
     pub session_backend: SessionBackend,
 
     // File opener settings
-    /// Editor command to open file paths (e.g. "code", "cursor", "zed", "subl", "vim")
+    /// Editor command to open file paths (e.g. "code", "cursor", "subl", "vim")
     /// Empty string = use system default (open/xdg-open/start)
     #[serde(default = "default_file_opener")]
     pub file_opener: String,
@@ -391,6 +519,9 @@ impl Default for AppSettings {
             scrollback_lines: default_scrollback_lines(),
             persist_scrollback: default_persist_scrollback(),
             persist_scrollback_lines: default_persist_scrollback_lines(),
+            terminal_env: HashMap::new(),
+            terminal_working_directory: TerminalWorkingDirectory::default(),
+            option_as_meta: false,
             default_shell: ShellType::default(),
             show_shell_selector: false,
             session_backend: SessionBackend::None,
@@ -651,6 +782,23 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
         settings.file_opener = v.to_string();
     }
 
+    if let Some(v) = obj.get("terminal_env")
+        && let Ok(env) = serde_json::from_value::<HashMap<String, String>>(v.clone())
+    {
+        settings.terminal_env = env;
+    }
+
+    if let Some(v) = obj.get("terminal_working_directory")
+        && let Ok(working_directory) =
+            serde_json::from_value::<TerminalWorkingDirectory>(v.clone())
+    {
+        settings.terminal_working_directory = working_directory;
+    }
+
+    if let Some(v) = obj.get("option_as_meta").and_then(|v| v.as_bool()) {
+        settings.option_as_meta = v;
+    }
+
     if let Some(v) = obj.get("auto_update_enabled").and_then(|v| v.as_bool()) {
         settings.auto_update_enabled = v;
     }
@@ -719,6 +867,13 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
             settings.session_backend = SessionBackend::None;
         }
         settings.version = 5;
+    }
+
+    // v5 -> v6: add terminal env, working-directory strategy, and Option-as-Meta settings.
+    // Serde defaults populate the new fields for older settings files.
+    if settings.version == 5 {
+        log::info!("Migrating settings from v5 to v6 (terminal spawn settings)");
+        settings.version = 6;
     }
 
     // Ensure version is current
@@ -928,6 +1083,53 @@ mod tests {
         let config = HooksConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn terminal_working_directory_defaults_to_project_directory() {
+        let settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            settings.terminal_working_directory,
+            TerminalWorkingDirectory::CurrentProjectDirectory
+        );
+    }
+
+    #[test]
+    fn terminal_working_directory_deserializes_fixed_directory() {
+        let json = r#"{
+            "terminal_working_directory": {
+                "type": "Always",
+                "directory": "/tmp"
+            }
+        }"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            settings.terminal_working_directory,
+            TerminalWorkingDirectory::Always {
+                directory: "/tmp".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn terminal_working_directory_uses_first_project_when_configured() {
+        let first = std::env::temp_dir();
+        let project = first.join("missing-vryn-project-dir");
+        let resolved = TerminalWorkingDirectory::FirstProjectDirectory
+            .resolve(project.to_string_lossy().as_ref(), Some(first.to_string_lossy().as_ref()));
+
+        assert_eq!(resolved, first.to_string_lossy());
+    }
+
+    #[test]
+    fn terminal_working_directory_invalid_fixed_path_falls_back_to_project() {
+        let project = std::env::temp_dir();
+        let resolved = TerminalWorkingDirectory::Always {
+            directory: "/definitely/not/a/real/vryn/path".to_string(),
+        }
+        .resolve(project.to_string_lossy().as_ref(), None);
+
+        assert_eq!(resolved, project.to_string_lossy());
     }
 
     #[test]

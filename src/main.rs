@@ -465,6 +465,9 @@ fn main() {
                             hooks: s.settings.hooks.clone(),
                             persist_scrollback: s.settings.persist_scrollback,
                             persist_scrollback_lines: s.settings.persist_scrollback_lines,
+                            terminal_env: s.settings.terminal_env.clone(),
+                            terminal_working_directory: s.settings.terminal_working_directory.clone(),
+                            option_as_meta: s.settings.option_as_meta,
                         }).ok()
                     }
                     "git" => {
@@ -502,6 +505,10 @@ fn main() {
                                 state.settings.persist_scrollback = tvs.persist_scrollback;
                                 state.settings.persist_scrollback_lines =
                                     tvs.persist_scrollback_lines.min(50_000);
+                                state.settings.terminal_env = tvs.terminal_env;
+                                state.settings.terminal_working_directory =
+                                    tvs.terminal_working_directory;
+                                state.settings.option_as_meta = tvs.option_as_meta;
                                 state.save_and_notify(cx);
                             });
                         }

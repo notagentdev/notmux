@@ -64,6 +64,12 @@ pub struct TerminalViewSettings {
     pub persist_scrollback: bool,
     #[serde(default = "default_persist_scrollback_lines")]
     pub persist_scrollback_lines: u32,
+    #[serde(default)]
+    pub terminal_env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub terminal_working_directory: vryn_workspace::settings::TerminalWorkingDirectory,
+    #[serde(default)]
+    pub option_as_meta: bool,
 }
 
 fn default_persist_scrollback() -> bool {
@@ -94,6 +100,9 @@ pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
             hooks: Default::default(),
             persist_scrollback: default_persist_scrollback(),
             persist_scrollback_lines: default_persist_scrollback_lines(),
+            terminal_env: Default::default(),
+            terminal_working_directory: Default::default(),
+            option_as_meta: false,
         })
 }
 

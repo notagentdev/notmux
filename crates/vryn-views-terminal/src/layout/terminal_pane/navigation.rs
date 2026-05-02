@@ -4,7 +4,7 @@ use crate::ActionDispatch;
 use crate::layout::navigation::{NavigationDirection, PaneBounds, get_pane_map};
 use crate::layout::terminal_pane::actions::paste_clipboard_into_terminal;
 use gpui::*;
-use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes};
+use vryn_terminal::input::{KeyEvent, KeyModifiers, key_to_bytes_with_options};
 
 use super::TerminalPane;
 
@@ -122,7 +122,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                     platform: event.keystroke.modifiers.platform,
                 },
             };
-            if let Some(input) = key_to_bytes(&key_event, app_cursor_mode) {
+            let option_as_meta =
+                cfg!(target_os = "macos") && crate::terminal_view_settings(cx).option_as_meta;
+            if let Some(input) =
+                key_to_bytes_with_options(&key_event, app_cursor_mode, option_as_meta)
+            {
                 terminal.send_bytes(&input);
             }
         }

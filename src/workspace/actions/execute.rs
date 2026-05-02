@@ -997,7 +997,10 @@ pub fn spawn_uninitialized_terminals(
 
     let app_settings = settings(cx);
     let global_default = app_settings.default_shell.clone();
-    let global_hooks = app_settings.hooks;
+    let global_hooks = app_settings.hooks.clone();
+    let terminal_env = app_settings.terminal_env.clone();
+    let terminal_working_directory = app_settings.terminal_working_directory.clone();
+    let first_project_path = ws.data().projects.first().map(|p| p.path.clone());
 
     // Resolve shell_wrapper and on_create once for all terminals in this project
     let shell_wrapper =
@@ -1035,14 +1038,16 @@ pub fn spawn_uninitialized_terminals(
             shell = hooks::apply_on_create(&shell, cmd, &env);
         }
 
-        match backend.create_terminal(&project_path, Some(&shell)) {
+        let cwd =
+            terminal_working_directory.resolve(&project_path, first_project_path.as_deref());
+        match backend.create_terminal_with_env(&cwd, Some(&shell), &terminal_env) {
             Ok(terminal_id) => {
                 ws.set_terminal_id(project_id, &path, terminal_id.clone(), cx);
                 let terminal = Arc::new(Terminal::new(
                     terminal_id.clone(),
                     TerminalSize::default(),
                     backend.transport(),
-                    project_path.clone(),
+                    cwd,
                 ));
 
                 terminals.lock().insert(terminal_id.clone(), terminal);

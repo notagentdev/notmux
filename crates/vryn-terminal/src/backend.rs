@@ -11,12 +11,31 @@ use std::sync::Arc;
 pub trait TerminalBackend: Send + Sync {
     fn transport(&self) -> Arc<dyn TerminalTransport>;
     fn create_terminal(&self, cwd: &str, shell: Option<&ShellType>) -> Result<String>;
+    fn create_terminal_with_env(
+        &self,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
+        let _ = env;
+        self.create_terminal(cwd, shell)
+    }
     fn reconnect_terminal(
         &self,
         terminal_id: &str,
         cwd: &str,
         shell: Option<&ShellType>,
     ) -> Result<String>;
+    fn reconnect_terminal_with_env(
+        &self,
+        terminal_id: &str,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
+        let _ = env;
+        self.reconnect_terminal(terminal_id, cwd, shell)
+    }
     fn kill(&self, terminal_id: &str);
     fn capture_buffer(&self, terminal_id: &str) -> Option<PathBuf>;
     fn supports_buffer_capture(&self) -> bool;
@@ -62,6 +81,16 @@ impl TerminalBackend for LocalBackend {
         self.pty_manager.create_terminal_with_shell(cwd, shell)
     }
 
+    fn create_terminal_with_env(
+        &self,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
+        self.pty_manager
+            .create_terminal_with_shell_and_env(cwd, shell, env)
+    }
+
     fn reconnect_terminal(
         &self,
         terminal_id: &str,
@@ -70,6 +99,17 @@ impl TerminalBackend for LocalBackend {
     ) -> Result<String> {
         self.pty_manager
             .create_or_reconnect_terminal_with_shell(Some(terminal_id), cwd, shell)
+    }
+
+    fn reconnect_terminal_with_env(
+        &self,
+        terminal_id: &str,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
+        self.pty_manager
+            .create_or_reconnect_terminal_with_shell_and_env(Some(terminal_id), cwd, shell, env)
     }
 
     fn kill(&self, terminal_id: &str) {

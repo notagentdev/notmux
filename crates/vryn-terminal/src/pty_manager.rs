@@ -150,8 +150,18 @@ impl PtyManager {
         cwd: &str,
         shell: Option<&ShellType>,
     ) -> Result<String> {
+        self.create_terminal_with_shell_and_env(cwd, shell, &HashMap::new())
+    }
+
+    /// Create a new terminal with a specific shell type and environment.
+    pub fn create_terminal_with_shell_and_env(
+        &self,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
         let terminal_id = uuid::Uuid::new_v4().to_string();
-        self.create_terminal_with_id(&terminal_id, cwd, shell)?;
+        self.create_terminal_with_id(&terminal_id, cwd, shell, env)?;
         Ok(terminal_id)
     }
 
@@ -174,6 +184,17 @@ impl PtyManager {
         cwd: &str,
         shell: Option<&ShellType>,
     ) -> Result<String> {
+        self.create_or_reconnect_terminal_with_shell_and_env(terminal_id, cwd, shell, &HashMap::new())
+    }
+
+    /// Create or reconnect to a terminal with a specific shell type and environment.
+    pub fn create_or_reconnect_terminal_with_shell_and_env(
+        &self,
+        terminal_id: Option<&str>,
+        cwd: &str,
+        shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
+    ) -> Result<String> {
         match terminal_id {
             Some(id) => {
                 // Check if we already have this terminal running
@@ -181,10 +202,10 @@ impl PtyManager {
                     return Ok(id.to_string());
                 }
                 // Try to reconnect or create with this ID
-                self.create_terminal_with_id(id, cwd, shell)?;
+                self.create_terminal_with_id(id, cwd, shell, env)?;
                 Ok(id.to_string())
             }
-            None => self.create_terminal_with_shell(cwd, shell),
+            None => self.create_terminal_with_shell_and_env(cwd, shell, env),
         }
     }
 
@@ -194,6 +215,7 @@ impl PtyManager {
         terminal_id: &str,
         cwd: &str,
         shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
     ) -> Result<()> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
@@ -205,9 +227,10 @@ impl PtyManager {
 
         // Build command based on session backend and shell config
         #[cfg(unix)]
-        let cmd = self.build_terminal_command(terminal_id, cwd, shell);
+        let cmd = self.build_terminal_command(terminal_id, cwd, shell, env);
         #[cfg(windows)]
-        let (cmd, wsl_distro, wsl_backend) = self.build_terminal_command(terminal_id, cwd, shell);
+        let (cmd, wsl_distro, wsl_backend) =
+            self.build_terminal_command(terminal_id, cwd, shell, env);
 
         // Spawn the process
         let child = pair.slave.spawn_command(cmd)?;
@@ -306,6 +329,7 @@ impl PtyManager {
         terminal_id: &str,
         cwd: &str,
         shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
     ) -> CommandBuilder {
         // Extract custom command from ShellType::Custom{path:<shell>, args:["-c"/"-ic", cmd]}
         // so it can be passed to the session backend
@@ -344,7 +368,7 @@ impl PtyManager {
             }
         };
 
-        Self::set_terminal_env(&mut cmd, terminal_id);
+        Self::set_terminal_env(&mut cmd, terminal_id, env);
         cmd
     }
 
@@ -356,6 +380,7 @@ impl PtyManager {
         terminal_id: &str,
         cwd: &str,
         shell: Option<&ShellType>,
+        env: &HashMap<String, String>,
     ) -> (CommandBuilder, Option<String>, Option<ResolvedBackend>) {
         use crate::session_backend::resolve_for_wsl;
         use crate::shell_config::windows_path_to_wsl;
@@ -407,35 +432,75 @@ impl PtyManager {
             }
         };
 
-        Self::set_terminal_env(&mut cmd, terminal_id);
+        Self::set_terminal_env(&mut cmd, terminal_id, env);
         (cmd, wsl_distro, wsl_backend)
     }
 
     /// Set common terminal environment variables on a command.
-    fn set_terminal_env(cmd: &mut CommandBuilder, terminal_id: &str) {
-        // Allow processes inside the terminal to identify which Vryn terminal they run in
-        cmd.env("VRYN_TERMINAL_ID", terminal_id);
-
-        // Set TERM environment variable - required for proper terminal operation
-        // especially when running as a macOS app bundle which doesn't inherit shell environment
-        cmd.env("TERM", "xterm-256color");
-        // COLORTERM enables 24-bit truecolor support in many applications
-        cmd.env("COLORTERM", "truecolor");
-
-        // Ensure UTF-8 locale for child processes. macOS app bundles launched from
-        // Finder/Spotlight don't inherit shell environment, so LANG defaults to
-        // C/POSIX (ASCII-only). This breaks non-ASCII text in shells and CLI tools.
-        #[cfg(not(windows))]
-        if std::env::var("LANG").is_err() {
-            cmd.env("LANG", "en_US.UTF-8");
+    fn set_terminal_env(
+        cmd: &mut CommandBuilder,
+        terminal_id: &str,
+        user_env: &HashMap<String, String>,
+    ) {
+        for (key, value) in build_terminal_env(terminal_id, user_env) {
+            cmd.env(key, value);
         }
+    }
+}
 
-        // Extend PATH for child processes. Desktop entries and app bundles start
-        // with a minimal PATH missing user tools (~/.cargo/bin, ~/.bun/bin, etc.)
-        #[cfg(not(windows))]
-        cmd.env("PATH", get_extended_path());
+pub fn build_terminal_env(
+    terminal_id: &str,
+    user_env: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    for (key, value) in user_env {
+        if matches!(key.as_str(), "VRYN_TERMINAL_ID" | "TERM" | "COLORTERM" | "LANG") {
+            continue;
+        }
+        if key == "PATH" {
+            continue;
+        }
+        env.insert(key.clone(), value.clone());
     }
 
+    let path_value = user_env.get("PATH").map(|value| {
+        #[cfg(not(windows))]
+        {
+            value.replace("$PATH", &get_extended_path())
+        }
+        #[cfg(windows)]
+        {
+            value.clone()
+        }
+    });
+
+    #[cfg(not(windows))]
+    {
+        env.insert("PATH".to_string(), path_value.unwrap_or_else(get_extended_path));
+    }
+
+    #[cfg(windows)]
+    if let Some(path_value) = path_value {
+        env.insert("PATH".to_string(), path_value);
+    }
+
+    // Allow processes inside the terminal to identify which Vryn terminal they run in.
+    env.insert("VRYN_TERMINAL_ID".to_string(), terminal_id.to_string());
+
+    // Set terminal capability variables required for proper terminal operation.
+    env.insert("TERM".to_string(), "xterm-256color".to_string());
+    env.insert("COLORTERM".to_string(), "truecolor".to_string());
+
+    // Ensure UTF-8 locale for child processes when the parent environment lacks it.
+    #[cfg(not(windows))]
+    if std::env::var("LANG").is_err() {
+        env.insert("LANG".to_string(), "en_US.UTF-8".to_string());
+    }
+
+    env
+}
+
+impl PtyManager {
     /// Read loop for PTY output
     fn read_loop(
         terminal_id: String,
@@ -1238,4 +1303,42 @@ fn first_proc_child(pid: u32) -> Option<u32> {
 #[cfg(not(unix))]
 fn first_proc_child(_pid: u32) -> Option<u32> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_terminal_env;
+    use std::collections::HashMap;
+
+    #[test]
+    fn terminal_env_preserves_required_values() {
+        let mut user = HashMap::new();
+        user.insert("TERM".to_string(), "dumb".to_string());
+        user.insert("COLORTERM".to_string(), "false".to_string());
+        user.insert("VRYN_TERMINAL_ID".to_string(), "wrong".to_string());
+        user.insert("CUSTOM".to_string(), "ok".to_string());
+
+        let env = build_terminal_env("terminal-1", &user);
+
+        assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
+        assert_eq!(env.get("COLORTERM").map(String::as_str), Some("truecolor"));
+        assert_eq!(
+            env.get("VRYN_TERMINAL_ID").map(String::as_str),
+            Some("terminal-1")
+        );
+        assert_eq!(env.get("CUSTOM").map(String::as_str), Some("ok"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn terminal_env_expands_path_placeholder() {
+        let mut user = HashMap::new();
+        user.insert("PATH".to_string(), "/custom/bin:$PATH".to_string());
+
+        let env = build_terminal_env("terminal-1", &user);
+        let path = env.get("PATH").expect("PATH should be set");
+
+        assert!(path.starts_with("/custom/bin:"));
+        assert!(!path.contains("$PATH"));
+    }
 }

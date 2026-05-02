@@ -81,12 +81,13 @@ impl RootView {
         });
 
         // Determine the actual shell to use (resolve Default → project default → global default)
+        let app_settings = settings(cx);
         let mut actual_shell = shell_type.resolve_default(
             self.workspace
                 .read(cx)
                 .project(project_id)
                 .and_then(|p| p.default_shell.as_ref()),
-            &settings(cx).default_shell,
+            &app_settings.default_shell,
         );
 
         // Get project info for hooks
@@ -116,7 +117,7 @@ impl RootView {
         );
 
         // Apply shell_wrapper if configured
-        let global_hooks = settings(cx).hooks;
+        let global_hooks = app_settings.hooks.clone();
         if let Some(wrapper) =
             hooks::resolve_shell_wrapper(&project_hooks, parent_hooks.as_ref(), &global_hooks)
         {
@@ -127,16 +128,26 @@ impl RootView {
         if let Some(cmd) = hooks::resolve_terminal_on_create(
             &project_hooks,
             parent_hooks.as_ref(),
-            &settings(cx).hooks,
+            &global_hooks,
             cx,
         ) {
             actual_shell = hooks::apply_on_create(&actual_shell, &cmd, &env);
         }
 
         // Create new terminal with the new shell
+        let first_project_path = self
+            .workspace
+            .read(cx)
+            .data()
+            .projects
+            .first()
+            .map(|p| p.path.clone());
+        let cwd = app_settings
+            .terminal_working_directory
+            .resolve(&project_path, first_project_path.as_deref());
         match self
             .backend
-            .create_terminal(&project_path, Some(&actual_shell))
+            .create_terminal_with_env(&cwd, Some(&actual_shell), &app_settings.terminal_env)
         {
             Ok(new_terminal_id) => {
                 log::info!(
@@ -156,7 +167,7 @@ impl RootView {
                     new_terminal_id.clone(),
                     size,
                     self.backend.transport(),
-                    project_path.clone(),
+                    cwd,
                 ));
                 self.terminals.lock().insert(new_terminal_id, terminal);
             }

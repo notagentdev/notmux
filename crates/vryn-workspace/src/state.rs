@@ -571,6 +571,7 @@ mod workspace_tests {
             path: "/tmp/test".to_string(),
             show_in_overview: visible,
             layout: Some(LayoutNode::Terminal {
+                slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
                 minimized: false,
                 detached: false,
@@ -695,6 +696,7 @@ mod workspace_tests {
             sizes: vec![50.0, 50.0],
             children: vec![
                 LayoutNode::Terminal {
+                    slot_id: "slot-t1".to_string(),
                     terminal_id: Some("t1".to_string()),
                     minimized: false,
                     detached: true,
@@ -702,6 +704,7 @@ mod workspace_tests {
                     zoom_level: 1.0,
                 },
                 LayoutNode::Terminal {
+                    slot_id: "slot-t2".to_string(),
                     terminal_id: Some("t2".to_string()),
                     minimized: false,
                     detached: false,
@@ -1330,6 +1333,7 @@ mod gpui_tests {
             path: "/tmp/test".to_string(),
             show_in_overview: true,
             layout: Some(LayoutNode::Terminal {
+                slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
                 minimized: false,
                 detached: false,

@@ -625,6 +625,7 @@ mod tests {
     fn validate_clear_terminal_ids() {
         let mut project = make_project("p1");
         project.layout = Some(LayoutNode::Terminal {
+            slot_id: "slot-tid1".to_string(),
             terminal_id: Some("tid1".to_string()),
             minimized: true,
             detached: true,
@@ -664,6 +665,7 @@ mod tests {
             sizes: vec![0.7, 0.3],
             children: vec![
                 LayoutNode::Terminal {
+                    slot_id: "slot-regular-term".to_string(),
                     terminal_id: Some("regular-term".to_string()),
                     minimized: false,
                     detached: false,
@@ -671,6 +673,7 @@ mod tests {
                     zoom_level: 1.0,
                 },
                 LayoutNode::Terminal {
+                    slot_id: "slot-hook-term".to_string(),
                     terminal_id: Some("hook-term".to_string()),
                     minimized: false,
                     detached: false,
@@ -844,6 +847,7 @@ mod tests {
     fn validate_cleans_orphaned_terminal_metadata() {
         let mut project = make_project("p1");
         project.layout = Some(LayoutNode::Terminal {
+            slot_id: "slot-t1".to_string(),
             terminal_id: Some("t1".to_string()),
             minimized: false,
             detached: false,

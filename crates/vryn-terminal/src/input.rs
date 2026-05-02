@@ -25,7 +25,25 @@ pub struct KeyEvent {
 /// This should be true when the terminal is in application cursor keys mode (DECCKM),
 /// which is used by applications like less, vim, htop, etc.
 pub fn key_to_bytes(event: &KeyEvent, app_cursor_mode: bool) -> Option<Vec<u8>> {
+    key_to_bytes_with_options(event, app_cursor_mode, false)
+}
+
+/// Convert a key event to terminal input bytes with terminal input settings.
+pub fn key_to_bytes_with_options(
+    event: &KeyEvent,
+    app_cursor_mode: bool,
+    option_as_meta: bool,
+) -> Option<Vec<u8>> {
     let mods = &event.modifiers;
+
+    if option_as_meta
+        && mods.alt
+        && !mods.control
+        && !mods.platform
+        && let Some(bytes) = option_meta_bytes(event)
+    {
+        return Some(bytes);
+    }
 
     // Handle Ctrl+key combinations for letters (produces control characters)
     if mods.control && !mods.shift && !mods.alt && !mods.platform {
@@ -170,4 +188,55 @@ pub fn key_to_bytes(event: &KeyEvent, app_cursor_mode: bool) -> Option<Vec<u8>> 
 
     log::warn!("No input generated for key: {:?}", event.key);
     None
+}
+
+fn option_meta_bytes(event: &KeyEvent) -> Option<Vec<u8>> {
+    let text = if event.key.len() == 1 {
+        event.key.as_str()
+    } else {
+        event.key_char.as_deref()?
+    };
+
+    if text.chars().any(|c| c.is_control()) {
+        return None;
+    }
+
+    let mut bytes = Vec::with_capacity(text.len() + 1);
+    bytes.push(0x1b);
+    bytes.extend_from_slice(text.as_bytes());
+    Some(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(key: &str, key_char: Option<&str>, alt: bool) -> KeyEvent {
+        KeyEvent {
+            key: key.to_string(),
+            key_char: key_char.map(str::to_string),
+            modifiers: KeyModifiers {
+                alt,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn option_as_meta_prefixes_printable_key_with_escape() {
+        let bytes = key_to_bytes_with_options(&event("x", Some("≈"), true), false, true);
+        assert_eq!(bytes, Some(b"\x1bx".to_vec()));
+    }
+
+    #[test]
+    fn option_as_meta_ignores_plain_text_when_disabled() {
+        let bytes = key_to_bytes_with_options(&event("x", Some("x"), true), false, false);
+        assert_eq!(bytes, None);
+    }
+
+    #[test]
+    fn option_as_meta_does_not_change_non_alt_key() {
+        let bytes = key_to_bytes_with_options(&event("x", Some("x"), false), false, true);
+        assert_eq!(bytes, None);
+    }
 }
