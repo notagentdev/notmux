@@ -343,6 +343,11 @@ pub struct Terminal {
     waiting_for_input: AtomicBool,
     /// Whether the user has ever sent input to this terminal (prevents flagging fresh terminals)
     had_user_input: AtomicBool,
+    /// Best-effort tracking of the current shell input line.
+    current_input_line: Mutex<String>,
+    /// Last submitted shell command, used to persist alt-screen sessions without
+    /// replaying TUI control sequences.
+    last_submitted_command: Mutex<Option<String>>,
     /// Timestamp of when the user last viewed this terminal (on blur)
     last_viewed_time: Arc<Mutex<Instant>>,
 }
@@ -401,6 +406,8 @@ impl Terminal {
             shell_pid: Mutex::new(None),
             waiting_for_input: AtomicBool::new(false),
             had_user_input: AtomicBool::new(false),
+            current_input_line: Mutex::new(String::new()),
+            last_submitted_command: Mutex::new(None),
             last_viewed_time: Arc::new(Mutex::new(Instant::now())),
         }
     }
@@ -424,6 +431,10 @@ impl Terminal {
         cwd: Option<&str>,
     ) -> Vec<u8> {
         let size = self.resize_state.lock().size;
+
+        if self.is_alt_screen() {
+            return self.capture_alt_screen_command(size, max_lines, cwd);
+        }
 
         if self.restored_from_snapshot.load(Ordering::Relaxed)
             && !self.had_user_input.load(Ordering::Relaxed)
@@ -450,6 +461,38 @@ impl Terminal {
                 cwd,
             },
         )
+    }
+
+    fn capture_alt_screen_command(
+        &self,
+        size: TerminalSize,
+        max_lines: u32,
+        cwd: Option<&str>,
+    ) -> Vec<u8> {
+        let replay_bytes = self.replay_buffer.lock().clone();
+        let prefix = replay_prefix_before_alt_screen(&replay_bytes).unwrap_or(&[]);
+        let command = self.last_submitted_command.lock().clone();
+        let command = command.as_deref().map(str::trim).filter(|cmd| !cmd.is_empty());
+
+        if prefix.is_empty() && command.is_none() {
+            return Vec::new();
+        }
+
+        let mut bytes =
+            Vec::with_capacity(prefix.len() + command.map(|cmd| cmd.len() + 2).unwrap_or(0));
+        bytes.extend_from_slice(prefix);
+
+        if let Some(command) = command
+            && !byte_slice_contains(prefix, command.as_bytes())
+        {
+            if !bytes.is_empty() && !bytes.ends_with(b"\n") && !bytes.ends_with(b"\r") {
+                bytes.extend_from_slice(b"\r\n");
+            }
+            bytes.extend_from_slice(command.as_bytes());
+            bytes.extend_from_slice(b"\r\n");
+        }
+
+        crate::scrollback_snapshot::capture_raw(&bytes, size.cols, size.rows, max_lines, cwd)
     }
 
     pub fn capture_scrollback_snapshot(
@@ -603,6 +646,40 @@ impl Terminal {
         self.restored_replay_buffer.lock().clear();
     }
 
+    fn record_user_input_for_command(&self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+
+        let Ok(text) = std::str::from_utf8(data) else {
+            return;
+        };
+        if text.contains('\u{1b}') {
+            return;
+        }
+
+        let mut line = self.current_input_line.lock();
+        for ch in text.chars() {
+            match ch {
+                '\r' | '\n' => {
+                    let submitted = line.trim();
+                    if !submitted.is_empty() {
+                        *self.last_submitted_command.lock() = Some(submitted.to_string());
+                    }
+                    line.clear();
+                }
+                '\u{7f}' | '\u{8}' => {
+                    line.pop();
+                }
+                '\u{3}' | '\u{4}' => {
+                    line.clear();
+                }
+                ch if !ch.is_control() => line.push(ch),
+                _ => {}
+            }
+        }
+    }
+
     /// Enqueue output data for deferred processing.
     ///
     /// Used by the remote client's tokio reader thread so it never holds
@@ -674,6 +751,7 @@ impl Terminal {
     /// Automatically scrolls to bottom if scrolled into history
     pub fn send_input(&self, input: &str) {
         self.mark_session_interaction();
+        self.record_user_input_for_command(input.as_bytes());
         self.scroll_to_bottom();
         self.transport
             .send_input(&self.terminal_id, input.as_bytes());
@@ -694,6 +772,7 @@ impl Terminal {
                 .replace("\x1b[200~", "")
                 .replace("\x1b[201~", "")
                 .replace('\x1b', "");
+            self.record_user_input_for_command(sanitized.as_bytes());
             let mut buf = Vec::with_capacity(sanitized.len() + 12);
             buf.extend_from_slice(b"\x1b[200~");
             buf.extend_from_slice(sanitized.as_bytes());
@@ -702,6 +781,7 @@ impl Terminal {
         } else {
             // Without bracketed paste, terminals submit lines with carriage returns.
             let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
+            self.record_user_input_for_command(normalized.as_bytes());
             self.transport
                 .send_input(&self.terminal_id, normalized.as_bytes());
         }
@@ -711,6 +791,7 @@ impl Terminal {
     /// Automatically scrolls to bottom if scrolled into history
     pub fn send_bytes(&self, data: &[u8]) {
         self.mark_session_interaction();
+        self.record_user_input_for_command(data);
         self.scroll_to_bottom();
         self.transport.send_input(&self.terminal_id, data);
     }
@@ -2105,6 +2186,28 @@ fn grid_to_ansi(term: &Term<ZedEventListener>) -> Vec<u8> {
     buf
 }
 
+fn replay_prefix_before_alt_screen(bytes: &[u8]) -> Option<&[u8]> {
+    const ALT_SCREEN_ENTERS: [&[u8]; 3] = [b"\x1b[?1049h", b"\x1b[?1047h", b"\x1b[?47h"];
+    ALT_SCREEN_ENTERS
+        .iter()
+        .filter_map(|needle| find_bytes(bytes, needle).map(|idx| &bytes[..idx]))
+        .next()
+}
+
+fn byte_slice_contains(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    find_bytes(haystack, needle).is_some()
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack.windows(needle.len()).position(|window| window == needle)
+}
+
 /// Write CSI cursor position: `\x1b[{row};{col}H`
 fn write_csi_pos(buf: &mut Vec<u8>, row: i32, col: i32) {
     use std::io::Write;
@@ -2443,6 +2546,62 @@ mod tests {
             body.windows(b"pending output".len())
                 .any(|w| w == b"pending output"),
             "pending output should be included in snapshot: {:?}",
+            String::from_utf8_lossy(body)
+        );
+
+        let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn alt_screen_snapshot_persists_only_launch_command() {
+        let dir = std::env::temp_dir().join(format!(
+            "vryn-terminal-alt-screen-snapshot-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.process_output(b"previous output\r\n$ nvim Cargo.toml\r\n");
+        terminal.send_input("nvim Cargo.toml");
+        terminal.send_bytes(b"\r");
+        terminal.process_output(b"\x1b[?1049h\x1b[?1000h\x1b[?1006hTUI screen contents");
+
+        assert!(terminal.is_alt_screen());
+
+        let (snapshot, _stats) =
+            terminal.capture_scrollback_snapshot(&dir, "term", 100, None, SnapshotReason::AppQuit);
+        let body = &snapshot[10..];
+
+        assert!(
+            body.windows(b"nvim Cargo.toml".len())
+                .any(|w| w == b"nvim Cargo.toml"),
+            "launch command should be persisted: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            body.windows(b"previous output".len())
+                .any(|w| w == b"previous output"),
+            "normal-buffer output before alt-screen should be persisted: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            !body
+                .windows(b"TUI screen contents".len())
+                .any(|w| w == b"TUI screen contents"),
+            "alt-screen output must not be persisted: {:?}",
+            String::from_utf8_lossy(body)
+        );
+        assert!(
+            !body.windows(b"\x1b[?1000h".len())
+                .any(|w| w == b"\x1b[?1000h"),
+            "mouse mode must not be persisted: {:?}",
             String::from_utf8_lossy(body)
         );
 
