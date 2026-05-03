@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_start_creates_placeholder_decoration() {
+    fn prompt_start_creates_placeholder_command() {
         let mut tracker = CommandTracker::new();
         tracker.handle_event(
             CommandTrackingEvent::PromptStart {

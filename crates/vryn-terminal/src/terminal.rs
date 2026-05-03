@@ -350,7 +350,7 @@ pub struct Terminal {
     last_submitted_command: Mutex<Option<String>>,
     /// Parser for command lifecycle OSC sequences emitted by shell integration.
     command_sequence_parser: Mutex<CommandSequenceParser>,
-    /// Shell-integrated command lifecycle state used by decorations and hover metadata.
+    /// Shell-integrated command lifecycle state.
     command_tracker: Mutex<CommandTracker>,
     /// Timestamp of when the user last viewed this terminal (on blur)
     last_viewed_time: Arc<Mutex<Instant>>,

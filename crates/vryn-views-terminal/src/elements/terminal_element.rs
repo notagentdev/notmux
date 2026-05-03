@@ -7,7 +7,6 @@ use gpui::*;
 use std::sync::Arc;
 use vryn_core::theme::ThemeColors;
 use vryn_files::theme::theme;
-use vryn_terminal::command_tracking::{CommandStatus, TrackedCommand};
 use vryn_terminal::terminal::Terminal;
 use vryn_ui::color_utils::tint_color;
 use vryn_ui::theme::ansi_to_hsla;
@@ -70,93 +69,6 @@ fn dimmed_ansi_to_hsla(t: &ThemeColors, fg: &Color, bg: &Color) -> Hsla {
     })
 }
 
-fn command_decoration_color(command: &TrackedCommand, t: &ThemeColors) -> Hsla {
-    let base = match command.status {
-        CommandStatus::Running | CommandStatus::Unknown => t.text_muted,
-        CommandStatus::Success | CommandStatus::Error => t.border_active,
-    };
-    let c = rgb(base);
-    Hsla::from(Rgba {
-        r: c.r,
-        g: c.g,
-        b: c.b,
-        a: match command.status {
-            CommandStatus::Running | CommandStatus::Unknown => 0.45,
-            CommandStatus::Success | CommandStatus::Error => 1.0,
-        },
-    })
-}
-
-fn paint_command_decoration(
-    command: &TrackedCommand,
-    hovered: bool,
-    visual_line: i32,
-    gutter_origin: Point<Pixels>,
-    line_height: Pixels,
-    window: &mut Window,
-    t: &ThemeColors,
-) {
-    let icon_box = px(16.0);
-    let x = gutter_origin.x - px(17.0);
-    let y = gutter_origin.y + visual_line as f32 * line_height + (line_height - icon_box) / 2.0;
-    let icon_bounds = Bounds::new(point(x, y), size(icon_box, icon_box));
-
-    if hovered && !matches!(command.status, CommandStatus::Running | CommandStatus::Unknown) {
-        window.paint_quad(fill(icon_bounds, rgb(t.bg_hover)).corner_radii(px(5.0)));
-    }
-
-    let color = command_decoration_color(command, t);
-    let center = point(x + icon_box / 2.0, y + icon_box / 2.0);
-    match command.status {
-        CommandStatus::Running | CommandStatus::Unknown => {
-            let outer = px(8.0);
-            let inner = px(4.0);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(center.x - outer / 2.0, center.y - outer / 2.0),
-                    size(outer, outer),
-                ),
-                color,
-            ).corner_radii(outer / 2.0));
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(center.x - inner / 2.0, center.y - inner / 2.0),
-                    size(inner, inner),
-                ),
-                rgb(t.term_background),
-            ).corner_radii(inner / 2.0));
-        }
-        CommandStatus::Success => {
-            let marker = px(7.0);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(center.x - marker / 2.0, center.y - marker / 2.0),
-                    size(marker, marker),
-                ),
-                color,
-            ).corner_radii(marker / 2.0));
-        }
-        CommandStatus::Error => {
-            let marker = px(9.0);
-            let stroke = px(2.0);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(center.x - marker / 2.0, center.y - stroke / 2.0),
-                    size(marker, stroke),
-                ),
-                color,
-            ).corner_radii(stroke / 2.0));
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(center.x - stroke / 2.0, center.y - marker / 2.0),
-                    size(stroke, marker),
-                ),
-                color,
-            ).corner_radii(stroke / 2.0));
-        }
-    }
-}
-
 /// Custom GPUI element for rendering a terminal
 pub struct TerminalElement {
     terminal: Arc<Terminal>,
@@ -165,7 +77,6 @@ pub struct TerminalElement {
     current_match_index: Option<usize>,
     url_matches: Arc<Vec<URLMatch>>,
     hovered_url_group: Option<usize>,
-    hovered_command_id: Option<u64>,
     cursor_visible: bool,
     cursor_style: CursorShape,
     zoom_level: f32,
@@ -182,7 +93,6 @@ impl TerminalElement {
             current_match_index: None,
             url_matches: Arc::new(Vec::new()),
             hovered_url_group: None,
-            hovered_command_id: None,
             cursor_visible: true,
             cursor_style: CursorShape::Block,
             zoom_level: 1.0,
@@ -217,11 +127,6 @@ impl TerminalElement {
     ) -> Self {
         self.url_matches = url_matches;
         self.hovered_url_group = hovered_url_group;
-        self
-    }
-
-    pub fn with_hovered_command(mut self, command_id: Option<u64>) -> Self {
-        self.hovered_command_id = command_id;
         self
     }
 
@@ -446,12 +351,6 @@ impl Element for TerminalElement {
         // Capture cursor state for the closure
         let cursor_visible = self.cursor_visible;
         let cursor_style = self.cursor_style;
-        let command_history = if self.terminal.is_alt_screen() {
-            Vec::new()
-        } else {
-            self.terminal.command_history()
-        };
-
         self.terminal.with_content(|term| {
             let grid = term.grid();
             let screen_lines = grid.screen_lines();
@@ -723,24 +622,6 @@ impl Element for TerminalElement {
                     };
                     window.paint_quad(fill(underline_bounds, underline_color));
                 }
-            }
-
-            // Phase 2.7: Paint command status decorations in the reserved gutter
-            for command in &command_history {
-                let visual_line = command.command_row + display_offset;
-                if visual_line < 0 || visual_line >= screen_lines as i32 {
-                    continue;
-                }
-
-                paint_command_decoration(
-                    command,
-                    self.hovered_command_id == Some(command.id),
-                    visual_line,
-                    bounds.origin,
-                    line_height,
-                    window,
-                    &t,
-                );
             }
 
             // Phase 3: Paint text runs
