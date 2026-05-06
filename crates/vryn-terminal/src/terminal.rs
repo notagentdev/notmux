@@ -1,4 +1,3 @@
-use crate::command_tracking::{CommandSequenceParser, CommandTracker, TrackedCommand};
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
@@ -11,7 +10,7 @@ use parking_lot::Mutex;
 use regex::Regex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
 const REPLAY_BUFFER_MAX_BYTES: usize = 4 * 1024 * 1024;
 
@@ -107,7 +106,7 @@ impl Default for TerminalSize {
 }
 
 /// Event listener for alacritty_terminal that captures title changes, bell, and PTY write requests
-pub struct TerminalEventListener {
+pub struct ZedEventListener {
     /// Shared title storage - OSC 0/1/2 sequences update this
     title: Arc<Mutex<Option<String>>>,
     /// Bell notification flag
@@ -120,7 +119,7 @@ pub struct TerminalEventListener {
     terminal_id: String,
 }
 
-impl TerminalEventListener {
+impl ZedEventListener {
     pub fn new(
         title: Arc<Mutex<Option<String>>>,
         has_bell: Arc<Mutex<bool>>,
@@ -138,7 +137,7 @@ impl TerminalEventListener {
     }
 }
 
-impl EventListener for TerminalEventListener {
+impl EventListener for ZedEventListener {
     fn send_event(&self, event: TermEvent) {
         match event {
             TermEvent::Title(title) => {
@@ -292,7 +291,7 @@ pub struct SnapshotStats {
 
 /// A terminal instance wrapping alacritty_terminal
 pub struct Terminal {
-    term: Arc<Mutex<Term<TerminalEventListener>>>,
+    term: Arc<Mutex<Term<ZedEventListener>>>,
     processor: Mutex<Processor>,
     pub terminal_id: String,
     pub resize_state: Arc<Mutex<ResizeState>>,
@@ -310,15 +309,16 @@ pub struct Terminal {
     pending_output: Mutex<Vec<u8>>,
     /// Rolling PTY byte stream used for persistent scrollback snapshots.
     ///
-    /// Stores the bytes that fed the terminal emulator rather than reconstructing
-    /// bytes from the already-rendered grid, which bakes stale column spacing
-    /// into snapshots.
+    /// This mirrors VS Code's revive path at a smaller scale: persist the bytes
+    /// that fed the terminal emulator rather than reconstructing bytes from the
+    /// already-rendered grid, which bakes stale column spacing into snapshots.
     replay_buffer: Mutex<Vec<u8>>,
     /// Raw bytes loaded from a persisted snapshot during terminal revival.
     ///
-    /// While the terminal has only been replayed and not interacted with,
-    /// persistence writes this raw buffer back instead of the visible buffer
-    /// that includes restore UI text and a freshly spawned shell prompt.
+    /// Mirrors VS Code's `rawReviveBuffer`: while the terminal has only been
+    /// replayed and not interacted with, persistence writes this raw buffer
+    /// back instead of the visible buffer that includes restore UI text and a
+    /// freshly spawned shell prompt.
     restored_replay_buffer: Mutex<Vec<u8>>,
     /// Whether this terminal instance was revived from a persisted snapshot.
     ///
@@ -348,10 +348,6 @@ pub struct Terminal {
     /// Last submitted shell command, used to persist alt-screen sessions without
     /// replaying TUI control sequences.
     last_submitted_command: Mutex<Option<String>>,
-    /// Parser for command lifecycle OSC sequences emitted by shell integration.
-    command_sequence_parser: Mutex<CommandSequenceParser>,
-    /// Shell-integrated command lifecycle state.
-    command_tracker: Mutex<CommandTracker>,
     /// Timestamp of when the user last viewed this terminal (on blur)
     last_viewed_time: Arc<Mutex<Instant>>,
 }
@@ -371,7 +367,7 @@ impl Terminal {
         let title = Arc::new(Mutex::new(None));
         let has_bell = Arc::new(Mutex::new(false));
         let suppress_pty_responses = Arc::new(AtomicBool::new(false));
-        let event_listener = TerminalEventListener::new(
+        let event_listener = ZedEventListener::new(
             title.clone(),
             has_bell.clone(),
             transport.clone(),
@@ -412,8 +408,6 @@ impl Terminal {
             had_user_input: AtomicBool::new(false),
             current_input_line: Mutex::new(String::new()),
             last_submitted_command: Mutex::new(None),
-            command_sequence_parser: Mutex::new(CommandSequenceParser::new()),
-            command_tracker: Mutex::new(CommandTracker::new()),
             last_viewed_time: Arc::new(Mutex::new(Instant::now())),
         }
     }
@@ -622,13 +616,10 @@ impl Terminal {
         if record_replay {
             self.record_replay_bytes(data);
         }
-        {
-            let mut term = self.term.lock();
-            let mut processor = self.processor.lock();
+        let mut term = self.term.lock();
+        let mut processor = self.processor.lock();
 
-            self.track_command_sequences(data, term.grid().cursor.point.line.0);
-            processor.advance(&mut *term, data);
-        }
+        processor.advance(&mut *term, data);
         if suppress_replies {
             self.suppress_pty_responses.store(false, Ordering::Relaxed);
         }
@@ -713,22 +704,8 @@ impl Terminal {
         self.record_replay_bytes(&data);
         let mut term = self.term.lock();
         let mut processor = self.processor.lock();
-        self.track_command_sequences(&data, term.grid().cursor.point.line.0);
         processor.advance(&mut *term, &data);
         self.content_generation.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn track_command_sequences(&self, data: &[u8], row: i32) {
-        let events = self.command_sequence_parser.lock().push(data);
-        if events.is_empty() {
-            return;
-        }
-
-        let now = SystemTime::now();
-        let mut tracker = self.command_tracker.lock();
-        for event in events {
-            tracker.handle_event(event, row, now);
-        }
     }
 
     /// Drain all pending output and feed it into the terminal emulator.
@@ -994,16 +971,10 @@ impl Terminal {
     /// Drains any pending output (enqueued by remote clients) before
     /// handing the content to the callback, so the rendered frame is
     /// always up-to-date.
-    pub fn with_content<R>(&self, f: impl FnOnce(&Term<TerminalEventListener>) -> R) -> R {
+    pub fn with_content<R>(&self, f: impl FnOnce(&Term<ZedEventListener>) -> R) -> R {
         self.drain_pending_output();
         let term = self.term.lock();
         f(&term)
-    }
-
-    /// Return tracked shell commands, including the currently running command.
-    pub fn command_history(&self) -> Vec<TrackedCommand> {
-        self.drain_pending_output();
-        self.command_tracker.lock().commands()
     }
 
     /// Scroll the terminal
@@ -2124,7 +2095,7 @@ struct SgrState {
 }
 
 /// Serialize the visible terminal grid to ANSI escape sequences.
-fn grid_to_ansi(term: &Term<TerminalEventListener>) -> Vec<u8> {
+fn grid_to_ansi(term: &Term<ZedEventListener>) -> Vec<u8> {
     let grid = term.grid();
     let screen_lines = grid.screen_lines();
     let cols = grid.columns();
@@ -2422,56 +2393,6 @@ mod tests {
             title.is_none() || title.as_deref() == Some(""),
             "title should be empty or None, got: {:?}",
             title
-        );
-    }
-
-    #[test]
-    fn test_command_tracking_lifecycle() {
-        let transport = Arc::new(NullTransport);
-        let terminal = Terminal::new(
-            "test-id".to_string(),
-            TerminalSize::default(),
-            transport,
-            "/tmp".to_string(),
-        );
-
-        terminal.process_output(b"\x1b]777;vryn;A;/tmp\x07");
-        terminal.process_output(b"\x1b]777;vryn;B;cargo test\x07cargo test\r\n");
-        terminal.process_output(b"\x1b]777;vryn;C;\x07running\r\n");
-        terminal.process_output(b"\x1b]777;vryn;D;0\x07");
-
-        let commands = terminal.command_history();
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].command, "cargo test");
-        assert_eq!(commands[0].command_row, 0);
-        assert_eq!(
-            commands[0].status,
-            crate::command_tracking::CommandStatus::Success
-        );
-        assert_eq!(commands[0].cwd.as_deref(), Some("/tmp"));
-        assert_eq!(commands[0].exit_code, Some(0));
-        assert!(commands[0].duration.is_some());
-    }
-
-    #[test]
-    fn test_command_tracking_handles_pending_split_sequences() {
-        let transport = Arc::new(NullTransport);
-        let terminal = Terminal::new(
-            "test-id".to_string(),
-            TerminalSize::default(),
-            transport,
-            "/tmp".to_string(),
-        );
-
-        terminal.enqueue_output(b"\x1b]777;vryn;B;cargo");
-        terminal.enqueue_output(b" check\x07");
-
-        let commands = terminal.command_history();
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].command, "cargo check");
-        assert_eq!(
-            commands[0].status,
-            crate::command_tracking::CommandStatus::Running
         );
     }
 

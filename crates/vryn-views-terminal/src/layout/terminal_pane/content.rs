@@ -161,7 +161,6 @@ impl TerminalContent {
     }
 
     const TERMINAL_PADDING: f32 = 4.0;
-    const TERMINAL_LEFT_PADDING: f32 = Self::TERMINAL_PADDING;
 
     fn pixel_to_cell(
         &self,
@@ -171,10 +170,7 @@ impl TerminalContent {
         let terminal = self.terminal.as_ref()?;
         let (cell_width, cell_height) = terminal.cell_dimensions();
 
-        let x = (f32::from(pos.x)
-            - f32::from(bounds.origin.x)
-            - Self::TERMINAL_LEFT_PADDING)
-            .max(0.0);
+        let x = (f32::from(pos.x) - f32::from(bounds.origin.x) - Self::TERMINAL_PADDING).max(0.0);
         let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING).max(0.0);
 
         let col_exact = x / cell_width;
@@ -201,12 +197,8 @@ impl TerminalContent {
         cell_height: f32,
     ) -> (usize, usize) {
         if let Some(bounds) = self.element_bounds {
-            let x = (f32::from(pos.x)
-                - f32::from(bounds.origin.x)
-                - Self::TERMINAL_LEFT_PADDING)
-                .max(0.0);
-            let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING)
-                .max(0.0);
+            let x = (f32::from(pos.x) - f32::from(bounds.origin.x)).max(0.0);
+            let y = (f32::from(pos.y) - f32::from(bounds.origin.y)).max(0.0);
             ((x / cell_width) as usize, (y / cell_height) as usize)
         } else {
             (0, 0)
@@ -539,25 +531,18 @@ impl Render for TerminalContent {
                     .size_full(),
             )
             .child(
-                div()
-                    .size_full()
-                    .pt(px(Self::TERMINAL_PADDING))
-                    .pr(px(Self::TERMINAL_PADDING))
-                    .pb(px(Self::TERMINAL_PADDING))
-                    .pl(px(Self::TERMINAL_LEFT_PADDING))
-                    .bg(rgb(term_bg))
-                    .child(
-                        TerminalElement::new(terminal_clone, focus_handle)
-                            .with_zoom(zoom_level)
-                            .with_bg_tint(bg_tint)
-                            .with_search(self.search_matches.clone(), self.search_current_index)
-                            .with_urls(
-                                self.url_detector.matches_arc(),
-                                self.url_detector.hovered_group(),
-                            )
-                            .with_cursor_visible(self.cursor_visible)
-                            .with_cursor_style(render_settings.cursor_style),
-                    ),
+                div().size_full().p(px(4.0)).bg(rgb(term_bg)).child(
+                    TerminalElement::new(terminal_clone, focus_handle)
+                        .with_zoom(zoom_level)
+                        .with_bg_tint(bg_tint)
+                        .with_search(self.search_matches.clone(), self.search_current_index)
+                        .with_urls(
+                            self.url_detector.matches_arc(),
+                            self.url_detector.hovered_group(),
+                        )
+                        .with_cursor_visible(self.cursor_visible)
+                        .with_cursor_style(render_settings.cursor_style),
+                ),
             )
             .child(self.scrollbar.clone())
             .into_any_element()

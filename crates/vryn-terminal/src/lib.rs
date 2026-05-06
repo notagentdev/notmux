@@ -1,11 +1,9 @@
 pub mod backend;
-pub mod command_tracking;
 pub mod input;
 pub mod process;
 pub mod pty_manager;
 pub mod scrollback_snapshot;
 pub mod session_backend;
-pub mod shell_integration;
 pub mod shell_config;
 pub mod terminal;
 

@@ -237,7 +237,7 @@ impl Element for TerminalElement {
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);
 
-        // Use advance() for proper fixed-cell width.
+        // Use advance() for proper cell width (like Zed)
         let cell_width = text_system
             .advance(font_id, font_size, 'm')
             .map(|size| size.width)
@@ -351,6 +351,7 @@ impl Element for TerminalElement {
         // Capture cursor state for the closure
         let cursor_visible = self.cursor_visible;
         let cursor_style = self.cursor_style;
+
         self.terminal.with_content(|term| {
             let grid = term.grid();
             let screen_lines = grid.screen_lines();
