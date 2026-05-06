@@ -182,8 +182,8 @@ impl EventListener for ZedEventListener {
 /// Selection state for the terminal
 #[derive(Clone, Debug, Default)]
 pub struct SelectionState {
-    pub start: Option<(usize, usize)>,
-    pub end: Option<(usize, usize)>,
+    pub start: Option<(usize, i32)>,
+    pub end: Option<(usize, i32)>,
     pub is_selecting: bool,
 }
 
@@ -1028,8 +1028,8 @@ impl Terminal {
         let buffer_row = row - display_offset;
 
         let mut state = self.selection_state.lock();
-        state.start = Some((col, buffer_row as usize));
-        state.end = Some((col, buffer_row as usize));
+        state.start = Some((col, buffer_row));
+        state.end = Some((col, buffer_row));
         state.is_selecting = true;
 
         // Set selection in the terminal using buffer coordinates
@@ -1051,7 +1051,7 @@ impl Terminal {
             let display_offset = term.grid().display_offset() as i32;
             let buffer_row = row - display_offset;
 
-            state.end = Some((col, buffer_row as usize));
+            state.end = Some((col, buffer_row));
 
             if let Some(ref mut selection) = term.selection {
                 let point = Point::new(Line(buffer_row), Column(col));
@@ -2490,6 +2490,34 @@ mod tests {
         assert!(!transport.resize_called.load(Ordering::Relaxed));
         assert_eq!(terminal.resize_state.lock().size.cols, 120);
         assert_eq!(terminal.resize_state.lock().size.rows, 40);
+    }
+
+    #[test]
+    fn selection_state_preserves_negative_scrollback_rows() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize {
+                cols: 20,
+                rows: 5,
+                cell_width: 8.0,
+                cell_height: 16.0,
+            },
+            transport,
+            String::new(),
+        );
+
+        for i in 0..20 {
+            terminal.process_output(format!("line {i}\r\n").as_bytes());
+        }
+
+        terminal.scroll_up(3);
+        terminal.start_selection(0, 0, Side::Left);
+        terminal.update_selection(4, 0, Side::Right);
+
+        let state = terminal.selection_state.lock();
+        assert_eq!(state.start, Some((0, -3)));
+        assert_eq!(state.end, Some((4, -3)));
     }
 
     #[test]

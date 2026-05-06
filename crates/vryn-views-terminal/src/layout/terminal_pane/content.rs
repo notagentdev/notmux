@@ -5,7 +5,7 @@ use crate::layout::navigation::register_pane_bounds;
 use crate::terminal_view_settings;
 use gpui::*;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use vryn_files::theme::theme;
 use vryn_terminal::terminal::Terminal;
 use vryn_ui::color_utils::tint_color;
@@ -30,6 +30,8 @@ pub struct TerminalContent {
     url_detector: UrlDetector,
     scrollbar: Entity<Scrollbar>,
     is_selecting: bool,
+    selection_drag_position: Option<Point<Pixels>>,
+    selection_autoscroll_active: bool,
     element_bounds: Option<Bounds<Pixels>>,
     last_click: Option<(Instant, usize, i32)>,
     click_count: u8,
@@ -60,6 +62,8 @@ impl TerminalContent {
             url_detector: UrlDetector::new(),
             scrollbar,
             is_selecting: false,
+            selection_drag_position: None,
+            selection_autoscroll_active: false,
             element_bounds: None,
             last_click: None,
             click_count: 0,
@@ -161,6 +165,57 @@ impl TerminalContent {
     }
 
     const TERMINAL_PADDING: f32 = 4.0;
+    const SELECTION_AUTOSCROLL_INTERVAL_MS: u64 = 16;
+    const SELECTION_AUTOSCROLL_MAX_LINES: i32 = 3;
+
+    fn cell_from_position(
+        pos: Point<Pixels>,
+        bounds: Bounds<Pixels>,
+        cell_width: f32,
+        cell_height: f32,
+        cols: u16,
+        rows: u16,
+    ) -> (usize, i32, alacritty_terminal::index::Side) {
+        let x = (f32::from(pos.x) - f32::from(bounds.origin.x) - Self::TERMINAL_PADDING).max(0.0);
+        let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING).max(0.0);
+
+        let col_exact = x / cell_width;
+        let col = col_exact.floor() as usize;
+        let row = (y / cell_height).floor() as i32;
+
+        let col = col.min(cols.saturating_sub(1) as usize);
+        let row = row.min(rows.saturating_sub(1) as i32);
+
+        let side = if col_exact.fract() < 0.5 {
+            alacritty_terminal::index::Side::Left
+        } else {
+            alacritty_terminal::index::Side::Right
+        };
+
+        (col, row, side)
+    }
+
+    fn autoscroll_delta_for_y(
+        y: f32,
+        top: f32,
+        bottom: f32,
+        cell_height: f32,
+    ) -> Option<i32> {
+        let lines = if y < top {
+            let delta = (top - y).powf(1.1);
+            (delta / cell_height).ceil() as i32
+        } else if y > bottom {
+            let delta = -((y - bottom).powf(1.1));
+            (delta / cell_height).floor() as i32
+        } else {
+            return None;
+        };
+
+        Some(lines.clamp(
+            -Self::SELECTION_AUTOSCROLL_MAX_LINES,
+            Self::SELECTION_AUTOSCROLL_MAX_LINES,
+        ))
+    }
 
     fn pixel_to_cell(
         &self,
@@ -169,25 +224,95 @@ impl TerminalContent {
         let bounds = self.element_bounds?;
         let terminal = self.terminal.as_ref()?;
         let (cell_width, cell_height) = terminal.cell_dimensions();
+        let size = terminal.resize_state.lock().size;
 
-        let x = (f32::from(pos.x) - f32::from(bounds.origin.x) - Self::TERMINAL_PADDING).max(0.0);
-        let y = (f32::from(pos.y) - f32::from(bounds.origin.y) - Self::TERMINAL_PADDING).max(0.0);
+        Some(Self::cell_from_position(
+            pos,
+            bounds,
+            cell_width,
+            cell_height,
+            size.cols,
+            size.rows,
+        ))
+    }
 
-        let col_exact = x / cell_width;
-        let col = col_exact.floor() as usize;
-        let row = (y / cell_height).floor() as i32;
+    fn selection_autoscroll_delta(&self, position: Point<Pixels>) -> Option<i32> {
+        let bounds = self.element_bounds?;
+        let terminal = self.terminal.as_ref()?;
+        if terminal.is_alt_screen() {
+            return None;
+        }
 
-        let size = terminal.resize_state.lock();
-        let col = col.min(size.size.cols.saturating_sub(1) as usize);
-        let row = row.min(size.size.rows.saturating_sub(1) as i32);
+        let (_, cell_height) = terminal.cell_dimensions();
+        let top = f32::from(bounds.origin.y) + Self::TERMINAL_PADDING;
+        let bottom = f32::from(bounds.origin.y + bounds.size.height) - Self::TERMINAL_PADDING;
+        Self::autoscroll_delta_for_y(f32::from(position.y), top, bottom, cell_height)
+    }
 
-        let side = if col_exact.fract() < 0.5 {
-            alacritty_terminal::index::Side::Left
-        } else {
-            alacritty_terminal::index::Side::Right
+    fn clear_selection_drag_state(&mut self) {
+        self.selection_drag_position = None;
+        self.selection_autoscroll_active = false;
+    }
+
+    fn start_selection_autoscroll_loop(&mut self, cx: &mut Context<Self>) {
+        if self.selection_autoscroll_active {
+            return;
+        }
+
+        self.selection_autoscroll_active = true;
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            loop {
+                smol::Timer::after(Duration::from_millis(
+                    Self::SELECTION_AUTOSCROLL_INTERVAL_MS,
+                ))
+                .await;
+
+                let keep_running = this
+                    .update(cx, |this, cx| this.selection_autoscroll_tick(cx))
+                    .unwrap_or(false);
+                if !keep_running {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn selection_autoscroll_tick(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.is_selecting {
+            self.clear_selection_drag_state();
+            return false;
+        }
+
+        let Some(position) = self.selection_drag_position else {
+            self.selection_autoscroll_active = false;
+            return false;
         };
 
-        Some((col, row, side))
+        let Some(ref terminal) = self.terminal else {
+            self.clear_selection_drag_state();
+            return false;
+        };
+
+        if terminal.is_alt_screen() || terminal.is_mouse_mode() {
+            self.clear_selection_drag_state();
+            return false;
+        }
+
+        let Some(delta) = self.selection_autoscroll_delta(position) else {
+            self.selection_autoscroll_active = false;
+            return false;
+        };
+
+        terminal.scroll(delta);
+
+        if let Some((col, row, side)) = self.pixel_to_cell(position) {
+            terminal.update_selection(col, row, side);
+        }
+
+        self.mark_scroll_activity(cx);
+        cx.notify();
+        true
     }
 
     fn pixel_to_cell_raw(
@@ -241,6 +366,7 @@ impl TerminalContent {
                 self.forwarded_button = Some((button, mods));
                 self.mouse_down_cell = None;
                 self.is_selecting = false;
+                self.clear_selection_drag_state();
                 return;
             }
 
@@ -280,6 +406,7 @@ impl TerminalContent {
                 _ => {
                     terminal.start_selection(col, row, side);
                     self.is_selecting = true;
+                    self.selection_drag_position = Some(event.position);
                 }
             }
             cx.notify();
@@ -319,14 +446,20 @@ impl TerminalContent {
                     }
                 }
                 self.is_selecting = false;
+                self.clear_selection_drag_state();
                 cx.notify();
                 return;
             }
+
+            self.selection_drag_position = Some(event.position);
 
             if let Some(ref terminal) = self.terminal
                 && let Some((col, row, side)) = self.pixel_to_cell(event.position)
             {
                 terminal.update_selection(col, row, side);
+                if self.selection_autoscroll_delta(event.position).is_some() {
+                    self.start_selection_autoscroll_loop(cx);
+                }
                 cx.notify();
             }
         }
@@ -369,9 +502,44 @@ impl TerminalContent {
                     terminal.move_cursor_to_click(col, row);
                 }
             }
+            self.clear_selection_drag_state();
             cx.notify();
         }
         self.mouse_down_cell = None;
+    }
+
+    fn register_selection_global_mouse_handlers(
+        entity: WeakEntity<Self>,
+        window: &mut Window,
+    ) {
+        window.on_mouse_event({
+            let entity = entity.clone();
+            move |event: &MouseMoveEvent, phase, _window, cx| {
+                if phase != DispatchPhase::Bubble {
+                    return;
+                }
+                if let Some(entity) = entity.upgrade() {
+                    entity.update(cx, |this, cx| {
+                        if this.is_selecting || this.forwarded_button.is_some() {
+                            this.handle_mouse_move(event, cx);
+                        }
+                    });
+                }
+            }
+        });
+
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, _window, cx| {
+            if phase != DispatchPhase::Bubble || event.button != MouseButton::Left {
+                return;
+            }
+            if let Some(entity) = entity.upgrade() {
+                entity.update(cx, |this, cx| {
+                    if this.is_selecting || this.forwarded_button.is_some() {
+                        this.handle_mouse_up(event, cx);
+                    }
+                });
+            }
+        });
     }
 }
 
@@ -446,6 +614,8 @@ impl Render for TerminalContent {
         };
 
         let render_settings = crate::terminal_view_settings(cx);
+        let register_global_mouse_handlers = self.is_selecting || self.forwarded_button.is_some();
+        let global_mouse_entity = cx.entity().downgrade();
 
         div()
             .id("terminal-content")
@@ -526,9 +696,16 @@ impl Render for TerminalContent {
                 }),
             )
             .child(
-                canvas(element_bounds_setter, |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
+                canvas(element_bounds_setter, move |_, _, window, _| {
+                    if register_global_mouse_handlers {
+                        TerminalContent::register_selection_global_mouse_handlers(
+                            global_mouse_entity.clone(),
+                            window,
+                        );
+                    }
+                })
+                .absolute()
+                .size_full(),
             )
             .child(
                 div().size_full().p(px(4.0)).bg(rgb(term_bg)).child(
@@ -550,3 +727,71 @@ impl Render for TerminalContent {
 }
 
 impl EventEmitter<TerminalContentEvent> for TerminalContent {}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalContent;
+    use alacritty_terminal::index::Side;
+    use gpui::{Bounds, point, px, size};
+
+    #[test]
+    fn autoscroll_delta_is_none_inside_bounds() {
+        assert_eq!(
+            TerminalContent::autoscroll_delta_for_y(50.0, 10.0, 100.0, 16.0),
+            None
+        );
+    }
+
+    #[test]
+    fn autoscroll_delta_scrolls_up_above_bounds() {
+        assert_eq!(
+            TerminalContent::autoscroll_delta_for_y(0.0, 10.0, 100.0, 16.0),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn autoscroll_delta_scrolls_down_below_bounds() {
+        assert_eq!(
+            TerminalContent::autoscroll_delta_for_y(110.0, 10.0, 100.0, 16.0),
+            Some(-1)
+        );
+    }
+
+    #[test]
+    fn autoscroll_delta_is_clamped() {
+        assert_eq!(
+            TerminalContent::autoscroll_delta_for_y(-500.0, 10.0, 100.0, 16.0),
+            Some(TerminalContent::SELECTION_AUTOSCROLL_MAX_LINES)
+        );
+        assert_eq!(
+            TerminalContent::autoscroll_delta_for_y(600.0, 10.0, 100.0, 16.0),
+            Some(-TerminalContent::SELECTION_AUTOSCROLL_MAX_LINES)
+        );
+    }
+
+    #[test]
+    fn cell_from_position_clamps_above_and_below() {
+        let bounds = Bounds::new(point(px(20.0), px(20.0)), size(px(400.0), px(200.0)));
+
+        let above = TerminalContent::cell_from_position(
+            point(px(24.0), px(0.0)),
+            bounds,
+            8.0,
+            16.0,
+            80,
+            10,
+        );
+        assert_eq!(above, (0, 0, Side::Left));
+
+        let below = TerminalContent::cell_from_position(
+            point(px(1000.0), px(1000.0)),
+            bounds,
+            8.0,
+            16.0,
+            80,
+            10,
+        );
+        assert_eq!(below, (79, 9, Side::Left));
+    }
+}
