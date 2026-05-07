@@ -153,9 +153,9 @@ impl FileViewer {
 
     fn refresh_active_tab_after_edit(&mut self, cx: &mut Context<Self>) {
         let syntax_set = self.syntax_set.clone();
-        let is_dark = self.is_dark;
+        let theme_colors = self.theme_colors;
         let tab = self.active_tab_mut();
-        tab.do_highlight_content(&tab.file_path.clone(), &syntax_set, is_dark);
+        tab.do_highlight_content(&tab.file_path.clone(), &syntax_set, &theme_colors);
         if tab.is_markdown {
             tab.markdown_doc = Some(MarkdownDocument::parse(tab.buffer.text()));
         }

@@ -2,9 +2,10 @@ use crate::keybindings::{
     Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel,
     ToggleSidebar,
 };
-use crate::theme::theme;
+use crate::theme::{theme, with_alpha};
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
 use crate::views::components::menu_item;
+use crate::views::overlays::command_palette::CommandPaletteAnchor;
 use crate::workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
@@ -27,6 +28,9 @@ pub struct TitleBar {
     menu_open: bool,
     sidebar_open: bool,
     git_panel_open: bool,
+    command_palette_open: bool,
+    command_palette_query: String,
+    command_palette_select_all: bool,
     workspace: Entity<Workspace>,
     action_focus_handle: Option<FocusHandle>,
     _workspace_subscription: Subscription,
@@ -47,6 +51,9 @@ impl TitleBar {
             menu_open: false,
             sidebar_open: true,
             git_panel_open: false,
+            command_palette_open: false,
+            command_palette_query: String::new(),
+            command_palette_select_all: false,
             workspace,
             action_focus_handle: None,
             _workspace_subscription: subscription,
@@ -57,6 +64,24 @@ impl TitleBar {
 
     pub fn set_action_focus_handle(&mut self, focus_handle: FocusHandle) {
         self.action_focus_handle = Some(focus_handle);
+    }
+
+    pub fn set_command_palette_state(
+        &mut self,
+        open: bool,
+        query: String,
+        select_all: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.command_palette_open != open
+            || self.command_palette_query != query
+            || self.command_palette_select_all != select_all
+        {
+            self.command_palette_open = open;
+            self.command_palette_query = query;
+            self.command_palette_select_all = select_all;
+            cx.notify();
+        }
     }
 
     fn focused_project_name(&self, cx: &App) -> Option<SharedString> {
@@ -86,7 +111,7 @@ impl TitleBar {
                 .rounded(px(4.0))
                 .text_size(ui_text_sm(cx))
                 .text_color(rgb(t.text_primary))
-                .hover(|s| s.bg(rgb(t.bg_hover)))
+                .hover(|s| s.opacity(0.85))
                 .child(name)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| {
                     cx.stop_propagation();
@@ -108,16 +133,27 @@ impl TitleBar {
         }
     }
 
-    /// Render the centred command-palette search field. Looks like an input
-    /// but is read-only — clicking it opens the command palette overlay
-    /// (mirrors the search box in the VS Code title bar).
+    /// Render the centred command-palette search field.
     fn render_command_palette_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let project_hint = self.focused_project_name(cx);
-        let placeholder: SharedString = match project_hint {
-            Some(name) => format!("Search {}", name).into(),
-            None => "Search projects, files, commands…".into(),
+        let placeholder = if self.command_palette_open {
+            "Type to search commands...".to_string()
+        } else {
+            match project_hint {
+                Some(name) => format!("Search {}", name),
+                None => "Search projects, files, commands...".to_string(),
+            }
         };
+        let field_text = if self.command_palette_open && !self.command_palette_query.is_empty() {
+            self.command_palette_query.clone()
+        } else {
+            placeholder
+        };
+        let show_placeholder = self.command_palette_query.is_empty();
+        let select_all = self.command_palette_open
+            && self.command_palette_select_all
+            && !self.command_palette_query.is_empty();
 
         h_flex()
             .id("title-bar-command-field")
@@ -130,16 +166,22 @@ impl TitleBar {
             .rounded(px(5.0))
             .bg(rgb(t.bg_primary))
             .border_1()
-            .border_color(rgb(t.border))
+            .border_color(rgb(if self.command_palette_open {
+                t.border_active
+            } else {
+                t.border
+            }))
             .cursor_pointer()
             .hover(|s| s.border_color(rgb(t.border_active)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
-            .on_click(|_, window, cx| {
+            .on_click(cx.listener(|this, _, window, cx| {
                 cx.stop_propagation();
-                window.dispatch_action(Box::new(ShowCommandPalette), cx);
-            })
+                if !this.command_palette_open {
+                    window.dispatch_action(Box::new(ShowCommandPalette), cx);
+                }
+            }))
             .child(
                 svg()
                     .path("icons/search.svg")
@@ -152,10 +194,44 @@ impl TitleBar {
                     .flex_1()
                     .min_w_0()
                     .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
+                    .text_color(rgb(if show_placeholder {
+                        t.text_muted
+                    } else {
+                        t.text_primary
+                    }))
                     .text_ellipsis()
                     .overflow_hidden()
-                    .child(placeholder),
+                    .when(select_all, |d| {
+                        d.child(
+                            div()
+                                .bg(with_alpha(t.border_active, 0.3))
+                                .rounded(px(2.0))
+                                .text_color(rgb(t.text_primary))
+                                .child(field_text.clone()),
+                        )
+                    })
+                    .when(!select_all, |d| d.child(field_text)),
+            )
+            .when(self.command_palette_open && !select_all, |d| {
+                d.child(
+                    div()
+                        .w(px(1.0))
+                        .h(px(14.0))
+                        .bg(rgb(t.text_primary)),
+                )
+            })
+            .child(
+                canvas(
+                    |bounds, _window, cx| {
+                        cx.set_global(CommandPaletteAnchor {
+                            bounds: Some(bounds),
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0()
+                .size_full(),
             )
     }
 
@@ -315,7 +391,7 @@ impl TitleBar {
             .when(is_close, |d| {
                 d.hover(|s| s.bg(rgb(0xE81123)).text_color(rgb(0xffffff)))
             })
-            .when(!is_close, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+            .when(!is_close, |d| d.hover(|s| s.opacity(0.85)))
             .child(icon)
             .when_some(control_area, |d, area| {
                 // occlude() prevents parent Drag hitbox from shadowing button hit tests
@@ -353,6 +429,11 @@ impl TitleBar {
     ) -> impl IntoElement {
         let t = theme(cx);
         let action_focus_handle = self.action_focus_handle.clone();
+        let icon_color = if active {
+            t.text_primary
+        } else {
+            t.text_muted
+        };
         div()
             .id(id)
             .cursor_pointer()
@@ -362,13 +443,12 @@ impl TitleBar {
             .items_center()
             .justify_center()
             .rounded(px(4.0))
-            .when(active, |d| d.bg(rgb(t.bg_hover)))
-            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .hover(|s| s.opacity(0.85))
             .child(
                 svg()
                     .path(icon_path)
                     .size(px(16.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(icon_color)),
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -507,10 +587,13 @@ impl Render for TitleBar {
                                 .px(px(8.0))
                                 .py(px(4.0))
                                 .rounded(px(4.0))
-                                .hover(|s| s.bg(rgb(t.bg_hover)))
+                                .hover(|s| s.opacity(0.85))
                                 .text_size(ui_text_xl(cx))
-                                .when(self.sidebar_open, |d| d.bg(rgb(t.bg_hover)))
-                                .text_color(rgb(0xffffff))
+                                .text_color(rgb(if self.sidebar_open {
+                                    t.text_primary
+                                } else {
+                                    t.text_muted
+                                }))
                                 .child("☰")
                                 .id("sidebar-toggle")
                                 // Stop propagation to prevent title bar drag from capturing the click
@@ -540,8 +623,7 @@ impl Render for TitleBar {
                                 .px(px(8.0))
                                 .py(px(4.0))
                                 .rounded(px(4.0))
-                                .hover(|s| s.bg(rgb(t.bg_hover)))
-                                .when(menu_open, |d| d.bg(rgb(t.bg_hover)))
+                                .hover(|s| s.opacity(0.85))
                                 .child(
                                     div()
                                         .text_size(ui_text(13.0, cx))

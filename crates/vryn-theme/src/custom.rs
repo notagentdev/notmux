@@ -55,6 +55,28 @@ pub struct CustomThemeColors {
     #[serde(default = "default_text_muted")]
     pub text_muted: String,
 
+    // Syntax highlighting colors
+    #[serde(default = "default_syntax_comment")]
+    pub syntax_comment: String,
+    #[serde(default = "default_syntax_string")]
+    pub syntax_string: String,
+    #[serde(default = "default_syntax_keyword")]
+    pub syntax_keyword: String,
+    #[serde(default = "default_syntax_number")]
+    pub syntax_number: String,
+    #[serde(default = "default_syntax_type")]
+    pub syntax_type: String,
+    #[serde(default = "default_syntax_function")]
+    pub syntax_function: String,
+    #[serde(default = "default_syntax_property")]
+    pub syntax_property: String,
+    #[serde(default = "default_syntax_variable")]
+    pub syntax_variable: String,
+    #[serde(default = "default_syntax_operator")]
+    pub syntax_operator: String,
+    #[serde(default = "default_syntax_punctuation")]
+    pub syntax_punctuation: String,
+
     // Selection colors
     #[serde(default = "default_selection_bg")]
     pub selection_bg: String,
@@ -239,6 +261,36 @@ fn default_text_secondary() -> String {
 }
 fn default_text_muted() -> String {
     "#6a6a6a".to_string()
+}
+fn default_syntax_comment() -> String {
+    "#6a9955".to_string()
+}
+fn default_syntax_string() -> String {
+    "#ce9178".to_string()
+}
+fn default_syntax_keyword() -> String {
+    "#569cd6".to_string()
+}
+fn default_syntax_number() -> String {
+    "#b5cea8".to_string()
+}
+fn default_syntax_type() -> String {
+    "#4ec9b0".to_string()
+}
+fn default_syntax_function() -> String {
+    "#dcdcaa".to_string()
+}
+fn default_syntax_property() -> String {
+    "#9cdcfe".to_string()
+}
+fn default_syntax_variable() -> String {
+    "#9cdcfe".to_string()
+}
+fn default_syntax_operator() -> String {
+    "#d4d4d4".to_string()
+}
+fn default_syntax_punctuation() -> String {
+    "#d4d4d4".to_string()
 }
 fn default_selection_bg() -> String {
     "#264f78".to_string()
@@ -453,6 +505,16 @@ impl CustomThemeColors {
             text_primary: Self::parse_hex(&self.text_primary),
             text_secondary: Self::parse_hex(&self.text_secondary),
             text_muted: Self::parse_hex(&self.text_muted),
+            syntax_comment: Self::parse_hex(&self.syntax_comment),
+            syntax_string: Self::parse_hex(&self.syntax_string),
+            syntax_keyword: Self::parse_hex(&self.syntax_keyword),
+            syntax_number: Self::parse_hex(&self.syntax_number),
+            syntax_type: Self::parse_hex(&self.syntax_type),
+            syntax_function: Self::parse_hex(&self.syntax_function),
+            syntax_property: Self::parse_hex(&self.syntax_property),
+            syntax_variable: Self::parse_hex(&self.syntax_variable),
+            syntax_operator: Self::parse_hex(&self.syntax_operator),
+            syntax_punctuation: Self::parse_hex(&self.syntax_punctuation),
             selection_bg: Self::parse_hex(&self.selection_bg),
             selection_fg: Self::parse_hex(&self.selection_fg),
             search_match_bg: Self::parse_hex(&self.search_match_bg),
@@ -567,6 +629,16 @@ pub fn load_custom_themes() -> Vec<(ThemeInfo, ThemeColors)> {
                 text_primary: "#eeeeee".to_string(),
                 text_secondary: "#999999".to_string(),
                 text_muted: "#666666".to_string(),
+                syntax_comment: "#7c7c7c".to_string(),
+                syntax_string: "#a8ff60".to_string(),
+                syntax_keyword: "#ff73fd".to_string(),
+                syntax_number: "#c6c5fe".to_string(),
+                syntax_type: "#ffffb6".to_string(),
+                syntax_function: "#96cbfe".to_string(),
+                syntax_property: "#c6c5fe".to_string(),
+                syntax_variable: "#eeeeee".to_string(),
+                syntax_operator: "#ff73fd".to_string(),
+                syntax_punctuation: "#999999".to_string(),
                 selection_bg: "#363983".to_string(),
                 selection_fg: "#f2f2f2".to_string(),
                 search_match_bg: "#613214".to_string(),

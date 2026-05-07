@@ -775,13 +775,16 @@ impl GitHeader {
             .justify_center()
             .rounded(px(4.0))
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
-            .when(active, |d| d.bg(rgb(t.bg_hover)))
+            .hover(|s| s.opacity(0.85))
             .child(
                 svg()
                     .path(icon_path)
                     .size(px(16.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(if active {
+                        t.text_primary
+                    } else {
+                        t.text_muted
+                    })),
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -840,7 +843,7 @@ impl GitHeader {
             .justify_center()
             .rounded(px(3.0))
             .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .hover(|s| s.opacity(0.85))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -852,7 +855,7 @@ impl GitHeader {
                 svg()
                     .path("icons/more-vertical.svg")
                     .size(px(14.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(t.text_muted)),
             )
             .child(
                 canvas(
@@ -1623,10 +1626,10 @@ impl GitHeader {
                             .text_size(ui_text_sm(cx))
                             .font_weight(FontWeight::MEDIUM)
                             .when(can_commit, |d| {
-                                d.bg(rgb(t.border_active))
-                                    .text_color(rgb(t.bg_primary))
+                                d.bg(rgb(t.bg_secondary))
+                                    .text_color(rgb(t.text_primary))
                                     .cursor_pointer()
-                                    .hover(|s| s.opacity(0.9))
+                                    .hover(|s| s.bg(rgb(t.bg_hover)))
                             })
                             .when(!can_commit, |d| {
                                 d.bg(rgb(t.bg_hover)).text_color(rgb(t.text_muted))
@@ -1661,8 +1664,7 @@ impl GitHeader {
             .items_center()
             .justify_center()
             .cursor_pointer()
-            .bg(rgb(if active { t.bg_selection } else { t.bg_hover }))
-            .hover(|s| s.bg(rgb(t.bg_selection)))
+            .hover(|s| s.opacity(0.85))
             .on_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _window, cx| {
                 if event.button == MouseButton::Left {
                     this.commit_options_menu_anchor = Some(event.position);
@@ -1676,7 +1678,11 @@ impl GitHeader {
                 svg()
                     .path("icons/more-vertical.svg")
                     .size(px(14.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(if active {
+                        t.text_primary
+                    } else {
+                        t.text_muted
+                    })),
             )
     }
 

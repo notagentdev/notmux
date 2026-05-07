@@ -118,6 +118,15 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         match event {
+            OverlayManagerEvent::CommandPaletteState {
+                open,
+                query,
+                select_all,
+            } => {
+                self.title_bar.update(cx, |tb, cx| {
+                    tb.set_command_palette_state(*open, query.clone(), *select_all, cx);
+                });
+            }
             OverlayManagerEvent::SwitchWorkspace(data) => {
                 self.handle_switch_workspace(data.clone(), cx);
             }
@@ -945,9 +954,8 @@ impl RootView {
                 }
                 OverlayRequest::ContentSearch { project_id } => {
                     if let Some(fs) = self.build_project_fs(&project_id, cx) {
-                        let is_dark = crate::theme::theme(cx).is_dark();
                         self.overlay_manager.update(cx, |om, cx| {
-                            om.toggle_content_search(fs, is_dark, cx);
+                            om.toggle_content_search(fs, cx);
                         });
                     }
                 }
@@ -1125,7 +1133,8 @@ impl RootView {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
         let font_size = settings.file_font_size;
         let monochrome_icons = settings.monochrome_icons;
-        let is_dark = crate::theme::theme(cx).is_dark();
+        let theme_colors = crate::theme::theme(cx);
+        let is_dark = theme_colors.is_dark();
 
         let viewer = cx.new(|cx| {
             vryn_files::file_viewer::FileViewer::new_embedded(
@@ -1133,6 +1142,7 @@ impl RootView {
                 fs,
                 font_size,
                 is_dark,
+                theme_colors,
                 monochrome_icons,
                 cx,
             )

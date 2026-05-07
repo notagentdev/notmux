@@ -106,8 +106,6 @@ pub struct ContentSearchDialog {
     loading_files: HashSet<PathBuf>,
     /// Shared syntax set.
     syntax_set: SyntaxSet,
-    /// Whether the theme is dark.
-    is_dark: bool,
     /// Debounce task for search.
     debounce_task: Option<Task<()>>,
     /// Scroll handle for the preview panel.
@@ -127,7 +125,6 @@ pub struct ContentSearchDialog {
 impl ContentSearchDialog {
     pub fn new(
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
-        is_dark: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -233,7 +230,6 @@ impl ContentSearchDialog {
             highlight_cache: HashMap::new(),
             loading_files: HashSet::new(),
             syntax_set,
-            is_dark,
             debounce_task: None,
             preview_scroll_handle: UniformListScrollHandle::new(),
             expanded_folders: HashSet::new(),
@@ -481,8 +477,9 @@ impl ContentSearchDialog {
             let _ = entity.update(cx, |this, cx| {
                 this.loading_files.remove(&fp);
                 if let Ok(content) = result {
+                    let colors = theme(cx);
                     let lines =
-                        highlight_content(&content, &fp, &this.syntax_set, 5000, this.is_dark);
+                        highlight_content(&content, &fp, &this.syntax_set, 5000, &colors);
                     this.highlight_cache.insert(fp, lines);
                 }
                 cx.notify();

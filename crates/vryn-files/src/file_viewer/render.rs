@@ -799,11 +799,6 @@ impl FileViewer {
             .justify_center()
             .rounded(px(4.0))
             .cursor_pointer()
-            .bg(rgb(if active {
-                t.bg_hover
-            } else {
-                Self::embedded_header_bg(t)
-            }))
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -813,7 +808,11 @@ impl FileViewer {
                 svg()
                     .path(icon_path)
                     .size(px(14.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(if active {
+                        t.text_primary
+                    } else {
+                        t.text_muted
+                    })),
             )
     }
 

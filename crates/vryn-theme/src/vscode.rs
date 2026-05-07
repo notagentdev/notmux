@@ -13,8 +13,8 @@
 //! - 3-digit hex shorthand (`#f0a` → `#ff00aa`).
 //! - JSONC: line (`//`) and block (`/* */`) comments.
 //!
-//! Ignored (not in scope): `tokenColors`, `semanticTokenColors` (Vryn has
-//! no editor/file viewer yet).
+//! Token colors are mapped into Vryn's syntax highlighting slots so the
+//! file editor and diff viewer follow the active theme.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -38,6 +38,45 @@ pub struct VsCodeTheme {
     // and filter out `None` values on read.
     #[serde(default, deserialize_with = "deserialize_colors")]
     pub colors: HashMap<String, String>,
+    #[serde(default, rename = "tokenColors")]
+    pub token_colors: Vec<TokenColor>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenColor {
+    #[serde(default)]
+    pub scope: Option<TokenScope>,
+    #[serde(default)]
+    pub settings: TokenColorSettings,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum TokenScope {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl TokenScope {
+    fn scopes(&self) -> Vec<&str> {
+        match self {
+            TokenScope::One(scope) => split_scope_list(scope).collect(),
+            TokenScope::Many(scopes) => scopes.iter().flat_map(|s| split_scope_list(s)).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TokenColorSettings {
+    #[serde(default)]
+    pub foreground: Option<String>,
+}
+
+fn split_scope_list(scope: &str) -> impl Iterator<Item = &str> {
+    scope
+        .split(',')
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
 }
 
 fn deserialize_colors<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
@@ -152,6 +191,28 @@ fn luma(rgb: u32) -> u32 {
     let g = (rgb >> 8) & 0xff;
     let b = rgb & 0xff;
     (r * 299 + g * 587 + b * 114) / 1000
+}
+
+fn token_color(theme: &VsCodeTheme, candidates: &[&str], bg: u32) -> Option<u32> {
+    let token_color = |strict: bool| {
+        theme.token_colors.iter().find_map(|token| {
+            let foreground = token.settings.foreground.as_deref()?;
+            let (rgb, alpha) = parse_vscode_color_rgba(foreground)?;
+            let scopes = token.scope.as_ref()?;
+            let matched = scopes.scopes().into_iter().any(|scope| {
+                candidates.iter().any(|candidate| {
+                    if strict {
+                        scope == *candidate || scope.starts_with(&format!("{candidate}."))
+                    } else {
+                        scope.contains(candidate)
+                    }
+                })
+            });
+            matched.then(|| blend_over(rgb, alpha, bg))
+        })
+    };
+
+    token_color(true).or_else(|| token_color(false))
 }
 
 /// VS Code's `panel.border` convention is "dark-black-at-low-alpha". When
@@ -323,6 +384,11 @@ fn load_recursive(path: &Path, depth: u8) -> Result<VsCodeTheme, String> {
         if theme.kind.is_none() {
             theme.kind = parent.kind;
         }
+        if !parent.token_colors.is_empty() {
+            let mut merged_token_colors = parent.token_colors;
+            merged_token_colors.extend(theme.token_colors);
+            theme.token_colors = merged_token_colors;
+        }
     }
     Ok(theme)
 }
@@ -399,6 +465,57 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         "disabledForeground",
     ])
     .unwrap_or(fallback.text_muted);
+
+    let syntax_comment = token_color(
+        theme,
+        &["comment", "punctuation.definition.comment"],
+        bg_primary,
+    )
+    .unwrap_or(fallback.syntax_comment);
+    let syntax_string =
+        token_color(theme, &["string"], bg_primary).unwrap_or(fallback.syntax_string);
+    let syntax_keyword = token_color(
+        theme,
+        &["keyword", "storage.type", "storage.modifier"],
+        bg_primary,
+    )
+    .unwrap_or(fallback.syntax_keyword);
+    let syntax_number =
+        token_color(theme, &["constant.numeric"], bg_primary).unwrap_or(fallback.syntax_number);
+    let syntax_type = token_color(
+        theme,
+        &[
+            "entity.name.type",
+            "entity.name.class",
+            "support.type",
+            "support.class",
+        ],
+        bg_primary,
+    )
+    .unwrap_or(fallback.syntax_type);
+    let syntax_function = token_color(
+        theme,
+        &["entity.name.function", "support.function", "variable.function"],
+        bg_primary,
+    )
+    .unwrap_or(fallback.syntax_function);
+    let syntax_property = token_color(
+        theme,
+        &[
+            "variable.other.property",
+            "support.variable.property",
+            "meta.property-name",
+            "entity.other.attribute-name",
+        ],
+        bg_primary,
+    )
+    .unwrap_or(fallback.syntax_property);
+    let syntax_variable =
+        token_color(theme, &["variable"], bg_primary).unwrap_or(fallback.syntax_variable);
+    let syntax_operator =
+        token_color(theme, &["keyword.operator"], bg_primary).unwrap_or(fallback.syntax_operator);
+    let syntax_punctuation = token_color(theme, &["punctuation"], bg_primary)
+        .unwrap_or(fallback.syntax_punctuation);
 
     let bg_secondary = look(&[
         "sideBar.background",
@@ -613,6 +730,16 @@ pub fn vscode_to_theme_colors(theme: &VsCodeTheme, fallback: &ThemeColors) -> Th
         text_primary,
         text_secondary,
         text_muted,
+        syntax_comment,
+        syntax_string,
+        syntax_keyword,
+        syntax_number,
+        syntax_type,
+        syntax_function,
+        syntax_property,
+        syntax_variable,
+        syntax_operator,
+        syntax_punctuation,
         selection_bg,
         selection_fg,
         search_match_bg,
@@ -727,6 +854,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         // Raw #303340 would be much brighter; blended result should be closer to bg_primary.
@@ -752,6 +880,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert!(
@@ -774,6 +903,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.border, 0x464b57);
@@ -792,6 +922,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.border_focused, 0xa6accd);
@@ -883,11 +1014,40 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.bg_primary, 0x111111);
         assert_eq!(mapped.text_primary, 0xeeeeee);
         assert_eq!(mapped.term_red, 0xff0000);
+    }
+
+    #[test]
+    fn maps_token_colors_to_syntax_palette() {
+        let theme: VsCodeTheme = serde_json::from_str(
+            r##"{
+                "type": "dark",
+                "colors": {
+                    "editor.background": "#111111",
+                    "foreground": "#eeeeee"
+                },
+                "tokenColors": [
+                    { "scope": "comment", "settings": { "foreground": "#778899" } },
+                    { "scope": ["string", "constant.character"], "settings": { "foreground": "#cc8844" } },
+                    { "scope": "keyword, storage.type", "settings": { "foreground": "#6699cc" } },
+                    { "scope": "entity.name.function", "settings": { "foreground": "#ddcc77" } },
+                    { "scope": "variable.other.property", "settings": { "foreground": "#99ccff" } }
+                ]
+            }"##,
+        )
+        .unwrap();
+
+        let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
+        assert_eq!(mapped.syntax_comment, 0x778899);
+        assert_eq!(mapped.syntax_string, 0xcc8844);
+        assert_eq!(mapped.syntax_keyword, 0x6699cc);
+        assert_eq!(mapped.syntax_function, 0xddcc77);
+        assert_eq!(mapped.syntax_property, 0x99ccff);
     }
 
     #[test]
@@ -904,6 +1064,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.bg_primary, 0x282c34);
@@ -920,6 +1081,7 @@ mod tests {
             kind: None,
             include: None,
             colors,
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.bg_primary, 0x222222);
@@ -932,6 +1094,7 @@ mod tests {
             kind: None,
             include: None,
             colors: HashMap::new(),
+            token_colors: Vec::new(),
         };
         let mapped = vscode_to_theme_colors(&theme, &DARK_THEME);
         assert_eq!(mapped.bg_primary, DARK_THEME.bg_primary);
@@ -945,6 +1108,7 @@ mod tests {
             kind: Some("dark".into()),
             include: None,
             colors: HashMap::new(),
+            token_colors: Vec::new(),
         };
         assert!(dark.is_dark());
         let light = VsCodeTheme {
@@ -952,6 +1116,7 @@ mod tests {
             kind: Some("light".into()),
             include: None,
             colors: HashMap::new(),
+            token_colors: Vec::new(),
         };
         assert!(!light.is_dark());
     }
@@ -965,6 +1130,7 @@ mod tests {
             kind: None,
             include: None,
             colors: light_colors,
+            token_colors: Vec::new(),
         };
         assert!(!light.is_dark());
 
@@ -975,6 +1141,7 @@ mod tests {
             kind: None,
             include: None,
             colors: dark_colors,
+            token_colors: Vec::new(),
         };
         assert!(dark.is_dark());
     }

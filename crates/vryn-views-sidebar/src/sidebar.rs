@@ -1660,7 +1660,7 @@ impl Sidebar {
                                 .child(
                                     div()
                                         .text_size(ui_text_xl(cx))
-                                        .text_color(rgb(0xffffff))
+                                        .text_color(rgb(t.text_primary))
                                         .child("+"),
                                 )
                                 .child(

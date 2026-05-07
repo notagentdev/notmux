@@ -181,11 +181,6 @@ impl DiffViewer {
             .justify_center()
             .rounded(px(4.0))
             .cursor_pointer()
-            .bg(rgb(if active {
-                t.bg_hover
-            } else {
-                Self::embedded_header_bg(t)
-            }))
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -195,7 +190,11 @@ impl DiffViewer {
                 svg()
                     .path(icon_path)
                     .size(px(14.0))
-                    .text_color(rgb(0xffffff)),
+                    .text_color(rgb(if active {
+                        t.text_primary
+                    } else {
+                        t.text_muted
+                    })),
             )
     }
 
@@ -336,11 +335,7 @@ impl DiffViewer {
                             .px(px(10.0))
                             .py(px(5.0))
                             .rounded(px(6.0))
-                            .bg(rgb(if ignore_whitespace {
-                                t.button_primary_bg
-                            } else {
-                                t.bg_secondary
-                            }))
+                            .bg(rgb(t.bg_secondary))
                             .hover(|s| s.opacity(0.85))
                             .on_click(
                                 cx.listener(|this, _, _window, cx| {
@@ -351,7 +346,7 @@ impl DiffViewer {
                                 div()
                                     .text_size(ui_text_md(cx))
                                     .text_color(rgb(if ignore_whitespace {
-                                        t.button_primary_fg
+                                        t.text_primary
                                     } else {
                                         t.text_secondary
                                     }))
@@ -402,7 +397,7 @@ impl DiffViewer {
                             .child(
                                 div()
                                     .text_size(ui_text(16.0, cx))
-                                    .text_color(rgb(0xffffff))
+                                    .text_color(rgb(t.text_muted))
                                     .child("\u{00D7}"),
                             ),
                     ),

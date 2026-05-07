@@ -8,7 +8,7 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use vryn_core::theme::ThemeColors;
 use vryn_files::syntax::{
-    default_text_color_for, get_syntax_for_path, highlight_line, load_syntax_theme,
+    build_syntax_theme, default_text_color_for, get_syntax_for_path, highlight_line,
 };
 use vryn_git::diff::DiffHunk;
 use vryn_git::{DiffLineType, FileDiff};
@@ -55,22 +55,18 @@ pub fn process_file(
     old_content: Option<String>,
     new_content: Option<String>,
     colors: &ThemeColors,
-    is_dark: bool,
 ) -> DiffDisplayFile {
     let t_total = std::time::Instant::now();
     let path = file.display_name();
 
-    // Get syntax highlighter for this file. Use the same shipped theme as
-    // the file viewer (Dracula for dark themes, GitHub for light) — our
-    // hand-rolled `build_syntax_theme` only mapped a handful of TextMate
-    // scopes, leaving most tokens uncoloured and washed-out.
+    // Get syntax highlighter for this file using the active app theme.
     let syntax = get_syntax_for_path(std::path::Path::new(path), syntax_set);
-    let theme = load_syntax_theme(is_dark);
+    let theme = build_syntax_theme(colors);
     let default_color = default_text_color_for(colors);
 
     let t1 = std::time::Instant::now();
     let old_highlighted = match old_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
+        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!(
@@ -81,7 +77,7 @@ pub fn process_file(
 
     let t2 = std::time::Instant::now();
     let new_highlighted = match new_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, theme, syntax_set, default_color),
+        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
         None => HashMap::new(),
     };
     log::debug!(

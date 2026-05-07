@@ -11,18 +11,19 @@ mod render;
 mod search;
 mod selection;
 
-use buffer::{Cursor, EditorBuffer};
 use crate::code_view::ScrollbarDrag;
 use crate::file_search::FileEntry;
 use crate::file_tree::{FileTreeNode, build_file_tree};
 use crate::selection::SelectionState;
 use crate::syntax::{HighlightedLine, load_syntax_set};
+use buffer::{Cursor, EditorBuffer};
 use context_menu::{DeleteConfirmState, FileRenameState, FileTreeContextMenu, TabContextMenu};
 use gpui::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use syntect::parsing::SyntaxSet;
+use vryn_core::theme::ThemeColors;
 use vryn_markdown::{MarkdownDocument, MarkdownSelection};
 
 /// Maximum file size to load (5MB)
@@ -231,6 +232,7 @@ pub struct FileViewer {
     syntax_set: SyntaxSet,
     /// File font size from settings
     file_font_size: f32,
+    theme_colors: ThemeColors,
     /// Measured monospace character width (from font metrics)
     measured_char_width: f32,
     /// Whether the current theme is dark (for syntax highlighting)
@@ -287,6 +289,7 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        theme_colors: ThemeColors,
         monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -357,7 +360,7 @@ impl FileViewer {
                     .await;
                 let _ = entity.update(cx, |this, cx| {
                     if let Some(tab) = this.tabs.iter_mut().find(|t| t.file_path == target) {
-                        tab.apply_loaded_content(result, &this.syntax_set, this.is_dark);
+                        tab.apply_loaded_content(result, &this.syntax_set, &this.theme_colors);
                         cx.notify();
                     }
                 });
@@ -370,6 +373,7 @@ impl FileViewer {
             project_fs,
             syntax_set,
             file_font_size: font_size,
+            theme_colors,
             measured_char_width: font_size * 0.6,
             is_dark,
             loading: true,
@@ -404,6 +408,7 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        theme_colors: ThemeColors,
         monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -435,6 +440,7 @@ impl FileViewer {
             project_fs,
             syntax_set: load_syntax_set(),
             file_font_size: font_size,
+            theme_colors,
             measured_char_width: font_size * 0.6,
             is_dark,
             loading: true,
@@ -471,10 +477,19 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        theme_colors: ThemeColors,
         monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut viewer = Self::new(file_path, project_fs, font_size, is_dark, monochrome_icons, cx);
+        let mut viewer = Self::new(
+            file_path,
+            project_fs,
+            font_size,
+            is_dark,
+            theme_colors,
+            monochrome_icons,
+            cx,
+        );
         viewer.sidebar_visible = false;
         viewer.embedded = true;
         viewer
@@ -486,12 +501,14 @@ impl FileViewer {
         &mut self,
         font_size: f32,
         is_dark: bool,
+        theme_colors: ThemeColors,
         monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) {
-        let rehighlight = is_dark != self.is_dark;
+        let rehighlight = is_dark != self.is_dark || theme_colors != self.theme_colors;
         self.file_font_size = font_size;
         self.is_dark = is_dark;
+        self.theme_colors = theme_colors;
         self.monochrome_icons = monochrome_icons;
 
         // Rescan project files so the sidebar reflects added/removed files
@@ -502,12 +519,16 @@ impl FileViewer {
                 continue;
             }
             // Reload externally modified files (also re-highlights)
-            if tab.reload_if_changed(&self.syntax_set, self.is_dark) {
+            if tab.reload_if_changed(&self.syntax_set, &self.theme_colors) {
                 continue;
             }
             // Theme changed — re-highlight without reloading
             if rehighlight {
-                tab.do_highlight_content(&tab.file_path.clone(), &self.syntax_set, self.is_dark);
+                tab.do_highlight_content(
+                    &tab.file_path.clone(),
+                    &self.syntax_set,
+                    &self.theme_colors,
+                );
             }
         }
     }
@@ -553,7 +574,7 @@ impl FileViewer {
 
         let tab = &mut self.tabs[self.active_tab];
         if !tab.is_empty() {
-            tab.reload_if_changed(&self.syntax_set, self.is_dark);
+            tab.reload_if_changed(&self.syntax_set, &self.theme_colors);
         }
     }
 
@@ -754,7 +775,7 @@ impl FileViewer {
                 .await;
             let _ = entity.update(cx, |this, cx| {
                 if let Some(tab) = this.tabs.iter_mut().find(|t| t.file_path == target) {
-                    tab.apply_loaded_content(result, &this.syntax_set, this.is_dark);
+                    tab.apply_loaded_content(result, &this.syntax_set, &this.theme_colors);
                     cx.notify();
                 }
             });

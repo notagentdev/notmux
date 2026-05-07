@@ -79,16 +79,7 @@ pub fn default_text_color_for(colors: &ThemeColors) -> Rgba {
 }
 
 /// Build a syntect `Theme` whose syntax colors are sourced from Vryn's
-/// `ThemeColors`. The mapping follows the ANSI-16 convention that most
-/// VS Code-style themes already align with:
-///
-/// - keywords / storage  → `term_magenta`
-/// - strings             → `term_green`
-/// - numbers / constants → `term_cyan`
-/// - types               → `term_yellow`
-/// - functions           → `term_blue`
-/// - comments            → `text_muted`
-/// - variables           → `text_primary` (global default)
+/// active `ThemeColors`.
 pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
     let modifier = |rgb: u32| StyleModifier {
         foreground: Some(rgb_to_syntect(rgb)),
@@ -110,79 +101,89 @@ pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
         (
             "comment",
             "comment, punctuation.definition.comment",
-            colors.text_muted,
+            colors.syntax_comment,
         ),
         // Strings
         (
             "string",
             "string, string.quoted, string.regexp, string.template",
-            colors.term_green,
+            colors.syntax_string,
         ),
         (
             "string.escape",
             "constant.character.escape",
-            colors.term_bright_green,
+            colors.syntax_string,
         ),
         // Numbers, language constants (true/false/null/nil)
-        ("constant.numeric", "constant.numeric", colors.term_cyan),
+        ("constant.numeric", "constant.numeric", colors.syntax_number),
         (
             "constant.language",
             "constant.language, constant.character, support.constant",
-            colors.term_cyan,
+            colors.syntax_number,
         ),
         // Keywords, operators, storage modifiers (pub, async, const keyword)
         (
             "keyword",
             "keyword, keyword.control, keyword.operator.new, keyword.other",
-            colors.term_magenta,
+            colors.syntax_keyword,
         ),
         (
             "storage",
             "storage, storage.type, storage.modifier",
-            colors.term_magenta,
+            colors.syntax_keyword,
+        ),
+        (
+            "operator",
+            "keyword.operator, keyword.operator.assignment, keyword.operator.arithmetic, keyword.operator.logical",
+            colors.syntax_operator,
         ),
         // Operators / punctuation — muted
         (
             "punctuation",
             "punctuation, punctuation.separator, punctuation.terminator",
-            colors.text_secondary,
+            colors.syntax_punctuation,
         ),
         // Types / classes / enums
         (
             "type",
             "entity.name.type, entity.name.class, entity.name.enum, entity.name.struct, support.type, support.class",
-            colors.term_yellow,
+            colors.syntax_type,
         ),
         // Interface / trait names — tinted variant
         (
             "interface",
             "entity.name.interface, entity.name.trait",
-            colors.term_bright_yellow,
+            colors.syntax_type,
         ),
         // Functions / macros
         (
             "function",
             "entity.name.function, support.function, meta.function-call, entity.name.function.macro",
-            colors.term_blue,
+            colors.syntax_function,
         ),
         // Namespaces / modules
         (
             "namespace",
             "entity.name.namespace, entity.name.module",
-            colors.term_bright_cyan,
+            colors.syntax_type,
         ),
         // Parameters — italic convention in many themes, use accent color
         (
             "variable.parameter",
             "variable.parameter",
-            colors.term_bright_yellow,
+            colors.syntax_variable,
+        ),
+        (
+            "property",
+            "variable.other.property, support.variable.property, meta.property-name",
+            colors.syntax_property,
         ),
         // Tag names (HTML/XML) and attributes
-        ("tag", "entity.name.tag", colors.term_red),
+        ("tag", "entity.name.tag", colors.syntax_keyword),
         (
             "attribute",
             "entity.other.attribute-name",
-            colors.term_yellow,
+            colors.syntax_property,
         ),
         // Invalid / error
         ("invalid", "invalid, invalid.illegal", colors.error),
@@ -194,7 +195,7 @@ pub fn build_syntax_theme(colors: &ThemeColors) -> Theme {
         (
             "heading",
             "markup.heading, entity.name.section",
-            colors.term_blue,
+            colors.syntax_function,
         ),
     ];
 
@@ -381,18 +382,18 @@ pub fn highlight_line(
 /// * `path` - Path to the file (used for syntax detection)
 /// * `syntax_set` - Syntect syntax set
 /// * `max_lines` - Maximum number of lines to process (0 = unlimited)
-/// * `is_dark` - Whether to use dark or light syntax theme
+/// * `colors` - Active Vryn theme colors, including syntax colors
 pub fn highlight_content(
     content: &str,
     path: &Path,
     syntax_set: &SyntaxSet,
     max_lines: usize,
-    is_dark: bool,
+    colors: &ThemeColors,
 ) -> Vec<HighlightedLine> {
     let syntax = get_syntax_for_path(path, syntax_set);
-    let theme = load_syntax_theme(is_dark);
-    let mut highlighter = HighlightLines::new(syntax, theme);
-    let default_color = default_text_color(is_dark);
+    let theme = build_syntax_theme(colors);
+    let mut highlighter = HighlightLines::new(syntax, &theme);
+    let default_color = default_text_color_for(colors);
 
     let mut lines = Vec::new();
     let mut line_count = 0;

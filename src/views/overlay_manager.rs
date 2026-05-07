@@ -105,6 +105,13 @@ impl CloseEvent for PairingDialogEvent {
 /// actions that need access to RootView's state (terminals, PTY manager, etc.)
 #[derive(Clone)]
 pub enum OverlayManagerEvent {
+    /// Command palette state mirrored into the titlebar search field.
+    CommandPaletteState {
+        open: bool,
+        query: String,
+        select_all: bool,
+    },
+
     /// Session manager requested workspace switch
     SwitchWorkspace(WorkspaceData),
 
@@ -350,8 +357,16 @@ impl OverlayManager {
     /// Close the active modal, restoring terminal focus if needed.
     fn close_modal(&mut self, cx: &mut Context<Self>) {
         if self.active_modal.is_some() {
+            let closing_command_palette = self.is_modal::<CommandPalette>();
             self.active_modal = None;
             self.modal_type_id = None;
+            if closing_command_palette {
+                cx.emit(OverlayManagerEvent::CommandPaletteState {
+                    open: false,
+                    query: String::new(),
+                    select_all: false,
+                });
+            }
             self.workspace
                 .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
             cx.notify();
@@ -524,11 +539,26 @@ impl OverlayManager {
             let ws = self.workspace.clone();
             let entity = cx.new(|cx| CommandPalette::new(ws, cx));
             cx.subscribe(&entity, |this, _, event: &CommandPaletteEvent, cx| {
-                if event.is_close() {
-                    this.close_modal(cx);
+                match event {
+                    CommandPaletteEvent::Close => {
+                        this.close_modal(cx);
+                    }
+                    CommandPaletteEvent::StateChanged { query, select_all } => {
+                        cx.emit(OverlayManagerEvent::CommandPaletteState {
+                            open: true,
+                            query: query.clone(),
+                            select_all: *select_all,
+                        });
+                    }
                 }
             })
             .detach();
+            let (query, select_all) = entity.read(cx).state_snapshot();
+            cx.emit(OverlayManagerEvent::CommandPaletteState {
+                open: true,
+                query,
+                select_all,
+            });
             self.open_modal(entity, cx);
         }
         cx.notify();
@@ -1806,13 +1836,12 @@ impl OverlayManager {
     pub fn toggle_content_search(
         &mut self,
         fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
-        is_dark: bool,
         cx: &mut Context<Self>,
     ) {
         if self.is_modal::<ContentSearchDialog>() {
             self.close_modal(cx);
         } else {
-            self.show_content_search(fs, is_dark, cx);
+            self.show_content_search(fs, cx);
         }
     }
 
@@ -1820,11 +1849,10 @@ impl OverlayManager {
     pub fn show_content_search(
         &mut self,
         fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
-        is_dark: bool,
         cx: &mut Context<Self>,
     ) {
         let fs_for_viewer = fs.clone();
-        let dialog = cx.new(|cx| ContentSearchDialog::new(fs, is_dark, cx));
+        let dialog = cx.new(|cx| ContentSearchDialog::new(fs, cx));
 
         cx.subscribe(
             &dialog,
@@ -1858,20 +1886,29 @@ impl OverlayManager {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
         let font_size = settings.file_font_size;
         let monochrome_icons = settings.monochrome_icons;
-        let is_dark = crate::theme::theme(cx).is_dark();
+        let theme_colors = crate::theme::theme(cx);
+        let is_dark = theme_colors.is_dark();
         let cache_key = fs.project_id();
 
         // Reuse cached viewer if available
         if let Some(viewer) = self.cached_file_viewers.get(&cache_key) {
             viewer.update(cx, |v, cx| {
-                v.update_config(font_size, is_dark, monochrome_icons, cx)
+                v.update_config(font_size, is_dark, theme_colors, monochrome_icons, cx)
             });
             self.open_modal(viewer.clone(), cx);
             return;
         }
 
-        let viewer =
-            cx.new(|cx| FileViewer::new_browse(fs, font_size, is_dark, monochrome_icons, cx));
+        let viewer = cx.new(|cx| {
+            FileViewer::new_browse(
+                fs,
+                font_size,
+                is_dark,
+                theme_colors,
+                monochrome_icons,
+                cx,
+            )
+        });
 
         cx.subscribe(&viewer, move |this, _, event: &FileViewerEvent, cx| {
             match event {
@@ -1898,13 +1935,14 @@ impl OverlayManager {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
         let font_size = settings.file_font_size;
         let monochrome_icons = settings.monochrome_icons;
-        let is_dark = crate::theme::theme(cx).is_dark();
+        let theme_colors = crate::theme::theme(cx);
+        let is_dark = theme_colors.is_dark();
         let cache_key = fs.project_id();
 
         // Reuse cached viewer if available
         if let Some(viewer) = self.cached_file_viewers.get(&cache_key) {
             viewer.update(cx, |v, cx| {
-                v.update_config(font_size, is_dark, monochrome_icons, cx);
+                v.update_config(font_size, is_dark, theme_colors, monochrome_icons, cx);
                 v.open_file_in_tab(PathBuf::from(&relative_path), cx);
             });
             self.open_modal(viewer.clone(), cx);
@@ -1917,6 +1955,7 @@ impl OverlayManager {
                 fs,
                 font_size,
                 is_dark,
+                theme_colors,
                 monochrome_icons,
                 cx,
             )

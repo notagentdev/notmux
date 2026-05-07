@@ -4,6 +4,7 @@ use super::{FileViewerTab, MAX_FILE_SIZE, MAX_LINES};
 use crate::syntax::highlight_content;
 use std::path::Path;
 use syntect::parsing::SyntaxSet;
+use vryn_core::theme::ThemeColors;
 use vryn_markdown::MarkdownDocument;
 
 impl FileViewerTab {
@@ -19,7 +20,7 @@ impl FileViewerTab {
     }
 
     /// Load file content and apply syntax highlighting.
-    pub(super) fn load_file(&mut self, path: &Path, syntax_set: &SyntaxSet, is_dark: bool) {
+    pub(super) fn load_file(&mut self, path: &Path, syntax_set: &SyntaxSet, colors: &ThemeColors) {
         // Check file size first
         match std::fs::metadata(path) {
             Ok(metadata) => {
@@ -43,7 +44,7 @@ impl FileViewerTab {
             Ok(content) => {
                 self.buffer.set_text(content, self.modified_at);
                 self.cursor = self.buffer.clamp_cursor(self.cursor);
-                self.do_highlight_content(path, syntax_set, is_dark);
+                self.do_highlight_content(path, syntax_set, colors);
                 // Parse markdown if this is a markdown file
                 if self.is_markdown {
                     self.markdown_doc = Some(MarkdownDocument::parse(self.buffer.text()));
@@ -72,14 +73,14 @@ impl FileViewerTab {
         &mut self,
         result: Result<String, String>,
         syntax_set: &SyntaxSet,
-        is_dark: bool,
+        colors: &ThemeColors,
     ) {
         self.loading = false;
         match result {
             Ok(content) => {
                 self.buffer.set_text(content, None);
                 self.cursor = self.buffer.clamp_cursor(self.cursor);
-                self.do_highlight_content(&self.file_path.clone(), syntax_set, is_dark);
+                self.do_highlight_content(&self.file_path.clone(), syntax_set, colors);
                 if self.is_markdown {
                     self.markdown_doc = Some(MarkdownDocument::parse(self.buffer.text()));
                 }
@@ -97,7 +98,11 @@ impl FileViewerTab {
 
     /// Check if the file was modified externally and reload if so.
     /// Returns true if the file was reloaded.
-    pub(super) fn reload_if_changed(&mut self, syntax_set: &SyntaxSet, is_dark: bool) -> bool {
+    pub(super) fn reload_if_changed(
+        &mut self,
+        syntax_set: &SyntaxSet,
+        colors: &ThemeColors,
+    ) -> bool {
         if self.buffer.is_dirty() {
             return false;
         }
@@ -115,7 +120,7 @@ impl FileViewerTab {
         }
         let path = self.file_path.clone();
         self.error_message = None;
-        self.load_file(&path, syntax_set, is_dark);
+        self.load_file(&path, syntax_set, colors);
         true
     }
 
@@ -124,10 +129,10 @@ impl FileViewerTab {
         &mut self,
         path: &Path,
         syntax_set: &SyntaxSet,
-        is_dark: bool,
+        colors: &ThemeColors,
     ) {
         self.highlighted_lines =
-            highlight_content(self.buffer.text(), path, syntax_set, MAX_LINES, is_dark);
+            highlight_content(self.buffer.text(), path, syntax_set, MAX_LINES, colors);
         self.line_count = self.highlighted_lines.len();
         self.line_num_width = self.line_count.to_string().len().max(3);
     }

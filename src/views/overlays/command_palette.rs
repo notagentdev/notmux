@@ -1,9 +1,8 @@
 use crate::keybindings::{Cancel, format_keystroke, get_action_descriptions, get_config};
-use crate::theme::theme;
+use crate::theme::{theme, with_alpha};
 use crate::ui::tokens::{ui_text, ui_text_ms};
 use crate::views::components::{
     ListOverlayAction, ListOverlayConfig, ListOverlayState, badge, handle_list_overlay_key,
-    keyboard_hints_footer, modal_backdrop, modal_content, search_input_area_selected,
     substring_filter,
 };
 use gpui::prelude::*;
@@ -11,6 +10,13 @@ use gpui::*;
 use gpui_component::h_flex;
 use vryn_ui::empty_state::empty_state;
 use vryn_ui::selectable_list::selectable_list_item;
+
+#[derive(Clone, Copy, Default)]
+pub struct CommandPaletteAnchor {
+    pub bounds: Option<Bounds<Pixels>>,
+}
+
+impl Global for CommandPaletteAnchor {}
 
 /// Remembered state from the last command palette session.
 #[derive(Default)]
@@ -78,7 +84,7 @@ impl CommandPalette {
 
         let config = ListOverlayConfig::new("Command Palette")
             .searchable("Type to search commands...")
-            .size(550.0, 450.0)
+            .size(520.0, 430.0)
             .empty_message("No commands found")
             .keyboard_hints(vec![("Enter", "to select"), ("Esc", "to close")])
             .key_context("CommandPalette");
@@ -117,6 +123,17 @@ impl CommandPalette {
     fn close(&self, cx: &mut Context<Self>) {
         self.save_memory(cx);
         cx.emit(CommandPaletteEvent::Close);
+    }
+
+    pub fn state_snapshot(&self) -> (String, bool) {
+        (self.state.search_query.clone(), self.select_all)
+    }
+
+    fn emit_state(&self, cx: &mut Context<Self>) {
+        cx.emit(CommandPaletteEvent::StateChanged {
+            query: self.state.search_query.clone(),
+            select_all: self.select_all,
+        });
     }
 
     fn execute_command(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -176,6 +193,7 @@ impl CommandPalette {
             is_selected,
             &t,
         )
+        .when(is_selected, |d| d.bg(with_alpha(t.text_primary, 0.06)))
         .justify_between()
         .on_mouse_down(
             MouseButton::Left,
@@ -228,6 +246,7 @@ impl CommandPalette {
 
 pub enum CommandPaletteEvent {
     Close,
+    StateChanged { query: String, select_all: bool },
 }
 
 impl EventEmitter<CommandPaletteEvent> for CommandPalette {}
@@ -236,15 +255,8 @@ impl Render for CommandPalette {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let focus_handle = self.focus_handle.clone();
-        let search_query = self.state.search_query.clone();
         let config_width = self.state.config.width;
         let config_max_height = self.state.config.max_height;
-        let search_placeholder = self
-            .state
-            .config
-            .search_placeholder
-            .clone()
-            .unwrap_or_default();
         let empty_message = self.state.config.empty_message.clone();
 
         // Focus on first render
@@ -252,11 +264,16 @@ impl Render for CommandPalette {
             window.focus(&focus_handle, cx);
         }
 
-        modal_backdrop("command-palette-backdrop", &t)
+        let anchor = cx
+            .try_global::<CommandPaletteAnchor>()
+            .and_then(|anchor| anchor.bounds);
+
+        let backdrop = div()
+            .id("command-palette-backdrop")
+            .absolute()
+            .inset_0()
             .track_focus(&focus_handle)
             .key_context("CommandPalette")
-            .items_start()
-            .pt(px(80.0))
             .on_action(cx.listener(|this, _: &Cancel, _window, cx| {
                 this.close(cx);
             }))
@@ -269,6 +286,7 @@ impl Render for CommandPalette {
                             this.state.search_query.clear();
                             this.select_all = false;
                             this.filter_commands();
+                            this.emit_state(cx);
                             cx.notify();
                             return;
                         }
@@ -284,6 +302,7 @@ impl Render for CommandPalette {
                         }
                         "up" | "down" => {
                             this.select_all = false;
+                            this.emit_state(cx);
                         }
                         _ => {}
                     }
@@ -299,7 +318,9 @@ impl Render for CommandPalette {
                         this.execute_command(index, window, cx);
                     }
                     ListOverlayAction::QueryChanged => {
+                        this.select_all = false;
                         this.filter_commands();
+                        this.emit_state(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -310,39 +331,56 @@ impl Render for CommandPalette {
                 cx.listener(|this, _, _window, cx| {
                     this.close(cx);
                 }),
-            )
-            .child(
-                modal_content("command-palette-modal", &t)
+            );
+
+        let popover = |this: &Self, cx: &mut Context<Self>| {
+            div()
+                    .id("command-palette-popover")
                     .w(px(config_width))
                     .max_h(px(config_max_height))
+                    .flex()
+                    .flex_col()
+                    .bg(rgb(t.bg_primary))
+                    .border_1()
+                    .border_color(rgb(t.border))
+                    .rounded(px(6.0))
+                    .shadow_xl()
+                    .overflow_hidden()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(search_input_area_selected(
-                        &search_query,
-                        &search_placeholder,
-                        self.select_all,
-                        &t,
-                    ))
                     .child(
                         // Command list
                         div()
                             .id("command-list")
                             .flex_1()
                             .overflow_y_scroll()
-                            .track_scroll(&self.state.scroll_handle)
-                            .children(self.state.filtered.iter().enumerate().map(
+                            .track_scroll(&this.state.scroll_handle)
+                            .children(this.state.filtered.iter().enumerate().map(
                                 |(i, filter_result)| {
-                                    self.render_command_row(i, filter_result.index, cx)
+                                    this.render_command_row(i, filter_result.index, cx)
                                 },
                             ))
-                            .when(self.state.is_empty(), |d| {
+                            .when(this.state.is_empty(), |d| {
                                 d.child(empty_state(empty_message.clone(), &t, cx))
                             }),
                     )
-                    .child(keyboard_hints_footer(
-                        &[("Enter", "to select"), ("Esc", "to close")],
-                        &t,
-                    )),
+        };
+
+        if let Some(bounds) = anchor {
+            backdrop.child(
+                div()
+                    .absolute()
+                    .left(bounds.origin.x)
+                    .top(bounds.origin.y + bounds.size.height + px(2.0))
+                    .child(popover(self, cx)),
             )
+        } else {
+            backdrop
+                .flex()
+                .items_start()
+                .justify_center()
+                .pt(px(42.0))
+                .child(popover(self, cx))
+        }
     }
 }
 
