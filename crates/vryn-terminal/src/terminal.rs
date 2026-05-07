@@ -348,6 +348,9 @@ pub struct Terminal {
     /// Last submitted shell command, used to persist alt-screen sessions without
     /// replaying TUI control sequences.
     last_submitted_command: Mutex<Option<String>>,
+    /// Set after an alternate-screen app returns to the normal screen. The next
+    /// normal-buffer output may need to be moved below preserved lines under the cursor.
+    pending_cursor_below_guard: AtomicBool,
     /// Timestamp of when the user last viewed this terminal (on blur)
     last_viewed_time: Arc<Mutex<Instant>>,
 }
@@ -408,6 +411,7 @@ impl Terminal {
             had_user_input: AtomicBool::new(false),
             current_input_line: Mutex::new(String::new()),
             last_submitted_command: Mutex::new(None),
+            pending_cursor_below_guard: AtomicBool::new(false),
             last_viewed_time: Arc::new(Mutex::new(Instant::now())),
         }
     }
@@ -567,7 +571,7 @@ impl Terminal {
             return Vec::new();
         }
 
-        let blank_lines = self.lines_needed_below_restored_cursor();
+        let blank_lines = self.lines_needed_below_cursor_locked(&self.term.lock());
         if blank_lines == 0 {
             return initial_text.to_vec();
         }
@@ -580,8 +584,25 @@ impl Terminal {
         out
     }
 
-    fn lines_needed_below_restored_cursor(&self) -> usize {
-        let term = self.term.lock();
+    fn output_after_cursor_guarded(&self, data: &[u8]) -> Vec<u8> {
+        if data.is_empty() || !self.pending_cursor_below_guard.swap(false, Ordering::Relaxed) {
+            return data.to_vec();
+        }
+
+        let blank_lines = self.lines_needed_below_cursor_locked(&self.term.lock());
+        if blank_lines == 0 {
+            return data.to_vec();
+        }
+
+        let mut out = Vec::with_capacity(blank_lines * 2 + data.len());
+        for _ in 0..blank_lines {
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(data);
+        out
+    }
+
+    fn lines_needed_below_cursor_locked(&self, term: &Term<ZedEventListener>) -> usize {
         let grid = term.grid();
         let cursor_line = grid.cursor.point.line.0;
         let screen_lines = grid.screen_lines() as i32;
@@ -610,16 +631,38 @@ impl Terminal {
         if data.is_empty() {
             return;
         }
+        if record_replay
+            && !suppress_replies
+            && let Some((before_exit, after_exit)) = split_after_alt_screen_exit(data)
+        {
+            self.process_output_inner(before_exit, record_replay, suppress_replies);
+            self.process_output_inner(after_exit, record_replay, suppress_replies);
+            return;
+        }
+        let was_alt_screen = self.is_alt_screen();
+        let data = if record_replay {
+            self.output_after_cursor_guarded(data)
+        } else {
+            data.to_vec()
+        };
         if suppress_replies {
             self.suppress_pty_responses.store(true, Ordering::Relaxed);
         }
         if record_replay {
-            self.record_replay_bytes(data);
+            self.record_replay_bytes(&data);
         }
         let mut term = self.term.lock();
         let mut processor = self.processor.lock();
 
-        processor.advance(&mut *term, data);
+        processor.advance(&mut *term, &data);
+        let is_alt_screen = term.mode().contains(TermMode::ALT_SCREEN);
+        drop(processor);
+        drop(term);
+
+        if !is_alt_screen && (was_alt_screen || contains_alt_screen_exit(&data)) {
+            self.pending_cursor_below_guard
+                .store(true, Ordering::Relaxed);
+        }
         if suppress_replies {
             self.suppress_pty_responses.store(false, Ordering::Relaxed);
         }
@@ -701,11 +744,7 @@ impl Terminal {
             }
             std::mem::take(&mut *pending)
         };
-        self.record_replay_bytes(&data);
-        let mut term = self.term.lock();
-        let mut processor = self.processor.lock();
-        processor.advance(&mut *term, &data);
-        self.content_generation.fetch_add(1, Ordering::Relaxed);
+        self.process_output_inner(&data, true, false);
     }
 
     /// Drain all pending output and feed it into the terminal emulator.
@@ -2194,6 +2233,23 @@ fn replay_prefix_before_alt_screen(bytes: &[u8]) -> Option<&[u8]> {
         .next()
 }
 
+fn split_after_alt_screen_exit(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+    const ALT_SCREEN_EXITS: [&[u8]; 3] = [b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l"];
+    let split = ALT_SCREEN_EXITS
+        .iter()
+        .filter_map(|needle| find_bytes(bytes, needle).map(|idx| idx + needle.len()))
+        .filter(|split| *split < bytes.len())
+        .min()?;
+    Some(bytes.split_at(split))
+}
+
+fn contains_alt_screen_exit(bytes: &[u8]) -> bool {
+    const ALT_SCREEN_EXITS: [&[u8]; 3] = [b"\x1b[?1049l", b"\x1b[?1047l", b"\x1b[?47l"];
+    ALT_SCREEN_EXITS
+        .iter()
+        .any(|needle| byte_slice_contains(bytes, needle))
+}
+
 fn byte_slice_contains(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() {
         return true;
@@ -2317,6 +2373,16 @@ mod tests {
         fn uses_mouse_backend(&self) -> bool {
             false
         }
+    }
+
+    fn terminal_line_text(terminal: &Terminal, row: i32) -> String {
+        let term = terminal.term.lock();
+        let grid = term.grid();
+        let mut text = String::new();
+        for col in 0..grid.columns() {
+            text.push(grid[Point::new(Line(row), Column(col))].c);
+        }
+        text
     }
 
     #[test]
@@ -2821,27 +2887,100 @@ mod tests {
             b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n",
         );
 
-        let line_text = |row: i32| {
-            let term = terminal.term.lock();
-            let grid = term.grid();
-            let mut text = String::new();
-            for col in 0..grid.columns() {
-                text.push(grid[Point::new(Line(row), Column(col))].c);
-            }
-            text
-        };
-
         assert!(
-            line_text(1).contains("middle"),
+            terminal_line_text(&terminal, 1).contains("middle"),
             "line below cursor should survive restore marker"
         );
         assert!(
-            line_text(2).contains("bottom"),
+            terminal_line_text(&terminal, 2).contains("bottom"),
             "lower line should survive restore marker"
         );
         assert!(
-            (3..8).any(|row| line_text(row).contains("History restored")),
+            (3..8).any(|row| terminal_line_text(&terminal, row).contains("History restored")),
             "restore marker should be moved below restored content"
+        );
+    }
+
+    #[test]
+    fn alt_screen_exit_prompt_does_not_overwrite_normal_buffer_lines_below_cursor() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.process_output(b"top\r\nmiddle\r\nbottom\x1b[1;1H");
+        terminal.process_output(b"\x1b[?1049hclaude screen\x1b[?1049l");
+        terminal.process_output(b"prompt % ");
+
+        assert!(
+            terminal_line_text(&terminal, 1).contains("middle"),
+            "line below cursor should survive app exit"
+        );
+        assert!(
+            terminal_line_text(&terminal, 2).contains("bottom"),
+            "lower line should survive app exit"
+        );
+        assert!(
+            (3..8).any(|row| terminal_line_text(&terminal, row).contains("prompt % ")),
+            "prompt should be moved below preserved normal-buffer content"
+        );
+    }
+
+    #[test]
+    fn alt_screen_exit_prompt_in_same_chunk_is_guarded() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.process_output(b"top\r\nmiddle\r\nbottom\x1b[1;1H");
+        terminal.process_output(b"\x1b[?1049hclaude screen\x1b[?1049lprompt % ");
+
+        assert!(
+            terminal_line_text(&terminal, 1).contains("middle"),
+            "line below cursor should survive app exit"
+        );
+        assert!(
+            terminal_line_text(&terminal, 2).contains("bottom"),
+            "lower line should survive app exit"
+        );
+        assert!(
+            (3..8).any(|row| terminal_line_text(&terminal, row).contains("prompt % ")),
+            "prompt should be guarded even when it arrives with the alt-screen exit"
+        );
+    }
+
+    #[test]
+    fn pending_output_uses_alt_screen_exit_cursor_guard_when_drained() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "t".into(),
+            TerminalSize::default(),
+            transport,
+            String::new(),
+        );
+
+        terminal.process_output(b"top\r\nmiddle\r\nbottom\x1b[1;1H");
+        terminal.enqueue_output(b"\x1b[?1049hclaude screen\x1b[?1049lprompt % ");
+        terminal.drain_pending_output_for_snapshot();
+
+        assert!(
+            terminal_line_text(&terminal, 1).contains("middle"),
+            "line below cursor should survive queued app output"
+        );
+        assert!(
+            terminal_line_text(&terminal, 2).contains("bottom"),
+            "lower line should survive queued app output"
+        );
+        assert!(
+            (3..8).any(|row| terminal_line_text(&terminal, row).contains("prompt % ")),
+            "queued prompt should be moved below preserved normal-buffer content"
         );
     }
 
