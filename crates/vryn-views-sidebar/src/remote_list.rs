@@ -1,8 +1,7 @@
 use gpui::*;
 use vryn_core::client::{ConnectionStatus, RemoteConnectionConfig};
 use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
-use vryn_workspace::requests::OverlayRequest;
+use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 
 use crate::sidebar::Sidebar;
 
@@ -13,7 +12,7 @@ struct ConnectionSnapshot {
 }
 
 impl Sidebar {
-    /// Render the REMOTE section (header + connection status headers + add button).
+    /// Render the REMOTE section (header + connection status headers).
     /// Remote projects are now rendered as regular workspace projects inside auto-created folders,
     /// so this section only needs connection management UI.
     pub fn render_remote_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -40,7 +39,6 @@ impl Sidebar {
         if snapshots.is_empty() {
             return div()
                 .child(self.render_remote_header(cx))
-                .child(self.render_add_connection_button(cx))
                 .into_any_element();
         }
 
@@ -53,8 +51,6 @@ impl Sidebar {
                     .into_any_element(),
             );
         }
-
-        children.push(self.render_add_connection_button(cx).into_any_element());
 
         div().children(children).into_any_element()
     }
@@ -162,34 +158,4 @@ impl Sidebar {
             )
     }
 
-    fn render_add_connection_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
-
-        div()
-            .id("add-remote-connection-btn")
-            .h(px(32.0))
-            .px(px(12.0))
-            .flex()
-            .items_center()
-            .gap(px(4.0))
-            .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
-            .on_click(cx.listener(|this, _, _window, cx| {
-                this.request_broker.update(cx, |broker, cx| {
-                    broker.push_overlay_request(OverlayRequest::RemoteConnect, cx);
-                });
-            }))
-            .child(
-                div()
-                    .text_size(ui_text_xl(cx))
-                    .text_color(rgb(t.text_secondary))
-                    .child("+"),
-            )
-            .child(
-                div()
-                    .text_size(ui_text_ms(cx))
-                    .text_color(rgb(t.text_secondary))
-                    .child("Add Connection"),
-            )
-    }
 }

@@ -18,11 +18,12 @@ use vryn_core::theme::FolderColor;
 use vryn_services::manager::ServiceManager;
 use vryn_terminal::TerminalsRegistry;
 use vryn_ui::click_detector::ClickDetector;
+use vryn_ui::menu::{context_menu_panel, menu_item};
 use vryn_ui::rename_state::{RenameState, cancel_rename, finish_rename, start_rename_with_blur};
 use vryn_ui::theme::theme;
 use vryn_ui::tokens::{ui_text_ms, ui_text_xl};
 use vryn_workspace::request_broker::RequestBroker;
-use vryn_workspace::requests::SidebarRequest;
+use vryn_workspace::requests::{OverlayRequest, SidebarRequest};
 use vryn_workspace::state::{FolderData, ProjectData, Workspace};
 
 use crate::drag::{FolderDrag, ProjectDrag};
@@ -184,6 +185,8 @@ pub struct Sidebar {
     pub(crate) get_remote_folder: Option<GetRemoteFolderFn>,
     /// Which view is active (Projects / Files).
     pub(crate) view: SidebarView,
+    /// Header add menu state for project/remote creation actions.
+    pub(crate) add_menu_open: bool,
     /// File-explorer sub-entities, keyed by project_id. Created lazily when
     /// the Files view first needs one.
     pub(crate) file_explorers: HashMap<String, Entity<FileExplorer>>,
@@ -241,6 +244,7 @@ impl Sidebar {
             send_remote_action: None,
             get_remote_folder: None,
             view: SidebarView::default(),
+            add_menu_open: false,
             file_explorers: HashMap::new(),
         }
     }
@@ -256,6 +260,7 @@ impl Sidebar {
             return;
         }
         self.view = view;
+        self.add_menu_open = false;
         cx.notify();
     }
 
@@ -1532,6 +1537,11 @@ impl Sidebar {
             self.cancel_rename(cx);
             return;
         }
+        if self.add_menu_open {
+            self.add_menu_open = false;
+            cx.notify();
+            return;
+        }
         self.cursor_index = None;
         if let Some(ref saved) = self.saved_focus {
             window.focus(saved, cx);
@@ -1617,13 +1627,12 @@ impl Sidebar {
             )
     }
 
-    /// Section header below the switcher: "EXPLORER" / "FILES" title on the
-    /// left, "+ New folder" and "+ Add Project" actions on the right (only
-    /// for the Projects view).
+    /// Section header below the switcher: "WORKSPACES" / "FILES" title on the
+    /// left, and the add menu action on the right (only for the Projects view).
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_files = self.view == SidebarView::Files;
-        let title = if is_files { "FILES" } else { "EXPLORER" };
+        let title = if is_files { "FILES" } else { "WORKSPACES" };
 
         div()
             .h(px(35.0))
@@ -1644,41 +1653,85 @@ impl Sidebar {
             .child(
                 h_flex()
                     .gap(px(2.0))
-                    // Projects view has "New folder" + "+ Add Project" on the right.
                     .when(!is_files, |d| {
                         d.child(
                             div()
-                                .id("add-project-btn")
+                                .id("sidebar-add-menu-btn")
                                 .cursor_pointer()
-                                .px(px(4.0))
-                                .py(px(2.0))
+                                .w(px(24.0))
+                                .h(px(24.0))
                                 .rounded(px(4.0))
                                 .hover(|s| s.bg(rgb(t.bg_hover)))
                                 .flex()
                                 .items_center()
-                                .gap(px(4.0))
+                                .justify_center()
                                 .child(
                                     div()
                                         .text_size(ui_text_xl(cx))
-                                        .text_color(rgb(t.text_primary))
+                                        .text_color(rgb(t.text_secondary))
                                         .child("+"),
                                 )
-                                .child(
-                                    div()
-                                        .text_size(ui_text_ms(cx))
-                                        .text_color(rgb(t.text_secondary))
-                                        .child("Add Project"),
-                                )
                                 .on_click(cx.listener(|this, _, _window, cx| {
-                                    this.request_broker.update(cx, |broker, cx| {
-                                        broker.push_overlay_request(
-                                            vryn_workspace::requests::OverlayRequest::AddProjectDialog,
-                                            cx,
-                                        );
-                                    });
+                                    this.add_menu_open = !this.add_menu_open;
+                                    cx.notify();
+                                    cx.stop_propagation();
                                 })),
                         )
                     }),
+            )
+    }
+
+    fn render_add_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+
+        div()
+            .id("sidebar-add-menu-backdrop")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .occlude()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _window, cx| {
+                this.add_menu_open = false;
+                cx.notify();
+            }))
+            .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _window, cx| {
+                this.add_menu_open = false;
+                cx.notify();
+            }))
+            .child(
+                context_menu_panel("sidebar-add-menu", &t)
+                    .absolute()
+                    .top(px(65.0))
+                    .right(px(8.0))
+                    .min_w(px(180.0))
+                    .child(
+                        menu_item("sidebar-add-project", "icons/folder.svg", "Add Project", &t)
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.add_menu_open = false;
+                                this.request_broker.update(cx, |broker, cx| {
+                                    broker.push_overlay_request(
+                                        OverlayRequest::AddProjectDialog,
+                                        cx,
+                                    );
+                                });
+                                cx.notify();
+                                cx.stop_propagation();
+                            })),
+                    )
+                    .child(
+                        menu_item("sidebar-add-remote", "icons/link.svg", "Add Remote", &t)
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                this.add_menu_open = false;
+                                this.request_broker.update(cx, |broker, cx| {
+                                    broker
+                                        .push_overlay_request(OverlayRequest::RemoteConnect, cx);
+                                });
+                                cx.notify();
+                                cx.stop_propagation();
+                            })),
+                    ),
             )
     }
 
@@ -2533,6 +2586,7 @@ impl Render for Sidebar {
                         .children(flat_elements)
                         .child(self.render_remote_section(cx)),
                 )
+                .when(self.add_menu_open, |d| d.child(self.render_add_menu(cx)))
                 .into_any_element(),
             SidebarView::Files => root.child(self.render_files_view(cx)).into_any_element(),
         }
