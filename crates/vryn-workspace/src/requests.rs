@@ -67,6 +67,10 @@ pub enum OverlayRequest {
         /// Current index into the commits list.
         commit_index: Option<usize>,
     },
+    MainFileViewer {
+        project_id: String,
+        file: String,
+    },
     RemoteConnect,
     RemoteConnectionContextMenu {
         connection_id: String,

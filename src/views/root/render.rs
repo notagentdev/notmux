@@ -440,6 +440,7 @@ impl Render for RootView {
         let settings_panel = om.render_settings_panel();
         let _ = om;
         let main_diff_viewer = self.main_diff_viewer.clone();
+        let main_file_viewer = self.main_file_viewer.clone();
 
         // Get active drag for global mouse handling
         let active_drag = self.active_drag.clone();
@@ -1115,7 +1116,12 @@ impl Render for RootView {
                                         )
                                     })
                                     .when(settings_panel.is_none(), |d| {
-                                        if let Some(viewer) = main_diff_viewer.clone() {
+                                        if let Some(viewer) = main_file_viewer.clone() {
+                                            d.child(
+                                                AnyView::from(viewer)
+                                                    .cached(StyleRefinement::default().size_full()),
+                                            )
+                                        } else if let Some(viewer) = main_diff_viewer.clone() {
                                             d.child(viewer.update(cx, |viewer, cx| {
                                                 viewer.render_embedded(window, cx)
                                             }))

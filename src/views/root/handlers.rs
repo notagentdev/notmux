@@ -853,6 +853,9 @@ impl RootView {
                         cx,
                     );
                 }
+                OverlayRequest::MainFileViewer { project_id, file } => {
+                    self.show_main_file_viewer(project_id, file, cx);
+                }
                 OverlayRequest::RemoteConnect => {
                     if let Some(ref rm) = self.remote_manager {
                         let rm = rm.clone();
@@ -1083,6 +1086,7 @@ impl RootView {
         self.overlay_manager
             .update(cx, |om, cx| om.close_settings_panel(cx));
 
+        self.main_file_viewer = None;
         let viewer = cx.new(|cx| {
             vryn_views_git::diff_viewer::DiffViewer::new(
                 provider,
@@ -1107,6 +1111,46 @@ impl RootView {
         .detach();
 
         self.main_diff_viewer = Some(viewer);
+        cx.notify();
+    }
+
+    fn show_main_file_viewer(&mut self, project_id: String, file: String, cx: &mut Context<Self>) {
+        let Some(fs) = self.build_project_fs(&project_id, cx) else {
+            return;
+        };
+
+        self.overlay_manager
+            .update(cx, |om, cx| om.close_settings_panel(cx));
+
+        let font_size = crate::settings::settings_entity(cx)
+            .read(cx)
+            .settings
+            .file_font_size;
+        let is_dark = crate::theme::theme(cx).is_dark();
+
+        let viewer = cx.new(|cx| {
+            vryn_files::file_viewer::FileViewer::new_embedded(
+                std::path::PathBuf::from(file),
+                fs,
+                font_size,
+                is_dark,
+                cx,
+            )
+        });
+
+        cx.subscribe(
+            &viewer,
+            |this, _, event: &vryn_files::file_viewer::FileViewerEvent, cx| {
+                if matches!(event, vryn_files::file_viewer::FileViewerEvent::Close) {
+                    this.main_file_viewer = None;
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        self.main_diff_viewer = None;
+        self.main_file_viewer = Some(viewer);
         cx.notify();
     }
 

@@ -15,6 +15,7 @@ use gpui_component::{h_flex, v_flex};
 use std::path::PathBuf;
 use std::sync::Arc;
 use vryn_core::theme::ThemeColors;
+use vryn_ui::header_buttons::HeaderAction;
 use vryn_markdown::RenderedNode;
 use vryn_ui::code_block::code_block_container;
 use vryn_ui::file_icon::file_icon;
@@ -34,6 +35,19 @@ fn rgba(color: u32, alpha: f32) -> Rgba {
 }
 
 impl FileViewer {
+    fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
+        let a = alpha as u32;
+        let inv = 255 - a;
+        let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
+        let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
+        let b = (fg & 0xff) * a + (bg & 0xff) * inv;
+        (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
+    }
+
+    fn embedded_header_bg(t: &ThemeColors) -> u32 {
+        Self::blend_u32(t.text_primary, 0x14, t.term_background)
+    }
+
     /// Render a single highlighted line with selection support.
     pub(super) fn render_line(
         &self,
@@ -569,72 +583,193 @@ impl FileViewer {
             .children(tab_elements)
     }
 
-    /// Render the back/forward navigation buttons.
-    fn render_nav_buttons(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_back = self.history.can_go_back();
-        let can_forward = self.history.can_go_forward();
+    fn render_embedded_header(
+        &self,
+        filename: &str,
+        relative_path: &str,
+        is_markdown: bool,
+        is_preview_mode: bool,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let dir = relative_path
+            .rfind('/')
+            .map(|i| &relative_path[..=i])
+            .unwrap_or("");
 
-        h_flex()
-            .gap(px(2.0))
+        div()
+            .group("main-file-header")
+            .flex_shrink_0()
+            .h(px(34.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .border_t_1()
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(Self::embedded_header_bg(t)))
             .child(
-                div()
-                    .id("fv-back")
-                    .cursor(if can_back {
-                        CursorStyle::PointingHand
-                    } else {
-                        CursorStyle::Arrow
-                    })
-                    .w(px(28.0))
-                    .h(px(28.0))
-                    .flex()
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
                     .items_center()
-                    .justify_center()
-                    .rounded(px(6.0))
-                    .when(can_back, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.go_back(cx);
-                    }))
+                    .gap(px(6.0))
+                    .child(file_icon(relative_path, t, cx))
                     .child(
-                        svg()
-                            .path("icons/chevron-left.svg")
-                            .size(px(14.0))
-                            .text_color(rgb(if can_back {
-                                t.text_secondary
-                            } else {
-                                t.text_muted
-                            }))
-                            .opacity(if can_back { 1.0 } else { 0.4 }),
+                        h_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_baseline()
+                            .gap(px(6.0))
+                            .text_size(ui_text_md(cx))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .text_color(rgb(t.text_primary))
+                                    .text_ellipsis()
+                                    .overflow_hidden()
+                                    .flex_shrink_0()
+                                    .child(filename.to_string()),
+                            )
+                            .when(!dir.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_color(rgb(t.text_muted))
+                                        .text_ellipsis()
+                                        .overflow_hidden()
+                                        .min_w_0()
+                                        .child(dir.to_string()),
+                                )
+                            }),
                     ),
             )
             .child(
-                div()
-                    .id("fv-forward")
-                    .cursor(if can_forward {
-                        CursorStyle::PointingHand
-                    } else {
-                        CursorStyle::Arrow
-                    })
-                    .w(px(28.0))
-                    .h(px(28.0))
-                    .flex()
+                h_flex()
+                    .flex_shrink_0()
                     .items_center()
-                    .justify_center()
-                    .rounded(px(6.0))
-                    .when(can_forward, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.go_forward(cx);
-                    }))
+                    .gap(px(2.0))
+                    .opacity(0.0)
+                    .group_hover("main-file-header", |s| s.opacity(1.0))
+                    .when(is_markdown, |d| {
+                        d.child(self.render_embedded_mode_button(
+                            "raw",
+                            "Raw",
+                            "Raw Markdown",
+                            DisplayMode::Source,
+                            !is_preview_mode,
+                            t,
+                            cx,
+                        ))
+                        .child(self.render_embedded_mode_button(
+                            "source",
+                            "Source",
+                            "Markdown Source",
+                            DisplayMode::Preview,
+                            is_preview_mode,
+                            t,
+                            cx,
+                        ))
+                    })
                     .child(
-                        svg()
-                            .path("icons/chevron-right.svg")
-                            .size(px(14.0))
-                            .text_color(rgb(if can_forward {
-                                t.text_secondary
-                            } else {
-                                t.text_muted
-                            }))
-                            .opacity(if can_forward { 1.0 } else { 0.4 }),
+                        self.render_embedded_icon_button(
+                            "close",
+                            HeaderAction::Close.icon(),
+                            "Close File",
+                            false,
+                            t,
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, _window, cx| this.close(cx))),
                     ),
+            )
+    }
+
+    fn render_embedded_icon_button(
+        &self,
+        id: &'static str,
+        icon_path: &'static str,
+        tooltip_text: &'static str,
+        active: bool,
+        t: &ThemeColors,
+        _cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        use gpui_component::tooltip::Tooltip;
+
+        div()
+            .id(format!("main-file-{}", id))
+            .w(px(24.0))
+            .h(px(24.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .cursor_pointer()
+            .bg(rgb(if active {
+                t.bg_hover
+            } else {
+                Self::embedded_header_bg(t)
+            }))
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(14.0))
+                    .text_color(rgb(0xffffff)),
+            )
+    }
+
+    fn render_embedded_mode_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        tooltip_text: &'static str,
+        mode: DisplayMode,
+        active: bool,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        use gpui_component::tooltip::Tooltip;
+
+        div()
+            .id(format!("main-file-{}", id))
+            .h(px(24.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .cursor_pointer()
+            .bg(rgb(if active {
+                t.bg_hover
+            } else {
+                Self::embedded_header_bg(t)
+            }))
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                let tab = this.active_tab_mut();
+                if tab.is_markdown {
+                    tab.display_mode = mode;
+                    cx.notify();
+                }
+            }))
+            .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
+            .child(
+                div()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(if active {
+                        t.text_primary
+                    } else {
+                        t.text_secondary
+                    }))
+                    .child(label),
             )
     }
 
@@ -674,7 +809,8 @@ impl Render for FileViewer {
         let is_markdown = tab.is_markdown;
         let display_mode = tab.display_mode;
         let is_preview_mode = display_mode == DisplayMode::Preview;
-        let sidebar_visible = self.sidebar_visible;
+        let embedded = self.embedded;
+        let sidebar_visible = self.sidebar_visible && !embedded;
         let show_tabs = self.tabs.len() > 1;
 
         let filename = tab
@@ -750,11 +886,22 @@ impl Render for FileViewer {
             window.focus(&focus_handle, cx);
         }
 
-        fullscreen_overlay("file-viewer", &t)
-            .when(
+        let root = if embedded {
+            div()
+                .id("file-viewer-embedded")
+                .occlude()
+                .size_full()
+                .bg(rgb(t.bg_primary))
+                .flex()
+                .flex_col()
+        } else {
+            fullscreen_overlay("file-viewer", &t).when(
                 cfg!(target_os = "macos") && !window.is_fullscreen(),
                 |d| d.top(px(28.0)),
             )
+        };
+
+        root
             .track_focus(&focus_handle)
             .key_context("FileViewer")
             .when(!is_preview_mode, |d| d.cursor(CursorStyle::IBeam))
@@ -794,7 +941,7 @@ impl Render for FileViewer {
                     this.close(cx);
                 }
             }))
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
                 // Don't intercept keys when search input is focused
                 if this.search_state.as_ref().is_some_and(|s| {
                     s.input.read(cx).focus_handle(cx).is_focused(window)
@@ -823,7 +970,7 @@ impl Render for FileViewer {
                     "tab" if modifiers.control => {
                         this.next_tab(cx);
                     }
-                    "b" if !modifiers.platform && !modifiers.control => {
+                    "b" if !embedded && !modifiers.platform && !modifiers.control => {
                         this.toggle_sidebar(cx);
                     }
                     "c" if modifiers.platform || modifiers.control => {
@@ -888,7 +1035,17 @@ impl Render for FileViewer {
                 }),
             )
             // Header
-            .child(
+            .child(if embedded {
+                self.render_embedded_header(
+                    &filename,
+                    &relative_path,
+                    is_markdown,
+                    is_preview_mode,
+                    &t,
+                    cx,
+                )
+                .into_any_element()
+            } else {
                 div()
                     .px(px(16.0))
                     .py(px(12.0))
@@ -900,7 +1057,7 @@ impl Render for FileViewer {
                     .child(
                         h_flex()
                             .gap(px(10.0))
-                            .child(
+                            .when(!embedded, |d| d.child(
                                 div()
                                     .id("sidebar-toggle")
                                     .cursor_pointer()
@@ -925,8 +1082,7 @@ impl Render for FileViewer {
                                             .size(px(14.0))
                                             .text_color(rgb(t.text_muted)),
                                     ),
-                            )
-                            .child(self.render_nav_buttons(&t, cx))
+                            ))
                             .child(
                                 v_flex()
                                     .gap(px(2.0))
@@ -981,8 +1137,9 @@ impl Render for FileViewer {
                                             .child("\u{00d7}"),
                                     ),
                             ),
-                    ),
-            )
+                    )
+                    .into_any_element()
+            })
             // Main content area: sidebar + (tab bar + content)
             .child(
                 h_flex()

@@ -622,6 +622,7 @@ impl FileExplorer {
         let icon_path = "icons/folder.svg";
         let row_path = abs_path.clone();
         let broker = self.request_broker.clone();
+        let click_broker = broker.clone();
         let project_root = self.project_path.clone();
         let is_context_target = self.context_menu_target.as_deref() == Some(abs_path.as_path());
 
@@ -665,6 +666,16 @@ impl FileExplorer {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 if is_dir {
                     this.toggle_expand(row_path.clone(), cx);
+                } else {
+                    click_broker.update(cx, |b, cx| {
+                        b.push_overlay_request(
+                            OverlayRequest::MainFileViewer {
+                                project_id: this.project_id.clone(),
+                                file: rel.clone(),
+                            },
+                            cx,
+                        );
+                    });
                 }
             }))
             .on_mouse_down(

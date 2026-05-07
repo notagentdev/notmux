@@ -99,6 +99,8 @@ pub struct RootView {
     git_panel_project_id: Option<String>,
     /// Diff viewer shown in the central project area from the git changes list.
     main_diff_viewer: Option<Entity<vryn_views_git::diff_viewer::DiffViewer>>,
+    /// File viewer shown in the central project area from the sidebar explorer.
+    main_file_viewer: Option<Entity<vryn_files::file_viewer::FileViewer>>,
     /// Pending debounced full-refresh tasks per project (for `.git/` event
     /// storms during rebase/checkout). Dropping the task cancels it.
     pending_git_internal_refresh: HashMap<String, Task<()>>,
@@ -249,6 +251,7 @@ impl RootView {
             git_panel_ctrl,
             git_panel_project_id: None,
             main_diff_viewer: None,
+            main_file_viewer: None,
             pending_git_internal_refresh: HashMap::new(),
         };
 
