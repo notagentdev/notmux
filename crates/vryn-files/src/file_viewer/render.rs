@@ -5,7 +5,7 @@ use crate::code_view::{
     selection_bg_ranges,
 };
 use crate::file_search::Cancel;
-use crate::file_tree::{FileTreeNode, expandable_file_row, expandable_folder_row};
+use crate::file_tree::{FileTreeNode, expandable_folder_row};
 use crate::selection::{Selection1DExtension, Selection2DNonEmpty};
 use crate::syntax::HighlightedLine;
 use crate::theme::theme;
@@ -18,7 +18,7 @@ use vryn_core::theme::ThemeColors;
 use vryn_ui::header_buttons::HeaderAction;
 use vryn_markdown::RenderedNode;
 use vryn_ui::code_block::code_block_container;
-use vryn_ui::file_icon::file_icon;
+use vryn_ui::vscode_icon::vscode_file_icon_sized_with_options;
 use vryn_ui::modal::fullscreen_overlay;
 use vryn_ui::toggle::segmented_toggle;
 use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
@@ -26,12 +26,56 @@ use vryn_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use super::context_menu::TreeNodeTarget;
 use super::{DisplayMode, FileViewer, SIDEBAR_WIDTH};
 
+const SOURCE_TEXT_PADDING_LEFT: f32 = 10.0;
+
 /// Helper to create rgba from u32 color and alpha.
 fn rgba(color: u32, alpha: f32) -> Rgba {
     let r = ((color >> 16) & 0xFF) as f32 / 255.0;
     let g = ((color >> 8) & 0xFF) as f32 / 255.0;
     let b = (color & 0xFF) as f32 / 255.0;
     Rgba { r, g, b, a: alpha }
+}
+
+fn byte_index_for_char_column(text: &str, column: usize) -> usize {
+    text.char_indices()
+        .nth(column)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
+}
+
+fn char_column_for_byte_index(text: &str, byte_index: usize) -> usize {
+    let mut byte_index = byte_index.min(text.len());
+    while byte_index > 0 && !text.is_char_boundary(byte_index) {
+        byte_index -= 1;
+    }
+    text[..byte_index].chars().count()
+}
+
+fn source_cursor_canvas(
+    layout: TextLayout,
+    cursor_byte: usize,
+    visible: bool,
+    color: Hsla,
+) -> impl IntoElement {
+    canvas(
+        move |_bounds, _window, _cx| {
+            let pos = layout.position_for_index(cursor_byte);
+            let line_h = layout.line_height();
+            (pos, line_h)
+        },
+        move |_bounds, (cursor_pos, line_h), window, _cx| {
+            if visible && let Some(pos) = cursor_pos {
+                let cursor_h = px(14.0).min(line_h);
+                let y_offset = (line_h - cursor_h) * 0.5;
+                window.paint_quad(fill(
+                    Bounds::new(point(pos.x, pos.y + y_offset), size(px(1.0), cursor_h)),
+                    color,
+                ));
+            }
+        },
+    )
+    .absolute()
+    .size_full()
 }
 
 impl FileViewer {
@@ -69,9 +113,16 @@ impl FileViewer {
 
         let plain_text = line.plain_text.clone();
         let line_len = line.plain_text.len();
+        let line_char_len = line.plain_text.chars().count();
+        let cursor = tab.cursor;
+        let show_cursor = !tab.loading
+            && tab.error_message.is_none()
+            && (!tab.is_markdown || tab.display_mode == DisplayMode::Source)
+            && cursor.line == line_number;
 
         let styled_text = build_styled_text_with_backgrounds(&line.spans, &bg_ranges);
         let text_layout = styled_text.layout().clone();
+        let cursor_byte = byte_index_for_char_column(&plain_text, cursor.column);
 
         div()
             .id(ElementId::Name(format!("line-{}", line_number).into()))
@@ -84,11 +135,18 @@ impl FileViewer {
                 let text_layout = text_layout.clone();
                 let plain_text = plain_text.clone();
                 cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                    let col = char_column_for_byte_index(
+                        &plain_text,
+                        text_layout
+                            .index_for_position(event.position)
+                            .unwrap_or_else(|ix| ix),
+                    )
+                    .min(line_char_len);
                     let tab = this.active_tab_mut();
-                    let col = text_layout
-                        .index_for_position(event.position)
-                        .unwrap_or_else(|ix| ix)
-                        .min(line_len);
+                    tab.cursor = tab.buffer.clamp_cursor(super::Cursor {
+                        line: line_number,
+                        column: col,
+                    });
                     if event.click_count >= 3 {
                         tab.selection.start = Some((line_number, 0));
                         tab.selection.end = Some((line_number, line_len));
@@ -109,12 +167,15 @@ impl FileViewer {
             .on_mouse_move({
                 let text_layout = text_layout.clone();
                 cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
-                    let tab = this.active_tab_mut();
-                    if tab.selection.is_selecting {
-                        let col = text_layout
-                            .index_for_position(event.position)
-                            .unwrap_or_else(|ix| ix)
-                            .min(line_len);
+                    if this.active_tab().selection.is_selecting {
+                        let col = char_column_for_byte_index(
+                            &plain_text,
+                            text_layout
+                                .index_for_position(event.position)
+                                .unwrap_or_else(|ix| ix),
+                        )
+                        .min(line_char_len);
+                        let tab = this.active_tab_mut();
                         tab.selection.end = Some((line_number, col));
                         cx.notify();
                     }
@@ -151,11 +212,20 @@ impl FileViewer {
             .child(
                 div()
                     .flex_1()
-                    .pl(px(10.0))
+                    .pl(px(SOURCE_TEXT_PADDING_LEFT))
                     .overflow_hidden()
+                    .relative()
                     .whitespace_nowrap()
                     .line_height(px(line_height))
-                    .child(styled_text),
+                    .child(styled_text)
+                    .when(show_cursor, |d| {
+                        d.child(source_cursor_canvas(
+                            text_layout,
+                            cursor_byte,
+                            true,
+                            rgb(t.text_primary).into(),
+                        ))
+                    }),
             )
     }
 
@@ -382,7 +452,16 @@ impl FileViewer {
                         .pl(px(indent + 8.0 + 18.0))
                         .pr(px(12.0))
                         .bg(rgb(t.bg_selection))
-                        .child(file_icon(&file.filename, t, cx).mr(px(4.0)));
+                        .child(
+                            vscode_file_icon_sized_with_options(
+                                &file.filename,
+                                px(16.0),
+                                t,
+                                self.monochrome_icons,
+                                cx,
+                            )
+                            .mr(px(4.0)),
+                        );
                     if let Some(input) = self.render_rename_input(t, cx) {
                         row = row.child(input);
                     }
@@ -395,11 +474,12 @@ impl FileViewer {
                 } else {
                     let file_path_for_ctx = file.path.clone();
                     elements.push(
-                        expandable_file_row(
+                        crate::file_tree::expandable_file_row_with_options(
                             &file.filename,
                             depth,
                             None,
                             is_open || is_active,
+                            self.monochrome_icons,
                             t,
                             cx,
                         )
@@ -533,7 +613,13 @@ impl FileViewer {
                             .gap(px(6.0))
                             .items_center()
                             // File type icon
-                            .child(file_icon(&label, t, cx))
+                            .child(vscode_file_icon_sized_with_options(
+                                &label,
+                                px(16.0),
+                                t,
+                                self.monochrome_icons,
+                                cx,
+                            ))
                             // Filename
                             .child(
                                 div()
@@ -615,7 +701,13 @@ impl FileViewer {
                     .min_w_0()
                     .items_center()
                     .gap(px(6.0))
-                    .child(file_icon(relative_path, t, cx))
+                    .child(vscode_file_icon_sized_with_options(
+                        filename,
+                        px(18.0),
+                        t,
+                        self.monochrome_icons,
+                        cx,
+                    ))
                     .child(
                         h_flex()
                             .flex_1()
@@ -630,7 +722,11 @@ impl FileViewer {
                                     .text_ellipsis()
                                     .overflow_hidden()
                                     .flex_shrink_0()
-                                    .child(filename.to_string()),
+                                    .child(if self.active_tab().buffer.is_dirty() {
+                                        format!("{} *", filename)
+                                    } else {
+                                        filename.to_string()
+                                    }),
                             )
                             .when(!dir.is_empty(), |d| {
                                 d.child(
@@ -655,7 +751,6 @@ impl FileViewer {
                         d.child(self.render_embedded_mode_button(
                             "raw",
                             "Raw",
-                            "Raw Markdown",
                             DisplayMode::Source,
                             !is_preview_mode,
                             t,
@@ -664,7 +759,6 @@ impl FileViewer {
                         .child(self.render_embedded_mode_button(
                             "source",
                             "Source",
-                            "Markdown Source",
                             DisplayMode::Preview,
                             is_preview_mode,
                             t,
@@ -727,7 +821,6 @@ impl FileViewer {
         &self,
         id: &'static str,
         label: &'static str,
-        tooltip_text: &'static str,
         mode: DisplayMode,
         active: bool,
         t: &ThemeColors,
@@ -760,7 +853,7 @@ impl FileViewer {
                     cx.notify();
                 }
             }))
-            .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
+            .tooltip(move |_window, cx| Tooltip::new(label).build(_window, cx))
             .child(
                 div()
                     .text_size(ui_text_sm(cx))
@@ -818,6 +911,8 @@ impl Render for FileViewer {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "File".to_string());
+        let dirty = tab.buffer.is_dirty();
+        let save_error = tab.save_error.clone();
 
         let relative_path = self
             .files
@@ -878,8 +973,9 @@ impl Render for FileViewer {
             None
         };
 
-        // Focus on first render, but not when inline rename or search input is active
-        if self.rename_state.is_none()
+        // Fullscreen viewer owns focus. Embedded viewer must not steal focus from side panels.
+        if !embedded
+            && self.rename_state.is_none()
             && self.search_state.is_none()
             && !focus_handle.is_focused(window)
         {
@@ -905,6 +1001,14 @@ impl Render for FileViewer {
             .track_focus(&focus_handle)
             .key_context("FileViewer")
             .when(!is_preview_mode, |d| d.cursor(CursorStyle::IBeam))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _event: &MouseDownEvent, window, cx| {
+                    if this.embedded {
+                        window.focus(&this.focus_handle, cx);
+                    }
+                }),
+            )
             .on_action(cx.listener(|this, _: &Cancel, window, cx| {
                 // Dismiss overlays in priority order before default close behavior
                 if this.tab_context_menu.is_some() {
@@ -954,8 +1058,12 @@ impl Render for FileViewer {
                 let tab = this.active_tab();
                 let is_preview = tab.display_mode == DisplayMode::Preview;
                 let is_md = tab.is_markdown;
+                let is_source_editing = !is_preview;
 
                 match key {
+                    "s" if modifiers.platform || modifiers.control => {
+                        this.save_active_tab(cx);
+                    }
                     "f" if modifiers.platform || modifiers.control => {
                         if !is_preview {
                             this.open_search(window, cx);
@@ -999,7 +1107,45 @@ impl Render for FileViewer {
                     "right" if modifiers.alt => {
                         this.go_forward(cx);
                     }
-                    _ => {}
+                    "enter" if is_source_editing => {
+                        this.insert_text_at_cursor("\n", cx);
+                    }
+                    "backspace" if is_source_editing => {
+                        this.delete_backward_at_cursor(cx);
+                    }
+                    "delete" if is_source_editing => {
+                        this.delete_forward_at_cursor(cx);
+                    }
+                    "left" if is_source_editing => {
+                        this.move_cursor_left(cx);
+                    }
+                    "right" if is_source_editing => {
+                        this.move_cursor_right(cx);
+                    }
+                    "up" if is_source_editing => {
+                        this.move_cursor_up(cx);
+                    }
+                    "down" if is_source_editing => {
+                        this.move_cursor_down(cx);
+                    }
+                    "home" if is_source_editing => {
+                        this.move_cursor_line_start(cx);
+                    }
+                    "end" if is_source_editing => {
+                        this.move_cursor_line_end(cx);
+                    }
+                    _ => {
+                        if is_source_editing
+                            && !modifiers.platform
+                            && !modifiers.control
+                            && !modifiers.alt
+                            && let Some(ref s) = event.keystroke.key_char
+                            && !s.is_empty()
+                            && !s.chars().next().is_none_or(|c| c.is_control() && c != ' ')
+                        {
+                            this.insert_text_at_cursor(s, cx);
+                        }
+                    }
                 }
             }))
             .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _window, cx| {
@@ -1091,7 +1237,11 @@ impl Render for FileViewer {
                                             .text_size(ui_text_xl(cx))
                                             .font_weight(FontWeight::MEDIUM)
                                             .text_color(rgb(t.text_primary))
-                                            .child(filename),
+                                            .child(if dirty {
+                                                format!("{} *", filename)
+                                            } else {
+                                                filename.clone()
+                                            }),
                                     )
                                     .child(
                                         div()
@@ -1139,6 +1289,18 @@ impl Render for FileViewer {
                             ),
                     )
                     .into_any_element()
+            })
+            .when_some(save_error, |d, err| {
+                d.child(
+                    div()
+                        .flex_shrink_0()
+                        .px(px(10.0))
+                        .py(px(5.0))
+                        .bg(rgb(t.error))
+                        .text_color(rgb(t.bg_primary))
+                        .text_size(ui_text_sm(cx))
+                        .child(err),
+                )
             })
             // Main content area: sidebar + (tab bar + content)
             .child(

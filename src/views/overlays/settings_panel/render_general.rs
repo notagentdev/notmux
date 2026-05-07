@@ -24,6 +24,10 @@ impl SettingsPanel {
                 |state, val, cx| state.set_color_tinted_background(val, cx), cx,
             ))
             .child(self.render_toggle(
+                "monochrome-icons", "Monochrome Icons", s.monochrome_icons, true,
+                |state, val, cx| state.set_monochrome_icons(val, cx), cx,
+            ))
+            .child(self.render_toggle(
                 "show-all-projects-on-projects-click",
                 "Show All Projects on Projects Click",
                 s.show_all_projects_on_projects_click,

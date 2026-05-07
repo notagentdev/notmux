@@ -13,6 +13,9 @@ pub trait ProjectFs: Send + Sync + 'static {
     /// Read file content as UTF-8 string.
     fn read_file(&self, relative_path: &str) -> Result<String, String>;
 
+    /// Write UTF-8 file content.
+    fn write_file(&self, relative_path: &str, content: &str) -> Result<(), String>;
+
     /// Get file size in bytes.
     fn file_size(&self, relative_path: &str) -> Result<u64, String>;
 
@@ -51,6 +54,11 @@ impl ProjectFs for LocalProjectFs {
     fn read_file(&self, relative_path: &str) -> Result<String, String> {
         let full = self.path.join(relative_path);
         std::fs::read_to_string(&full).map_err(|e| format!("Cannot read file: {}", e))
+    }
+
+    fn write_file(&self, relative_path: &str, content: &str) -> Result<(), String> {
+        let full = self.path.join(relative_path);
+        std::fs::write(&full, content).map_err(|e| format!("Cannot write file: {}", e))
     }
 
     fn file_size(&self, relative_path: &str) -> Result<u64, String> {
@@ -145,6 +153,10 @@ impl ProjectFs for RemoteProjectFs {
                 .ok_or_else(|| "Missing content in response".to_string()),
             None => Err("Empty response".to_string()),
         }
+    }
+
+    fn write_file(&self, _relative_path: &str, _content: &str) -> Result<(), String> {
+        Err("Saving remote files is not supported yet".to_string())
     }
 
     fn file_size(&self, relative_path: &str) -> Result<u64, String> {

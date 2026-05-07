@@ -4,11 +4,14 @@
 //! Markdown files can be viewed in rendered preview mode.
 
 mod context_menu;
+mod buffer;
+mod editing;
 mod loading;
 mod render;
 mod search;
 mod selection;
 
+use buffer::{Cursor, EditorBuffer};
 use crate::code_view::ScrollbarDrag;
 use crate::file_search::FileEntry;
 use crate::file_tree::{FileTreeNode, build_file_tree};
@@ -59,7 +62,8 @@ const SIDEBAR_WIDTH: f32 = 240.0;
 /// Per-file state for a single tab in the file viewer.
 pub(super) struct FileViewerTab {
     pub file_path: PathBuf,
-    pub content: String,
+    pub buffer: EditorBuffer,
+    pub cursor: Cursor,
     pub highlighted_lines: Vec<HighlightedLine>,
     pub line_count: usize,
     pub line_num_width: usize,
@@ -76,6 +80,7 @@ pub(super) struct FileViewerTab {
     pub selected_file_index: Option<usize>,
     /// Last known modification time of the file (for detecting external changes).
     pub modified_at: Option<SystemTime>,
+    pub save_error: Option<String>,
     /// Whether the tab content is still being loaded asynchronously.
     pub loading: bool,
 }
@@ -85,7 +90,8 @@ impl FileViewerTab {
     pub(super) fn new_empty() -> Self {
         Self {
             file_path: PathBuf::new(),
-            content: String::new(),
+            buffer: EditorBuffer::empty(),
+            cursor: Cursor::default(),
             highlighted_lines: Vec::new(),
             line_count: 0,
             line_num_width: 3,
@@ -101,6 +107,7 @@ impl FileViewerTab {
             selection_autoscroll: None,
             selected_file_index: None,
             modified_at: None,
+            save_error: None,
             loading: false,
         }
     }
@@ -110,7 +117,8 @@ impl FileViewerTab {
         let is_markdown = Self::is_markdown_file(&file_path);
         Self {
             file_path,
-            content: String::new(),
+            buffer: EditorBuffer::empty(),
+            cursor: Cursor::default(),
             highlighted_lines: Vec::new(),
             line_count: 0,
             line_num_width: 3,
@@ -130,6 +138,7 @@ impl FileViewerTab {
             selection_autoscroll: None,
             selected_file_index: file_index,
             modified_at: None,
+            save_error: None,
             loading: true,
         }
     }
@@ -240,6 +249,7 @@ pub struct FileViewer {
     sidebar_visible: bool,
     /// Whether this viewer is embedded into the main app content area.
     embedded: bool,
+    monochrome_icons: bool,
     /// Open tabs
     pub(super) tabs: Vec<FileViewerTab>,
     /// Index of the active tab
@@ -277,6 +287,7 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -368,6 +379,7 @@ impl FileViewer {
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
             embedded: false,
+            monochrome_icons,
             tabs: vec![tab],
             active_tab: 0,
             history: NavigationHistory::new(),
@@ -392,6 +404,7 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -431,6 +444,7 @@ impl FileViewer {
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
             embedded: false,
+            monochrome_icons,
             tabs: vec![FileViewerTab::new_empty()],
             active_tab: 0,
             history: NavigationHistory::new(),
@@ -457,9 +471,10 @@ impl FileViewer {
         project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
         font_size: f32,
         is_dark: bool,
+        monochrome_icons: bool,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut viewer = Self::new(file_path, project_fs, font_size, is_dark, cx);
+        let mut viewer = Self::new(file_path, project_fs, font_size, is_dark, monochrome_icons, cx);
         viewer.sidebar_visible = false;
         viewer.embedded = true;
         viewer
@@ -467,10 +482,17 @@ impl FileViewer {
 
     /// Update configuration (font size and dark mode) from the host app.
     /// Also refreshes the file tree and all tabs that were modified externally.
-    pub fn update_config(&mut self, font_size: f32, is_dark: bool, cx: &mut Context<Self>) {
+    pub fn update_config(
+        &mut self,
+        font_size: f32,
+        is_dark: bool,
+        monochrome_icons: bool,
+        cx: &mut Context<Self>,
+    ) {
         let rehighlight = is_dark != self.is_dark;
         self.file_font_size = font_size;
         self.is_dark = is_dark;
+        self.monochrome_icons = monochrome_icons;
 
         // Rescan project files so the sidebar reflects added/removed files
         self.refresh_file_tree_async(cx);

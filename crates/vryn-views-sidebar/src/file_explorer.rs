@@ -14,7 +14,7 @@ use vryn_files::theme::theme;
 use vryn_git::{FileStatus, WorkingFile, WorkingTreeStatus};
 use vryn_ui::simple_input::{SimpleInput, SimpleInputState};
 use vryn_ui::tokens::ui_text_md;
-use vryn_ui::vscode_icon::vscode_file_icon_sized;
+use vryn_ui::vscode_icon::vscode_file_icon_sized_with_options;
 use vryn_workspace::request_broker::RequestBroker;
 use vryn_workspace::requests::{ExplorerKind, OverlayRequest};
 
@@ -55,6 +55,7 @@ pub struct FileExplorer {
     scroll_handle: ScrollHandle,
 
     active_input: Option<ActiveInput>,
+    monochrome_icons: bool,
 
     /// Path of the row whose context menu is currently open. The row gets a
     /// persistent highlight so the user sees which entry they're operating
@@ -83,6 +84,7 @@ impl FileExplorer {
             conflict_relpaths: HashSet::new(),
             scroll_handle: ScrollHandle::new(),
             active_input: None,
+            monochrome_icons: false,
             context_menu_target: None,
         };
         this.load_directory(project_path, cx);
@@ -96,6 +98,14 @@ impl FileExplorer {
 
     pub fn project_path(&self) -> &Path {
         &self.project_path
+    }
+
+    pub fn set_monochrome_icons(&mut self, monochrome_icons: bool, cx: &mut Context<Self>) {
+        if self.monochrome_icons == monochrome_icons {
+            return;
+        }
+        self.monochrome_icons = monochrome_icons;
+        cx.notify();
     }
 
     /// Reload the root directory listing and refresh git status.
@@ -746,7 +756,14 @@ impl FileExplorer {
                     )
                     .into_any_element()
             } else {
-                vscode_file_icon_sized(&entry.name, px(18.0), t, cx).into_any_element()
+                vscode_file_icon_sized_with_options(
+                    &entry.name,
+                    px(18.0),
+                    t,
+                    self.monochrome_icons,
+                    cx,
+                )
+                .into_any_element()
             })
             .child(name_element)
             .child(

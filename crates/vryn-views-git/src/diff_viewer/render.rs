@@ -1027,7 +1027,8 @@ impl DiffViewer {
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        use vryn_files::file_tree::{expandable_file_row, expandable_folder_row};
+        use crate::settings::git_settings;
+        use vryn_files::file_tree::{expandable_file_row_with_options, expandable_folder_row};
 
         let mut elements: Vec<AnyElement> = Vec::new();
 
@@ -1068,7 +1069,15 @@ impl DiffViewer {
                 };
 
                 elements.push(
-                    expandable_file_row(filename, depth, name_color, false, t, cx)
+                    expandable_file_row_with_options(
+                        filename,
+                        depth,
+                        name_color,
+                        false,
+                        git_settings(cx).monochrome_icons,
+                        t,
+                        cx,
+                    )
                         .id(ElementId::Name(format!("tree-file-{}", file_index).into()))
                         .when(is_selected, |d| d.bg(rgb(t.bg_selection)))
                         .on_click(cx.listener(move |this, _, _window, cx| {

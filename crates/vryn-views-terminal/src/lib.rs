@@ -57,6 +57,8 @@ pub struct TerminalViewSettings {
     pub show_shell_selector: bool,
     pub idle_timeout_secs: u32,
     pub color_tinted_background: bool,
+    #[serde(default)]
+    pub monochrome_icons: bool,
     pub file_opener: String,
     pub default_shell: vryn_terminal::shell_config::ShellType,
     pub hooks: vryn_workspace::settings::HooksConfig,
@@ -95,6 +97,7 @@ pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
             show_shell_selector: false,
             idle_timeout_secs: 0,
             color_tinted_background: false,
+            monochrome_icons: false,
             file_opener: String::new(),
             default_shell: vryn_terminal::shell_config::ShellType::Default,
             hooks: Default::default(),

@@ -404,6 +404,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let workspace_reader = self.workspace.read(cx);
         let project = workspace_reader.project(&self.project_id);
         let project_for_names = project.cloned();
+        let monochrome_icons = terminal_view_settings(cx).monochrome_icons;
 
         let is_pane_focused = workspace_reader
             .focus_manager
@@ -537,7 +538,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 ))
                                 .into_any_element()
                         } else {
-                            let icon_color = if is_hook {
+                            let icon_color = if monochrome_icons {
+                                rgb(if is_active { t.text_primary } else { t.text_muted })
+                            } else if is_hook {
                                 rgb(t.term_yellow)
                             } else if is_waiting {
                                 rgb(t.border_idle)

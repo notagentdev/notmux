@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use gpui::prelude::*;
 use gpui::*;
 use vryn_core::theme::ThemeColors;
-use vryn_ui::file_icon::file_icon;
 use vryn_ui::tokens::ui_text;
+use vryn_ui::vscode_icon::vscode_file_icon_sized_with_options;
 
 /// A node in the file tree.
 #[derive(Default, Clone)]
@@ -106,6 +106,18 @@ pub fn expandable_file_row(
     t: &ThemeColors,
     cx: &App,
 ) -> Div {
+    expandable_file_row_with_options(filename, depth, name_color, is_open, false, t, cx)
+}
+
+pub fn expandable_file_row_with_options(
+    filename: &str,
+    depth: usize,
+    name_color: Option<u32>,
+    is_open: bool,
+    monochrome_icons: bool,
+    t: &ThemeColors,
+    cx: &App,
+) -> Div {
     let indent = depth as f32 * 14.0;
     div()
         .relative()
@@ -131,7 +143,11 @@ pub fn expandable_file_row(
             )
         })
         // File icon
-        .child(file_icon(filename, t, cx).mr(px(4.0)).flex_shrink_0())
+        .child(
+            vscode_file_icon_sized_with_options(filename, px(16.0), t, monochrome_icons, cx)
+                .mr(px(4.0))
+                .flex_shrink_0(),
+        )
         // Filename
         .child(
             div()

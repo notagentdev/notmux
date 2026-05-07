@@ -210,6 +210,7 @@ impl RootView {
                         hooks: app_settings.hooks.clone(),
                         show_all_projects_on_projects_click: app_settings
                             .show_all_projects_on_projects_click,
+                        monochrome_icons: app_settings.monochrome_icons,
                     }
                 }));
             });

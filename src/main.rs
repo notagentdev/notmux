@@ -460,6 +460,7 @@ fn main() {
                             show_shell_selector: s.settings.show_shell_selector,
                             idle_timeout_secs: s.settings.idle_timeout_secs,
                             color_tinted_background: s.settings.color_tinted_background,
+                            monochrome_icons: s.settings.monochrome_icons,
                             file_opener: s.settings.file_opener.clone(),
                             default_shell: s.settings.default_shell.clone(),
                             hooks: s.settings.hooks.clone(),
@@ -477,6 +478,7 @@ fn main() {
                             diff_ignore_whitespace: s.settings.diff_ignore_whitespace,
                             diff_font_size: s.settings.diff_font_size,
                             file_font_size: s.settings.file_font_size,
+                            monochrome_icons: s.settings.monochrome_icons,
                             is_dark,
                         }).ok()
                     }
@@ -499,6 +501,7 @@ fn main() {
                                 state.settings.show_shell_selector = tvs.show_shell_selector;
                                 state.settings.idle_timeout_secs = tvs.idle_timeout_secs;
                                 state.settings.color_tinted_background = tvs.color_tinted_background;
+                                state.settings.monochrome_icons = tvs.monochrome_icons;
                                 state.settings.file_opener = tvs.file_opener;
                                 state.settings.default_shell = tvs.default_shell;
                                 state.settings.hooks = tvs.hooks;
@@ -520,6 +523,7 @@ fn main() {
                                 state.settings.diff_ignore_whitespace = gs.diff_ignore_whitespace;
                                 state.settings.diff_font_size = gs.diff_font_size;
                                 state.settings.file_font_size = gs.file_font_size;
+                                state.settings.monochrome_icons = gs.monochrome_icons;
                                 state.save_and_notify(cx);
                             });
                         }

@@ -18,6 +18,8 @@ pub struct GitViewSettings {
     pub diff_font_size: f32,
     #[serde(default = "default_file_font_size")]
     pub file_font_size: f32,
+    #[serde(default)]
+    pub monochrome_icons: bool,
     pub is_dark: bool,
 }
 
@@ -36,6 +38,7 @@ impl Default for GitViewSettings {
             diff_ignore_whitespace: false,
             diff_font_size: default_diff_font_size(),
             file_font_size: default_file_font_size(),
+            monochrome_icons: false,
             is_dark: true,
         }
     }

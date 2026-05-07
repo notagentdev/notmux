@@ -5,7 +5,7 @@
 
 use vryn_core::theme::ThemeColors;
 use vryn_files::file_tree::{
-    FileTreeNode, build_file_tree, expandable_file_row, expandable_folder_row,
+    FileTreeNode, build_file_tree, expandable_file_row_with_options, expandable_folder_row,
 };
 use vryn_git::{CiStatus, CommitLogEntry, FileDiffSummary, GitStatus, GraphRow, PrState};
 
@@ -15,6 +15,8 @@ use gpui_component::h_flex;
 use gpui_component::tooltip::Tooltip;
 use std::sync::Arc;
 use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
+
+use crate::settings::git_settings;
 
 // ── Theme-dependent color traits ────────────────────────────────────────────
 
@@ -634,7 +636,15 @@ fn render_diff_tree_node(
             let file_path = summary.path.clone();
             let cb = on_file_click.clone();
             elements.push(
-                expandable_file_row(filename, depth, name_color, false, t, cx)
+                expandable_file_row_with_options(
+                    filename,
+                    depth,
+                    name_color,
+                    false,
+                    git_settings(cx).monochrome_icons,
+                    t,
+                    cx,
+                )
                     .id(ElementId::Name(format!("diff-file-{}", file_index).into()))
                     .on_click(move |_, window, cx| {
                         cb(&file_path, window, cx);

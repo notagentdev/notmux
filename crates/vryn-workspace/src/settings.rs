@@ -362,6 +362,9 @@ pub struct AppSettings {
     /// Tint project backgrounds with the folder color
     #[serde(default)]
     pub color_tinted_background: bool,
+    /// Render file and tab icons with the theme foreground color instead of type colors.
+    #[serde(default)]
+    pub monochrome_icons: bool,
     /// Clicking the Projects label exits single-project view and shows all projects.
     #[serde(default)]
     pub show_all_projects_on_projects_click: bool,
@@ -506,6 +509,7 @@ impl Default for AppSettings {
             file_explorer: FileExplorerSettings::default(),
             show_focused_border: default_show_focused_border(),
             color_tinted_background: false,
+            monochrome_icons: false,
             show_all_projects_on_projects_click: false,
             font_size: default_font_size(),
             font_family: default_font_family(),
@@ -737,6 +741,9 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     }
     if let Some(v) = obj.get("color_tinted_background").and_then(|v| v.as_bool()) {
         settings.color_tinted_background = v;
+    }
+    if let Some(v) = obj.get("monochrome_icons").and_then(|v| v.as_bool()) {
+        settings.monochrome_icons = v;
     }
     if let Some(v) = obj
         .get("show_all_projects_on_projects_click")

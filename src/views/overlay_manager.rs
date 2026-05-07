@@ -1855,21 +1855,23 @@ impl OverlayManager {
         fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
-        let font_size = crate::settings::settings_entity(cx)
-            .read(cx)
-            .settings
-            .file_font_size;
+        let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
+        let font_size = settings.file_font_size;
+        let monochrome_icons = settings.monochrome_icons;
         let is_dark = crate::theme::theme(cx).is_dark();
         let cache_key = fs.project_id();
 
         // Reuse cached viewer if available
         if let Some(viewer) = self.cached_file_viewers.get(&cache_key) {
-            viewer.update(cx, |v, cx| v.update_config(font_size, is_dark, cx));
+            viewer.update(cx, |v, cx| {
+                v.update_config(font_size, is_dark, monochrome_icons, cx)
+            });
             self.open_modal(viewer.clone(), cx);
             return;
         }
 
-        let viewer = cx.new(|cx| FileViewer::new_browse(fs, font_size, is_dark, cx));
+        let viewer =
+            cx.new(|cx| FileViewer::new_browse(fs, font_size, is_dark, monochrome_icons, cx));
 
         cx.subscribe(&viewer, move |this, _, event: &FileViewerEvent, cx| {
             match event {
@@ -1893,25 +1895,32 @@ impl OverlayManager {
         fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
-        let font_size = crate::settings::settings_entity(cx)
-            .read(cx)
-            .settings
-            .file_font_size;
+        let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
+        let font_size = settings.file_font_size;
+        let monochrome_icons = settings.monochrome_icons;
         let is_dark = crate::theme::theme(cx).is_dark();
         let cache_key = fs.project_id();
 
         // Reuse cached viewer if available
         if let Some(viewer) = self.cached_file_viewers.get(&cache_key) {
             viewer.update(cx, |v, cx| {
-                v.update_config(font_size, is_dark, cx);
+                v.update_config(font_size, is_dark, monochrome_icons, cx);
                 v.open_file_in_tab(PathBuf::from(&relative_path), cx);
             });
             self.open_modal(viewer.clone(), cx);
             return;
         }
 
-        let viewer =
-            cx.new(|cx| FileViewer::new(PathBuf::from(&relative_path), fs, font_size, is_dark, cx));
+        let viewer = cx.new(|cx| {
+            FileViewer::new(
+                PathBuf::from(&relative_path),
+                fs,
+                font_size,
+                is_dark,
+                monochrome_icons,
+                cx,
+            )
+        });
 
         cx.subscribe(&viewer, |this, _, event: &FileViewerEvent, cx| {
             match event {

@@ -49,6 +49,7 @@ mod tests {
                                 show_shell_selector: s.settings.show_shell_selector,
                                 idle_timeout_secs: s.settings.idle_timeout_secs,
                                 color_tinted_background: s.settings.color_tinted_background,
+                                monochrome_icons: s.settings.monochrome_icons,
                                 file_opener: s.settings.file_opener.clone(),
                                 default_shell: s.settings.default_shell.clone(),
                                 hooks: s.settings.hooks.clone(),
@@ -68,6 +69,7 @@ mod tests {
                             diff_ignore_whitespace: s.settings.diff_ignore_whitespace,
                             diff_font_size: s.settings.diff_font_size,
                             file_font_size: s.settings.file_font_size,
+                            monochrome_icons: s.settings.monochrome_icons,
                             is_dark: true,
                         })
                         .ok(),

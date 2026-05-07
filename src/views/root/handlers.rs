@@ -1122,10 +1122,9 @@ impl RootView {
         self.overlay_manager
             .update(cx, |om, cx| om.close_settings_panel(cx));
 
-        let font_size = crate::settings::settings_entity(cx)
-            .read(cx)
-            .settings
-            .file_font_size;
+        let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
+        let font_size = settings.file_font_size;
+        let monochrome_icons = settings.monochrome_icons;
         let is_dark = crate::theme::theme(cx).is_dark();
 
         let viewer = cx.new(|cx| {
@@ -1134,6 +1133,7 @@ impl RootView {
                 fs,
                 font_size,
                 is_dark,
+                monochrome_icons,
                 cx,
             )
         });

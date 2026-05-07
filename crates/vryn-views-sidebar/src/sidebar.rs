@@ -53,6 +53,7 @@ pub struct SidebarSettings {
     pub worktree_path_template: String,
     pub hooks: vryn_workspace::settings::HooksConfig,
     pub show_all_projects_on_projects_click: bool,
+    pub monochrome_icons: bool,
 }
 
 /// Snapshot of a remote connection for rendering.
@@ -1553,6 +1554,12 @@ impl Sidebar {
     fn render_view_switcher(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_files = self.view == SidebarView::Files;
+        let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
+        let tab_icon_color = if monochrome_icons {
+            t.text_primary
+        } else {
+            0xffffff
+        };
 
         h_flex()
             .h(px(34.0))
@@ -1579,7 +1586,7 @@ impl Sidebar {
                         svg()
                             .path("icons/terminal.svg")
                             .size(px(14.0))
-                            .text_color(rgb(0xffffff)),
+                            .text_color(rgb(tab_icon_color)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.set_view(SidebarView::Projects, cx);
@@ -1602,7 +1609,7 @@ impl Sidebar {
                         svg()
                             .path("icons/folder.svg")
                             .size(px(14.0))
-                            .text_color(rgb(0xffffff)),
+                            .text_color(rgb(tab_icon_color)),
                     )
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.set_view(SidebarView::Files, cx);
@@ -2575,6 +2582,8 @@ impl Sidebar {
                 .child("File tree not available for remote projects")
                 .into_any_element();
         };
+        let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
+        fe.update(cx, |fe, cx| fe.set_monochrome_icons(monochrome_icons, cx));
 
         div()
             .flex_1()

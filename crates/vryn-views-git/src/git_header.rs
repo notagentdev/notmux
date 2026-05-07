@@ -14,6 +14,7 @@ use vryn_workspace::state::Workspace;
 
 use crate::diff_viewer::provider::GitProvider;
 use crate::project_header;
+use crate::settings::git_settings;
 
 use gpui::prelude::*;
 use gpui::*;
@@ -24,7 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use vryn_core::theme::ThemeColors;
 use vryn_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
-use vryn_ui::vscode_icon::vscode_file_icon;
+use vryn_ui::vscode_icon::vscode_file_icon_with_options;
 
 /// Delay before showing diff summary popover (ms)
 const HOVER_DELAY_MS: u64 = 400;
@@ -1285,7 +1286,12 @@ impl GitHeader {
                 }
             })
             // VSCode-icons file-type icon (real shape, language-tinted).
-            .child(vscode_file_icon(&file_name, t, cx))
+            .child(vscode_file_icon_with_options(
+                &file_name,
+                t,
+                git_settings(cx).monochrome_icons,
+                cx,
+            ))
             // Filename (status color) + parent dir (muted) — Zed pattern:
             // `min_w_0` lets the flex item shrink below content size,
             // `flex_1` makes it grow to consume the available space so the

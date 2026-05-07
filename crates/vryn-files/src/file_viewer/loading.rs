@@ -41,11 +41,12 @@ impl FileViewerTab {
         // Read file content
         match std::fs::read_to_string(path) {
             Ok(content) => {
-                self.content = content;
+                self.buffer.set_text(content, self.modified_at);
+                self.cursor = self.buffer.clamp_cursor(self.cursor);
                 self.do_highlight_content(path, syntax_set, is_dark);
                 // Parse markdown if this is a markdown file
                 if self.is_markdown {
-                    self.markdown_doc = Some(MarkdownDocument::parse(&self.content));
+                    self.markdown_doc = Some(MarkdownDocument::parse(self.buffer.text()));
                 }
             }
             Err(e) => {
@@ -76,15 +77,17 @@ impl FileViewerTab {
         self.loading = false;
         match result {
             Ok(content) => {
-                self.content = content;
+                self.buffer.set_text(content, None);
+                self.cursor = self.buffer.clamp_cursor(self.cursor);
                 self.do_highlight_content(&self.file_path.clone(), syntax_set, is_dark);
                 if self.is_markdown {
-                    self.markdown_doc = Some(MarkdownDocument::parse(&self.content));
+                    self.markdown_doc = Some(MarkdownDocument::parse(self.buffer.text()));
                 }
                 // Try to get mtime for local files; harmlessly fails for remote files.
                 self.modified_at = std::fs::metadata(&self.file_path)
                     .ok()
                     .and_then(|m| m.modified().ok());
+                self.buffer.mark_saved(self.modified_at);
             }
             Err(e) => {
                 self.error_message = Some(e);
@@ -95,6 +98,9 @@ impl FileViewerTab {
     /// Check if the file was modified externally and reload if so.
     /// Returns true if the file was reloaded.
     pub(super) fn reload_if_changed(&mut self, syntax_set: &SyntaxSet, is_dark: bool) -> bool {
+        if self.buffer.is_dirty() {
+            return false;
+        }
         let Some(old_mtime) = self.modified_at else {
             return false;
         };
@@ -121,7 +127,7 @@ impl FileViewerTab {
         is_dark: bool,
     ) {
         self.highlighted_lines =
-            highlight_content(&self.content, path, syntax_set, MAX_LINES, is_dark);
+            highlight_content(self.buffer.text(), path, syntax_set, MAX_LINES, is_dark);
         self.line_count = self.highlighted_lines.len();
         self.line_num_width = self.line_count.to_string().len().max(3);
     }

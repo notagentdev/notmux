@@ -105,6 +105,7 @@ impl SettingsState {
     );
     setting_setter!(set_show_focused_border, show_focused_border, bool);
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
+    setting_setter!(set_monochrome_icons, monochrome_icons, bool);
     setting_setter!(
         set_show_all_projects_on_projects_click,
         show_all_projects_on_projects_click,

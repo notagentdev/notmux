@@ -16,13 +16,35 @@ pub fn vscode_file_icon(filename: &str, t: &ThemeColors, cx: &App) -> Div {
     vscode_file_icon_sized(filename, px(16.0), t, cx)
 }
 
+/// Render a 16×16 file-type icon, optionally using a monochrome theme color.
+pub fn vscode_file_icon_with_options(
+    filename: &str,
+    t: &ThemeColors,
+    monochrome: bool,
+    cx: &App,
+) -> Div {
+    vscode_file_icon_sized_with_options(filename, px(16.0), t, monochrome, cx)
+}
+
 /// Render a file-type icon at the given size.
 ///
 /// The returned div is `size × size` and `flex_shrink_0` so it sits cleanly
 /// in flex rows. Unknown extensions fall back to `default.svg` tinted with
 /// the theme's muted text color.
 pub fn vscode_file_icon_sized(filename: &str, size: Pixels, t: &ThemeColors, _cx: &App) -> Div {
+    vscode_file_icon_sized_with_options(filename, size, t, false, _cx)
+}
+
+/// Render a file-type icon at the given size, optionally using a monochrome theme color.
+pub fn vscode_file_icon_sized_with_options(
+    filename: &str,
+    size: Pixels,
+    t: &ThemeColors,
+    monochrome: bool,
+    _cx: &App,
+) -> Div {
     let (icon, color) = icon_for(filename, t);
+    let color = if monochrome { t.text_primary } else { color };
     div()
         .size(size)
         .flex_shrink_0()
