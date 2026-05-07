@@ -203,10 +203,12 @@ impl NavigationHistory {
         Some(entry.file_path)
     }
 
+    #[cfg(test)]
     fn can_go_back(&self) -> bool {
         !self.back_stack.is_empty()
     }
 
+    #[cfg(test)]
     fn can_go_forward(&self) -> bool {
         !self.forward_stack.is_empty()
     }
@@ -236,6 +238,8 @@ pub struct FileViewer {
     tree_scroll_handle: ScrollHandle,
     /// Whether the sidebar is visible
     sidebar_visible: bool,
+    /// Whether this viewer is embedded into the main app content area.
+    embedded: bool,
     /// Open tabs
     pub(super) tabs: Vec<FileViewerTab>,
     /// Index of the active tab
@@ -363,6 +367,7 @@ impl FileViewer {
             expanded_folders,
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
+            embedded: false,
             tabs: vec![tab],
             active_tab: 0,
             history: NavigationHistory::new(),
@@ -425,6 +430,7 @@ impl FileViewer {
             expanded_folders: HashSet::new(),
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
+            embedded: false,
             tabs: vec![FileViewerTab::new_empty()],
             active_tab: 0,
             history: NavigationHistory::new(),
@@ -440,6 +446,23 @@ impl FileViewer {
             delete_confirm: None,
             search_state: None,
         }
+    }
+
+    /// Create a file viewer for the main content area.
+    ///
+    /// This reuses the normal file loading, highlighting, tabs, search, and
+    /// selection behavior, but omits the file-tree sidebar.
+    pub fn new_embedded(
+        file_path: PathBuf,
+        project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
+        font_size: f32,
+        is_dark: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut viewer = Self::new(file_path, project_fs, font_size, is_dark, cx);
+        viewer.sidebar_visible = false;
+        viewer.embedded = true;
+        viewer
     }
 
     /// Update configuration (font size and dark mode) from the host app.
