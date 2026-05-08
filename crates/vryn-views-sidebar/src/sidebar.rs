@@ -1764,14 +1764,12 @@ impl Sidebar {
             return div().into_any_element();
         };
 
-        let (case_sensitive, regex_mode, fuzzy_mode, searching, total_matches) = {
+        let (case_sensitive, regex_mode, fuzzy_mode) = {
             let panel = panel.read(cx);
             (
                 panel.is_case_sensitive(),
                 panel.is_regex_mode(),
                 panel.is_fuzzy_mode(),
-                panel.is_searching(),
-                panel.total_matches(),
             )
         };
 
@@ -1798,19 +1796,6 @@ impl Sidebar {
                 panel,
                 cx,
             ))
-            .child(
-                div()
-                    .ml(px(4.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(theme(cx).text_muted))
-                    .child(if searching {
-                        "Searching...".to_string()
-                    } else if total_matches > 0 {
-                        total_matches.to_string()
-                    } else {
-                        String::new()
-                    }),
-            )
             .into_any_element()
     }
 
