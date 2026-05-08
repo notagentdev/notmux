@@ -955,29 +955,13 @@ impl Render for RootView {
             }))
             // Handle show content search action
             .on_action(cx.listener({
-                let workspace = workspace.clone();
                 move |this, _: &ShowContentSearch, _window, cx| {
-                    let project_id = workspace
-                        .read(cx)
-                        .focus_manager
-                        .focused_terminal_state()
-                        .map(|f| f.project_id.clone())
-                        .or_else(|| {
-                            workspace
-                                .read(cx)
-                                .visible_projects()
-                                .first()
-                                .map(|p| p.id.clone())
-                        });
-
-                    if let Some(project_id) = project_id {
-                        this.request_broker.update(cx, |broker, cx| {
-                            broker.push_overlay_request(
-                                OverlayRequest::ContentSearch { project_id },
-                                cx,
-                            );
-                        });
+                    if !this.sidebar_ctrl.is_open() && !this.sidebar_ctrl.is_hover_shown() {
+                        this.toggle_sidebar(cx);
                     }
+                    this.sidebar.update(cx, |sidebar, cx| {
+                        sidebar.set_view(vryn_views_sidebar::sidebar::SidebarView::Search, cx);
+                    });
                 }
             }))
             // Handle show project switcher action

@@ -213,6 +213,18 @@ impl RootView {
                         monochrome_icons: app_settings.monochrome_icons,
                     }
                 }));
+
+                let workspace_for_fs = workspace.clone();
+                s.set_project_fs_builder(Box::new(move |project_id, cx| {
+                    let ws = workspace_for_fs.read(cx);
+                    let project = ws.project(project_id)?;
+                    if project.is_remote {
+                        return None;
+                    }
+                    Some(Arc::new(vryn_files::project_fs::LocalProjectFs::new(
+                        project.path.clone(),
+                    )))
+                }));
             });
         }
 
@@ -427,6 +439,8 @@ impl RootView {
             let rm_for_connections = manager.clone();
             let rm_for_send = manager.clone();
             let rm_for_folder = manager.clone();
+            let rm_for_fs = manager.clone();
+            let workspace_for_fs = self.workspace.clone();
             self.sidebar.update(cx, |sidebar, _cx| {
                 // Get remote connections callback
                 sidebar.set_remote_connections(Box::new(move |cx| {
@@ -467,6 +481,31 @@ impl RootView {
                                 .find(|f| f.project_ids.contains(&server_project_id))
                                 .map(|f| f.id.clone())
                         })
+                }));
+
+                sidebar.set_project_fs_builder(Box::new(move |project_id, cx| {
+                    let ws = workspace_for_fs.read(cx);
+                    let project = ws.project(project_id)?;
+                    if project.is_remote {
+                        let conn_id = project.connection_id.as_ref()?;
+                        let rm = rm_for_fs.read(cx);
+                        let connections = rm.connections();
+                        let (config, _, _) =
+                            connections.iter().find(|(c, _, _)| c.id == *conn_id)?;
+                        let token = config.saved_token.as_ref()?.clone();
+                        let actual_id = vryn_core::client::strip_prefix(project_id, conn_id);
+                        Some(Arc::new(vryn_files::project_fs::RemoteProjectFs::new(
+                            config.host.clone(),
+                            config.port,
+                            token,
+                            actual_id,
+                            project.name.clone(),
+                        )))
+                    } else {
+                        Some(Arc::new(vryn_files::project_fs::LocalProjectFs::new(
+                            project.path.clone(),
+                        )))
+                    }
                 }));
             });
 

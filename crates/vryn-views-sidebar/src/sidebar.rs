@@ -12,22 +12,25 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use vryn_core::api::ActionRequest;
 use vryn_core::client::{ConnectionStatus, RemoteConnectionConfig};
 use vryn_core::theme::FolderColor;
+use vryn_files::project_fs::{LocalProjectFs, ProjectFs};
 use vryn_services::manager::ServiceManager;
 use vryn_terminal::TerminalsRegistry;
 use vryn_ui::click_detector::ClickDetector;
 use vryn_ui::menu::{context_menu_panel, menu_item};
 use vryn_ui::rename_state::{RenameState, cancel_rename, finish_rename, start_rename_with_blur};
 use vryn_ui::theme::theme;
-use vryn_ui::tokens::{ui_text_ms, ui_text_xl};
+use vryn_ui::tokens::{ui_text_ms, ui_text_sm, ui_text_xl};
 use vryn_workspace::request_broker::RequestBroker;
 use vryn_workspace::requests::{OverlayRequest, SidebarRequest};
 use vryn_workspace::state::{FolderData, ProjectData, Workspace};
 
 use crate::drag::{FolderDrag, ProjectDrag};
 use crate::file_explorer::FileExplorer;
+use crate::search_panel::ContentSearchPanel;
 
 /// Which view the sidebar is showing. Toggled via a button in the
 /// sidebar header (same pattern as the git-panel's Commit/Changes/History
@@ -39,6 +42,8 @@ pub enum SidebarView {
     Projects,
     /// File-tree for the focused project.
     Files,
+    /// Find in files for the focused project.
+    Search,
 }
 
 /// Callback for dispatching actions for a given project.
@@ -73,6 +78,10 @@ pub type SendRemoteActionFn = Box<dyn Fn(&str, ActionRequest, &mut App)>;
 /// Callback to get the server folder ID for a remote folder reorder operation.
 /// Arguments: (conn_id, prefixed_project_id, cx) -> Option<folder_id>
 pub type GetRemoteFolderFn = Box<dyn Fn(&str, &str, &App) -> Option<String>>;
+
+/// Callback to build a project file-system provider for search/file operations.
+/// Arguments: (project_id, cx) -> ProjectFs provider
+pub type BuildProjectFsFn = Box<dyn Fn(&str, &App) -> Option<Arc<dyn ProjectFs>>>;
 
 /// Sub-category group kind within an expanded project.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -183,6 +192,8 @@ pub struct Sidebar {
     pub(crate) send_remote_action: Option<SendRemoteActionFn>,
     /// Callback to get remote folder ID for reordering
     pub(crate) get_remote_folder: Option<GetRemoteFolderFn>,
+    /// Callback to build project FS providers for search.
+    pub(crate) build_project_fs: Option<BuildProjectFsFn>,
     /// Which view is active (Projects / Files).
     pub(crate) view: SidebarView,
     /// Header add menu state for project/remote creation actions.
@@ -190,6 +201,8 @@ pub struct Sidebar {
     /// File-explorer sub-entities, keyed by project_id. Created lazily when
     /// the Files view first needs one.
     pub(crate) file_explorers: HashMap<String, Entity<FileExplorer>>,
+    /// Content-search sub-entities, keyed by project_id.
+    pub(crate) search_panels: HashMap<String, Entity<ContentSearchPanel>>,
 }
 
 impl Sidebar {
@@ -243,9 +256,11 @@ impl Sidebar {
             get_remote_connections: None,
             send_remote_action: None,
             get_remote_folder: None,
+            build_project_fs: None,
             view: SidebarView::default(),
             add_menu_open: false,
             file_explorers: HashMap::new(),
+            search_panels: HashMap::new(),
         }
     }
 
@@ -269,8 +284,13 @@ impl Sidebar {
         let next = match self.view {
             SidebarView::Projects => SidebarView::Files,
             SidebarView::Files => SidebarView::Projects,
+            SidebarView::Search => SidebarView::Projects,
         };
         self.set_view(next, cx);
+    }
+
+    pub fn set_project_fs_builder(&mut self, f: BuildProjectFsFn) {
+        self.build_project_fs = Some(f);
     }
 
     /// Ensure a FileExplorer entity exists for the given project. Returns
@@ -297,6 +317,34 @@ impl Sidebar {
         let pid = project_id.to_string();
         let entity = cx.new(|cx| FileExplorer::new(pid.clone(), path, broker, cx));
         self.file_explorers.insert(pid, entity.clone());
+        Some(entity)
+    }
+
+    pub(crate) fn ensure_search_panel(
+        &mut self,
+        project_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<ContentSearchPanel>> {
+        if let Some(existing) = self.search_panels.get(project_id).cloned() {
+            return Some(existing);
+        }
+
+        let project_fs = if let Some(ref build_project_fs) = self.build_project_fs {
+            build_project_fs(project_id, cx)?
+        } else {
+            let ws = self.workspace.read(cx);
+            let project = ws.project(project_id)?;
+            if project.is_remote {
+                return None;
+            }
+            Arc::new(LocalProjectFs::new(project.path.clone())) as Arc<dyn ProjectFs>
+        };
+
+        let pid = project_id.to_string();
+        let broker = self.request_broker.clone();
+        let entity = cx.new(|cx| ContentSearchPanel::new(pid.clone(), project_fs, broker, cx));
+        self.search_panels
+            .insert(project_id.to_string(), entity.clone());
         Some(entity)
     }
 
@@ -1560,10 +1608,11 @@ impl Sidebar {
     }
 
     /// Top header bar — only contains the buttons that switch between
-    /// the panel's sub-views (Projects / Files).
+    /// the panel's sub-views (Projects / Files / Search).
     fn render_view_switcher(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_files = self.view == SidebarView::Files;
+        let is_search = self.view == SidebarView::Search;
         let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
         let tab_icon_color = if monochrome_icons {
             t.text_primary
@@ -1591,7 +1640,9 @@ impl Sidebar {
                     .justify_center()
                     .rounded(px(4.0))
                     .hover(|s| s.bg(rgb(t.bg_hover)))
-                    .when(!is_files, |d| d.bg(rgb(t.bg_hover)))
+                    .when(self.view == SidebarView::Projects, |d| {
+                        d.bg(rgb(t.bg_hover))
+                    })
                     .child(
                         svg()
                             .path("icons/terminal.svg")
@@ -1625,14 +1676,155 @@ impl Sidebar {
                         this.set_view(SidebarView::Files, cx);
                     })),
             )
+            // View toggle: Search
+            .child(
+                div()
+                    .id("sidebar-view-search")
+                    .cursor_pointer()
+                    .w(px(28.0))
+                    .h(px(24.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .when(is_search, |d| d.bg(rgb(t.bg_hover)))
+                    .child(
+                        svg()
+                            .path("icons/search.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(tab_icon_color)),
+                    )
+                    .on_click(cx.listener(|this, _, _window, cx| {
+                        this.set_view(SidebarView::Search, cx);
+                    })),
+            )
     }
 
-    /// Section header below the switcher: "WORKSPACES" / "FILES" title on the
+    /// Section header below the switcher: "WORKSPACES" / "FILES" / "SEARCH"
     /// left, and the add menu action on the right (only for the Projects view).
-    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_search_header_toggle(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        active: bool,
+        panel: Entity<ContentSearchPanel>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let t = theme(cx);
+
+        div()
+            .id(ElementId::Name(format!("sidebar-search-toggle-{id}").into()))
+            .cursor_pointer()
+            .px(px(7.0))
+            .py(px(3.0))
+            .rounded(px(4.0))
+            .text_size(ui_text_sm(cx))
+            .font_weight(FontWeight::MEDIUM)
+            .when(active, |d| {
+                d.bg(rgb(t.border_active)).text_color(rgb(t.text_primary))
+            })
+            .when(!active, |d| {
+                d.bg(rgb(t.bg_secondary)).text_color(rgb(t.text_muted))
+            })
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |_this, _, _window, cx| {
+                    panel.update(cx, |panel, cx| match id {
+                        "case" => panel.toggle_case_sensitive(cx),
+                        "regex" => panel.toggle_regex_mode(cx),
+                        "fuzzy" => panel.toggle_fuzzy_mode(cx),
+                        _ => {}
+                    });
+                    cx.stop_propagation();
+                }),
+            )
+            .child(label)
+    }
+
+    fn render_search_header_actions(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let focused_pid: Option<String> = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager
+                .focused_project_id()
+                .cloned()
+                .or_else(|| {
+                    ws.focus_manager
+                        .focused_terminal_state()
+                        .map(|f| f.project_id.clone())
+                })
+                .or_else(|| ws.visible_projects().first().map(|p| p.id.clone()))
+        };
+
+        let Some(pid) = focused_pid else {
+            return div().into_any_element();
+        };
+        let Some(panel) = self.ensure_search_panel(&pid, cx) else {
+            return div().into_any_element();
+        };
+
+        let (case_sensitive, regex_mode, fuzzy_mode, searching, total_matches) = {
+            let panel = panel.read(cx);
+            (
+                panel.is_case_sensitive(),
+                panel.is_regex_mode(),
+                panel.is_fuzzy_mode(),
+                panel.is_searching(),
+                panel.total_matches(),
+            )
+        };
+
+        h_flex()
+            .gap(px(4.0))
+            .child(self.render_search_header_toggle(
+                "case",
+                "Aa",
+                case_sensitive,
+                panel.clone(),
+                cx,
+            ))
+            .child(self.render_search_header_toggle(
+                "regex",
+                ".*",
+                regex_mode,
+                panel.clone(),
+                cx,
+            ))
+            .child(self.render_search_header_toggle(
+                "fuzzy",
+                "~",
+                fuzzy_mode,
+                panel,
+                cx,
+            ))
+            .child(
+                div()
+                    .ml(px(4.0))
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(theme(cx).text_muted))
+                    .child(if searching {
+                        "Searching...".to_string()
+                    } else if total_matches > 0 {
+                        total_matches.to_string()
+                    } else {
+                        String::new()
+                    }),
+            )
+            .into_any_element()
+    }
+
+    fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_files = self.view == SidebarView::Files;
-        let title = if is_files { "FILES" } else { "WORKSPACES" };
+        let is_search = self.view == SidebarView::Search;
+        let title = if is_files {
+            "FILES"
+        } else if is_search {
+            "SEARCH"
+        } else {
+            "WORKSPACES"
+        };
 
         div()
             .h(px(35.0))
@@ -1653,7 +1845,10 @@ impl Sidebar {
             .child(
                 h_flex()
                     .gap(px(2.0))
-                    .when(!is_files, |d| {
+                    .when(self.view == SidebarView::Search, |d| {
+                        d.child(self.render_search_header_actions(cx))
+                    })
+                    .when(self.view == SidebarView::Projects, |d| {
                         d.child(
                             div()
                                 .id("sidebar-add-menu-btn")
@@ -2589,6 +2784,7 @@ impl Render for Sidebar {
                 .when(self.add_menu_open, |d| d.child(self.render_add_menu(cx)))
                 .into_any_element(),
             SidebarView::Files => root.child(self.render_files_view(cx)).into_any_element(),
+            SidebarView::Search => root.child(self.render_search_view(cx)).into_any_element(),
         }
     }
 }
@@ -2644,6 +2840,59 @@ impl Sidebar {
             .min_h_0()
             .w_full()
             .child(AnyView::from(fe))
+            .into_any_element()
+    }
+
+    fn render_search_view(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let focused_pid: Option<String> = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager
+                .focused_project_id()
+                .cloned()
+                .or_else(|| {
+                    ws.focus_manager
+                        .focused_terminal_state()
+                        .map(|f| f.project_id.clone())
+                })
+                .or_else(|| ws.visible_projects().first().map(|p| p.id.clone()))
+        };
+
+        let Some(pid) = focused_pid else {
+            return div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(t.text_muted))
+                .text_size(ui_text_ms(cx))
+                .child("No project")
+                .into_any_element();
+        };
+
+        let Some(panel) = self.ensure_search_panel(&pid, cx) else {
+            return div()
+                .flex_1()
+                .w_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(t.text_muted))
+                .text_size(ui_text_ms(cx))
+                .child("Search not available for this project")
+                .into_any_element();
+        };
+        let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
+        panel.update(cx, |panel, cx| {
+            panel.set_monochrome_icons(monochrome_icons, cx);
+        });
+
+        div()
+            .flex_1()
+            .min_h_0()
+            .size_full()
+            .child(AnyView::from(panel))
             .into_any_element()
     }
 }

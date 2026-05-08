@@ -10,6 +10,7 @@ pub mod item_widgets;
 pub mod project_list;
 pub mod remote_list;
 pub mod rename_directory_dialog;
+pub mod search_panel;
 pub mod service_list;
 pub mod sidebar;
 pub mod worktree_list;
@@ -19,7 +20,7 @@ pub use file_explorer::FileExplorer;
 pub use sidebar::Sidebar;
 
 // Re-export settings types
-pub use sidebar::{DispatchActionFn, GetSettingsFn, SidebarSettings};
+pub use sidebar::{BuildProjectFsFn, DispatchActionFn, GetSettingsFn, SidebarSettings};
 
 // Re-export remote manager callback types
 pub use sidebar::{
