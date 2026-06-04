@@ -10,7 +10,7 @@ part 'connection.freezed.dart';
 
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `fmt`, `from`
 
-/// Connect to an Vryn remote server. Returns a connection ID.
+/// Connect to an NotMux remote server. Returns a connection ID.
 /// If a saved token is provided, it will be used to skip pairing.
 String connect({required String host, required int port, String? savedToken}) =>
     RustLib.instance.api.crateApiConnectionConnect(

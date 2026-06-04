@@ -7,9 +7,9 @@ use gpui::*;
 use gpui_component::Root;
 use std::collections::HashSet;
 
-use super::Vryn;
+use super::NotMux;
 
-impl Vryn {
+impl NotMux {
     pub(super) fn handle_detached_terminals_changed(
         &mut self,
         workspace: Entity<Workspace>,

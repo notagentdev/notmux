@@ -25,7 +25,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::watch as tokio_watch;
-use vryn_core::api::ApiGitStatus;
+use notmux_core::api::ApiGitStatus;
 
 /// Set up an observer that loads/unloads service configs when projects change.
 /// Handles deferred worktrees by skipping projects whose directory doesn't exist yet.
@@ -89,7 +89,7 @@ fn sync_services(
 }
 
 /// Main application state and view
-pub struct Vryn {
+pub struct NotMux {
     root_view: Entity<RootView>,
     pub(crate) workspace: Entity<Workspace>,
     #[allow(dead_code)]
@@ -124,7 +124,7 @@ pub struct Vryn {
     service_manager: Entity<ServiceManager>,
 }
 
-impl Vryn {
+impl NotMux {
     pub fn new(
         workspace_data: WorkspaceData,
         pty_manager: Arc<PtyManager>,
@@ -415,8 +415,8 @@ impl Vryn {
         })
         .detach();
 
-        // Note: updater is now handled by the vryn-ext-updater extension.
-        // GlobalUpdateInfo is set in main.rs via vryn_ext_updater::init().
+        // Note: updater is now handled by the notmux-ext-updater extension.
+        // GlobalUpdateInfo is set in main.rs via notmux_ext_updater::init().
 
         manager
     }
@@ -441,7 +441,7 @@ impl Vryn {
                 let code = self.auth_store.get_or_create_code();
                 println!("Remote server listening on port {port}");
                 println!("Pairing code: {code} (expires in 60s)");
-                println!("Run `vryn pair` anytime for a fresh code.");
+                println!("Run `notmux pair` anytime for a fresh code.");
 
                 self.remote_server = Some(server);
             }
@@ -464,7 +464,7 @@ impl Vryn {
         let terminals = self.terminals.clone();
         let pty_manager = self.pty_manager.clone();
 
-        cx.spawn(async move |this: WeakEntity<Vryn>, cx| {
+        cx.spawn(async move |this: WeakEntity<NotMux>, cx| {
             loop {
                 let event = match pty_events.recv().await {
                     Ok(event) => event,
@@ -698,7 +698,7 @@ impl Vryn {
                     }
 
                     // Check if any hook terminal reported its exit code via
-                    // OSC title (__vryn_hook_exit:<code>). This happens when
+                    // OSC title (__notmux_hook_exit:<code>). This happens when
                     // keep_alive hooks finish their command but the PTY stays
                     // alive as an interactive shell.
                     if !dirty_terminal_ids.is_empty() {
@@ -714,7 +714,7 @@ impl Vryn {
                             }
                             if let Some(terminal) = terminals_guard.get(tid)
                                 && let Some(title) = terminal.title()
-                                && let Some(code_str) = title.strip_prefix("__vryn_hook_exit:")
+                                && let Some(code_str) = title.strip_prefix("__notmux_hook_exit:")
                             {
                                 let exit_code = code_str.parse::<i32>().unwrap_or(-1);
                                 let status = if exit_code == 0 {
@@ -940,7 +940,7 @@ impl Vryn {
     }
 }
 
-impl Render for Vryn {
+impl Render for NotMux {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(self.root_view.clone())
     }

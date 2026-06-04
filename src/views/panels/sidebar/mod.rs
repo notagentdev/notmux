@@ -1,1 +1,1 @@
-pub use vryn_views_sidebar::*;
+pub use notmux_views_sidebar::*;

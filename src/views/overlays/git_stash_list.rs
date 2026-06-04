@@ -12,9 +12,9 @@ use gpui::prelude::*;
 use gpui::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use vryn_core::theme::ThemeColors;
-use vryn_git::{StashEntry, format_relative_time};
-use vryn_views_git::diff_viewer::provider::GitProvider;
+use notmux_core::theme::ThemeColors;
+use notmux_git::{StashEntry, format_relative_time};
+use notmux_views_git::diff_viewer::provider::GitProvider;
 
 pub enum GitStashListEvent {
     /// Overlay was dismissed. Carries the project_id so the git header
@@ -22,7 +22,7 @@ pub enum GitStashListEvent {
     Close { project_id: String },
 }
 
-impl vryn_ui::overlay::CloseEvent for GitStashListEvent {
+impl notmux_ui::overlay::CloseEvent for GitStashListEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close { .. })
     }

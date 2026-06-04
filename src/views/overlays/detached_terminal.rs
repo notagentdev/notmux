@@ -1,1 +1,1 @@
-pub use vryn_views_terminal::overlays::detached_terminal::*;
+pub use notmux_views_terminal::overlays::detached_terminal::*;

@@ -1,40 +1,40 @@
 [workspace]
-members = [".", "mobile/native", "crates/vryn-core", "crates/vryn-git", "crates/vryn-views-git", "crates/vryn-views-services", "crates/vryn-views-sidebar", "crates/vryn-views-terminal", "crates/vryn-terminal", "crates/vryn-layout", "crates/vryn-state", "crates/vryn-hooks", "crates/vryn-workspace", "crates/vryn-ui", "crates/vryn-files", "crates/vryn-markdown", "crates/vryn-extensions", "crates/vryn-ext-claude", "crates/vryn-ext-codex", "crates/vryn-ext-updater", "crates/vryn-services", "crates/vryn-remote-client", "crates/vryn-views-remote", "crates/vryn-theme"]
+members = [".", "mobile/native", "crates/notmux-core", "crates/notmux-git", "crates/notmux-views-git", "crates/notmux-views-services", "crates/notmux-views-sidebar", "crates/notmux-views-terminal", "crates/notmux-terminal", "crates/notmux-layout", "crates/notmux-state", "crates/notmux-hooks", "crates/notmux-workspace", "crates/notmux-ui", "crates/notmux-files", "crates/notmux-markdown", "crates/notmux-extensions", "crates/notmux-ext-claude", "crates/notmux-ext-codex", "crates/notmux-ext-updater", "crates/notmux-services", "crates/notmux-remote-client", "crates/notmux-views-remote", "crates/notmux-theme"]
 resolver = "2"
 
 [package]
-name = "vryn-ws"
+name = "notmux"
 version = "0.20.0"
 edition = "2024"
 license = "MIT"
 
 [[bin]]
-name = "vrynws"
+name = "notmux"
 path = "src/main.rs"
 
 [dependencies]
 # Shared core types
-vryn-core = { path = "crates/vryn-core", features = ["client"] }
-vryn-git = { path = "crates/vryn-git" }
-vryn-views-git = { path = "crates/vryn-views-git" }
-vryn-views-terminal = { path = "crates/vryn-views-terminal" }
-vryn-terminal = { path = "crates/vryn-terminal" }
-vryn-services = { path = "crates/vryn-services" }
-vryn-views-services = { path = "crates/vryn-views-services" }
-vryn-views-sidebar = { path = "crates/vryn-views-sidebar" }
-vryn-remote-client = { path = "crates/vryn-remote-client" }
-vryn-views-remote = { path = "crates/vryn-views-remote" }
-vryn-workspace = { path = "crates/vryn-workspace" }
-vryn-ui = { path = "crates/vryn-ui" }
-vryn-theme = { path = "crates/vryn-theme" }
-vryn-files = { path = "crates/vryn-files" }
-vryn-markdown = { path = "crates/vryn-markdown" }
+notmux-core = { path = "crates/notmux-core", features = ["client"] }
+notmux-git = { path = "crates/notmux-git" }
+notmux-views-git = { path = "crates/notmux-views-git" }
+notmux-views-terminal = { path = "crates/notmux-views-terminal" }
+notmux-terminal = { path = "crates/notmux-terminal" }
+notmux-services = { path = "crates/notmux-services" }
+notmux-views-services = { path = "crates/notmux-views-services" }
+notmux-views-sidebar = { path = "crates/notmux-views-sidebar" }
+notmux-remote-client = { path = "crates/notmux-remote-client" }
+notmux-views-remote = { path = "crates/notmux-views-remote" }
+notmux-workspace = { path = "crates/notmux-workspace" }
+notmux-ui = { path = "crates/notmux-ui" }
+notmux-theme = { path = "crates/notmux-theme" }
+notmux-files = { path = "crates/notmux-files" }
+notmux-markdown = { path = "crates/notmux-markdown" }
 
 # Extension system
-vryn-extensions = { path = "crates/vryn-extensions" }
-vryn-ext-claude = { path = "crates/vryn-ext-claude" }
-vryn-ext-codex = { path = "crates/vryn-ext-codex" }
-vryn-ext-updater = { path = "crates/vryn-ext-updater" }
+notmux-extensions = { path = "crates/notmux-extensions" }
+notmux-ext-claude = { path = "crates/notmux-ext-claude" }
+notmux-ext-codex = { path = "crates/notmux-ext-codex" }
+notmux-ext-updater = { path = "crates/notmux-ext-updater" }
 
 # UI Framework (from Zed repo)
 gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }

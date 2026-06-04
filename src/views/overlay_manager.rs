@@ -54,13 +54,13 @@ use crate::workspace::requests::{
     ContextMenuRequest, FolderContextMenuRequest, OverlayRequest, SidebarRequest,
 };
 use crate::workspace::state::{Workspace, WorkspaceData};
-use vryn_core::client::RemoteConnectionConfig;
-use vryn_views_sidebar::{ColorPickerPopover, ColorPickerPopoverEvent, ColorPickerTarget};
-use vryn_views_sidebar::{WorktreeListPopover, WorktreeListPopoverEvent};
+use notmux_core::client::RemoteConnectionConfig;
+use notmux_views_sidebar::{ColorPickerPopover, ColorPickerPopoverEvent, ColorPickerTarget};
+use notmux_views_sidebar::{WorktreeListPopover, WorktreeListPopoverEvent};
 
-// Re-export generic overlay utilities from vryn-ui
-pub use vryn_ui::overlay::{CloseEvent, OverlaySlot};
-pub use vryn_ui::toggle_overlay;
+// Re-export generic overlay utilities from notmux-ui
+pub use notmux_ui::overlay::{CloseEvent, OverlaySlot};
+pub use notmux_ui::toggle_overlay;
 
 // CloseEvent impls for overlay events defined in src/ (local types)
 
@@ -161,10 +161,10 @@ pub enum OverlayManagerEvent {
     /// Color picker: project color was changed (for remote sync)
     ProjectColorChanged {
         project_id: String,
-        color: vryn_core::theme::FolderColor,
+        color: notmux_core::theme::FolderColor,
     },
 
-    /// Context menu: Reload services (vryn.yaml) for a project
+    /// Context menu: Reload services (notmux.yaml) for a project
     ReloadServices { project_id: String },
 
     /// Context menu: Focus parent project of a worktree
@@ -1362,7 +1362,7 @@ impl OverlayManager {
     #[allow(clippy::too_many_arguments)]
     pub fn show_explorer_context_menu(
         &mut self,
-        kind: vryn_workspace::requests::ExplorerKind,
+        kind: notmux_workspace::requests::ExplorerKind,
         path: std::path::PathBuf,
         parent_dir: std::path::PathBuf,
         has_clipboard: bool,
@@ -1416,13 +1416,13 @@ impl OverlayManager {
                     cx.emit(OverlayManagerEvent::ExplorerReveal { path: path.clone() });
                 }
                 ExplorerContextMenuEvent::Cut { path } => {
-                    let cb = cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>();
-                    cb.set(path.clone(), vryn_files::clipboard::ClipboardOp::Cut);
+                    let cb = cx.global_mut::<notmux_files::clipboard::ExplorerClipboard>();
+                    cb.set(path.clone(), notmux_files::clipboard::ClipboardOp::Cut);
                     this.hide_explorer_context_menu(cx);
                 }
                 ExplorerContextMenuEvent::Copy { path } => {
-                    let cb = cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>();
-                    cb.set(path.clone(), vryn_files::clipboard::ClipboardOp::Copy);
+                    let cb = cx.global_mut::<notmux_files::clipboard::ExplorerClipboard>();
+                    cb.set(path.clone(), notmux_files::clipboard::ClipboardOp::Copy);
                     this.hide_explorer_context_menu(cx);
                 }
                 ExplorerContextMenuEvent::Paste { target_dir } => {
@@ -1569,7 +1569,7 @@ impl OverlayManager {
     pub fn show_git_stash_list(
         &mut self,
         project_id: String,
-        provider: std::sync::Arc<dyn vryn_views_git::diff_viewer::provider::GitProvider>,
+        provider: std::sync::Arc<dyn notmux_views_git::diff_viewer::provider::GitProvider>,
         position: gpui::Point<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
@@ -1790,7 +1790,7 @@ impl OverlayManager {
     /// Toggle file search dialog for a project.
     pub fn toggle_file_search(
         &mut self,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         if self.is_modal::<FileSearchDialog>() {
@@ -1803,7 +1803,7 @@ impl OverlayManager {
     /// Show file search dialog for a project.
     pub fn show_file_search(
         &mut self,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         let fs_for_viewer = fs.clone();
@@ -1835,7 +1835,7 @@ impl OverlayManager {
     /// Toggle content search dialog for a project.
     pub fn toggle_content_search(
         &mut self,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         if self.is_modal::<ContentSearchDialog>() {
@@ -1848,7 +1848,7 @@ impl OverlayManager {
     /// Show content search dialog for a project.
     pub fn show_content_search(
         &mut self,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         let fs_for_viewer = fs.clone();
@@ -1880,7 +1880,7 @@ impl OverlayManager {
     /// Show file browser for a project (no pre-selected file).
     pub fn show_file_browser(
         &mut self,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
@@ -1929,7 +1929,7 @@ impl OverlayManager {
     pub fn show_file_viewer(
         &mut self,
         relative_path: String,
-        fs: std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>,
+        fs: std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>,
         cx: &mut Context<Self>,
     ) {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
@@ -1986,7 +1986,7 @@ impl OverlayManager {
         &mut self,
         provider: std::sync::Arc<dyn crate::views::overlays::diff_viewer::provider::GitProvider>,
         select_file: Option<String>,
-        mode: Option<vryn_core::types::DiffMode>,
+        mode: Option<notmux_core::types::DiffMode>,
         commit_message: Option<String>,
         commits: Option<Vec<crate::git::CommitLogEntry>>,
         commit_index: Option<usize>,

@@ -34,7 +34,7 @@ use gpui::prelude::*;
 use gpui::*;
 use std::collections::HashMap;
 use std::sync::Arc;
-use vryn_extensions::ExtensionRegistry;
+use notmux_extensions::ExtensionRegistry;
 
 // ============================================================================
 // Settings Panel
@@ -130,7 +130,7 @@ impl SettingsPanel {
         let hook_project_open = cx.new(|cx| {
             let state = SimpleInputState::new(cx)
                 .multiline()
-                .placeholder("e.g. echo \"opened $VRYN_PROJECT_NAME\"");
+                .placeholder("e.g. echo \"opened $NOTMUX_PROJECT_NAME\"");
             match s.hooks.project.on_open {
                 Some(ref v) => state.default_value(v.clone()),
                 None => state,
@@ -139,7 +139,7 @@ impl SettingsPanel {
         let hook_project_close = cx.new(|cx| {
             let state = SimpleInputState::new(cx)
                 .multiline()
-                .placeholder("e.g. echo \"closed $VRYN_PROJECT_NAME\"");
+                .placeholder("e.g. echo \"closed $NOTMUX_PROJECT_NAME\"");
             match s.hooks.project.on_close {
                 Some(ref v) => state.default_value(v.clone()),
                 None => state,

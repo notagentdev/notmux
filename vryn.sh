@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec /Users/dev/projects/vryn-cli-main/target/release/vryn "$@"
+exec /Users/dev/projects/notmux-cli-main/target/release/notmux "$@"

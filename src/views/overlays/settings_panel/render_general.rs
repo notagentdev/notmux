@@ -28,6 +28,14 @@ impl SettingsPanel {
                 |state, val, cx| state.set_monochrome_icons(val, cx), cx,
             ))
             .child(self.render_toggle(
+                "show-hidden-files",
+                "Show Hidden Files in Explorer",
+                s.file_explorer.show_hidden,
+                true,
+                |state, val, cx| state.set_file_explorer_show_hidden(val, cx),
+                cx,
+            ))
+            .child(self.render_toggle(
                 "show-all-projects-on-projects-click",
                 "Show All Projects on Projects Click",
                 s.show_all_projects_on_projects_click,

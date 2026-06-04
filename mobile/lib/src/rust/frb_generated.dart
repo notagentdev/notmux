@@ -72,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
-        stem: 'vryn_mobile_native',
+        stem: 'notmux_mobile_native',
         ioDirectory: 'native/target/release/',
         webPrefix: 'pkg/',
       );

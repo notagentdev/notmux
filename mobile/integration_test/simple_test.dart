@@ -7,8 +7,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async => await RustLib.init());
   testWidgets('App launches and shows server list', (WidgetTester tester) async {
-    await tester.pumpWidget(const VrynApp());
+    await tester.pumpWidget(const NotMuxApp());
     await tester.pumpAndSettle();
-    expect(find.text('Vryn'), findsWidgets);
+    expect(find.text('NotMux'), findsWidgets);
   });
 }

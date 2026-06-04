@@ -391,6 +391,15 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
+    /// Set the file explorer's "show hidden files" preference.
+    pub fn set_file_explorer_show_hidden(&mut self, value: bool, cx: &mut Context<Self>) {
+        if self.settings.file_explorer.show_hidden == value {
+            return;
+        }
+        self.settings.file_explorer.show_hidden = value;
+        self.save_and_notify(cx);
+    }
+
     /// Synchronously flush any pending settings save (called on quit)
     pub fn flush_pending_save(&self) {
         if self.save_pending.swap(false, Ordering::Relaxed)

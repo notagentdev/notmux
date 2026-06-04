@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# macOS App Bundle Script for Vryn
+# macOS App Bundle Script for NotMux
 # Usage: ./scripts/bundle-macos.sh [--target <target>] [--skip-build] [--dmg] [--pkg]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,9 +14,9 @@ TARGET=""
 SKIP_BUILD=false
 CREATE_DMG=false
 CREATE_PKG=false
-APP_NAME="Vryn-WS"
-BUNDLE_ID="dev.vryn.ws"
-BIN_NAME="vrynws"
+APP_NAME="NotMux"
+BUNDLE_ID="dev.notmux.app"
+BIN_NAME="notmux"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do

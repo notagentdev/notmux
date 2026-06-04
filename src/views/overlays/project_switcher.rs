@@ -17,8 +17,8 @@ use crate::workspace::state::{ProjectData, Workspace};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
-use vryn_ui::empty_state::empty_state;
-use vryn_ui::selectable_list::selectable_list_item;
+use notmux_ui::empty_state::empty_state;
+use notmux_ui::selectable_list::selectable_list_item;
 
 /// Events emitted by the ProjectSwitcher overlay.
 #[derive(Clone)]

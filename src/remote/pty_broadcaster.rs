@@ -1,5 +1,5 @@
 use tokio::sync::broadcast;
-use vryn_terminal::pty_manager::PtyOutputSink;
+use notmux_terminal::pty_manager::PtyOutputSink;
 
 /// A PTY broadcast event for WebSocket subscribers.
 #[derive(Clone, Debug)]

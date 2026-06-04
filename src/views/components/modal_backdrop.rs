@@ -1,3 +1,3 @@
-//! Modal backdrop component — re-exported from vryn-ui.
+//! Modal backdrop component — re-exported from notmux-ui.
 
-pub use vryn_ui::modal::{modal_backdrop, modal_content, modal_header};
+pub use notmux_ui::modal::{modal_backdrop, modal_content, modal_header};

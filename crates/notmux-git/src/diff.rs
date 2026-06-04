@@ -1,0 +1,947 @@
+//! Git diff parsing and execution.
+//!
+//! Provides structures and functions for parsing unified diff output
+//! and executing git diff commands.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
+
+use serde::{Deserialize, Serialize};
+use notmux_core::process::{command, safe_output};
+
+/// Type of a diff line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffLineType {
+    /// Context line (unchanged).
+    Context,
+    /// Added line.
+    Added,
+    /// Removed line.
+    Removed,
+    /// Hunk header line (@@).
+    Header,
+}
+
+/// A single line in a diff.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiffLine {
+    /// Type of this line.
+    pub line_type: DiffLineType,
+    /// Content of the line (without +/- prefix).
+    pub content: String,
+    /// Line number in the old file (None for added lines).
+    pub old_line_num: Option<usize>,
+    /// Line number in the new file (None for removed lines).
+    pub new_line_num: Option<usize>,
+}
+
+/// A hunk in a diff (section of changes).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DiffHunk {
+    /// The hunk header (e.g., "@@ -10,5 +10,7 @@ fn example()").
+    pub header: String,
+    /// Starting line number in old file.
+    pub old_start: usize,
+    /// Starting line number in new file.
+    pub new_start: usize,
+    /// Lines in this hunk.
+    pub lines: Vec<DiffLine>,
+}
+
+/// Diff for a single file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FileDiff {
+    /// Old file path (None for new files).
+    pub old_path: Option<String>,
+    /// New file path (None for deleted files).
+    pub new_path: Option<String>,
+    /// Hunks in this file.
+    pub hunks: Vec<DiffHunk>,
+    /// Whether this is a binary file.
+    pub is_binary: bool,
+    /// Number of lines added.
+    pub lines_added: usize,
+    /// Number of lines removed.
+    pub lines_removed: usize,
+}
+
+impl FileDiff {
+    /// Get the display name for this file.
+    pub fn display_name(&self) -> &str {
+        self.new_path
+            .as_deref()
+            .or(self.old_path.as_deref())
+            .unwrap_or("unknown")
+    }
+}
+
+pub use notmux_core::types::DiffMode;
+
+/// Result of a diff operation.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DiffResult {
+    /// Files with changes.
+    pub files: Vec<FileDiff>,
+}
+
+impl DiffResult {
+    /// Check if the diff is empty.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// Get total lines added across all files.
+    #[allow(dead_code)]
+    pub fn total_added(&self) -> usize {
+        self.files.iter().map(|f| f.lines_added).sum()
+    }
+
+    /// Get total lines removed across all files.
+    #[allow(dead_code)]
+    pub fn total_removed(&self) -> usize {
+        self.files.iter().map(|f| f.lines_removed).sum()
+    }
+}
+
+/// Parse a unified diff output into structured form.
+pub fn parse_unified_diff(output: &str) -> DiffResult {
+    let mut files = Vec::new();
+    let mut current_file: Option<FileDiff> = None;
+    let mut current_hunk: Option<DiffHunk> = None;
+    let mut old_line = 0usize;
+    let mut new_line = 0usize;
+
+    for line in output.lines() {
+        // Check for diff header (new file)
+        if line.starts_with("diff --git ") {
+            // Save previous file
+            if let Some(mut file) = current_file.take() {
+                if let Some(hunk) = current_hunk.take() {
+                    file.hunks.push(hunk);
+                }
+                files.push(file);
+            }
+
+            // Start new file
+            current_file = Some(FileDiff {
+                old_path: None,
+                new_path: None,
+                hunks: Vec::new(),
+                is_binary: false,
+                lines_added: 0,
+                lines_removed: 0,
+            });
+            continue;
+        }
+
+        // Skip if no current file
+        let file = match current_file.as_mut() {
+            Some(f) => f,
+            None => continue,
+        };
+
+        // Parse old file path
+        if line.starts_with("--- ") {
+            let path = line.strip_prefix("--- ").unwrap_or("");
+            if path != "/dev/null" {
+                // Strip "a/" prefix if present
+                let path = path.strip_prefix("a/").unwrap_or(path);
+                file.old_path = Some(path.to_string());
+            }
+            continue;
+        }
+
+        // Parse new file path
+        if line.starts_with("+++ ") {
+            let path = line.strip_prefix("+++ ").unwrap_or("");
+            if path != "/dev/null" {
+                // Strip "b/" prefix if present
+                let path = path.strip_prefix("b/").unwrap_or(path);
+                file.new_path = Some(path.to_string());
+            }
+            continue;
+        }
+
+        // Check for binary file
+        // Git outputs "Binary files a/path and b/path differ" for binary files
+        if line.starts_with("Binary files ") && line.ends_with(" differ") {
+            file.is_binary = true;
+            continue;
+        }
+
+        // Parse hunk header
+        if line.starts_with("@@ ") {
+            // Save previous hunk
+            if let Some(hunk) = current_hunk.take() {
+                file.hunks.push(hunk);
+            }
+
+            // Parse hunk header: @@ -old_start,old_count +new_start,new_count @@ context
+            let (old_start, new_start) = parse_hunk_header(line);
+            old_line = old_start;
+            new_line = new_start;
+
+            current_hunk = Some(DiffHunk {
+                header: line.to_string(),
+                old_start,
+                new_start,
+                lines: vec![DiffLine {
+                    line_type: DiffLineType::Header,
+                    content: line.to_string(),
+                    old_line_num: None,
+                    new_line_num: None,
+                }],
+            });
+            continue;
+        }
+
+        // Skip if no current hunk
+        let hunk = match current_hunk.as_mut() {
+            Some(h) => h,
+            None => continue,
+        };
+
+        // Parse diff lines
+        if let Some(content) = line.strip_prefix('+') {
+            // Added line
+            hunk.lines.push(DiffLine {
+                line_type: DiffLineType::Added,
+                content: content.to_string(),
+                old_line_num: None,
+                new_line_num: Some(new_line),
+            });
+            file.lines_added += 1;
+            new_line += 1;
+        } else if let Some(content) = line.strip_prefix('-') {
+            // Removed line
+            hunk.lines.push(DiffLine {
+                line_type: DiffLineType::Removed,
+                content: content.to_string(),
+                old_line_num: Some(old_line),
+                new_line_num: None,
+            });
+            file.lines_removed += 1;
+            old_line += 1;
+        } else if let Some(content) = line.strip_prefix(' ') {
+            // Context line
+            hunk.lines.push(DiffLine {
+                line_type: DiffLineType::Context,
+                content: content.to_string(),
+                old_line_num: Some(old_line),
+                new_line_num: Some(new_line),
+            });
+            old_line += 1;
+            new_line += 1;
+        } else if line.is_empty() {
+            // Empty context line
+            hunk.lines.push(DiffLine {
+                line_type: DiffLineType::Context,
+                content: String::new(),
+                old_line_num: Some(old_line),
+                new_line_num: Some(new_line),
+            });
+            old_line += 1;
+            new_line += 1;
+        }
+        // Skip other lines (e.g., "\ No newline at end of file")
+    }
+
+    // Save last file and hunk
+    if let Some(mut file) = current_file {
+        if let Some(hunk) = current_hunk {
+            file.hunks.push(hunk);
+        }
+        files.push(file);
+    }
+
+    DiffResult { files }
+}
+
+/// Parse hunk header to extract old and new starting line numbers.
+fn parse_hunk_header(header: &str) -> (usize, usize) {
+    // Format: @@ -old_start,old_count +new_start,new_count @@ context
+    // or: @@ -old_start +new_start @@ context (count of 1 is implicit)
+    let mut old_start = 1;
+    let mut new_start = 1;
+
+    // Find the range part between @@ markers
+    if let Some(range_part) = header
+        .strip_prefix("@@ ")
+        .and_then(|s| s.split(" @@").next())
+    {
+        let parts: Vec<&str> = range_part.split_whitespace().collect();
+        for part in parts {
+            if let Some(old) = part.strip_prefix('-') {
+                // Parse "-old_start,old_count" or "-old_start"
+                let num = old.split(',').next().unwrap_or("1");
+                old_start = num.parse().unwrap_or(1);
+            } else if let Some(new) = part.strip_prefix('+') {
+                // Parse "+new_start,new_count" or "+new_start"
+                let num = new.split(',').next().unwrap_or("1");
+                new_start = num.parse().unwrap_or(1);
+            }
+        }
+    }
+
+    (old_start, new_start)
+}
+
+/// Get diff for a repository path.
+#[allow(dead_code)]
+pub fn get_diff(path: &Path, mode: DiffMode) -> Result<DiffResult, String> {
+    get_diff_with_options(path, mode, false)
+}
+
+/// Get diff for a repository path with options.
+pub fn get_diff_with_options(
+    path: &Path,
+    mode: DiffMode,
+    ignore_whitespace: bool,
+) -> Result<DiffResult, String> {
+    get_diff_with_options_for_file(path, mode, ignore_whitespace, None)
+}
+
+/// Get diff for a single file in a repository with options.
+pub fn get_diff_for_file_with_options(
+    path: &Path,
+    mode: DiffMode,
+    ignore_whitespace: bool,
+    file_path: &str,
+) -> Result<DiffResult, String> {
+    get_diff_with_options_for_file(path, mode, ignore_whitespace, Some(file_path))
+}
+
+fn get_diff_with_options_for_file(
+    path: &Path,
+    mode: DiffMode,
+    ignore_whitespace: bool,
+    file_path: Option<&str>,
+) -> Result<DiffResult, String> {
+    let t_total = std::time::Instant::now();
+    let path_str = path.to_str().ok_or("Invalid path")?;
+
+    // Build git diff command based on mode
+    // WorkingTree: unstaged changes (working tree vs index)
+    // Staged: staged changes (index vs HEAD)
+    // --no-color: prevent ANSI codes when user has color.ui=always
+    // --no-ext-diff: prevent external diff tools from intercepting output
+    let range_str;
+    let mut args = match mode {
+        DiffMode::WorkingTree => vec!["-C", path_str, "diff", "--no-color", "--no-ext-diff"],
+        DiffMode::Staged => vec![
+            "-C",
+            path_str,
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+        ],
+        DiffMode::Commit(ref hash) => {
+            crate::validate_git_ref(hash)?;
+            range_str = format!("{}^..{}", hash, hash);
+            vec![
+                "-C",
+                path_str,
+                "diff",
+                &range_str,
+                "--no-color",
+                "--no-ext-diff",
+            ]
+        }
+        DiffMode::BranchCompare { ref base, ref head } => {
+            crate::validate_git_ref(base)?;
+            crate::validate_git_ref(head)?;
+            // Three-dot diff: changes on head since it diverged from base
+            range_str = format!("{}...{}", base, head);
+            vec![
+                "-C",
+                path_str,
+                "diff",
+                &range_str,
+                "--no-color",
+                "--no-ext-diff",
+            ]
+        }
+    };
+
+    // Add -w flag to ignore whitespace changes
+    if ignore_whitespace {
+        args.push("-w");
+    }
+
+    if let Some(file_path) = file_path {
+        args.push("--");
+        args.push(file_path);
+    }
+
+    let t0 = std::time::Instant::now();
+    let output = safe_output(command("git").args(&args))
+        .map_err(|e| format!("Failed to execute git: {}", e))?;
+    log::debug!(
+        "[get_diff_with_options] git diff command: {:?}, stdout: {} bytes",
+        t0.elapsed(),
+        output.stdout.len()
+    );
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let msg = if stderr.is_empty() {
+            format!(
+                "git diff failed with exit code {}",
+                output.status.code().unwrap_or(-1)
+            )
+        } else {
+            stderr
+        };
+        return Err(msg);
+    }
+
+    let t1 = std::time::Instant::now();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut result = parse_unified_diff(&stdout);
+    log::debug!(
+        "[get_diff_with_options] parse_unified_diff: {:?}, files: {}",
+        t1.elapsed(),
+        result.files.len()
+    );
+
+    // For unstaged mode, also include untracked files
+    if matches!(mode, DiffMode::WorkingTree) {
+        let t2 = std::time::Instant::now();
+        let untracked = get_untracked_files(path, file_path);
+        log::debug!(
+            "[get_diff_with_options] get_untracked_files: {:?}, count: {}",
+            t2.elapsed(),
+            untracked.len()
+        );
+        for untracked_path in untracked {
+            if let Some(selected_file) = file_path
+                && selected_file != untracked_path
+            {
+                continue;
+            }
+            if let Some(file_diff) = create_untracked_file_diff(path, &untracked_path) {
+                result.files.push(file_diff);
+            }
+        }
+    }
+
+    log::debug!("[get_diff_with_options] total: {:?}", t_total.elapsed());
+    Ok(result)
+}
+
+/// Get list of untracked files in a repository.
+fn get_untracked_files(path: &Path, file_path: Option<&str>) -> Vec<String> {
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => return vec![],
+    };
+
+    let mut args = vec![
+        "-C",
+        path_str,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ];
+    if let Some(file_path) = file_path {
+        args.push("--");
+        args.push(file_path);
+    }
+
+    let output = safe_output(command("git").args(args))
+    .ok();
+
+    match output {
+        Some(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Create a FileDiff for an untracked file (shows entire file as added).
+fn create_untracked_file_diff(repo_path: &Path, file_path: &str) -> Option<FileDiff> {
+    let full_path = safe_repo_path(repo_path, file_path)?;
+
+    // Check if it's a binary file (simple heuristic)
+    let content = match std::fs::read(&full_path) {
+        Ok(bytes) => {
+            // Check for binary content (null bytes in first 8KB)
+            if bytes.iter().take(8192).any(|&b| b == 0) {
+                return Some(FileDiff {
+                    old_path: None,
+                    new_path: Some(file_path.to_string()),
+                    hunks: vec![],
+                    is_binary: true,
+                    lines_added: 0,
+                    lines_removed: 0,
+                });
+            }
+            String::from_utf8_lossy(&bytes).to_string()
+        }
+        Err(_) => return None,
+    };
+
+    let lines: Vec<&str> = content.lines().collect();
+    let line_count = lines.len();
+
+    // Create a single hunk with all lines as added
+    let diff_lines: Vec<DiffLine> = lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| DiffLine {
+            line_type: DiffLineType::Added,
+            content: line.to_string(),
+            old_line_num: None,
+            new_line_num: Some(i + 1),
+        })
+        .collect();
+
+    let hunk = DiffHunk {
+        header: format!("@@ -0,0 +1,{} @@ (new file)", line_count),
+        old_start: 0,
+        new_start: 1,
+        lines: vec![DiffLine {
+            line_type: DiffLineType::Header,
+            content: format!("@@ -0,0 +1,{} @@ (new file)", line_count),
+            old_line_num: None,
+            new_line_num: None,
+        }]
+        .into_iter()
+        .chain(diff_lines)
+        .collect(),
+    };
+
+    Some(FileDiff {
+        old_path: None,
+        new_path: Some(file_path.to_string()),
+        hunks: vec![hunk],
+        is_binary: false,
+        lines_added: line_count,
+        lines_removed: 0,
+    })
+}
+
+// Shared cache for is_git_repo / batch_is_git_repo
+static GIT_REPO_CACHE: Mutex<Option<HashMap<PathBuf, (bool, Instant)>>> = Mutex::new(None);
+const GIT_REPO_TTL: Duration = Duration::from_secs(30);
+const GIT_REPO_MAX_ENTRIES: usize = 256;
+
+/// Check if a path is inside a git repository.
+/// Results are cached for 30 seconds to avoid spawning subprocesses on every render.
+pub fn is_git_repo(path: &Path) -> bool {
+    let path_buf = path.to_path_buf();
+
+    // Check cache first
+    {
+        let guard = GIT_REPO_CACHE.lock();
+        if let Some(ref cache) = *guard
+            && let Some(&(result, ts)) = cache.get(&path_buf)
+            && ts.elapsed() < GIT_REPO_TTL
+        {
+            return result;
+        }
+    }
+
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let result =
+        safe_output(command("git").args(["-C", path_str, "rev-parse", "--is-inside-work-tree"]))
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+    // Store in cache and evict stale entries
+    {
+        let mut guard = GIT_REPO_CACHE.lock();
+        let cache = guard.get_or_insert_with(HashMap::new);
+        cache.insert(path_buf, (result, Instant::now()));
+        // Always evict entries older than 5 minutes
+        let max_age = Duration::from_secs(300);
+        cache.retain(|_, (_, ts)| ts.elapsed() < max_age);
+        // Aggressively evict stale entries when above capacity
+        if cache.len() > GIT_REPO_MAX_ENTRIES {
+            cache.retain(|_, (_, ts)| ts.elapsed() < GIT_REPO_TTL);
+        }
+    }
+
+    result
+}
+
+/// Get the full content of a file from git at a specific revision.
+///
+/// - `revision` can be "HEAD", a commit hash, or empty for the index (staged version)
+pub fn get_file_from_git(repo_path: &Path, revision: &str, file_path: &str) -> Option<String> {
+    let repo_str = repo_path.to_str()?;
+
+    // Validate revision to prevent flag injection (empty is ok — means index)
+    if !revision.is_empty() {
+        crate::validate_git_ref(revision).ok()?;
+    }
+
+    // Format: revision:path (e.g., "HEAD:src/main.rs")
+    // For index, use ":0:path" syntax (stage 0 = normal index entry)
+    let object = if revision.is_empty() {
+        format!(":0:{}", file_path)
+    } else {
+        format!("{}:{}", revision, file_path)
+    };
+
+    let output = safe_output(command("git").args(["-C", repo_str, "show", &object])).ok()?;
+
+    if output.status.success() {
+        String::from_utf8(output.stdout).ok()
+    } else {
+        None
+    }
+}
+
+/// Safely join a file path to a repo root, rejecting path traversal attempts.
+///
+/// Returns `None` if the resolved path escapes the repo directory (e.g. via `../`).
+fn safe_repo_path(repo_path: &Path, file_path: &str) -> Option<PathBuf> {
+    let full_path = repo_path.join(file_path);
+    let canonical = full_path.canonicalize().ok()?;
+    let repo_canonical = repo_path.canonicalize().ok()?;
+    if canonical.starts_with(&repo_canonical) {
+        Some(canonical)
+    } else {
+        None
+    }
+}
+
+/// Get the full content of a file from the working tree (filesystem).
+pub fn get_file_from_working_tree(repo_path: &Path, file_path: &str) -> Option<String> {
+    let full_path = safe_repo_path(repo_path, file_path)?;
+    std::fs::read_to_string(full_path).ok()
+}
+
+/// Get the "old" and "new" file content for a file diff based on the diff mode.
+///
+/// Returns (old_content, new_content).
+/// - For WorkingTree mode: old = HEAD (or index), new = working tree
+/// - For Staged mode: old = HEAD, new = index
+pub fn get_file_contents_for_diff(
+    repo_path: &Path,
+    file_path: &str,
+    mode: DiffMode,
+) -> (Option<String>, Option<String>) {
+    let t0 = std::time::Instant::now();
+    let result = match mode {
+        DiffMode::WorkingTree => {
+            // Unstaged: comparing index vs working tree
+            // Try index first, fall back to HEAD (they're equal if nothing staged)
+            let old = get_file_from_git(repo_path, "", file_path)
+                .or_else(|| get_file_from_git(repo_path, "HEAD", file_path));
+            let new = get_file_from_working_tree(repo_path, file_path);
+            (old, new)
+        }
+        DiffMode::Staged => {
+            // Staged: comparing HEAD vs index
+            let old = get_file_from_git(repo_path, "HEAD", file_path);
+            let new = get_file_from_git(repo_path, "", file_path)
+                .or_else(|| get_file_from_working_tree(repo_path, file_path));
+            (old, new)
+        }
+        DiffMode::Commit(ref hash) => {
+            // Commit: comparing parent^ vs commit
+            let parent = format!("{}^", hash);
+            let old = get_file_from_git(repo_path, &parent, file_path);
+            let new = get_file_from_git(repo_path, hash, file_path);
+            (old, new)
+        }
+        DiffMode::BranchCompare { ref base, ref head } => {
+            let old = get_file_from_git(repo_path, base, file_path);
+            let new = get_file_from_git(repo_path, head, file_path);
+            (old, new)
+        }
+    };
+    log::debug!(
+        "[get_file_contents_for_diff] {:?}, file: {}",
+        t0.elapsed(),
+        file_path
+    );
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_hunk_header() {
+        assert_eq!(parse_hunk_header("@@ -1,5 +1,7 @@ fn main()"), (1, 1));
+        assert_eq!(parse_hunk_header("@@ -10,3 +15,5 @@"), (10, 15));
+        assert_eq!(parse_hunk_header("@@ -1 +1 @@"), (1, 1));
+        assert_eq!(
+            parse_hunk_header("@@ -100,20 +95,15 @@ impl Foo"),
+            (100, 95)
+        );
+    }
+
+    #[test]
+    fn test_parse_unified_diff() {
+        let diff = r#"diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
+ fn main() {
++    println!("Hello");
+     println!("World");
+ }
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].new_path, Some("src/main.rs".to_string()));
+        assert_eq!(result.files[0].lines_added, 1);
+        assert_eq!(result.files[0].lines_removed, 0);
+        assert_eq!(result.files[0].hunks.len(), 1);
+        assert_eq!(result.files[0].hunks[0].lines.len(), 5); // header + 4 lines
+    }
+
+    #[test]
+    fn test_parse_new_file() {
+        let diff = r#"diff --git a/new_file.txt b/new_file.txt
+--- /dev/null
++++ b/new_file.txt
+@@ -0,0 +1,2 @@
++line 1
++line 2
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].old_path.is_none());
+        assert_eq!(result.files[0].new_path, Some("new_file.txt".to_string()));
+        assert_eq!(result.files[0].lines_added, 2);
+    }
+
+    #[test]
+    fn test_parse_deleted_file() {
+        let diff = r#"diff --git a/deleted.txt b/deleted.txt
+--- a/deleted.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line 1
+-line 2
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].old_path, Some("deleted.txt".to_string()));
+        assert!(result.files[0].new_path.is_none());
+        assert_eq!(result.files[0].lines_removed, 2);
+    }
+
+    #[test]
+    fn test_diff_mode_toggle() {
+        assert_eq!(DiffMode::WorkingTree.toggle(), DiffMode::Staged);
+        assert_eq!(DiffMode::Staged.toggle(), DiffMode::WorkingTree);
+    }
+
+    #[test]
+    fn test_parse_multiple_hunks() {
+        let diff = r#"diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
+ fn main() {
++    println!("Hello");
+     println!("World");
+ }
+@@ -10,3 +11,4 @@
+ fn other() {
++    println!("Added");
+     println!("Existing");
+ }
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].hunks.len(), 2);
+        assert_eq!(result.files[0].lines_added, 2);
+    }
+
+    #[test]
+    fn test_parse_multiple_files() {
+        let diff = r#"diff --git a/file1.rs b/file1.rs
+--- a/file1.rs
++++ b/file1.rs
+@@ -1,2 +1,3 @@
+ line1
++added
+ line2
+diff --git a/file2.rs b/file2.rs
+--- a/file2.rs
++++ b/file2.rs
+@@ -1,3 +1,2 @@
+ line1
+-removed
+ line2
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 2);
+        assert_eq!(result.files[0].new_path, Some("file1.rs".to_string()));
+        assert_eq!(result.files[0].lines_added, 1);
+        assert_eq!(result.files[1].new_path, Some("file2.rs".to_string()));
+        assert_eq!(result.files[1].lines_removed, 1);
+    }
+
+    #[test]
+    fn test_parse_binary_file() {
+        let diff = r#"diff --git a/image.png b/image.png
+Binary files a/image.png and b/image.png differ
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].is_binary);
+        assert!(result.files[0].hunks.is_empty());
+    }
+
+    #[test]
+    fn test_parse_empty_diff() {
+        let result = parse_unified_diff("");
+        assert!(result.is_empty());
+        assert_eq!(result.total_added(), 0);
+        assert_eq!(result.total_removed(), 0);
+    }
+
+    #[test]
+    fn test_diff_result_stats() {
+        let diff = r#"diff --git a/a.rs b/a.rs
+--- a/a.rs
++++ b/a.rs
+@@ -1,3 +1,4 @@
+ ctx
++add1
++add2
+-rem1
+ ctx
+diff --git a/b.rs b/b.rs
+--- a/b.rs
++++ b/b.rs
+@@ -1,2 +1,3 @@
+ ctx
++add3
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.total_added(), 3);
+        assert_eq!(result.total_removed(), 1);
+    }
+
+    #[test]
+    fn test_file_diff_display_name() {
+        let file = FileDiff {
+            old_path: Some("old.rs".to_string()),
+            new_path: Some("new.rs".to_string()),
+            hunks: vec![],
+            is_binary: false,
+            lines_added: 0,
+            lines_removed: 0,
+        };
+        assert_eq!(file.display_name(), "new.rs");
+
+        let deleted = FileDiff {
+            old_path: Some("old.rs".to_string()),
+            new_path: None,
+            hunks: vec![],
+            is_binary: false,
+            lines_added: 0,
+            lines_removed: 0,
+        };
+        assert_eq!(deleted.display_name(), "old.rs");
+
+        let unknown = FileDiff {
+            old_path: None,
+            new_path: None,
+            hunks: vec![],
+            is_binary: false,
+            lines_added: 0,
+            lines_removed: 0,
+        };
+        assert_eq!(unknown.display_name(), "unknown");
+    }
+
+    #[test]
+    fn test_safe_repo_path_normal_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("src/main.rs");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "fn main() {}").unwrap();
+
+        let result = safe_repo_path(dir.path(), "src/main.rs");
+        assert!(result.is_some());
+        assert!(
+            result
+                .unwrap()
+                .starts_with(dir.path().canonicalize().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_safe_repo_path_traversal_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a file inside the repo so the parent dirs exist
+        std::fs::write(dir.path().join("dummy.txt"), "").unwrap();
+
+        // Attempt to escape the repo via ../
+        let result = safe_repo_path(dir.path(), "../../../etc/passwd");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_safe_repo_path_absolute_outside_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        // Absolute path outside repo
+        let result = safe_repo_path(dir.path(), "/etc/passwd");
+        // On Unix, join with an absolute path replaces the base entirely,
+        // so this should be rejected since /etc/passwd is outside the repo.
+        // On systems where /etc/passwd doesn't exist, canonicalize returns None → safe.
+        if let Some(path) = result {
+            // If it somehow resolved, it must still be inside the repo
+            assert!(path.starts_with(dir.path().canonicalize().unwrap()));
+        }
+    }
+
+    #[test]
+    fn test_get_file_from_working_tree_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "world").unwrap();
+
+        // Normal file works
+        assert_eq!(
+            get_file_from_working_tree(dir.path(), "hello.txt"),
+            Some("world".to_string())
+        );
+
+        // Traversal attempt returns None
+        assert_eq!(
+            get_file_from_working_tree(dir.path(), "../../../etc/passwd"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_parse_no_newline_at_eof() {
+        let diff = r#"diff --git a/file.txt b/file.txt
+--- a/file.txt
++++ b/file.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
+\ No newline at end of file
++line2_modified
+\ No newline at end of file
+"#;
+        let result = parse_unified_diff(diff);
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].lines_added, 1);
+        assert_eq!(result.files[0].lines_removed, 1);
+    }
+}

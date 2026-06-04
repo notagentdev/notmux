@@ -1,6 +1,6 @@
-# Vryn Web Client
+# NotMux Web Client
 
-Remote web client for Vryn terminal multiplexer. Connects to the desktop app's remote server via REST + WebSocket.
+Remote web client for NotMux terminal multiplexer. Connects to the desktop app's remote server via REST + WebSocket.
 
 ## Stack
 

@@ -1,3 +1,3 @@
-//! Re-exports from the `vryn-markdown` crate.
+//! Re-exports from the `notmux-markdown` crate.
 
-pub use vryn_markdown::{MarkdownDocument, MarkdownSelection, RenderedNode};
+pub use notmux_markdown::{MarkdownDocument, MarkdownSelection, RenderedNode};

@@ -1,6 +1,6 @@
 use crate::client::manager::ConnectionManager;
-use vryn_core::client::WsClientMessage;
-use vryn_core::theme::DARK_THEME;
+use notmux_core::client::WsClientMessage;
+use notmux_core::theme::DARK_THEME;
 
 /// Cell data for FFI transfer (flat, no pointers).
 #[derive(Debug, Clone)]

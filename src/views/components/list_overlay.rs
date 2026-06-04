@@ -1,3 +1,3 @@
-//! Generic list overlay component -- re-exported from vryn-files.
+//! Generic list overlay component -- re-exported from notmux-files.
 
-pub use vryn_files::list_overlay::*;
+pub use notmux_files::list_overlay::*;

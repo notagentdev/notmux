@@ -1,6 +1,6 @@
-// Re-export everything from the vryn-git crate.
+// Re-export everything from the notmux-git crate.
 // This allows existing `use crate::git::*` imports to keep working.
-pub use vryn_git::*;
+pub use notmux_git::*;
 
-// Watcher re-exported from vryn-views-git crate
-pub use vryn_views_git::watcher;
+// Watcher re-exported from notmux-views-git crate
+pub use notmux_views_git::watcher;

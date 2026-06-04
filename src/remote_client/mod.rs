@@ -1,1 +1,1 @@
-pub use vryn_remote_client::manager;
+pub use notmux_remote_client::manager;

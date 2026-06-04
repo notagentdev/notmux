@@ -1,1 +1,1 @@
-pub use vryn_workspace::sidebar_controller::*;
+pub use notmux_workspace::sidebar_controller::*;

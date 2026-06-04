@@ -72,10 +72,10 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: android
-            artifact: vryn-ws-android
+            artifact: notmux-android
           - os: macos-latest
             platform: ios
-            artifact: vryn-ws-ios
+            artifact: notmux-ios
 
     runs-on: ${{ matrix.os }}
 
@@ -134,10 +134,10 @@ jobs:
         if: matrix.platform == 'android'
         run: |
           mkdir -p dist
-          cp mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/vryn-ws-arm64-v8a.apk
-          cp mobile/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/vryn-ws-armeabi-v7a.apk
-          cp mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk dist/vryn-ws-x86_64.apk
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/vryn-ws-universal.apk
+          cp mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/notmux-arm64-v8a.apk
+          cp mobile/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/notmux-armeabi-v7a.apk
+          cp mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk dist/notmux-x86_64.apk
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/notmux-universal.apk
 
       - name: Build iOS (no codesign)
         if: matrix.platform == 'ios'
@@ -149,7 +149,7 @@ jobs:
         run: |
           mkdir -p dist
           cd mobile/build/ios/iphoneos
-          zip -r ../../../../dist/vryn-ws-ios.zip Runner.app
+          zip -r ../../../../dist/notmux-ios.zip Runner.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -167,16 +167,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: vryn-ws-linux-x64
+            artifact: notmux-linux-x64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: vryn-ws-macos-arm64
+            artifact: notmux-macos-arm64
           - os: macos-15-intel
             target: x86_64-apple-darwin
-            artifact: vryn-ws-macos-x64
+            artifact: notmux-macos-x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: vryn-ws-windows-x64
+            artifact: notmux-windows-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -227,13 +227,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist/icons
-          cp target/${{ matrix.target }}/release/vrynws dist/
-          chmod +x dist/vrynws
+          cp target/${{ matrix.target }}/release/notmux dist/
+          chmod +x dist/notmux
           # Bundle icons for Linux installation
           cp assets/app-icon-16.png assets/app-icon-32.png assets/app-icon-48.png \
              assets/app-icon-64.png assets/app-icon-128.png assets/app-icon-256.png \
              assets/app-icon-512.png dist/icons/
-          cp vryn-ws.desktop dist/
+          cp notmux.desktop dist/
 
       - name: Create macOS app bundle
         if: runner.os == 'macOS'
@@ -245,7 +245,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           mkdir dist
-          copy target\${{ matrix.target }}\release\vrynws.exe dist\
+          copy target\${{ matrix.target }}\release\notmux.exe dist\
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -288,7 +288,7 @@ jobs:
               # macOS: DMG is already created, just move it
               mv "$dir"/*.dmg "../" 2>/dev/null || true
               # Also create a zip of the .app for those who prefer it
-              cd "$dir" && zip -r "../../${name}.zip" "Vryn.app" && cd ..
+              cd "$dir" && zip -r "../../${name}.zip" "NotMux.app" && cd ..
             else
               tar -czvf "../${name}.tar.gz" -C "$dir" .
             fi
@@ -301,7 +301,7 @@ jobs:
           app-id: ${{ secrets.CONTEMBER_BOT_APP_ID }}
           private-key: ${{ secrets.CONTEMBER_BOT_APP_PRIVATE_KEY }}
           owner: contember
-          repositories: homebrew-vryn-ws
+          repositories: homebrew-notmux
 
       - name: Update Homebrew tap
         env:
@@ -310,24 +310,24 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
 
           # Calculate SHA256 from local zip files
-          ARM64_SHA=$(sha256sum vryn-ws-macos-arm64.zip | cut -d' ' -f1)
-          X64_SHA=$(sha256sum vryn-ws-macos-x64.zip | cut -d' ' -f1)
+          ARM64_SHA=$(sha256sum notmux-macos-arm64.zip | cut -d' ' -f1)
+          X64_SHA=$(sha256sum notmux-macos-x64.zip | cut -d' ' -f1)
 
           # Clone the tap repo
-          git clone https://x-access-token:${GH_TOKEN}@github.com/contember/homebrew-vryn-ws.git /tmp/homebrew-vryn-ws
+          git clone https://x-access-token:${GH_TOKEN}@github.com/contember/homebrew-notmux.git /tmp/homebrew-notmux
 
           # Update cask
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/homebrew-vryn-ws/Casks/vryn-ws.rb
-          sed -i "s/sha256 arm:   \".*\",/sha256 arm:   \"${ARM64_SHA}\",/" /tmp/homebrew-vryn-ws/Casks/vryn-ws.rb
-          sed -i "s/         intel: \".*\"/         intel: \"${X64_SHA}\"/" /tmp/homebrew-vryn-ws/Casks/vryn-ws.rb
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/homebrew-notmux/Casks/notmux.rb
+          sed -i "s/sha256 arm:   \".*\",/sha256 arm:   \"${ARM64_SHA}\",/" /tmp/homebrew-notmux/Casks/notmux.rb
+          sed -i "s/         intel: \".*\"/         intel: \"${X64_SHA}\"/" /tmp/homebrew-notmux/Casks/notmux.rb
 
-          cat /tmp/homebrew-vryn-ws/Casks/vryn-ws.rb
+          cat /tmp/homebrew-notmux/Casks/notmux.rb
 
           # Commit and push
-          cd /tmp/homebrew-vryn-ws
+          cd /tmp/homebrew-notmux
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/vryn-ws.rb
+          git add Casks/notmux.rb
           git commit -m "chore: update cask to v${VERSION}"
           git push origin main
 

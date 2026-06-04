@@ -1,0 +1,13 @@
+[package]
+name = "notmux-ui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+notmux-core = { path = "../notmux-core" }
+notmux-theme = { path = "../notmux-theme" }
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
+alacritty_terminal = "0.25"
+smol = "2.0"

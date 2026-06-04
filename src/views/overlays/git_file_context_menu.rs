@@ -4,7 +4,7 @@ use crate::keybindings::Cancel;
 use crate::theme::theme;
 use gpui::prelude::*;
 use gpui::*;
-use vryn_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
+use notmux_ui::menu::{context_menu_panel, menu_item, menu_item_with_color, menu_separator};
 
 /// Event emitted by GitFileContextMenu.
 pub enum GitFileContextMenuEvent {
@@ -40,7 +40,7 @@ pub enum GitFileContextMenuEvent {
     },
 }
 
-impl vryn_ui::overlay::CloseEvent for GitFileContextMenuEvent {
+impl notmux_ui::overlay::CloseEvent for GitFileContextMenuEvent {
     fn is_close(&self) -> bool {
         matches!(self, Self::Close)
     }

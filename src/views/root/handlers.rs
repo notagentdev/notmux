@@ -6,14 +6,14 @@ use crate::workspace::requests::SidebarRequest;
 use crate::workspace::state::{LayoutNode, Workspace};
 use gpui::*;
 
-use vryn_core::api::ActionRequest;
+use notmux_core::api::ActionRequest;
 
 use super::RootView;
 
 struct MainDiffViewerRequest {
     project_id: String,
     file: Option<String>,
-    mode: Option<vryn_core::types::DiffMode>,
+    mode: Option<notmux_core::types::DiffMode>,
     commit_message: Option<String>,
     commits: Option<Vec<crate::git::CommitLogEntry>>,
     commit_index: Option<usize>,
@@ -54,7 +54,7 @@ impl RootView {
         let connections = rm.connections();
         let (config, _, _) = connections.iter().find(|(c, _, _)| c.id == connection_id)?;
         let token = config.saved_token.as_ref()?.clone();
-        let actual_id = vryn_core::client::strip_prefix(project_id, connection_id);
+        let actual_id = notmux_core::client::strip_prefix(project_id, connection_id);
         Some((config.host.clone(), config.port, token, actual_id))
     }
 
@@ -86,14 +86,14 @@ impl RootView {
         &self,
         project_id: &str,
         cx: &Context<Self>,
-    ) -> Option<std::sync::Arc<dyn vryn_files::project_fs::ProjectFs>> {
+    ) -> Option<std::sync::Arc<dyn notmux_files::project_fs::ProjectFs>> {
         let ws = self.workspace.read(cx);
         let project = ws.project(project_id)?;
         if project.is_remote {
             let conn_id = project.connection_id.as_ref()?;
             let (host, port, token, actual_id) = self.remote_params(project_id, conn_id, cx)?;
             Some(std::sync::Arc::new(
-                vryn_files::project_fs::RemoteProjectFs::new(
+                notmux_files::project_fs::RemoteProjectFs::new(
                     host,
                     port,
                     token,
@@ -103,7 +103,7 @@ impl RootView {
             ))
         } else {
             Some(std::sync::Arc::new(
-                vryn_files::project_fs::LocalProjectFs::new(project.path.clone()),
+                notmux_files::project_fs::LocalProjectFs::new(project.path.clone()),
             ))
         }
     }
@@ -206,7 +206,7 @@ impl RootView {
             OverlayManagerEvent::ReloadServices { project_id } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    vryn_core::api::ActionRequest::ReloadServices {
+                    notmux_core::api::ActionRequest::ReloadServices {
                         project_id: project_id.clone(),
                     },
                     cx,
@@ -428,7 +428,7 @@ impl RootView {
             } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    vryn_core::api::ActionRequest::GitStageFile {
+                    notmux_core::api::ActionRequest::GitStageFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                     },
@@ -442,7 +442,7 @@ impl RootView {
             } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    vryn_core::api::ActionRequest::GitUnstageFile {
+                    notmux_core::api::ActionRequest::GitUnstageFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                     },
@@ -457,7 +457,7 @@ impl RootView {
             } => {
                 let dispatcher = self.dispatcher_for_project(project_id, cx);
                 dispatcher.dispatch(
-                    vryn_core::api::ActionRequest::GitDiscardFile {
+                    notmux_core::api::ActionRequest::GitDiscardFile {
                         project_id: project_id.clone(),
                         file_path: file_path.clone(),
                         is_untracked: *is_untracked,
@@ -522,7 +522,7 @@ impl RootView {
                 cx.spawn(async move |_this, cx| {
                     let p = path.clone();
                     let result =
-                        smol::unblock(move || vryn_files::fs_ops::delete(&p, is_dir)).await;
+                        smol::unblock(move || notmux_files::fs_ops::delete(&p, is_dir)).await;
                     cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer delete failed: {msg}");
@@ -538,7 +538,7 @@ impl RootView {
                 let path = path.clone();
                 cx.spawn(async move |_this, _cx| {
                     let _ =
-                        smol::unblock(move || vryn_files::fs_ops::reveal_in_file_manager(&path))
+                        smol::unblock(move || notmux_files::fs_ops::reveal_in_file_manager(&path))
                             .await;
                 })
                 .detach();
@@ -569,7 +569,7 @@ impl RootView {
             OverlayManagerEvent::ExplorerPaste { target_dir } => {
                 let target_dir = target_dir.clone();
                 let Some(cb) = cx
-                    .try_global::<vryn_files::clipboard::ExplorerClipboard>()
+                    .try_global::<notmux_files::clipboard::ExplorerClipboard>()
                     .cloned()
                 else {
                     return;
@@ -589,11 +589,11 @@ impl RootView {
                     let src_ = src.clone();
                     let dst_ = dst.clone();
                     let result = smol::unblock(move || match op {
-                        vryn_files::clipboard::ClipboardOp::Cut => {
-                            vryn_files::fs_ops::move_to(&src_, &dst_)
+                        notmux_files::clipboard::ClipboardOp::Cut => {
+                            notmux_files::fs_ops::move_to(&src_, &dst_)
                         }
-                        vryn_files::clipboard::ClipboardOp::Copy => {
-                            vryn_files::fs_ops::copy(&src_, &dst_)
+                        notmux_files::clipboard::ClipboardOp::Copy => {
+                            notmux_files::fs_ops::copy(&src_, &dst_)
                         }
                     })
                     .await;
@@ -602,8 +602,8 @@ impl RootView {
                             log::warn!("explorer paste failed: {msg}");
                         }
                         // Clear clipboard on Cut; keep on Copy.
-                        if matches!(op, vryn_files::clipboard::ClipboardOp::Cut) {
-                            cx.global_mut::<vryn_files::clipboard::ExplorerClipboard>()
+                        if matches!(op, notmux_files::clipboard::ClipboardOp::Cut) {
+                            cx.global_mut::<notmux_files::clipboard::ExplorerClipboard>()
                                 .clear();
                         }
                         sidebar.update(cx, |sb, cx| {
@@ -621,8 +621,8 @@ impl RootView {
     fn with_git_header<F>(&self, project_id: &str, cx: &mut Context<Self>, f: F)
     where
         F: FnOnce(
-            &mut vryn_views_git::git_header::GitHeader,
-            &mut Context<vryn_views_git::git_header::GitHeader>,
+            &mut notmux_views_git::git_header::GitHeader,
+            &mut Context<notmux_views_git::git_header::GitHeader>,
         ),
     {
         if let Some(col) = self.project_columns.get(project_id).cloned() {
@@ -972,7 +972,7 @@ impl RootView {
                 } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
-                            vryn_views_sidebar::ColorPickerTarget::Project { project_id },
+                            notmux_views_sidebar::ColorPickerTarget::Project { project_id },
                             position,
                             cx,
                         );
@@ -984,7 +984,7 @@ impl RootView {
                 } => {
                     self.overlay_manager.update(cx, |om, cx| {
                         om.show_color_picker(
-                            vryn_views_sidebar::ColorPickerTarget::Folder { folder_id },
+                            notmux_views_sidebar::ColorPickerTarget::Folder { folder_id },
                             position,
                             cx,
                         );
@@ -1096,7 +1096,7 @@ impl RootView {
 
         self.main_file_viewer = None;
         let viewer = cx.new(|cx| {
-            vryn_views_git::diff_viewer::DiffViewer::new(
+            notmux_views_git::diff_viewer::DiffViewer::new(
                 provider,
                 request.file,
                 request.mode,
@@ -1109,8 +1109,8 @@ impl RootView {
 
         cx.subscribe(
             &viewer,
-            |this, _, event: &vryn_views_git::diff_viewer::DiffViewerEvent, cx| {
-                if matches!(event, vryn_views_git::diff_viewer::DiffViewerEvent::Close) {
+            |this, _, event: &notmux_views_git::diff_viewer::DiffViewerEvent, cx| {
+                if matches!(event, notmux_views_git::diff_viewer::DiffViewerEvent::Close) {
                     this.main_diff_viewer = None;
                     cx.notify();
                 }
@@ -1137,7 +1137,7 @@ impl RootView {
         let is_dark = theme_colors.is_dark();
 
         let viewer = cx.new(|cx| {
-            vryn_files::file_viewer::FileViewer::new_embedded(
+            notmux_files::file_viewer::FileViewer::new_embedded(
                 std::path::PathBuf::from(file),
                 fs,
                 font_size,
@@ -1150,8 +1150,8 @@ impl RootView {
 
         cx.subscribe(
             &viewer,
-            |this, _, event: &vryn_files::file_viewer::FileViewerEvent, cx| {
-                if matches!(event, vryn_files::file_viewer::FileViewerEvent::Close) {
+            |this, _, event: &notmux_files::file_viewer::FileViewerEvent, cx| {
+                if matches!(event, notmux_files::file_viewer::FileViewerEvent::Close) {
                     this.main_file_viewer = None;
                     cx.notify();
                 }

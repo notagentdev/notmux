@@ -1,8 +1,8 @@
 <p align="center">
-  <img src=".github/assets/vryn-icon.png" width="256" alt="Vryn">
+  <img src=".github/assets/notmux-icon.png" width="256" alt="NotMux">
 </p>
 
-# Vryn
+# NotMux
 
 A fast, native terminal multiplexer built in Rust with [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (the UI framework from Zed editor).
 Tabs, splits, detachable windows, command palette, and automatic workspace restore.
@@ -12,22 +12,22 @@ Tabs, splits, detachable windows, command palette, and automatic workspace resto
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/contember/vryn/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/contember/vryn-ws/main/install.sh | bash
 ```
 
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/contember/vryn/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/contember/vryn-ws/main/install.sh | bash
 ```
 
 ### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/contember/vryn/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/contember/vryn-ws/main/install.ps1 | iex
 ```
 
-The install script includes built-in auto-update support. On macOS and Linux, Vryn is installed to `~/.local/bin/vryn`. On Windows, it installs to `%LOCALAPPDATA%\Programs\Vryn` with a Start Menu shortcut.
+The install script includes built-in auto-update support. On macOS and Linux, NotMux is installed to `~/.local/bin/notmux`. On Windows, it installs to `%LOCALAPPDATA%\Programs\NotMux` with a Start Menu shortcut.
 
 ## Features
 
@@ -102,10 +102,10 @@ The install script includes built-in auto-update support. On macOS and Linux, Vr
 - **Hook terminals** - Commands prefixed with `terminal:` in hooks spawn visible PTY terminals (e.g., `terminal: claude -p "fix rebase conflict"`)
 - **Hook monitor** - Tracks execution history, status (Running/Succeeded/Failed), and duration for all hooks
 - **Git hooks** - `pre_merge`, `post_merge`, `before_worktree_remove`, `worktree_removed`, `on_rebase_conflict`, `on_dirty_worktree_close`
-- **Environment variables** - Hooks receive `VRYN_PROJECT_ID`, `VRYN_PROJECT_NAME`, `VRYN_PROJECT_PATH`, `VRYN_BRANCH`, `VRYN_TARGET_BRANCH`, etc.
+- **Environment variables** - Hooks receive `NOTMUX_PROJECT_ID`, `NOTMUX_PROJECT_NAME`, `NOTMUX_PROJECT_PATH`, `NOTMUX_BRANCH`, `NOTMUX_TARGET_BRANCH`, etc.
 
 ### Services
-- **Project services** - Define services in `vryn.yaml` with name, command, cwd, env vars
+- **Project services** - Define services in `notmux.yaml` with name, command, cwd, env vars
 - **Docker Compose integration** - Auto-detects and manages Docker Compose services
 - **Auto-start & restart** - Services can auto-start on project open and auto-restart on crash
 - **Service panel** - Monitor service status (Stopped, Starting, Running, Crashed) and ports
@@ -170,11 +170,11 @@ cargo run
 | Toggle sidebar | Cmd+B | Ctrl+B |
 | Settings | Cmd+, | Ctrl+, |
 
-All shortcuts are customizable via `~/.config/vryn-ws/keybindings.json`.
+All shortcuts are customizable via `~/.config/notmux/keybindings.json`.
 
 ## Configuration
 
-Settings are stored in `~/.config/vryn-ws/`:
+Settings are stored in `~/.config/notmux/`:
 
 | File | Purpose |
 |------|---------|
@@ -182,7 +182,7 @@ Settings are stored in `~/.config/vryn-ws/`:
 | `workspace.json` | Projects, layouts, and terminal state |
 | `keybindings.json` | Custom keyboard shortcuts |
 | `themes/*.json` | Custom theme files |
-| `vryn.yaml` (project root) | Project services and Docker Compose configuration |
+| `notmux.yaml` (project root) | Project services and Docker Compose configuration |
 
 ## Documentation
 
@@ -190,7 +190,7 @@ Settings are stored in `~/.config/vryn-ws/`:
 |-------|-------------|
 | [Configuration](docs/configuration.md) | Settings, keybindings, custom themes, per-project overrides |
 | [Lifecycle Hooks](docs/hooks.md) | Hook terminals, git hooks, environment variables |
-| [Project Services](docs/services.md) | vryn.yaml, Docker Compose integration, auto-restart |
+| [Project Services](docs/services.md) | notmux.yaml, Docker Compose integration, auto-restart |
 | [Git Worktrees](docs/worktrees.md) | Worktree management, sync watcher, path templates |
 | [Remote Control API](docs/remote.md) | HTTP/WebSocket API, pairing, authentication |
 | [Mobile Client](docs/mobile-status.md) | Flutter + Rust FFI mobile companion app |

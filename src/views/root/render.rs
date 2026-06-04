@@ -738,7 +738,7 @@ impl Render for RootView {
             }))
             // Handle check for updates action
             .on_action(cx.listener(|_this, _: &CheckForUpdates, _window, cx| {
-                if let Some(update_info) = cx.try_global::<vryn_ext_updater::GlobalUpdateInfo>() {
+                if let Some(update_info) = cx.try_global::<notmux_ext_updater::GlobalUpdateInfo>() {
                     let info = update_info.0.clone();
 
                     // Prevent concurrent manual checks
@@ -746,28 +746,28 @@ impl Render for RootView {
                         return;
                     }
 
-                    info.set_status(vryn_ext_updater::UpdateStatus::Checking);
+                    info.set_status(notmux_ext_updater::UpdateStatus::Checking);
                     let token = info.current_token();
                     cx.notify();
                     cx.spawn(async move |_this, cx| {
-                        match vryn_ext_updater::checker::check_for_update(info.app_version()).await
+                        match notmux_ext_updater::checker::check_for_update(info.app_version()).await
                         {
                             Ok(Some(release)) => {
                                 if info.is_homebrew() {
-                                    info.set_status(vryn_ext_updater::UpdateStatus::BrewUpdate {
+                                    info.set_status(notmux_ext_updater::UpdateStatus::BrewUpdate {
                                         version: release.version,
                                     });
                                     let _ = _this.update(cx, |_, cx| cx.notify());
                                 } else {
                                     // Set downloading status and notify before the blocking download
-                                    info.set_status(vryn_ext_updater::UpdateStatus::Downloading {
+                                    info.set_status(notmux_ext_updater::UpdateStatus::Downloading {
                                         version: release.version.clone(),
                                         progress: 0,
                                     });
                                     let _ = _this.update(cx, |_, cx| cx.notify());
 
                                     // Download with periodic UI refresh for progress
-                                    let download = vryn_ext_updater::downloader::download_asset(
+                                    let download = notmux_ext_updater::downloader::download_asset(
                                         release.asset_url,
                                         release.asset_name,
                                         release.version.clone(),
@@ -805,7 +805,7 @@ impl Render for RootView {
                                     match download_result {
                                         Ok(path) => {
                                             info.set_status(
-                                                vryn_ext_updater::UpdateStatus::Ready {
+                                                notmux_ext_updater::UpdateStatus::Ready {
                                                     version: release.version,
                                                     path,
                                                 },
@@ -815,7 +815,7 @@ impl Render for RootView {
                                         Err(e) => {
                                             log::error!("Download failed: {}", e);
                                             info.set_status(
-                                                vryn_ext_updater::UpdateStatus::Failed {
+                                                notmux_ext_updater::UpdateStatus::Failed {
                                                     error: e.to_string(),
                                                 },
                                             );
@@ -825,12 +825,12 @@ impl Render for RootView {
                                 }
                             }
                             Ok(None) => {
-                                info.set_status(vryn_ext_updater::UpdateStatus::Idle);
+                                info.set_status(notmux_ext_updater::UpdateStatus::Idle);
                                 let _ = _this.update(cx, |_, cx| cx.notify());
                             }
                             Err(e) => {
                                 log::error!("Update check failed: {}", e);
-                                info.set_status(vryn_ext_updater::UpdateStatus::Failed {
+                                info.set_status(notmux_ext_updater::UpdateStatus::Failed {
                                     error: e.to_string(),
                                 });
                                 let _ = _this.update(cx, |_, cx| cx.notify());
@@ -844,27 +844,27 @@ impl Render for RootView {
             }))
             // Handle install update action (dispatched from status bar)
             .on_action(cx.listener(|_this, _: &InstallUpdate, _window, cx| {
-                if let Some(update_info) = cx.try_global::<vryn_ext_updater::GlobalUpdateInfo>() {
+                if let Some(update_info) = cx.try_global::<notmux_ext_updater::GlobalUpdateInfo>() {
                     let info = update_info.0.clone();
-                    if let vryn_ext_updater::UpdateStatus::Ready { version, path } = info.status() {
-                        info.set_status(vryn_ext_updater::UpdateStatus::Installing {
+                    if let notmux_ext_updater::UpdateStatus::Ready { version, path } = info.status() {
+                        info.set_status(notmux_ext_updater::UpdateStatus::Installing {
                             version: version.clone(),
                         });
                         cx.notify();
                         cx.spawn(async move |_this, cx| {
                             let result = smol::unblock({
-                                move || vryn_ext_updater::installer::install_update(&path)
+                                move || notmux_ext_updater::installer::install_update(&path)
                             })
                             .await;
                             match result {
                                 Ok(_) => {
                                     info.set_status(
-                                        vryn_ext_updater::UpdateStatus::ReadyToRestart { version },
+                                        notmux_ext_updater::UpdateStatus::ReadyToRestart { version },
                                     );
                                 }
                                 Err(e) => {
                                     log::error!("Install failed: {}", e);
-                                    info.set_status(vryn_ext_updater::UpdateStatus::Failed {
+                                    info.set_status(notmux_ext_updater::UpdateStatus::Failed {
                                         error: e.to_string(),
                                     });
                                 }
@@ -960,7 +960,7 @@ impl Render for RootView {
                         this.toggle_sidebar(cx);
                     }
                     this.sidebar.update(cx, |sidebar, cx| {
-                        sidebar.set_view(vryn_views_sidebar::sidebar::SidebarView::Search, cx);
+                        sidebar.set_view(notmux_views_sidebar::sidebar::SidebarView::Search, cx);
                     });
                 }
             }))

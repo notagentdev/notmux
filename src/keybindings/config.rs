@@ -420,9 +420,9 @@ pub fn get_keybindings_path() -> PathBuf {
     // Debug builds use a separate config dir so `cargo run` doesn't
     // overwrite keybindings of the installed release app.
     #[cfg(debug_assertions)]
-    let dir = "vryn-ws-dev";
+    let dir = "notmux-dev";
     #[cfg(not(debug_assertions))]
-    let dir = "vryn-ws";
+    let dir = "notmux";
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(dir)

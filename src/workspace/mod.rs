@@ -1,4 +1,4 @@
-pub use vryn_workspace::{
+pub use notmux_workspace::{
     hook_monitor, hooks, persistence, request_broker, requests, settings, state, toast,
     worktree_sync,
 };
@@ -6,6 +6,6 @@ pub use vryn_workspace::{
 // focus is re-exported implicitly (no types used directly from main app)
 // sessions is re-exported implicitly (accessed through persistence re-exports)
 #[allow(unused_imports)]
-pub use vryn_workspace::{focus, sessions};
+pub use notmux_workspace::{focus, sessions};
 
 pub mod actions;

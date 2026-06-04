@@ -4,7 +4,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use vryn_core::client::{ConnectionHandler, WsClientMessage, is_remote_terminal};
+use notmux_core::client::{ConnectionHandler, WsClientMessage, is_remote_terminal};
 
 /// Mobile-specific handler that creates `TerminalHolder` objects.
 ///
@@ -74,7 +74,7 @@ impl ConnectionHandler for MobileConnectionHandler {
         connection_id: &str,
         keep_ids: &std::collections::HashSet<String>,
     ) {
-        use vryn_core::client::strip_prefix;
+        use notmux_core::client::strip_prefix;
         let mut terminals = self.terminals.write();
         let to_remove: Vec<String> = terminals
             .keys()

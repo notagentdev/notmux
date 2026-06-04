@@ -1,1 +1,1 @@
-pub use vryn_views_sidebar::hook_log::*;
+pub use notmux_views_sidebar::hook_log::*;

@@ -1,1 +1,1 @@
-pub use vryn_views_git::diff_viewer::*;
+pub use notmux_views_git::diff_viewer::*;

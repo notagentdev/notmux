@@ -1,0 +1,22 @@
+[package]
+name = "notmux-views-sidebar"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+notmux-core = { path = "../notmux-core", features = ["client"] }
+notmux-files = { path = "../notmux-files" }
+notmux-git = { path = "../notmux-git" }
+notmux-services = { path = "../notmux-services" }
+notmux-terminal = { path = "../notmux-terminal" }
+notmux-ui = { path = "../notmux-ui" }
+notmux-views-services = { path = "../notmux-views-services" }
+notmux-views-terminal = { path = "../notmux-views-terminal" }
+notmux-workspace = { path = "../notmux-workspace" }
+
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
+
+smol = "2.0"
+log = "0.4"

@@ -1,12 +1,12 @@
 # Lifecycle Hooks
 
-Vryn can run shell commands automatically in response to project and worktree events. Hooks let you automate tasks like installing dependencies, running linters, notifying services, or launching AI agents to resolve conflicts.
+NotMux can run shell commands automatically in response to project and worktree events. Hooks let you automate tasks like installing dependencies, running linters, notifying services, or launching AI agents to resolve conflicts.
 
 ## Configuration
 
 Hooks are configured in two places:
 
-- **Global** -- `~/.config/vryn-ws/settings.json` under the `"hooks"` key. Applies to all projects.
+- **Global** -- `~/.config/notmux/settings.json` under the `"hooks"` key. Applies to all projects.
 - **Per-project** -- stored in `workspace.json` on each project entry. Overrides the global default when set.
 
 Per-project hooks take priority. If a project does not define a given hook, the global value is used. If neither is set, the hook does not fire.
@@ -77,11 +77,11 @@ Hooks receive context through environment variables. The working directory is se
 
 | Variable | Description |
 |----------|-------------|
-| `VRYN_PROJECT_ID` | Unique ID of the project |
-| `VRYN_PROJECT_NAME` | Display name of the project |
-| `VRYN_PROJECT_PATH` | Filesystem path to the project |
-| `VRYN_FOLDER_ID` | ID of the folder containing the project (if any) |
-| `VRYN_FOLDER_NAME` | Display name of the folder (if any) |
+| `NOTMUX_PROJECT_ID` | Unique ID of the project |
+| `NOTMUX_PROJECT_NAME` | Display name of the project |
+| `NOTMUX_PROJECT_PATH` | Filesystem path to the project |
+| `NOTMUX_FOLDER_ID` | ID of the folder containing the project (if any) |
+| `NOTMUX_FOLDER_NAME` | Display name of the folder (if any) |
 
 ### Worktree and branch variables
 
@@ -89,23 +89,23 @@ Available on worktree and merge hooks.
 
 | Variable | Description |
 |----------|-------------|
-| `VRYN_BRANCH` | Current branch name |
-| `VRYN_TARGET_BRANCH` | Target branch for merge operations (`pre_merge`, `post_merge`, `on_rebase_conflict`) |
-| `VRYN_MAIN_REPO_PATH` | Path to the main repository (merge and worktree-remove hooks) |
+| `NOTMUX_BRANCH` | Current branch name |
+| `NOTMUX_TARGET_BRANCH` | Target branch for merge operations (`pre_merge`, `post_merge`, `on_rebase_conflict`) |
+| `NOTMUX_MAIN_REPO_PATH` | Path to the main repository (merge and worktree-remove hooks) |
 
 ### Terminal variables
 
 | Variable | Description |
 |----------|-------------|
-| `VRYN_TERMINAL_ID` | Unique ID of the terminal (`terminal.on_close` only) |
-| `VRYN_TERMINAL_NAME` | Custom name of the terminal, if set (`terminal.on_close` only) |
-| `VRYN_EXIT_CODE` | Exit code of the terminal process (`terminal.on_close` only) |
+| `NOTMUX_TERMINAL_ID` | Unique ID of the terminal (`terminal.on_close` only) |
+| `NOTMUX_TERMINAL_NAME` | Custom name of the terminal, if set (`terminal.on_close` only) |
+| `NOTMUX_EXIT_CODE` | Exit code of the terminal process (`terminal.on_close` only) |
 
 ### Conflict variables
 
 | Variable | Description |
 |----------|-------------|
-| `VRYN_REBASE_ERROR` | Error message from a failed rebase (`on_rebase_conflict` only) |
+| `NOTMUX_REBASE_ERROR` | Error message from a failed rebase (`on_rebase_conflict` only) |
 
 ### Variable availability by hook
 
@@ -125,11 +125,11 @@ Available on worktree and merge hooks.
 | `terminal.shell_wrapper` | yes | if in folder | worktree | | | | | | |
 | `terminal.on_close` | yes | if in folder | worktree | | | | yes | if set | yes |
 
-For `terminal.on_create` and `terminal.shell_wrapper`, environment variables are exported into the shell session so they persist after the hook command runs. For worktree projects, `VRYN_BRANCH` is included automatically.
+For `terminal.on_create` and `terminal.shell_wrapper`, environment variables are exported into the shell session so they persist after the hook command runs. For worktree projects, `NOTMUX_BRANCH` is included automatically.
 
 ## Hook Monitor
 
-Vryn tracks the last 50 hook executions in the hook monitor. Each execution records:
+NotMux tracks the last 50 hook executions in the hook monitor. Each execution records:
 
 - Hook type and command
 - Project name
@@ -137,7 +137,7 @@ Vryn tracks the last 50 hook executions in the hook monitor. Each execution reco
 - Status: Running, Succeeded, Failed (with exit code and stderr), or SpawnError
 - Associated terminal ID (when using PTY execution)
 
-When a hook fails or cannot start, Vryn shows a toast notification with the first line of stderr (truncated to 120 characters).
+When a hook fails or cannot start, NotMux shows a toast notification with the first line of stderr (truncated to 120 characters).
 
 ## Examples
 
@@ -180,7 +180,7 @@ This opens an interactive terminal pane running Claude with a prompt to fix the 
 ```json
 {
   "hooks": {
-    "worktree_removed": "git push origin --delete $VRYN_BRANCH"
+    "worktree_removed": "git push origin --delete $NOTMUX_BRANCH"
   }
 }
 ```
@@ -190,7 +190,7 @@ This opens an interactive terminal pane running Claude with a prompt to fix the 
 ```json
 {
   "hooks": {
-    "on_dirty_worktree_close": "git stash push -m \"auto-stash on close: $VRYN_BRANCH\"\nterminal: echo 'Changes stashed for branch $VRYN_BRANCH'"
+    "on_dirty_worktree_close": "git stash push -m \"auto-stash on close: $NOTMUX_BRANCH\"\nterminal: echo 'Changes stashed for branch $NOTMUX_BRANCH'"
   }
 }
 ```

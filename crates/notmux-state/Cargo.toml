@@ -1,0 +1,15 @@
+[package]
+name = "notmux-state"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+notmux-core = { path = "../notmux-core", features = ["client"] }
+notmux-terminal = { path = "../notmux-terminal" }
+notmux-layout = { path = "../notmux-layout" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4"] }
+log = "0.4"

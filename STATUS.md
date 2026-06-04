@@ -1,4 +1,4 @@
-# STATUS.md - Analýza projektu Vryn
+# STATUS.md - Analýza projektu NotMux
 
 **Datum:** 2026-01-13
 **Stav:** Aktivní vývoj (WIP commity)
@@ -275,7 +275,7 @@ Některé error messages jsou příliš technické, nejsou user-friendly
 
 ## Závěr
 
-Vryn je dobře navržený terminálový multiplexer s solidní architekturou. Hlavní priority by měly být:
+NotMux je dobře navržený terminálový multiplexer s solidní architekturou. Hlavní priority by měly být:
 
 1. **Stabilita:** Opravit race conditions a přidat proper error handling
 2. **UX:** Scrollback buffer je klíčová chybějící feature

@@ -10,11 +10,11 @@ import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   await RustLib.init();
-  runApp(const VrynApp());
+  runApp(const NotMuxApp());
 }
 
-class VrynApp extends StatelessWidget {
-  const VrynApp({super.key});
+class NotMuxApp extends StatelessWidget {
+  const NotMuxApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +29,7 @@ class VrynApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Vryn',
+        title: 'NotMux',
         theme: ThemeData.dark(useMaterial3: true).copyWith(
           colorScheme: const ColorScheme.dark(
             primary: Color(0xFF007ACC),

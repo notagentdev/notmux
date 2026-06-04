@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
-use vryn_core::api::ApiGitStatus;
+use notmux_core::api::ApiGitStatus;
 
 #[derive(RustEmbed)]
 #[folder = "web/dist"]

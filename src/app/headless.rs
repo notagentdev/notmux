@@ -20,7 +20,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::watch as tokio_watch;
-use vryn_core::api::ApiGitStatus;
+use notmux_core::api::ApiGitStatus;
 
 use crate::terminal::backend::LocalBackend;
 
@@ -265,7 +265,7 @@ impl HeadlessApp {
                 let code = self.auth_store.get_or_create_code();
                 println!("Remote server listening on port {port}");
                 println!("Pairing code: {code} (expires in 60s)");
-                println!("Run `vryn pair` anytime for a fresh code.");
+                println!("Run `notmux pair` anytime for a fresh code.");
 
                 self.remote_server = Some(server);
             }

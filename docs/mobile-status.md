@@ -2,7 +2,7 @@
 
 ## Overview
 
-Flutter + Rust FFI mobile app (Android/iOS) for controlling a remote Vryn desktop instance. Uses `alacritty_terminal` in Rust for ANSI processing — identical terminal emulation as the desktop app. Communicates with the desktop's remote server via REST + WebSocket.
+Flutter + Rust FFI mobile app (Android/iOS) for controlling a remote NotMux desktop instance. Uses `alacritty_terminal` in Rust for ANSI processing — identical terminal emulation as the desktop app. Communicates with the desktop's remote server via REST + WebSocket.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Flutter + Rust FFI mobile app (Android/iOS) for controlling a remote Vryn deskto
            │           HTTP + WebSocket
            ▼                          ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  Vryn Desktop (server)                                      │
+│  NotMux Desktop (server)                                      │
 │                                                              │
 │  Remote Server (src/remote/)                                 │
 │  ├── POST /v1/pair       → code → bearer token               │
@@ -38,9 +38,9 @@ Flutter + Rust FFI mobile app (Android/iOS) for controlling a remote Vryn deskto
 ## Repository Structure
 
 ```
-Cargo.toml                     ← workspace: members = [".", "mobile/native", "crates/vryn-core"]
+Cargo.toml                     ← workspace: members = [".", "mobile/native", "crates/notmux-core"]
 src/                           ← desktop app
-crates/vryn-core/             ← shared crate (API types, client state machine, theme colors)
+crates/notmux-core/             ← shared crate (API types, client state machine, theme colors)
 mobile/
   android/, ios/               ← platform shells
   lib/
@@ -89,7 +89,7 @@ mobile/
 Remote PTY process
   → PtyBroadcaster (server)
   → WebSocket binary frame [proto=1][type=1][stream_id:u32][data...]
-  → RemoteClient WS reader task (vryn-core)
+  → RemoteClient WS reader task (notmux-core)
   → MobileConnectionHandler.on_terminal_output()
   → TerminalHolder.process_output(data)     ← alacritty ANSI processing
   → dirty flag set
@@ -120,9 +120,9 @@ WS "state_changed" event or initial connect
   → Flutter reads via FFI get_projects()
 ```
 
-## Shared Core: vryn-core
+## Shared Core: notmux-core
 
-The `crates/vryn-core/` crate contains all code shared between desktop and mobile:
+The `crates/notmux-core/` crate contains all code shared between desktop and mobile:
 
 | Module | Contents |
 |--------|----------|
@@ -144,7 +144,7 @@ Desktop uses the same `RemoteClient<H>` with `DesktopConnectionHandler` (creates
 ### Flutter + Rust FFI (not React Native + xterm.js)
 
 - Same terminal parser as desktop (alacritty_terminal) — no rendering divergence
-- Shared Rust code via vryn-core — real code reuse, not just type duplication
+- Shared Rust code via notmux-core — real code reuse, not just type duplication
 - CustomPainter for grid rendering — full control, no WebView overhead
 - Higher build complexity (NDK cross-compilation) — acceptable tradeoff
 
@@ -174,7 +174,7 @@ Cell colors use `ThemeColors::DARK_THEME` for ANSI → ARGB conversion. Theme sw
 
 | Layer | What | Status |
 |-------|------|--------|
-| **Shared core** | vryn-core with API types, RemoteClient state machine, ThemeColors | Complete |
+| **Shared core** | notmux-core with API types, RemoteClient state machine, ThemeColors | Complete |
 | **Desktop client** | `src/remote_client/` — DesktopConnectionHandler, RemoteBackend, sidebar integration | Complete |
 | **Desktop server** | All endpoints: health, pair, state, actions (including resize, create_terminal), WS stream | Complete |
 | **Web client** | React SPA at `/v1/web/` — connect, pair, browse projects, render terminals (xterm.js) | Complete |
@@ -185,7 +185,7 @@ Cell colors use `ThemeColors::DARK_THEME` for ANSI → ARGB conversion. Theme sw
 | **Key toolbar** | ESC, TAB, CTRL/ALT sticky toggles, arrow keys | Complete |
 | **Layout rendering** | Recursive split/tab layout from JSON, portrait-mode auto-vertical, tab switching | Complete |
 | **Saved servers** | SharedPreferences persistence with JSON serialization | Complete |
-| **Rust tests** | 8 mobile native + 23 vryn-core unit tests | Passing |
+| **Rust tests** | 8 mobile native + 23 notmux-core unit tests | Passing |
 | **Dart tests** | 22 unit tests (7 SavedServer, 7 LayoutNode, 8 terminal flags/colors) | Passing |
 
 ### Not yet done (polish)
@@ -198,7 +198,7 @@ Cell colors use `ThemeColors::DARK_THEME` for ANSI → ARGB conversion. Theme sw
 | **Theme sync** | Receive theme colors from server instead of hardcoded DARK_THEME |
 | **F-keys** | F1–F12 in toolbar (swipe-up row) |
 | **App icon & splash** | Custom launcher icon, branded splash screen |
-| **On-device testing** | End-to-end test on physical Android device with real Vryn server |
+| **On-device testing** | End-to-end test on physical Android device with real NotMux server |
 
 ## FFI Surface
 
@@ -250,7 +250,7 @@ Cell colors use `ThemeColors::DARK_THEME` for ANSI → ARGB conversion. Theme sw
 
 ### 3. On-device testing
 
-- End-to-end test: connect to real Vryn server, pair, browse projects, type in terminal
+- End-to-end test: connect to real NotMux server, pair, browse projects, type in terminal
 - Verify performance (30fps rendering, resize latency)
 - Test with large terminal output (build logs, `htop`)
 
@@ -269,8 +269,8 @@ The remote server binds to a configurable IP (default localhost). Mobile clients
 
 ```bash
 # Rust only
-cargo build -p vryn_mobile_native
-cargo test -p vryn_mobile_native
+cargo build -p notmux_mobile_native
+cargo test -p notmux_mobile_native
 
 # Regenerate Dart bindings
 cd mobile && flutter_rust_bridge_codegen generate

@@ -13,7 +13,7 @@ class ServerListScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Vryn'),
+        title: const Text('NotMux'),
         centerTitle: true,
       ),
       body: provider.servers.isEmpty

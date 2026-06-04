@@ -4,8 +4,8 @@ use crate::client::terminal_holder::TerminalHolder;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use vryn_core::api::{ActionRequest, StateResponse};
-use vryn_core::client::{
+use notmux_core::api::{ActionRequest, StateResponse};
+use notmux_core::client::{
     ConnectionEvent, ConnectionStatus, RemoteClient, RemoteConnectionConfig, WsClientMessage,
     make_prefixed_id,
 };

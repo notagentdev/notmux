@@ -49,8 +49,8 @@ impl SettingsPanel {
         } else {
             "Global Hooks"
         };
-        let env_note = "Available env: $VRYN_PROJECT_ID, $VRYN_PROJECT_NAME, $VRYN_PROJECT_PATH";
-        let merge_env_note = "Extra env: $VRYN_BRANCH, $VRYN_TARGET_BRANCH, $VRYN_MAIN_REPO_PATH";
+        let env_note = "Available env: $NOTMUX_PROJECT_ID, $NOTMUX_PROJECT_NAME, $NOTMUX_PROJECT_PATH";
+        let merge_env_note = "Extra env: $NOTMUX_BRANCH, $NOTMUX_TARGET_BRANCH, $NOTMUX_MAIN_REPO_PATH";
         let multiline_hint = "Use multiple lines to chain actions. Prefix with terminal: to open in a terminal pane.";
 
         div()
@@ -154,7 +154,7 @@ impl SettingsPanel {
                     ))
                     .child(hook_input_row(
                         "hook-on-rebase-conflict", "On Rebase Conflict",
-                        "Runs when rebase fails due to conflicts. Extra env: $VRYN_REBASE_ERROR",
+                        "Runs when rebase fails due to conflicts. Extra env: $NOTMUX_REBASE_ERROR",
                         &h9, "", &t, true, cx,
                     ))
                     .child(hook_input_row(

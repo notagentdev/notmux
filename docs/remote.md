@@ -1,6 +1,6 @@
 # Remote Control API
 
-Vryn includes a local HTTP/WebSocket server for remote control — useful for mobile companion apps or access via [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+NotMux includes a local HTTP/WebSocket server for remote control — useful for mobile companion apps or access via [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
 
 ## Quick Start
 
@@ -19,13 +19,13 @@ Vryn includes a local HTTP/WebSocket server for remote control — useful for mo
 - Server **always** binds to `127.0.0.1` only — never exposed to the network
 - For remote access, use a tunnel (e.g. Cloudflare Tunnel, SSH port forwarding)
 - Pairing codes are 8-character base32, valid for 60 seconds, single-use
-- Tokens are stored as HMAC-SHA256 digests (never plaintext) using a persistent app secret (`~/.config/vryn-ws/remote_secret`)
+- Tokens are stored as HMAC-SHA256 digests (never plaintext) using a persistent app secret (`~/.config/notmux/remote_secret`)
 - Rate limiting: 5 attempts per IP per minute, 30 globally per minute
 - 300ms delay on every failed pairing attempt
 
 ## Configuration
 
-In `~/.config/vryn-ws/settings.json`:
+In `~/.config/notmux/settings.json`:
 
 ```json
 {
@@ -33,7 +33,7 @@ In `~/.config/vryn-ws/settings.json`:
 }
 ```
 
-When running, the server writes `~/.config/vryn-ws/remote.json`:
+When running, the server writes `~/.config/notmux/remote.json`:
 
 ```json
 {

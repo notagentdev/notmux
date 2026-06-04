@@ -12,7 +12,7 @@ pub use types::{ActionDescription, KeybindingConflict, KeybindingEntry};
 
 // App-level actions (handled by root view, overlay manager, sidebar)
 actions!(
-    vryn,
+    notmux,
     [
         Quit,
         About,
@@ -48,8 +48,8 @@ actions!(
     ]
 );
 
-// Terminal-specific actions (defined in vryn-views-terminal crate)
-pub use vryn_views_terminal::actions::{
+// Terminal-specific actions (defined in notmux-views-terminal crate)
+pub use notmux_views_terminal::actions::{
     AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextTerminal,
     FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
     MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev,
@@ -57,8 +57,8 @@ pub use vryn_views_terminal::actions::{
     ZoomOut,
 };
 
-// Sidebar-specific actions (defined in vryn-views-sidebar crate)
-pub use vryn_views_sidebar::{
+// Sidebar-specific actions (defined in notmux-views-sidebar crate)
+pub use notmux_views_sidebar::{
     SidebarConfirm, SidebarDown, SidebarEscape, SidebarToggleExpand, SidebarUp,
 };
 
@@ -131,12 +131,12 @@ pub fn reload_keybindings(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new(
             "enter",
-            vryn_views_sidebar::ExplorerInputConfirm,
+            notmux_views_sidebar::ExplorerInputConfirm,
             Some("ExplorerInput"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::ExplorerInputCancel,
+            notmux_views_sidebar::ExplorerInputCancel,
             Some("ExplorerInput"),
         ),
     ]);
@@ -147,60 +147,60 @@ pub fn reload_keybindings(cx: &mut App) {
         KeyBinding::new("escape", CloseSearch, Some("SearchBar")),
         KeyBinding::new(
             "escape",
-            vryn_views_terminal::actions::Cancel,
+            notmux_views_terminal::actions::Cancel,
             Some("TerminalRename"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_files::file_search::Cancel,
+            notmux_files::file_search::Cancel,
             Some("FileSearchDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_files::file_search::Cancel,
+            notmux_files::file_search::Cancel,
             Some("FileViewer"),
         ),
-        KeyBinding::new("escape", vryn_views_git::Cancel, Some("WorktreeDialog")),
+        KeyBinding::new("escape", notmux_views_git::Cancel, Some("WorktreeDialog")),
         KeyBinding::new(
             "escape",
-            vryn_views_git::Cancel,
+            notmux_views_git::Cancel,
             Some("CloseWorktreeDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_git::diff_viewer::Cancel,
+            notmux_views_git::diff_viewer::Cancel,
             Some("DiffViewer"),
         ),
-        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("ContextMenu")),
+        KeyBinding::new("escape", notmux_views_sidebar::Cancel, Some("ContextMenu")),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::Cancel,
+            notmux_views_sidebar::Cancel,
             Some("FolderContextMenu"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::Cancel,
+            notmux_views_sidebar::Cancel,
             Some("RenameDirectoryDialog"),
         ),
-        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("HookLog")),
+        KeyBinding::new("escape", notmux_views_sidebar::Cancel, Some("HookLog")),
         KeyBinding::new(
             "escape",
-            vryn_views_terminal::actions::Cancel,
+            notmux_views_terminal::actions::Cancel,
             Some("ShellSelectorOverlay"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemoteConnectDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemotePairDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemoteContextMenu"),
         ),
     ]);
@@ -254,12 +254,12 @@ pub fn register_keybindings(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new(
             "enter",
-            vryn_views_sidebar::ExplorerInputConfirm,
+            notmux_views_sidebar::ExplorerInputConfirm,
             Some("ExplorerInput"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::ExplorerInputCancel,
+            notmux_views_sidebar::ExplorerInputCancel,
             Some("ExplorerInput"),
         ),
     ]);
@@ -276,65 +276,65 @@ pub fn register_keybindings(cx: &mut App) {
         // Terminal rename uses the crate's Cancel action
         KeyBinding::new(
             "escape",
-            vryn_views_terminal::actions::Cancel,
+            notmux_views_terminal::actions::Cancel,
             Some("TerminalRename"),
         ),
-        // vryn-files crate Cancel action for file search/viewer
+        // notmux-files crate Cancel action for file search/viewer
         KeyBinding::new(
             "escape",
-            vryn_files::file_search::Cancel,
+            notmux_files::file_search::Cancel,
             Some("FileSearchDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_files::file_search::Cancel,
+            notmux_files::file_search::Cancel,
             Some("FileViewer"),
         ),
-        // vryn-views-git crate Cancel actions for git overlays
-        KeyBinding::new("escape", vryn_views_git::Cancel, Some("WorktreeDialog")),
+        // notmux-views-git crate Cancel actions for git overlays
+        KeyBinding::new("escape", notmux_views_git::Cancel, Some("WorktreeDialog")),
         KeyBinding::new(
             "escape",
-            vryn_views_git::Cancel,
+            notmux_views_git::Cancel,
             Some("CloseWorktreeDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_git::diff_viewer::Cancel,
+            notmux_views_git::diff_viewer::Cancel,
             Some("DiffViewer"),
         ),
-        // vryn-views-sidebar crate Cancel actions for context menus
-        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("ContextMenu")),
+        // notmux-views-sidebar crate Cancel actions for context menus
+        KeyBinding::new("escape", notmux_views_sidebar::Cancel, Some("ContextMenu")),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::Cancel,
+            notmux_views_sidebar::Cancel,
             Some("FolderContextMenu"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_sidebar::Cancel,
+            notmux_views_sidebar::Cancel,
             Some("RenameDirectoryDialog"),
         ),
-        KeyBinding::new("escape", vryn_views_sidebar::Cancel, Some("HookLog")),
-        // vryn-views-terminal crate Cancel for shell selector
+        KeyBinding::new("escape", notmux_views_sidebar::Cancel, Some("HookLog")),
+        // notmux-views-terminal crate Cancel for shell selector
         KeyBinding::new(
             "escape",
-            vryn_views_terminal::actions::Cancel,
+            notmux_views_terminal::actions::Cancel,
             Some("ShellSelectorOverlay"),
         ),
-        // vryn-views-remote crate Cancel actions
+        // notmux-views-remote crate Cancel actions
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemoteConnectDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemotePairDialog"),
         ),
         KeyBinding::new(
             "escape",
-            vryn_views_remote::Cancel,
+            notmux_views_remote::Cancel,
             Some("RemoteContextMenu"),
         ),
     ]);

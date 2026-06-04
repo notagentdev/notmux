@@ -10,7 +10,7 @@ use alacritty_terminal::term::{Config as TermConfig, Term};
 use alacritty_terminal::vte::ansi::Processor;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use vryn_core::theme::ThemeColors;
+use notmux_core::theme::ThemeColors;
 
 /// No-op event listener for mobile.
 ///
@@ -261,7 +261,7 @@ impl TerminalHolder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vryn_core::theme::DARK_THEME;
+    use notmux_core::theme::DARK_THEME;
 
     #[test]
     fn process_simple_text() {

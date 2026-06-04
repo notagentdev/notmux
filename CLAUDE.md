@@ -1,4 +1,4 @@
-# Vryn
+# NotMux
 
 Cross-platform terminal multiplexer built with Rust and GPUI (from Zed editor).
 
@@ -29,32 +29,32 @@ scripts/                    # Build & utility scripts
 
 ### Crate layout
 
-Most logic lives in `crates/`. The `src/` modules are thin re-exports (`pub use vryn_*::*`) so existing `use crate::` imports keep working.
+Most logic lives in `crates/`. The `src/` modules are thin re-exports (`pub use notmux_*::*`) so existing `use crate::` imports keep working.
 
 | Crate | Purpose |
 |-------|---------|
-| `vryn-state` | Pure data types: `WorkspaceData`, `ProjectData`, `FolderData`, `HooksConfig`, `Toast`. No GPUI. |
-| `vryn-layout` | `LayoutNode` recursive tree + algorithms (split/normalize/merge_visual_state) |
-| `vryn-hooks` | Lifecycle hook execution (`HookRunner`, `HookMonitor`). Decoupled from `vryn-workspace`. |
-| `vryn-workspace` | `Workspace` GPUI entity, persistence, settings, sessions, action methods |
-| `vryn-terminal` | PTY management, shell config, session backends |
-| `vryn-git` | Git status, diff parsing, worktree operations |
-| `vryn-theme` | Theming system (built-in + custom themes) |
-| `vryn-ui` | Design tokens, shared UI utilities |
-| `vryn-files` | File search, file viewer, syntax highlighting |
-| `vryn-markdown` | Markdown parsing and rendering |
-| `vryn-views-terminal` | Terminal pane, layout container, split/tabs views |
-| `vryn-views-sidebar` | Sidebar, project list, folder list, drag-and-drop |
-| `vryn-views-git` | Diff viewer, worktree dialog, git status UI |
-| `vryn-views-remote` | Remote connection dialogs |
-| `vryn-views-services` | Service panel views |
-| `vryn-remote-client` | Remote client connection manager |
-| `vryn-services` | Docker Compose, port detection |
-| `vryn-extensions` | Extension system |
-| `vryn-ext-claude` | Claude AI extension |
-| `vryn-ext-codex` | Codex extension |
-| `vryn-ext-updater` | Self-update system |
-| `vryn-core` | Shared types, API client, key handling |
+| `notmux-state` | Pure data types: `WorkspaceData`, `ProjectData`, `FolderData`, `HooksConfig`, `Toast`. No GPUI. |
+| `notmux-layout` | `LayoutNode` recursive tree + algorithms (split/normalize/merge_visual_state) |
+| `notmux-hooks` | Lifecycle hook execution (`HookRunner`, `HookMonitor`). Decoupled from `notmux-workspace`. |
+| `notmux-workspace` | `Workspace` GPUI entity, persistence, settings, sessions, action methods |
+| `notmux-terminal` | PTY management, shell config, session backends |
+| `notmux-git` | Git status, diff parsing, worktree operations |
+| `notmux-theme` | Theming system (built-in + custom themes) |
+| `notmux-ui` | Design tokens, shared UI utilities |
+| `notmux-files` | File search, file viewer, syntax highlighting |
+| `notmux-markdown` | Markdown parsing and rendering |
+| `notmux-views-terminal` | Terminal pane, layout container, split/tabs views |
+| `notmux-views-sidebar` | Sidebar, project list, folder list, drag-and-drop |
+| `notmux-views-git` | Diff viewer, worktree dialog, git status UI |
+| `notmux-views-remote` | Remote connection dialogs |
+| `notmux-views-services` | Service panel views |
+| `notmux-remote-client` | Remote client connection manager |
+| `notmux-services` | Docker Compose, port detection |
+| `notmux-extensions` | Extension system |
+| `notmux-ext-claude` | Claude AI extension |
+| `notmux-ext-codex` | Codex extension |
+| `notmux-ext-updater` | Self-update system |
+| `notmux-core` | Shared types, API client, key handling |
 
 ## Module-Specific Context
 
@@ -64,8 +64,8 @@ Read these when working in the corresponding areas:
 - `src/app/CLAUDE.md` — Main app entity, PTY event loop, remote bridge
 - `src/remote/CLAUDE.md` — Remote control server (HTTP/WS API)
 - `src/keybindings/CLAUDE.md` — Keyboard actions, bindings config
-- `crates/vryn-workspace/CLAUDE.md` — State management, LayoutNode tree, persistence
-- `crates/vryn-terminal/CLAUDE.md` — PTY threading model, shell detection
-- `crates/vryn-git/CLAUDE.md` — Diff parsing, worktree operations
+- `crates/notmux-workspace/CLAUDE.md` — State management, LayoutNode tree, persistence
+- `crates/notmux-terminal/CLAUDE.md` — PTY threading model, shell detection
+- `crates/notmux-git/CLAUDE.md` — Diff parsing, worktree operations
 - `mobile/CLAUDE.md` — Flutter + Rust FFI mobile app
 - `web/CLAUDE.md` — React web client

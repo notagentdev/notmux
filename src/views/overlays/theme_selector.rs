@@ -12,7 +12,7 @@ use crate::views::components::{
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
-use vryn_ui::selectable_list::selectable_list_item;
+use notmux_ui::selectable_list::selectable_list_item;
 
 /// Theme selection entry with preview and info
 #[derive(Clone)]

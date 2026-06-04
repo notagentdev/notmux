@@ -13,9 +13,9 @@ use crate::workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
-use vryn_core::api::ActionRequest;
-use vryn_core::client::ConnectionStatus;
-use vryn_ui::dialog_actions::dialog_actions;
+use notmux_core::api::ActionRequest;
+use notmux_core::client::ConnectionStatus;
+use notmux_ui::dialog_actions::dialog_actions;
 
 enum AddProjectTarget {
     Local,

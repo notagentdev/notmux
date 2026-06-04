@@ -1,0 +1,14 @@
+[package]
+name = "notmux-markdown"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+notmux-core = { path = "../notmux-core" }
+notmux-ui = { path = "../notmux-ui" }
+
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
+
+pulldown-cmark = "0.12"

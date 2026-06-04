@@ -11,11 +11,11 @@ use gpui::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::watch as tokio_watch;
-use vryn_core::api::ApiGitStatus;
+use notmux_core::api::ApiGitStatus;
 
-use super::Vryn;
+use super::NotMux;
 
-/// Shared remote command loop used by both GUI (`Vryn`) and headless (`HeadlessApp`).
+/// Shared remote command loop used by both GUI (`NotMux`) and headless (`HeadlessApp`).
 ///
 /// Processes commands from the remote API bridge on the GPUI main thread.
 /// Callers are responsible for spawning this via `cx.spawn()`.
@@ -140,7 +140,7 @@ pub(crate) async fn remote_command_loop(
                                         ServiceStatus::Restarting => ("restarting", None),
                                     };
                                     let kind = match &inst.kind {
-                                        crate::services::manager::ServiceKind::Vryn => "vryn",
+                                        crate::services::manager::ServiceKind::NotMux => "notmux",
                                         crate::services::manager::ServiceKind::DockerCompose {
                                             ..
                                         } => "docker_compose",
@@ -167,7 +167,7 @@ pub(crate) async fn remote_command_loop(
                                 folder_color: p.folder_color,
                                 services,
                                 worktree_info: p.worktree_info.as_ref().map(|wt| {
-                                    vryn_core::api::ApiWorktreeMetadata {
+                                    notmux_core::api::ApiWorktreeMetadata {
                                         parent_project_id: wt.parent_project_id.clone(),
                                         color_override: wt.color_override,
                                     }
@@ -263,7 +263,7 @@ pub(crate) async fn remote_command_loop(
     }
 }
 
-impl Vryn {
+impl NotMux {
     /// Process commands from the remote API bridge.
     /// Thin wrapper that spawns the shared `remote_command_loop`.
     pub(super) fn start_remote_command_loop(
@@ -278,7 +278,7 @@ impl Vryn {
         let git_status_tx = self.git_status_tx.clone();
         let service_manager = self.service_manager.clone();
 
-        cx.spawn(async move |_this: WeakEntity<Vryn>, cx: &mut AsyncApp| {
+        cx.spawn(async move |_this: WeakEntity<NotMux>, cx: &mut AsyncApp| {
             remote_command_loop(
                 bridge_rx,
                 backend,

@@ -10,8 +10,8 @@ use crate::views::root::TerminalsRegistry;
 use crate::workspace::actions::execute::execute_action;
 use crate::workspace::state::Workspace;
 
-use vryn_core::api::ActionRequest;
-use vryn_core::client::strip_prefix;
+use notmux_core::api::ActionRequest;
+use notmux_core::client::strip_prefix;
 
 use gpui::{AppContext, Entity};
 use std::sync::Arc;
@@ -318,7 +318,7 @@ impl ActionDispatcher {
     }
 }
 
-impl vryn_views_terminal::ActionDispatch for ActionDispatcher {
+impl notmux_views_terminal::ActionDispatch for ActionDispatcher {
     fn dispatch(&self, action: ActionRequest, cx: &mut gpui::App) {
         self.dispatch(action, cx);
     }

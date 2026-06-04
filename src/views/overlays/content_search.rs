@@ -1,3 +1,3 @@
-//! Content search dialog -- re-exported from vryn-files.
+//! Content search dialog -- re-exported from notmux-files.
 
-pub use vryn_files::content_search_dialog::*;
+pub use notmux_files::content_search_dialog::*;

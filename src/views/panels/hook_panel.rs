@@ -15,10 +15,10 @@ use crate::workspace::state::{HookTerminalEntry, HookTerminalStatus, Workspace};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
-use vryn_ui::icon_button::icon_button_sized;
-use vryn_views_terminal::elements::resize_handle::ResizeHandle;
-use vryn_views_terminal::layout::split_pane::{ActiveDrag, DragState};
-use vryn_views_terminal::layout::terminal_pane::TerminalPane;
+use notmux_ui::icon_button::icon_button_sized;
+use notmux_views_terminal::elements::resize_handle::ResizeHandle;
+use notmux_views_terminal::layout::split_pane::{ActiveDrag, DragState};
+use notmux_views_terminal::layout::terminal_pane::TerminalPane;
 
 use std::sync::Arc;
 
@@ -235,9 +235,9 @@ impl HookPanel {
         match runner.backend.create_terminal(cwd, None) {
             Ok(new_terminal_id) => {
                 let transport = runner.backend.transport();
-                let terminal = Arc::new(vryn_terminal::terminal::Terminal::new(
+                let terminal = Arc::new(notmux_terminal::terminal::Terminal::new(
                     new_terminal_id.clone(),
-                    vryn_terminal::terminal::TerminalSize::default(),
+                    notmux_terminal::terminal::TerminalSize::default(),
                     transport.clone(),
                     cwd.to_string(),
                 ));

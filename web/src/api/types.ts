@@ -1,4 +1,4 @@
-// Types matching crates/vryn-core exactly
+// Types matching crates/notmux-core exactly
 
 // ── REST types ──────────────────────────────────────────────────────────────
 

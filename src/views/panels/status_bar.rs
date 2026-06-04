@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{Disks, System};
 use time::OffsetDateTime;
-use vryn_extensions::{ExtensionInstance, ExtensionRegistry};
+use notmux_extensions::{ExtensionInstance, ExtensionRegistry};
 
 /// Refresh interval for system stats
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -100,7 +100,7 @@ impl SystemInfoCache {
 pub struct StatusBar {
     cache: Arc<Mutex<SystemInfoCache>>,
     /// Activate functions cloned from registry (keyed by extension ID).
-    activate_fns: Vec<(String, vryn_extensions::ActivateFn)>,
+    activate_fns: Vec<(String, notmux_extensions::ActivateFn)>,
     /// Active extension instances. Dropping an instance deactivates the extension
     /// (cancels background tasks, releases views).
     active_extensions: HashMap<String, ExtensionInstance>,
@@ -176,7 +176,7 @@ impl StatusBar {
 
     /// Activate extensions that are in the enabled set.
     fn activate_extensions(
-        activate_fns: &[(String, vryn_extensions::ActivateFn)],
+        activate_fns: &[(String, notmux_extensions::ActivateFn)],
         enabled: &HashSet<String>,
         cx: &mut App,
     ) -> HashMap<String, ExtensionInstance> {

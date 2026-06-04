@@ -2,26 +2,26 @@ use crate::settings::GlobalSettings;
 use crate::workspace::state::GlobalWorkspace;
 use gpui::App;
 use std::collections::HashSet;
-use vryn_terminal::terminal::{SnapshotReason, Terminal};
+use notmux_terminal::terminal::{SnapshotReason, Terminal};
 
 fn collect_terminal_keys(
     project_path: &str,
-    node: &vryn_workspace::state::LayoutNode,
+    node: &notmux_workspace::state::LayoutNode,
     path: &mut Vec<usize>,
     out: &mut Vec<(String, String, String)>,
 ) {
     match node {
-        vryn_workspace::state::LayoutNode::Terminal {
+        notmux_workspace::state::LayoutNode::Terminal {
             slot_id,
             terminal_id: Some(tid),
             ..
         } => {
-            let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
+            let key = notmux_terminal::scrollback_snapshot::snapshot_key(slot_id);
             out.push((project_path.to_string(), key, tid.clone()));
         }
-        vryn_workspace::state::LayoutNode::Terminal { .. } => {}
-        vryn_workspace::state::LayoutNode::Split { children, .. }
-        | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
+        notmux_workspace::state::LayoutNode::Terminal { .. } => {}
+        notmux_workspace::state::LayoutNode::Split { children, .. }
+        | notmux_workspace::state::LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 path.push(i);
                 collect_terminal_keys(project_path, child, path, out);
@@ -32,16 +32,16 @@ fn collect_terminal_keys(
 }
 
 fn collect_terminal_snapshot_keys(
-    node: &vryn_workspace::state::LayoutNode,
+    node: &notmux_workspace::state::LayoutNode,
     path: &mut Vec<usize>,
     out: &mut HashSet<String>,
 ) {
     match node {
-        vryn_workspace::state::LayoutNode::Terminal { slot_id, .. } => {
-            out.insert(vryn_terminal::scrollback_snapshot::snapshot_key(slot_id));
+        notmux_workspace::state::LayoutNode::Terminal { slot_id, .. } => {
+            out.insert(notmux_terminal::scrollback_snapshot::snapshot_key(slot_id));
         }
-        vryn_workspace::state::LayoutNode::Split { children, .. }
-        | vryn_workspace::state::LayoutNode::Tabs { children, .. } => {
+        notmux_workspace::state::LayoutNode::Split { children, .. }
+        | notmux_workspace::state::LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 path.push(i);
                 collect_terminal_snapshot_keys(child, path, out);
@@ -58,10 +58,10 @@ pub fn save_terminal_snapshot(
     max_lines: u32,
     reason: SnapshotReason,
 ) -> bool {
-    let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
+    let dir = notmux_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
     let cwd = terminal
         .shell_pid()
-        .and_then(vryn_terminal::process::read_process_cwd);
+        .and_then(notmux_terminal::process::read_process_cwd);
     let (bytes, stats) =
         terminal.capture_scrollback_snapshot(&dir, key, max_lines, cwd.as_deref(), reason);
 
@@ -90,7 +90,7 @@ pub fn save_terminal_snapshot(
         return false;
     }
 
-    match vryn_terminal::scrollback_snapshot::save(&dir, key, &bytes) {
+    match notmux_terminal::scrollback_snapshot::save(&dir, key, &bytes) {
         Ok(()) => {
             log::info!("Saved scrollback snapshot {} ({} bytes)", key, bytes.len());
             true
@@ -103,9 +103,9 @@ pub fn save_terminal_snapshot(
 }
 
 pub fn clear_slot_snapshot(project_path: &str, slot_id: &str) {
-    let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
-    let key = vryn_terminal::scrollback_snapshot::snapshot_key(slot_id);
-    vryn_terminal::scrollback_snapshot::clear(&dir, &key);
+    let dir = notmux_terminal::scrollback_snapshot::project_snapshot_dir(project_path);
+    let key = notmux_terminal::scrollback_snapshot::snapshot_key(slot_id);
+    notmux_terminal::scrollback_snapshot::clear(&dir, &key);
     log::info!("Cleared scrollback snapshot for terminal slot {}", key);
 }
 
@@ -136,7 +136,7 @@ pub fn purge_stale_snapshots(cx: &mut App) {
     };
 
     for (_project_id, project_path, live_keys) in projects {
-        let dir = vryn_terminal::scrollback_snapshot::project_snapshot_dir(&project_path);
+        let dir = notmux_terminal::scrollback_snapshot::project_snapshot_dir(&project_path);
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -174,7 +174,7 @@ pub fn save_all_snapshots(cx: &mut App, reason: SnapshotReason) {
         return;
     }
 
-    let Some(registry) = vryn_terminal::global_registry() else {
+    let Some(registry) = notmux_terminal::global_registry() else {
         return;
     };
     let Some(gw) = cx.try_global::<GlobalWorkspace>() else {

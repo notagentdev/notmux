@@ -1,3 +1,3 @@
-//! Design tokens — re-exported from vryn-ui.
+//! Design tokens — re-exported from notmux-ui.
 
-pub use vryn_ui::tokens::*;
+pub use notmux_ui::tokens::*;

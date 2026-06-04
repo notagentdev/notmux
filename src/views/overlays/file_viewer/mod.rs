@@ -1,3 +1,3 @@
-//! File viewer overlay — re-exports from vryn-files crate.
+//! File viewer overlay — re-exports from notmux-files crate.
 
-pub use vryn_files::file_viewer::*;
+pub use notmux_files::file_viewer::*;

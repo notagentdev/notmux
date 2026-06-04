@@ -1,0 +1,10 @@
+[package]
+name = "notmux-extensions"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+notmux-core = { path = "../notmux-core" }
+serde_json = "1.0"

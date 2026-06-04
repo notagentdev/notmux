@@ -29,7 +29,7 @@ impl SettingsPanel {
                     .mt(px(12.0))
                     .text_size(ui_text_sm(cx))
                     .text_color(rgb(t.text_muted))
-                    .child("Custom themes are loaded from your Vryn themes directory and appear here automatically."),
+                    .child("Custom themes are loaded from your NotMux themes directory and appear here automatically."),
             )
     }
 
@@ -167,7 +167,7 @@ impl SettingsPanel {
                         div()
                             .text_size(ui_text(6.0, cx))
                             .text_color(rgb(colors.text_primary))
-                            .child("vryn"),
+                            .child("notmux"),
                     ),
             )
             .child(

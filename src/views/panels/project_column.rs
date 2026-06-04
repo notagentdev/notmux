@@ -14,13 +14,13 @@ use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 use std::sync::Arc;
-use vryn_views_git::git_header::GitHeader;
+use notmux_views_git::git_header::GitHeader;
 
 use crate::views::panels::hook_panel::HookPanel;
 use crate::views::root::TerminalsRegistry;
-use vryn_core::api::ActionRequest;
-use vryn_views_services::service_panel::ServicePanel;
-use vryn_workspace::requests::OverlayRequest;
+use notmux_core::api::ActionRequest;
+use notmux_views_services::service_panel::ServicePanel;
+use notmux_workspace::requests::OverlayRequest;
 
 /// A single project column with header and layout
 pub struct ProjectColumn {
@@ -57,7 +57,7 @@ impl ProjectColumn {
         terminals: TerminalsRegistry,
         active_drag: ActiveDrag,
         git_watcher: Option<Entity<GitStatusWatcher>>,
-        git_provider: Arc<dyn vryn_views_git::diff_viewer::provider::GitProvider>,
+        git_provider: Arc<dyn notmux_views_git::diff_viewer::provider::GitProvider>,
         cx: &mut Context<Self>,
     ) -> Self {
         // Observe git watcher for re-renders (replaces per-column polling)

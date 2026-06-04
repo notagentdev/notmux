@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Shared terminals registry for PTY event routing (re-exported from vryn-terminal)
-pub use vryn_terminal::TerminalsRegistry;
+/// Shared terminals registry for PTY event routing (re-exported from notmux-terminal)
+pub use notmux_terminal::TerminalsRegistry;
 
 /// Registry mapping terminal_id → WeakEntity<TerminalContent> for direct
 /// dirty notification from PTY event loop (avoids per-pane polling).
@@ -76,13 +76,13 @@ pub struct RootView {
     hscroll_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
     /// Remote connection manager (set after creation)
     remote_manager: Option<Entity<RemoteConnectionManager>>,
-    /// Git status watcher (set by Vryn after creation)
+    /// Git status watcher (set by NotMux after creation)
     git_watcher: Option<Entity<GitStatusWatcher>>,
     /// Whether the pane switcher overlay is active
     pane_switch_active: bool,
     /// Pane switcher overlay entity (separate entity for proper focus handling)
     pane_switcher_entity: Option<Entity<pane_switcher::PaneSwitcher>>,
-    /// Service manager (set by Vryn after creation)
+    /// Service manager (set by NotMux after creation)
     service_manager: Option<Entity<ServiceManager>>,
     /// Last focused project ID (for scroll-to-focused detection)
     last_scroll_project: Option<String>,
@@ -98,9 +98,9 @@ pub struct RootView {
     /// Project ID whose git log is shown in the git panel
     git_panel_project_id: Option<String>,
     /// Diff viewer shown in the central project area from the git changes list.
-    main_diff_viewer: Option<Entity<vryn_views_git::diff_viewer::DiffViewer>>,
+    main_diff_viewer: Option<Entity<notmux_views_git::diff_viewer::DiffViewer>>,
     /// File viewer shown in the central project area from the sidebar explorer.
-    main_file_viewer: Option<Entity<vryn_files::file_viewer::FileViewer>>,
+    main_file_viewer: Option<Entity<notmux_files::file_viewer::FileViewer>>,
     /// Pending debounced full-refresh tasks per project (for `.git/` event
     /// storms during rebase/checkout). Dropping the task cancels it.
     pending_git_internal_refresh: HashMap<String, Task<()>>,
@@ -114,7 +114,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         let terminals: TerminalsRegistry = Arc::new(Mutex::new(HashMap::new()));
-        vryn_terminal::set_global_registry(terminals.clone());
+        notmux_terminal::set_global_registry(terminals.clone());
 
         // Create sidebar controller from current global settings
         let app_settings = settings(cx);
@@ -144,7 +144,7 @@ impl RootView {
         let git_panel_initially_open = git_panel_ctrl.is_open();
         let workspace_for_title = workspace.clone();
         let title_bar = cx.new(|cx| {
-            let mut tb = TitleBar::new("Vryn", workspace_for_title, cx);
+            let mut tb = TitleBar::new("NotMux", workspace_for_title, cx);
             tb.set_sidebar_open(sidebar_initially_open, cx);
             tb.set_git_panel_open(git_panel_initially_open, cx);
             tb.set_action_focus_handle(focus_handle.clone());
@@ -205,12 +205,13 @@ impl RootView {
                 // Settings callback
                 s.set_settings(Box::new(|cx| {
                     let app_settings = crate::settings::settings(cx);
-                    vryn_views_sidebar::SidebarSettings {
+                    notmux_views_sidebar::SidebarSettings {
                         worktree_path_template: app_settings.worktree.path_template.clone(),
                         hooks: app_settings.hooks.clone(),
                         show_all_projects_on_projects_click: app_settings
                             .show_all_projects_on_projects_click,
                         monochrome_icons: app_settings.monochrome_icons,
+                        show_hidden: app_settings.file_explorer.show_hidden,
                     }
                 }));
 
@@ -221,7 +222,7 @@ impl RootView {
                     if project.is_remote {
                         return None;
                     }
-                    Some(Arc::new(vryn_files::project_fs::LocalProjectFs::new(
+                    Some(Arc::new(notmux_files::project_fs::LocalProjectFs::new(
                         project.path.clone(),
                     )))
                 }));
@@ -347,7 +348,7 @@ impl RootView {
         self.pending_git_internal_refresh.insert(project_id, task);
     }
 
-    /// Set the git watcher entity (called by Vryn after creation).
+    /// Set the git watcher entity (called by NotMux after creation).
     pub fn set_git_watcher(&mut self, watcher: Entity<GitStatusWatcher>, cx: &mut Context<Self>) {
         // Observe the watcher so the sidebar's file explorer refreshes when
         // git status changes from the slow status-poll loop. ProjectColumns
@@ -419,7 +420,7 @@ impl RootView {
         self.sync_project_columns(cx);
     }
 
-    /// Set the remote connection manager (called after creation by Vryn).
+    /// Set the remote connection manager (called after creation by NotMux).
     pub fn set_remote_manager(
         &mut self,
         manager: Entity<RemoteConnectionManager>,
@@ -449,7 +450,7 @@ impl RootView {
                         .connections()
                         .iter()
                         .map(|(config, status, _state)| {
-                            vryn_views_sidebar::RemoteConnectionSnapshot {
+                            notmux_views_sidebar::RemoteConnectionSnapshot {
                                 config: (*config).clone(),
                                 status: (*status).clone(),
                             }
@@ -467,7 +468,7 @@ impl RootView {
                 // Get remote folder callback
                 sidebar.set_get_remote_folder(Box::new(move |conn_id, prefixed_project_id, cx| {
                     let server_project_id =
-                        vryn_core::client::strip_prefix(prefixed_project_id, conn_id);
+                        notmux_core::client::strip_prefix(prefixed_project_id, conn_id);
                     rm_for_folder
                         .read(cx)
                         .connections()
@@ -493,8 +494,8 @@ impl RootView {
                         let (config, _, _) =
                             connections.iter().find(|(c, _, _)| c.id == *conn_id)?;
                         let token = config.saved_token.as_ref()?.clone();
-                        let actual_id = vryn_core::client::strip_prefix(project_id, conn_id);
-                        Some(Arc::new(vryn_files::project_fs::RemoteProjectFs::new(
+                        let actual_id = notmux_core::client::strip_prefix(project_id, conn_id);
+                        Some(Arc::new(notmux_files::project_fs::RemoteProjectFs::new(
                             config.host.clone(),
                             config.port,
                             token,
@@ -502,7 +503,7 @@ impl RootView {
                             project.name.clone(),
                         )))
                     } else {
-                        Some(Arc::new(vryn_files::project_fs::LocalProjectFs::new(
+                        Some(Arc::new(notmux_files::project_fs::LocalProjectFs::new(
                             project.path.clone(),
                         )))
                     }
@@ -523,7 +524,7 @@ impl RootView {
         self.rebuild_sidebar_dispatch(cx);
     }
 
-    /// Set the service manager entity (called by Vryn after creation).
+    /// Set the service manager entity (called by NotMux after creation).
     pub fn set_service_manager(&mut self, manager: Entity<ServiceManager>, cx: &mut Context<Self>) {
         cx.observe(&manager, |_this, _sm, cx| {
             cx.notify();
@@ -579,12 +580,12 @@ impl RootView {
     ) {
         use crate::workspace::settings::HooksConfig;
         use crate::workspace::state::{FolderData, LayoutNode, ProjectData};
-        use vryn_core::client::RemoteConnectionConfig;
+        use notmux_core::client::RemoteConnectionConfig;
 
         // Snapshot all connection data into owned structures to release the borrow on cx
         struct ConnSnapshot {
             config: RemoteConnectionConfig,
-            state: Option<vryn_core::api::StateResponse>,
+            state: Option<notmux_core::api::StateResponse>,
         }
         let snapshots: Vec<ConnSnapshot> = {
             let rm_read = rm.read(cx);
@@ -625,7 +626,7 @@ impl RootView {
 
             if let Some(ref state) = snap.state {
                 // Build the server folder lookup
-                let server_folder_map: std::collections::HashMap<&str, &vryn_core::api::ApiFolder> =
+                let server_folder_map: std::collections::HashMap<&str, &notmux_core::api::ApiFolder> =
                     state.folders.iter().map(|f| (f.id.as_str(), f)).collect();
 
                 // Build prefixed project_order and folder entries that mirror the server structure
@@ -681,7 +682,7 @@ impl RootView {
                     let conn_id_owned = conn_id.clone();
 
                     // Build remote services with prefixed terminal IDs
-                    let remote_services: Vec<vryn_core::api::ApiServiceInfo> = api_project
+                    let remote_services: Vec<notmux_core::api::ApiServiceInfo> = api_project
                         .services
                         .iter()
                         .map(|s| {
@@ -999,7 +1000,7 @@ impl RootView {
                     .project(project_id)
                     .map(|p| p.path.clone())
                     .unwrap_or_default();
-                Arc::new(vryn_views_git::diff_viewer::provider::LocalGitProvider::new(path))
+                Arc::new(notmux_views_git::diff_viewer::provider::LocalGitProvider::new(path))
             }
         };
 

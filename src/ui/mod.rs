@@ -5,4 +5,4 @@
 
 pub mod tokens;
 
-pub use vryn_ui::color_utils::tint_color;
+pub use notmux_ui::color_utils::tint_color;

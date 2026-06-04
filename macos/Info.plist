@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>vrynws</string>
+    <string>notmux</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.vryn.ws</string>
+    <string>dev.notmux.app</string>
     <key>CFBundleName</key>
-    <string>Vryn-WS</string>
+    <string>NotMux</string>
     <key>CFBundleDisplayName</key>
-    <string>Vryn-WS</string>
+    <string>NotMux</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

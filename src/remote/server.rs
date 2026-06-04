@@ -7,7 +7,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
-use vryn_core::api::ApiGitStatus;
+use notmux_core::api::ApiGitStatus;
 
 /// Handle to a running remote control server.
 /// Dropping this will trigger shutdown.
@@ -36,7 +36,7 @@ impl RemoteServer {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
-            .thread_name("vryn-remote")
+            .thread_name("notmux-remote")
             .build()?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

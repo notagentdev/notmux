@@ -1,0 +1,547 @@
+pub mod branch_names;
+pub mod diff;
+pub mod repository;
+
+pub use diff::{
+    DiffLineType, DiffMode, DiffResult, FileDiff, get_diff_for_file_with_options,
+    get_diff_with_options, get_file_contents_for_diff, is_git_repo,
+};
+pub use repository::{
+    FileSection, FileStatusRefresh, commit, compute_target_paths, count_unpushed_commits,
+    create_worktree, delete_local_branch, delete_remote_branch, discard_all_tracked, discard_file,
+    fetch_all, get_available_branches_for_worktree, get_commit_graph, get_current_branch,
+    get_default_branch, get_file_statuses, get_repo_root, get_working_tree_status,
+    has_uncommitted_changes, list_branches, merge_branch, project_path_in_worktree, pull,
+    push_branch, rebase_onto, remove_worktree, remove_worktree_fast, resolve_git_root_and_subdir,
+    stage_all, stage_file, stash_all_including_untracked, stash_apply, stash_changes, stash_drop,
+    stash_list, stash_pop, stash_show_patch, uncommit, unstage_all, unstage_file,
+};
+
+/// Validate that a git ref (branch name, commit hash, revision) doesn't look
+/// like a command-line flag.  Returns `Ok(name)` for safe values, or an error
+/// for values starting with `-`.
+pub fn validate_git_ref(name: &str) -> Result<&str, String> {
+    if name.starts_with('-') {
+        Err(format!("Invalid git ref: '{}'", name))
+    } else {
+        Ok(name)
+    }
+}
+
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// PR state from GitHub
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PrState {
+    Open,
+    Merged,
+    Closed,
+    Draft,
+}
+
+impl PrState {
+    /// Display label for this PR state
+    pub fn label(&self) -> &'static str {
+        match self {
+            PrState::Open => "Open",
+            PrState::Draft => "Draft",
+            PrState::Merged => "Merged",
+            PrState::Closed => "Closed",
+        }
+    }
+}
+
+/// Overall CI check rollup status
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CiStatus {
+    Success,
+    Failure,
+    Pending,
+}
+
+impl CiStatus {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            CiStatus::Success => "icons/check.svg",
+            CiStatus::Failure => "icons/close.svg",
+            CiStatus::Pending => "icons/refresh.svg",
+        }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        matches!(self, CiStatus::Pending)
+    }
+}
+
+/// Summary of CI check results
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CiCheckSummary {
+    pub status: CiStatus,
+    pub passed: usize,
+    pub failed: usize,
+    pub pending: usize,
+    pub total: usize,
+}
+
+impl CiCheckSummary {
+    pub fn tooltip_text(&self) -> String {
+        match self.status {
+            CiStatus::Success => format!("{}/{} checks passed", self.passed, self.total),
+            CiStatus::Failure => format!(
+                "{} failed, {} passed of {} checks",
+                self.failed, self.passed, self.total
+            ),
+            CiStatus::Pending => format!(
+                "{} pending, {} passed of {} checks",
+                self.pending, self.passed, self.total
+            ),
+        }
+    }
+}
+
+/// Pull request info
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PrInfo {
+    pub url: String,
+    pub state: PrState,
+    pub number: u32,
+    #[serde(default)]
+    pub ci_checks: Option<CiCheckSummary>,
+}
+
+/// Git status information for display in project header
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GitStatus {
+    /// Current branch name (None if detached HEAD shows short commit hash)
+    pub branch: Option<String>,
+    /// Lines added in working directory (unstaged + staged)
+    pub lines_added: usize,
+    /// Lines removed in working directory (unstaged + staged)
+    pub lines_removed: usize,
+    /// Pull request info for the current branch (if any)
+    #[serde(default)]
+    pub pr_info: Option<PrInfo>,
+}
+
+/// Status of a file in the git index or working tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FileStatus {
+    Modified,
+    Added,
+    Deleted,
+    Renamed,
+    Copied,
+    Untracked,
+    Conflict,
+}
+
+impl FileStatus {
+    /// Short single-character label for display (M/A/D/R/C/?/U)
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            FileStatus::Modified => "M",
+            FileStatus::Added => "A",
+            FileStatus::Deleted => "D",
+            FileStatus::Renamed => "R",
+            FileStatus::Copied => "C",
+            FileStatus::Untracked => "?",
+            FileStatus::Conflict => "U",
+        }
+    }
+}
+
+/// A file tracked by git in the working tree or index.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WorkingFile {
+    /// File path relative to repo root
+    pub path: String,
+    /// Status in the index (staged changes), None if no staged change
+    pub index_status: Option<FileStatus>,
+    /// Status in the working tree (unstaged changes), None if no unstaged change
+    pub worktree_status: Option<FileStatus>,
+    /// Lines added (staged + unstaged combined)
+    pub added: usize,
+    /// Lines removed (staged + unstaged combined)
+    pub removed: usize,
+}
+
+impl WorkingFile {
+    /// File is fully staged (no unstaged changes remaining)
+    pub fn is_fully_staged(&self) -> bool {
+        self.index_status.is_some() && self.worktree_status.is_none()
+    }
+    /// File is fully unstaged (no index changes)
+    pub fn is_unstaged(&self) -> bool {
+        self.index_status.is_none() && self.worktree_status.is_some()
+    }
+    /// File has both staged and unstaged changes
+    pub fn is_partially_staged(&self) -> bool {
+        self.index_status.is_some() && self.worktree_status.is_some()
+    }
+    /// File has a merge conflict
+    pub fn has_conflict(&self) -> bool {
+        matches!(self.index_status, Some(FileStatus::Conflict))
+            || matches!(self.worktree_status, Some(FileStatus::Conflict))
+    }
+    /// The effective display status for the file (index takes precedence).
+    pub fn effective_status(&self) -> FileStatus {
+        self.index_status
+            .or(self.worktree_status)
+            .unwrap_or(FileStatus::Modified)
+    }
+}
+
+/// Full working tree status: grouped files + upstream tracking info.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct WorkingTreeStatus {
+    /// Files with merge conflicts
+    pub conflicts: Vec<WorkingFile>,
+    /// Tracked files with changes (modified, added, deleted, renamed)
+    pub tracked: Vec<WorkingFile>,
+    /// Untracked files (new, not yet added)
+    pub untracked: Vec<WorkingFile>,
+    /// Current branch (None if detached HEAD)
+    pub branch: Option<String>,
+    /// Commits ahead of upstream
+    pub ahead: usize,
+    /// Commits behind upstream
+    pub behind: usize,
+    /// Whether upstream is configured
+    pub has_upstream: bool,
+}
+
+impl WorkingTreeStatus {
+    /// Total number of files with any kind of change
+    pub fn total_files(&self) -> usize {
+        self.conflicts.len() + self.tracked.len() + self.untracked.len()
+    }
+
+    /// Number of files with staged changes (excludes untracked)
+    pub fn staged_count(&self) -> usize {
+        self.tracked
+            .iter()
+            .filter(|f| f.index_status.is_some())
+            .count()
+    }
+
+    /// Whether all tracked files are fully staged (untracked are ignored).
+    pub fn all_staged(&self) -> bool {
+        !self.tracked.is_empty() && self.tracked.iter().all(|f| f.is_fully_staged())
+    }
+}
+
+/// A single entry in `git stash list`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StashEntry {
+    /// Stash index (the `N` in `stash@{N}`).
+    pub index: usize,
+    /// Full commit hash of the stash.
+    pub hash: String,
+    /// Stash subject (commit message minus the `WIP on <branch>: ` prefix).
+    pub subject: String,
+    /// Branch the stash was created on, if extractable from the reflog subject.
+    pub branch: Option<String>,
+    /// Author timestamp in seconds since the Unix epoch.
+    pub timestamp_unix: i64,
+}
+
+/// Per-file diff summary for popover display
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FileDiffSummary {
+    /// File path (relative to repo root)
+    pub path: String,
+    /// Lines added
+    pub added: usize,
+    /// Lines removed
+    pub removed: usize,
+    /// Whether this is a new (untracked) file
+    pub is_new: bool,
+}
+
+impl GitStatus {
+    pub fn has_changes(&self) -> bool {
+        self.lines_added > 0 || self.lines_removed > 0
+    }
+}
+
+/// A single commit entry for the commit log popover.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CommitLogEntry {
+    /// Short hash (7 chars)
+    pub hash: String,
+    /// Full commit hash.
+    #[serde(default)]
+    pub full_hash: String,
+    /// Commit subject (first line)
+    pub message: String,
+    /// Author name
+    pub author: String,
+    /// Unix timestamp of the commit
+    pub timestamp: i64,
+    /// Whether this is a merge commit (2+ parents)
+    #[allow(dead_code)] // used in tests
+    pub is_merge: bool,
+    /// Graph prefix characters (e.g. "| * |")
+    pub graph: String,
+    /// Ref decorations (e.g. "HEAD -> main", "origin/main", "tag: v1.0")
+    pub refs: Vec<String>,
+}
+
+/// A row in the commit graph — either a commit or a graph connector line.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum GraphRow {
+    Commit(CommitLogEntry),
+    /// Graph-only connector line (e.g. "|\ ", "|/ ")
+    Connector(String),
+}
+
+/// Format a Unix timestamp as compact relative time.
+pub fn format_relative_time(timestamp: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let diff = (now - timestamp).max(0) as u64;
+    if diff < 60 {
+        "just now".to_string()
+    } else if diff < 3600 {
+        format!("{}m ago", diff / 60)
+    } else if diff < 86400 {
+        format!("{}h ago", diff / 3600)
+    } else if diff < 604800 {
+        format!("{}d ago", diff / 86400)
+    } else {
+        format!("{}w ago", diff / 604800)
+    }
+}
+
+/// Global cache for git status
+static CACHE: Mutex<Option<HashMap<PathBuf, Option<GitStatus>>>> = Mutex::new(None);
+
+fn with_cache<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut HashMap<PathBuf, Option<GitStatus>>) -> R,
+{
+    let mut guard = CACHE.lock();
+    let cache = guard.get_or_insert_with(HashMap::new);
+    f(cache)
+}
+
+/// Get git status for a directory path (with caching).
+/// Returns None if the path is not inside a git repository or not yet cached.
+///
+/// Always non-blocking: returns cached data immediately.
+/// Returns None on cache miss — the background watcher will populate it.
+/// Use `refresh_git_status` for a blocking fresh fetch (e.g. from a background watcher).
+pub fn get_git_status(path: &Path) -> Option<GitStatus> {
+    with_cache(|cache| cache.get(path).cloned().flatten())
+}
+
+/// Fetch fresh git status and update the cache. Intended for background watchers.
+pub fn refresh_git_status(path: &Path) -> Option<GitStatus> {
+    let path_buf = path.to_path_buf();
+    let status = repository::get_status(path);
+    with_cache(|cache| {
+        cache.insert(path_buf, status.clone());
+    });
+    status
+}
+
+/// Invalidate cache for a specific path (call when you know files changed)
+#[allow(dead_code)]
+pub fn invalidate_cache(path: &Path) {
+    with_cache(|cache| {
+        cache.remove(path);
+    });
+}
+
+/// Get per-file diff summary for a repository.
+/// Returns a list of files with their add/remove counts.
+pub fn get_diff_file_summary(path: &Path) -> Vec<FileDiffSummary> {
+    use notmux_core::process::{command, safe_output};
+
+    let path_str = match path.to_str() {
+        Some(s) => s,
+        None => return vec![],
+    };
+
+    let mut summaries = Vec::new();
+
+    // Get tracked file changes with numstat
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "diff",
+        "--numstat",
+        "--no-color",
+        "--no-ext-diff",
+        "HEAD",
+    ]))
+    .ok();
+
+    if let Some(output) = output
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                // Binary files show "-" instead of numbers
+                let added = parts[0].parse::<usize>().unwrap_or(0);
+                let removed = parts[1].parse::<usize>().unwrap_or(0);
+                summaries.push(FileDiffSummary {
+                    path: parts[2].to_string(),
+                    added,
+                    removed,
+                    is_new: false,
+                });
+            }
+        }
+    }
+
+    // Get untracked files
+    let output = safe_output(command("git").args([
+        "-C",
+        path_str,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ]))
+    .ok();
+
+    if let Some(output) = output
+        && output.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for file in stdout.lines() {
+            if !file.is_empty() {
+                // Count lines in untracked file
+                let file_path = path.join(file);
+                let added = std::fs::read_to_string(&file_path)
+                    .map(|c| c.lines().count())
+                    .unwrap_or(0);
+                summaries.push(FileDiffSummary {
+                    path: file.to_string(),
+                    added,
+                    removed: 0,
+                    is_new: true,
+                });
+            }
+        }
+    }
+
+    // Sort by path
+    summaries.sort_by(|a, b| a.path.cmp(&b.path));
+    summaries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ci_tooltip_all_passed() {
+        let summary = CiCheckSummary {
+            status: CiStatus::Success,
+            passed: 4,
+            failed: 0,
+            pending: 0,
+            total: 4,
+        };
+        assert_eq!(summary.tooltip_text(), "4/4 checks passed");
+    }
+
+    #[test]
+    fn ci_tooltip_failure() {
+        let summary = CiCheckSummary {
+            status: CiStatus::Failure,
+            passed: 3,
+            failed: 1,
+            pending: 0,
+            total: 4,
+        };
+        assert_eq!(summary.tooltip_text(), "1 failed, 3 passed of 4 checks");
+    }
+
+    #[test]
+    fn ci_tooltip_pending() {
+        let summary = CiCheckSummary {
+            status: CiStatus::Pending,
+            passed: 1,
+            failed: 0,
+            pending: 2,
+            total: 3,
+        };
+        assert_eq!(summary.tooltip_text(), "2 pending, 1 passed of 3 checks");
+    }
+
+    #[test]
+    fn format_relative_time_just_now() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(format_relative_time(now), "just now");
+        assert_eq!(format_relative_time(now - 30), "just now");
+    }
+
+    #[test]
+    fn format_relative_time_minutes() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(format_relative_time(now - 60), "1m ago");
+        assert_eq!(format_relative_time(now - 300), "5m ago");
+        assert_eq!(format_relative_time(now - 3599), "59m ago");
+    }
+
+    #[test]
+    fn format_relative_time_hours() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(format_relative_time(now - 3600), "1h ago");
+        assert_eq!(format_relative_time(now - 7200), "2h ago");
+    }
+
+    #[test]
+    fn format_relative_time_days() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(format_relative_time(now - 86400), "1d ago");
+        assert_eq!(format_relative_time(now - 259200), "3d ago");
+    }
+
+    #[test]
+    fn validate_git_ref_accepts_normal_refs() {
+        assert_eq!(validate_git_ref("main"), Ok("main"));
+        assert_eq!(validate_git_ref("feature/foo"), Ok("feature/foo"));
+        assert_eq!(validate_git_ref("abc123"), Ok("abc123"));
+        assert_eq!(validate_git_ref("HEAD"), Ok("HEAD"));
+        assert_eq!(validate_git_ref("v1.0.0"), Ok("v1.0.0"));
+    }
+
+    #[test]
+    fn validate_git_ref_rejects_flag_like_refs() {
+        assert!(validate_git_ref("--upload-pack=evil").is_err());
+        assert!(validate_git_ref("-b").is_err());
+        assert!(validate_git_ref("--exec=malicious").is_err());
+        assert!(validate_git_ref("-").is_err());
+    }
+
+    #[test]
+    fn format_relative_time_weeks() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(format_relative_time(now - 604800), "1w ago");
+        assert_eq!(format_relative_time(now - 1209600), "2w ago");
+    }
+}

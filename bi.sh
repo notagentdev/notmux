@@ -9,8 +9,8 @@ usage() {
 Usage: ./build-installers.sh [--target <target>] [--skip-build]
 
 Creates both macOS installer artifacts:
-  - dist/Vryn-WS-<version>-<target>.pkg
-  - dist/Vryn-WS-<version>-<target>.dmg
+  - dist/NotMux-<version>-<target>.pkg
+  - dist/NotMux-<version>-<target>.dmg
 
 Options are passed through to scripts/bundle-macos.sh.
 USAGE

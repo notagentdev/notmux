@@ -5,7 +5,7 @@ use crate::workspace::persistence::config_dir;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// CLI config stored in `~/.config/vryn-ws/cli.json`.
+/// CLI config stored in `~/.config/notmux/cli.json`.
 #[derive(Serialize, Deserialize)]
 pub struct CliConfig {
     pub token: String,
@@ -43,7 +43,7 @@ pub fn try_handle_cli() -> Option<i32> {
 }
 
 fn print_help() {
-    eprintln!("Usage: vryn <command> [args]");
+    eprintln!("Usage: notmux <command> [args]");
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  state                              Print workspace state (JSON)");
@@ -91,12 +91,12 @@ fn save_cli_config(config: &CliConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Discover a running Vryn instance by reading `remote.json`.
+/// Discover a running NotMux instance by reading `remote.json`.
 /// Returns `(host, port)`.
 fn discover_server() -> Result<(String, u16), String> {
     let path = config_dir().join("remote.json");
     let data =
-        std::fs::read_to_string(&path).map_err(|_| "Vryn is not running (no remote.json).")?;
+        std::fs::read_to_string(&path).map_err(|_| "NotMux is not running (no remote.json).")?;
     let json: serde_json::Value =
         serde_json::from_str(&data).map_err(|_| "Invalid remote.json.")?;
 
@@ -107,7 +107,7 @@ fn discover_server() -> Result<(String, u16), String> {
 
     let pid = json.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     if pid != 0 && !is_process_alive(pid) {
-        return Err("Vryn is not running (stale remote.json).".to_string());
+        return Err("NotMux is not running (stale remote.json).".to_string());
     }
 
     Ok(("127.0.0.1".to_string(), port))
@@ -163,7 +163,7 @@ fn api_get(path: &str, token: &str) -> Result<String, String> {
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(
-            "Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into(),
+            "Token expired or revoked. Delete ~/.config/notmux/cli.json and retry.".into(),
         );
     }
     if !resp.status().is_success() {
@@ -188,7 +188,7 @@ fn api_post(path: &str, token: &str, body: &str) -> Result<String, String> {
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(
-            "Token expired or revoked. Delete ~/.config/vryn-ws/cli.json and retry.".into(),
+            "Token expired or revoked. Delete ~/.config/notmux/cli.json and retry.".into(),
         );
     }
     if !resp.status().is_success() {

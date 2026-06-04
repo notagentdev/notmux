@@ -1,1 +1,1 @@
-pub use vryn_views_git::worktree_dialog::*;
+pub use notmux_views_git::worktree_dialog::*;

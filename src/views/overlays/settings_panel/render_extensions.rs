@@ -1,7 +1,7 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
 use gpui::*;
-use vryn_extensions::ExtensionRegistry;
+use notmux_extensions::ExtensionRegistry;
 
 use super::SettingsPanel;
 use super::components::*;

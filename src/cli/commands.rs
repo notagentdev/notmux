@@ -1,6 +1,6 @@
 use crate::cli::{api_get, api_post, discover_server, ensure_token};
 use crate::remote::auth::{generate_pairing_code, pair_code_path};
-use vryn_core::api::StateResponse;
+use notmux_core::api::StateResponse;
 
 /// Check if `--json` flag is present in args.
 fn has_json_flag(args: &[String]) -> bool {
@@ -41,7 +41,7 @@ pub fn cli_pair() -> i32 {
     }
 
     println!("{code}");
-    eprintln!("Expires in 60s — run `vryn pair` again for a fresh code.");
+    eprintln!("Expires in 60s — run `notmux pair` again for a fresh code.");
     0
 }
 
@@ -123,7 +123,7 @@ pub fn cli_action(json: Option<&str>) -> i32 {
     let json = match json {
         Some(j) => j,
         None => {
-            eprintln!("Usage: vryn action '<json>'");
+            eprintln!("Usage: notmux action '<json>'");
             return 1;
         }
     };
@@ -155,7 +155,7 @@ pub fn cli_action(json: Option<&str>) -> i32 {
     }
 }
 
-/// `vryn services [--json] [project]`
+/// `notmux services [--json] [project]`
 ///
 /// Default: tab-separated lines: project_name \t service_name \t status \t kind \t ports
 /// --json: array of objects
@@ -246,7 +246,7 @@ pub fn cli_services(args: &[String]) -> i32 {
     0
 }
 
-/// `vryn service <start|stop|restart> <name> [project] [--json]`
+/// `notmux service <start|stop|restart> <name> [project] [--json]`
 ///
 /// Sends the action and waits for the service to reach the target status.
 /// For start/restart, also waits for port detection to stabilize.
@@ -257,7 +257,7 @@ pub fn cli_service(args: &[String]) -> i32 {
     let json_mode = has_json_flag(args);
     let pos = positional_args(args);
     if pos.len() < 2 {
-        eprintln!("Usage: vryn service <start|stop|restart> <name> [project] [--json]");
+        eprintln!("Usage: notmux service <start|stop|restart> <name> [project] [--json]");
         return 1;
     }
 
@@ -372,7 +372,7 @@ pub fn cli_service(args: &[String]) -> i32 {
     }
 }
 
-fn print_service_result(svc: &vryn_core::api::ApiServiceInfo, json_mode: bool) {
+fn print_service_result(svc: &notmux_core::api::ApiServiceInfo, json_mode: bool) {
     if json_mode {
         println!(
             "{}",
@@ -395,17 +395,17 @@ fn print_service_result(svc: &vryn_core::api::ApiServiceInfo, json_mode: bool) {
     }
 }
 
-/// `vryn whoami [--json]`
+/// `notmux whoami [--json]`
 ///
 /// Default: tab-separated: terminal_id \t project_id \t project_name \t project_path
 /// --json: object
 pub fn cli_whoami(args: &[String]) -> i32 {
     let json_mode = has_json_flag(args);
 
-    let terminal_id = match std::env::var("VRYN_TERMINAL_ID") {
+    let terminal_id = match std::env::var("NOTMUX_TERMINAL_ID") {
         Ok(id) => id,
         Err(_) => {
-            eprintln!("Not running inside an Vryn terminal (VRYN_TERMINAL_ID not set).");
+            eprintln!("Not running inside an NotMux terminal (NOTMUX_TERMINAL_ID not set).");
             return 1;
         }
     };
@@ -418,7 +418,7 @@ pub fn cli_whoami(args: &[String]) -> i32 {
             } else {
                 println!("{terminal_id}");
             }
-            eprintln!("Warning: could not reach Vryn server: {e}");
+            eprintln!("Warning: could not reach NotMux server: {e}");
             return 0;
         }
     };
@@ -474,8 +474,8 @@ pub fn cli_whoami(args: &[String]) -> i32 {
 }
 
 /// Check if a layout tree contains a terminal with the given ID.
-fn has_terminal_id(node: &Option<vryn_core::api::ApiLayoutNode>, terminal_id: &str) -> bool {
-    use vryn_core::api::ApiLayoutNode;
+fn has_terminal_id(node: &Option<notmux_core::api::ApiLayoutNode>, terminal_id: &str) -> bool {
+    use notmux_core::api::ApiLayoutNode;
     match node {
         None => false,
         Some(ApiLayoutNode::Terminal {

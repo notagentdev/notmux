@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::client::manager::ConnectionManager;
-use vryn_core::api::ActionRequest;
-use vryn_core::client::{WsClientMessage, collect_state_terminal_ids};
-use vryn_core::keys::SpecialKey;
+use notmux_core::api::ActionRequest;
+use notmux_core::client::{WsClientMessage, collect_state_terminal_ids};
+use notmux_core::keys::SpecialKey;
 
 /// Flat FFI-friendly project info.
 #[derive(Debug, Clone)]
@@ -80,15 +80,15 @@ pub async fn send_special_key(
     Ok(())
 }
 
-fn collect_layout_ids_vec(node: &vryn_core::api::ApiLayoutNode, ids: &mut Vec<String>) {
+fn collect_layout_ids_vec(node: &notmux_core::api::ApiLayoutNode, ids: &mut Vec<String>) {
     match node {
-        vryn_core::api::ApiLayoutNode::Terminal { terminal_id, .. } => {
+        notmux_core::api::ApiLayoutNode::Terminal { terminal_id, .. } => {
             if let Some(id) = terminal_id {
                 ids.push(id.clone());
             }
         }
-        vryn_core::api::ApiLayoutNode::Split { children, .. }
-        | vryn_core::api::ApiLayoutNode::Tabs { children, .. } => {
+        notmux_core::api::ApiLayoutNode::Split { children, .. }
+        | notmux_core::api::ApiLayoutNode::Tabs { children, .. } => {
             for child in children {
                 collect_layout_ids_vec(child, ids);
             }
