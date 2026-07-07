@@ -703,11 +703,9 @@ impl Render for KeybindingsHelp {
                 }
                 let key = event.keystroke.key.as_str();
                 match key {
-                    "backspace" => {
-                        if this.search_query.pop().is_some() {
+                    "backspace" if this.search_query.pop().is_some() => {
                             cx.notify();
                         }
-                    }
                     k if k.len() == 1 && !event.keystroke.modifiers.modified() => {
                         let ch = k.chars().next().expect("k.len() == 1 guarantees a char");
                         if SEARCH_CHARS.contains(ch) {

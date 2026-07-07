@@ -528,15 +528,9 @@ impl GitHeader {
                 }
             }
         }
-        status
-            .tracked
-            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
-        status
-            .untracked
-            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
-        status
-            .conflicts
-            .sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+        status.tracked.sort_by_key(|a| a.path.to_lowercase());
+        status.untracked.sort_by_key(|a| a.path.to_lowercase());
+        status.conflicts.sort_by_key(|a| a.path.to_lowercase());
     }
 
     /// Refresh only the working tree status (after stage/unstage/commit).

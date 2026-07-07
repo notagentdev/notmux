@@ -55,29 +55,16 @@ impl MarkdownDocument {
                     in_paragraph = true;
                     inline_stack.push(Vec::new());
                 }
-                Event::End(TagEnd::Paragraph) => {
-                    if in_paragraph {
-                        let children = inline_stack.pop().unwrap_or_default();
-                        if in_blockquote {
-                            // Add to blockquote
-                            if let Some(last) = inline_stack.last_mut() {
-                                last.extend(children);
-                            }
-                        } else if in_list {
-                            // Will be collected by Item end
-                            if let Some(last) = inline_stack.last_mut() {
-                                last.extend(children);
-                            }
-                        } else if in_table {
-                            // Table cell content
-                            if let Some(last) = inline_stack.last_mut() {
-                                last.extend(children);
-                            }
-                        } else {
-                            nodes.push(Node::Paragraph { children });
+                Event::End(TagEnd::Paragraph) if in_paragraph => {
+                    let children = inline_stack.pop().unwrap_or_default();
+                    if in_blockquote || in_list || in_table {
+                        if let Some(last) = inline_stack.last_mut() {
+                            last.extend(children);
                         }
-                        in_paragraph = false;
+                    } else {
+                        nodes.push(Node::Paragraph { children });
                     }
+                    in_paragraph = false;
                 }
                 Event::Start(Tag::CodeBlock(kind)) => {
                     in_code_block = true;
@@ -150,10 +137,8 @@ impl MarkdownDocument {
                 Event::Start(Tag::TableRow) => {
                     current_row.clear();
                 }
-                Event::End(TagEnd::TableRow) => {
-                    if !in_table_head {
-                        table_rows.push(std::mem::take(&mut current_row));
-                    }
+                Event::End(TagEnd::TableRow) if !in_table_head => {
+                    table_rows.push(std::mem::take(&mut current_row));
                 }
                 Event::Start(Tag::TableCell) => {
                     inline_stack.push(Vec::new());

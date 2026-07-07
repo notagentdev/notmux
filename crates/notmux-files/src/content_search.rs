@@ -422,7 +422,7 @@ fn search_content_fuzzy(
 
         if !scored_matches.is_empty() {
             // Sort by score descending — best matches first
-            scored_matches.sort_by(|a, b| b.0.cmp(&a.0));
+            scored_matches.sort_by_key(|b| std::cmp::Reverse(b.0));
 
             let best_score = scored_matches.first().map(|(s, _)| *s).unwrap_or(0);
             let mut file_matches: Vec<ContentMatch> =

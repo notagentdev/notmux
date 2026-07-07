@@ -372,7 +372,7 @@ impl ContentSearchDialog {
                         results.push(result);
                     });
                     // Sort files by best match score (highest first) for fuzzy mode
-                    results.sort_by(|a, b| b.best_score.cmp(&a.best_score));
+                    results.sort_by_key(|b| std::cmp::Reverse(b.best_score));
                     results
                 })
                 .await;
@@ -1361,16 +1361,8 @@ impl Render for ContentSearchDialog {
         // Shared key handler for both modes
         let key_handler = cx.listener(|this, event: &KeyDownEvent, _window, cx| {
             match event.keystroke.key.as_str() {
-                "up" => {
-                    if this.select_prev() {
-                        cx.notify();
-                    }
-                }
-                "down" => {
-                    if this.select_next() {
-                        cx.notify();
-                    }
-                }
+                "up" if this.select_prev() => { cx.notify(); }
+                "down" if this.select_next() => { cx.notify(); }
                 "enter" => this.open_selected(cx),
                 "tab" if !event.keystroke.modifiers.shift => {
                     this.expanded = !this.expanded;

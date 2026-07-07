@@ -346,36 +346,26 @@ impl PathAutoCompleteState {
         let key = event.keystroke.key.as_str();
 
         match key {
-            "tab" => {
-                if self.show_suggestions && !self.suggestions.is_empty() {
-                    self.complete_selected(cx);
-                    return true;
-                }
-            }
-            "up" => {
-                if self.show_suggestions {
-                    self.select_previous(cx);
-                    return true;
-                }
-            }
-            "down" => {
-                if self.show_suggestions {
-                    self.select_next(cx);
-                    return true;
-                }
-            }
-            "escape" => {
-                if self.show_suggestions {
-                    self.hide_suggestions(cx);
-                    return true;
-                }
-            }
-            "enter" => {
-                if self.show_suggestions && !self.suggestions.is_empty() {
-                    self.complete_selected(cx);
-                    return true;
-                }
-            }
+            "tab" if self.show_suggestions && !self.suggestions.is_empty() => {
+        self.complete_selected(cx);
+        return true;
+    }
+            "up" if self.show_suggestions => {
+        self.select_previous(cx);
+        return true;
+    }
+            "down" if self.show_suggestions => {
+        self.select_next(cx);
+        return true;
+    }
+            "escape" if self.show_suggestions => {
+        self.hide_suggestions(cx);
+        return true;
+    }
+            "enter" if self.show_suggestions && !self.suggestions.is_empty() => {
+        self.complete_selected(cx);
+        return true;
+    }
             _ => {}
         }
 

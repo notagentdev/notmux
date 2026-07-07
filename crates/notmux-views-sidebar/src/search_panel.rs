@@ -218,7 +218,7 @@ impl ContentSearchPanel {
                     project_fs.search_content(&query, &config, &cancelled, &mut |result| {
                         results.push(result);
                     });
-                    results.sort_by(|a, b| b.best_score.cmp(&a.best_score));
+                    results.sort_by_key(|b| std::cmp::Reverse(b.best_score));
                     results
                 })
                 .await;
