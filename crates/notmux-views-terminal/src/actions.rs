@@ -35,5 +35,6 @@ gpui::actions!(
         FullscreenPrevTerminal,
         ScrollUp,
         ScrollDown,
-    ]
-);
+        FocusNextNotification,
+        ]
+        );

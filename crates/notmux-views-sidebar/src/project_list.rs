@@ -475,9 +475,6 @@ impl Sidebar {
         let t = theme(cx);
         let project_id = project_id.to_string();
         let terminal_id = terminal_id.to_string();
-
-        // Priority: user-set custom name > non-prompt OSC title > directory fallback
-        // Also check for bell notification and cached idle/waiting state
         let (terminal_name, has_bell, is_waiting, idle_label) = {
             let ws = self.workspace.read(cx);
             let project = ws.project(&project_id);
@@ -493,7 +490,20 @@ impl Sidebar {
             };
             let bell = terminal.is_some_and(|t| t.has_bell());
             let waiting = terminal.is_some_and(|t| t.is_waiting_for_input());
-            let idle = if waiting {
+            let idle = if bell {
+                terminal
+                    .and_then(|t| t.last_notification())
+                    .map(|n| {
+                        let body = n.body.trim();
+                        if body.is_empty() {
+                            "bell".to_string()
+                        } else if body.len() > 18 {
+                            format!("{}…", &body[..body.char_indices().take(17).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(18)])
+                        } else {
+                            body.to_string()
+                        }
+                    })
+            } else if waiting {
                 terminal.map(|t| t.idle_duration_display())
             } else {
                 None
@@ -642,7 +652,7 @@ impl Sidebar {
             .children(idle_label.map(|d| {
                 div()
                     .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.border_idle))
+                    .text_color(rgb(if has_bell { t.border_bell } else { t.border_idle }))
                     .flex_shrink_0()
                     .child(d)
             }))

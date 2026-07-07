@@ -283,6 +283,13 @@ impl KeybindingConfig {
                 KeybindingEntry::new("ctrl-shift-tab", Some("TerminalPane")),
             ],
         );
+        bindings.insert(
+            "FocusNextNotification".to_string(),
+            vec![
+                KeybindingEntry::new("cmd-shift-u", None),
+                KeybindingEntry::new("ctrl-shift-u", None),
+            ],
+        );
 
         bindings.insert(
             "TogglePaneSwitcher".to_string(),

@@ -50,11 +50,11 @@ actions!(
 
 // Terminal-specific actions (defined in notmux-views-terminal crate)
 pub use notmux_views_terminal::actions::{
-    AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextTerminal,
-    FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
-    MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev,
-    SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical, ToggleFullscreen, ZoomIn,
-    ZoomOut,
+    AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextNotification,
+    FocusNextTerminal, FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal,
+    FullscreenPrevTerminal, MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search,
+    SearchNext, SearchPrev, SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical,
+    ToggleFullscreen, ZoomIn, ZoomOut,
 };
 
 // Sidebar-specific actions (defined in notmux-views-sidebar crate)
@@ -388,6 +388,9 @@ fn create_keybinding(action: &str, keystroke: &str, context: Option<&str>) -> Op
         "MinimizeTerminal" => Some(KeyBinding::new(keystroke, MinimizeTerminal, context)),
         "FocusNextTerminal" => Some(KeyBinding::new(keystroke, FocusNextTerminal, context)),
         "FocusPrevTerminal" => Some(KeyBinding::new(keystroke, FocusPrevTerminal, context)),
+        "FocusNextNotification" => {
+            Some(KeyBinding::new(keystroke, FocusNextNotification, context))
+        }
         "FocusLeft" => Some(KeyBinding::new(keystroke, FocusLeft, context)),
         "FocusRight" => Some(KeyBinding::new(keystroke, FocusRight, context)),
         "FocusUp" => Some(KeyBinding::new(keystroke, FocusUp, context)),

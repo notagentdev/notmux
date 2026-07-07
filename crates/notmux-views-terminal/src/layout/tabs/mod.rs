@@ -444,6 +444,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         }
                     })
                 });
+                let has_notification = terminal_id.as_ref().is_some_and(|tid| {
+                    terminals.lock().get(tid).is_some_and(|t| t.has_bell())
+                });
 
                 let is_hook = terminal_id.as_ref().is_some_and(|tid| {
                     project_for_names
@@ -625,6 +628,16 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 .overflow_hidden()
                                 .child(start_slot)
                                 .child(label)
+                                .when(has_notification, |d| {
+                                    d.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .w(px(8.0))
+                                            .h(px(8.0))
+                                            .rounded_full()
+                                            .bg(rgb(t.border_bell)),
+                                    )
+                                })
                                 .children(idle_label.as_ref().map(|d| {
                                     div()
                                         .flex_shrink_0()

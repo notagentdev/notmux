@@ -69,13 +69,110 @@ fn resolve_osc_color(index: usize) -> u32 {
     if let Some(resolver) = COLOR_RESOLVER.get() {
         return resolver(index);
     }
-    // Fallback to xterm defaults if no resolver registered.
     match index {
-        256 => 0xcccccc, // foreground
-        257 => 0x1e1e1e, // background
-        258 => 0xaeafad, // cursor
+        256 => 0xcccccc,
+        257 => 0x1e1e1e,
+        258 => 0xaeafad,
         _ => 0,
     }
+}
+#[derive(Clone, Debug)]
+pub struct TerminalNotification {
+    pub title: String,
+    pub body: String,
+    pub timestamp: Instant,
+}
+fn extract_osc_notifications(data: &[u8]) -> Vec<TerminalNotification> {
+    let mut out = Vec::new();
+    let bytes = data;
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] != 0x1b || bytes[i + 1] != b']' {
+            i += 1;
+            continue;
+        }
+        let start = i + 2;
+        let mut num_end = start;
+        while num_end < bytes.len() && bytes[num_end].is_ascii_digit() {
+            num_end += 1;
+        }
+        if num_end == start || num_end >= bytes.len() {
+            i += 1;
+            continue;
+        }
+        let Ok(code) = std::str::from_utf8(&bytes[start..num_end]) else {
+            i += 1;
+            continue;
+        };
+        let code: u32 = match code.parse() {
+            Ok(c) => c,
+            Err(_) => {
+             i += 1;
+             continue;
+            }
+        };
+        let mut content_start = num_end;
+        if content_start < bytes.len() && bytes[content_start] == b';' {
+            content_start += 1;
+        }
+        let mut end = content_start;
+        while end < bytes.len() {
+            if bytes[end] == 0x07 {
+             break;
+            }
+            if bytes[end] == 0x1b
+             && end + 1 < bytes.len()
+             && bytes[end + 1] == b'\\'
+            {
+             break;
+            }
+            end += 1;
+        }
+        if end >= bytes.len() {
+            i += 1;
+            continue;
+        }
+        let raw = &bytes[content_start..end];
+        let payload = String::from_utf8_lossy(raw).to_string();
+        match code {
+            9 if !payload.trim().is_empty() => {
+             out.push(TerminalNotification {
+                title: "Notification".to_string(),
+                body: payload,
+                timestamp: Instant::now(),
+             });
+            }
+            99 => {
+             let body = payload
+                .split(';')
+                .next_back()
+                .unwrap_or("")
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != ' ');
+             if !body.is_empty() {
+                out.push(TerminalNotification {
+                 title: "Notification".to_string(),
+                 body: body.to_string(),
+                 timestamp: Instant::now(),
+                });
+             }
+            }
+            777 => {
+             let parts: Vec<&str> = payload.splitn(3, ';').collect();
+             if parts.len() >= 2 && parts.first() == Some(&"notify") {
+                let title = parts.get(1).copied().unwrap_or("").to_string();
+                let body = parts.get(2).copied().unwrap_or("").to_string();
+                out.push(TerminalNotification {
+                 title,
+                 body,
+                 timestamp: Instant::now(),
+                });
+             }
+            }
+            _ => {}
+        }
+        i = end + 1;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -298,14 +395,9 @@ pub struct Terminal {
     transport: Arc<dyn TerminalTransport>,
     selection_state: Mutex<SelectionState>,
     scroll_offset: Mutex<i32>,
-    /// Terminal title from OSC sequences
     title: Arc<Mutex<Option<String>>>,
-    /// Bell notification flag (set when terminal receives bell, cleared on focus)
     has_bell: Arc<Mutex<bool>>,
-    /// Pending output from remote connections, drained before rendering.
-    /// Decouples the tokio reader thread from the GPUI render thread so that
-    /// `process_output` (which holds `term.lock()`) never runs on the tokio
-    /// thread, avoiding lock contention that freezes the UI.
+    last_notification: Arc<Mutex<Option<TerminalNotification>>>,
     pending_output: Mutex<Vec<u8>>,
     /// Rolling PTY byte stream used for persistent scrollback snapshots.
     ///
@@ -369,6 +461,7 @@ impl Terminal {
         // Create shared storage for OSC sequence handling and bell
         let title = Arc::new(Mutex::new(None));
         let has_bell = Arc::new(Mutex::new(false));
+        let last_notification = Arc::new(Mutex::new(None));
         let suppress_pty_responses = Arc::new(AtomicBool::new(false));
         let event_listener = ZedEventListener::new(
             title.clone(),
@@ -397,6 +490,7 @@ impl Terminal {
             scroll_offset: Mutex::new(0),
             title,
             has_bell,
+            last_notification,
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
             restored_replay_buffer: Mutex::new(Vec::new()),
@@ -645,6 +739,10 @@ impl Terminal {
         } else {
             data.to_vec()
         };
+        if record_replay && !suppress_replies && let Some(notif) = extract_osc_notifications(&data).into_iter().last() {
+             *self.last_notification.lock() = Some(notif);
+             *self.has_bell.lock() = true;
+            }
         if suppress_replies {
             self.suppress_pty_responses.store(true, Ordering::Relaxed);
         }
@@ -1158,10 +1256,14 @@ impl Terminal {
     pub fn has_bell(&self) -> bool {
         *self.has_bell.lock()
     }
-
-    /// Clear the bell notification flag (call when terminal receives focus)
     pub fn clear_bell(&self) {
         *self.has_bell.lock() = false;
+    }
+    pub fn last_notification(&self) -> Option<TerminalNotification> {
+        self.last_notification.lock().clone()
+    }
+    pub fn clear_notification(&self) {
+        *self.last_notification.lock() = None;
     }
 
     /// Get the initial working directory for this terminal

@@ -14,6 +14,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use notmux_core::api::ActionRequest;
 use notmux_files::theme::theme;
+use notmux_ui::tokens::ui_text_sm;
 use notmux_workspace::state::SplitDirection;
 
 use super::TerminalPane;
@@ -303,6 +304,32 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                                     .border_1()
                                     .border_color(border_color),
                             )
+                        })
+                        .when(has_bell && !is_focused, |el| {
+                            let notif_body = self
+                                .terminal
+                                .as_ref()
+                                .and_then(|t| t.last_notification())
+                                .map(|n| n.body)
+                                .unwrap_or_default();
+                            if notif_body.is_empty() {
+                                el
+                            } else {
+                                el.child(
+                                    div()
+                                        .absolute()
+                                        .top(px(6.0))
+                                        .right(px(6.0))
+                                        .max_w(px(280.0))
+                                        .py(px(4.0))
+                                        .px(px(8.0))
+                                        .rounded(px(4.0))
+                                        .bg(rgb(t.border_bell))
+                                        .text_color(rgb(t.bg_primary))
+                                        .text_size(ui_text_sm(cx))
+                                        .child(SharedString::from(notif_body)),
+                                )
+                            }
                         }),
                 )
             })

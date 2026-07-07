@@ -1,10 +1,10 @@
 use crate::keybindings::{
-    CheckForUpdates, ClearFocus, CreateWorktree, EqualizeLayout, FocusActiveProject, FocusSidebar,
-    InstallUpdate, NewProject, OpenSettingsFile, ShowCommandPalette, ShowContentSearch,
-    ShowDiffViewer, ShowFileSearch, ShowHookLog, ShowKeybindings, ShowPairingDialog,
-    ShowProjectSwitcher, ShowSessionManager, ShowSettings, ShowThemeSelector, StartAllServices,
-    StopAllServices, ToggleFileExplorer, ToggleGitPanel, TogglePaneSwitcher, ToggleSidebar,
-    ToggleSidebarAutoHide,
+    CheckForUpdates, ClearFocus, CreateWorktree, EqualizeLayout, FocusActiveProject,
+    FocusNextNotification, FocusSidebar, InstallUpdate, NewProject, OpenSettingsFile,
+    ShowCommandPalette, ShowContentSearch, ShowDiffViewer, ShowFileSearch, ShowHookLog,
+    ShowKeybindings, ShowPairingDialog, ShowProjectSwitcher, ShowSessionManager, ShowSettings,
+    ShowThemeSelector, StartAllServices, StopAllServices, ToggleFileExplorer, ToggleGitPanel,
+    TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
 };
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::theme;
@@ -652,11 +652,33 @@ impl Render for RootView {
                 }
             }))
             // Handle equalize layout action
-            .on_action(cx.listener(|this, _: &EqualizeLayout, _window, cx| {
+            .on_action(cx.listener(|this, _: &FocusNextNotification, _window, cx| {
+    let terminals = this.terminals.lock();
+    let ws = this.workspace.read(cx);
+    let all_with_bell: Vec<(String, String)> = ws
+        .data
+        .projects
+        .iter()
+        .flat_map(|p| {
+            let ids = p
+                .layout
+                .as_ref()
+                .map(|l| l.collect_terminal_ids())
+                .unwrap_or_default();
+            ids.into_iter().map(move |tid| (p.id.clone(), tid))
+        })
+        .filter(|(_, tid)| terminals.get(tid).is_some_and(|t| t.has_bell()))
+        .collect();
+    drop(terminals);
+    if let Some((project_id, terminal_id)) = all_with_bell.into_iter().next() {
+        this.workspace.update(cx, |ws, cx| {
+            ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
+        });
+    }
+}))
+.on_action(cx.listener(|this, _: &EqualizeLayout, _window, cx| {
                 this.workspace.update(cx, |ws, cx| {
-                    // Clear custom column widths → equal distribution
                     ws.data.project_widths.clear();
-                    // Equalize pane sizes in the focused terminal's parent split
                     ws.equalize_focused_split(cx);
                 });
             }))
