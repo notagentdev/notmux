@@ -23,7 +23,7 @@ use notmux_terminal::TerminalsRegistry;
 use notmux_ui::click_detector::ClickDetector;
 use notmux_ui::menu::{context_menu_panel, menu_item};
 use notmux_ui::rename_state::{RenameState, cancel_rename, finish_rename, start_rename_with_blur};
-use notmux_ui::theme::theme;
+use notmux_ui::theme::{theme, with_alpha};
 use notmux_ui::tokens::{ui_text_ms, ui_text_sm, ui_text_xl};
 use notmux_workspace::request_broker::RequestBroker;
 use notmux_workspace::requests::{OverlayRequest, SidebarRequest};
@@ -1658,7 +1658,7 @@ impl Sidebar {
             .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
-            .bg(rgb(t.bg_header))
+            .bg(with_alpha(t.bg_header, 0.5))
             // View toggle: Projects
             .child(
                 div()
@@ -1848,7 +1848,7 @@ impl Sidebar {
             .flex()
             .items_center()
             .justify_between()
-            .bg(rgb(t.bg_header))
+            .bg(with_alpha(t.bg_header, 0.5))
             .border_b_1()
             .border_color(rgb(t.border))
             .child(
@@ -2774,7 +2774,7 @@ impl Render for Sidebar {
             .h_full()
             .flex()
             .flex_col()
-            .bg(rgb(t.bg_secondary))
+            .bg(with_alpha(t.bg_secondary, 0.55))
             .track_focus(&self.focus_handle)
             .key_context("Sidebar")
             .on_action(cx.listener(Self::handle_sidebar_up))

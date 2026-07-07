@@ -7,7 +7,7 @@ use crate::keybindings::{
     TogglePaneSwitcher, ToggleSidebar, ToggleSidebarAutoHide,
 };
 use crate::settings::{open_settings_file, settings_entity};
-use crate::theme::theme;
+use crate::theme::{theme, with_alpha};
 use crate::ui::tokens::{ui_text_md, ui_text_xl};
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
 use crate::views::layout::split_pane::{
@@ -466,7 +466,7 @@ impl Render for RootView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(t.bg_primary))
+.bg(with_alpha(t.bg_primary, 0.85))
             .track_focus(&focus_handle)
             // Global mouse move handler for resize and auto-hide
             .on_mouse_move(cx.listener({

@@ -4,13 +4,11 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use notmux_core::api::ActionRequest;
-use notmux_ui::color_dot::color_dot;
 use notmux_ui::icon_button::icon_button;
 use notmux_ui::rename_state::is_renaming;
 use notmux_ui::theme::theme;
 use notmux_ui::tokens::ui_text_sm;
 use notmux_views_terminal::actions::{MinimizeTerminal, ToggleFullscreen};
-
 use crate::drag::{FolderDrag, ProjectDrag, ProjectDragView, WorktreeDrag, WorktreeDragView};
 use crate::item_widgets::*;
 use crate::sidebar::{Sidebar, SidebarProjectInfo};
@@ -110,7 +108,7 @@ impl Sidebar {
                     let pid = project.id.clone();
                     sidebar_color_indicator(
                         ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
-                        color_dot(folder_color, project.is_worktree),
+                        folder_icon(folder_color),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -127,7 +125,7 @@ impl Sidebar {
                     let pid = project.id.clone();
                     sidebar_color_indicator(
                         ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
-                        color_dot(dot_color, true),
+                        folder_icon(dot_color),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -143,7 +141,7 @@ impl Sidebar {
                     let pid = project.id.clone();
                     sidebar_color_indicator(
                         ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
-                        color_dot(folder_color, false),
+                        folder_icon(folder_color),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -475,7 +473,7 @@ impl Sidebar {
         let t = theme(cx);
         let project_id = project_id.to_string();
         let terminal_id = terminal_id.to_string();
-        let (terminal_name, has_bell, is_waiting, idle_label) = {
+let (terminal_name, has_bell, idle_label) = {
             let ws = self.workspace.read(cx);
             let project = ws.project(&project_id);
             let terminals = self.terminals.lock();
@@ -508,8 +506,8 @@ impl Sidebar {
             } else {
                 None
             };
-            (name, bell, waiting, idle)
-        };
+            (name, bell, idle)
+            };
 
         // Check if this terminal is being renamed
         let is_renaming = is_renaming(
@@ -569,7 +567,6 @@ impl Sidebar {
                 }
             }))
             .child(
-                // Terminal icon - different for minimized and bell state
                 div()
                     .flex_shrink_0()
                     .w(px(14.0))
@@ -589,12 +586,10 @@ impl Sidebar {
                             .size(px(12.0))
                             .text_color(if has_bell {
                                 rgb(t.border_bell)
-                            } else if is_waiting {
-                                rgb(t.border_idle)
                             } else if is_minimized || is_inactive_tab {
                                 rgb(t.text_muted)
                             } else {
-                                rgb(t.success)
+                                rgb(t.text_secondary)
                             }),
                     ),
             )
@@ -886,7 +881,7 @@ impl Sidebar {
             let project_id = project.id.clone();
             sidebar_color_indicator(
                 ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
-                color_dot(folder_color, false),
+                folder_icon(folder_color),
             )
             .on_mouse_down(
                 MouseButton::Left,

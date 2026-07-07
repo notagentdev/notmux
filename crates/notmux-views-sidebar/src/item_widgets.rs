@@ -57,6 +57,12 @@ pub fn sidebar_color_indicator(id: impl Into<ElementId>, child: impl IntoElement
         .hover(|s| s.opacity(0.7))
         .child(child)
 }
+pub fn folder_icon(color: u32) -> impl IntoElement {
+    svg()
+        .path("icons/folder.svg")
+        .size(px(16.0))
+        .text_color(rgb(color))
+}
 
 /// Rename input container with SimpleInput.
 ///

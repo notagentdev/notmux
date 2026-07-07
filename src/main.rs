@@ -687,9 +687,7 @@ fn main() {
                     width: px(400.0),
                     height: px(300.0),
                 }),
-                // Debug builds use a distinct app_id so the window manager
-                // treats them as a separate application from the installed
-                // release app (separate Dock entry, no instance grouping).
+window_background: WindowBackgroundAppearance::Blurred,
                 app_id: Some(
                     if cfg!(debug_assertions) { "notmux-dev" } else { "notmux" }.to_string(),
                 ),
