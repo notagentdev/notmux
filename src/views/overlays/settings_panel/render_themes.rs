@@ -5,31 +5,33 @@ use crate::views::overlays::theme_selector::{
 };
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::h_flex;
-
+use gpui_component::{h_flex, v_flex};
 use super::SettingsPanel;
 use super::components::*;
-
 impl SettingsPanel {
     pub(super) fn render_themes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let themes = theme_entries();
         let selected_index = selected_theme_index(&themes, cx);
-
-        div()
+        v_flex()
+            .gap(px(24.0))
             .child(section_header("Themes", &t, cx))
             .child(
-                section_container(&t)
-                    .children(themes.iter().enumerate().map(|(index, entry)| {
-                        self.render_theme_row(index, entry, index == selected_index, cx)
-                    }))
-            )
-            .child(
-                div()
-                    .mt(px(12.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child("Custom themes are loaded from your NotMux themes directory and appear here automatically."),
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("AVAILABLE THEMES", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .children(themes.iter().enumerate().map(|(index, entry)| {
+                                self.render_theme_row(index, entry, index == selected_index, cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child("Custom themes are loaded from your NotMux themes directory and appear here automatically."),
+                    ),
             )
     }
 

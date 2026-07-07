@@ -7,7 +7,7 @@ use gpui_component::v_flex;
 // Re-export from notmux-ui
 pub use notmux_ui::settings::{
     section_container, section_header, settings_row, settings_row_with_desc, stepper_button,
-    value_display,
+    subsection_label, value_display,
 };
 pub use notmux_ui::toggle::toggle_switch;
 

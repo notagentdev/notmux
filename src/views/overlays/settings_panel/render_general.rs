@@ -1,20 +1,17 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
-use crate::ui::tokens::{ui_text, ui_text_md, ui_text_sm};
+use crate::ui::tokens::{ui_text, ui_text_sm};
 use crate::views::components::simple_input::SimpleInput;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
-
 use super::SettingsPanel;
 use super::components::*;
-
 impl SettingsPanel {
     pub(super) fn render_general(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let s = settings_entity(cx).read(cx).settings.clone();
-
-        let section = section_container(&t)
+        let appearance_toggles = section_container(&t)
             .child(self.render_toggle(
                 "focus-border", "Show Focus Border", s.show_focused_border, true,
                 |state, val, cx| state.set_show_focused_border(val, cx), cx,
@@ -43,6 +40,12 @@ impl SettingsPanel {
                 |state, val, cx| state.set_show_all_projects_on_projects_click(val, cx),
                 cx,
             ))
+            .child(self.render_number_stepper(
+                "min-col-width", "Min Column Width", s.min_column_width,
+                "{}px", 50.0, 60.0, false,
+                |state, val, cx| state.set_min_column_width(val, cx), cx,
+            ));
+        let remote_section = section_container(&t)
             .child(self.render_toggle(
                 "remote-server", "Remote Server", s.remote_server_enabled, true,
                 |state, val, cx| state.set_remote_server_enabled(val, cx), cx,
@@ -50,11 +53,13 @@ impl SettingsPanel {
             .when(s.remote_server_enabled, |d| {
                 d.child(
                     div()
-                        .px(px(12.0))
-                        .py(px(8.0))
+                        .px(px(16.0))
+                        .py(px(14.0))
                         .flex()
                         .flex_col()
-                        .gap(px(6.0))
+                        .gap(px(8.0))
+                        .border_b_1()
+                        .border_color(rgb(t.border))
                         .child(
                             v_flex()
                                 .gap(px(2.0))
@@ -73,62 +78,66 @@ impl SettingsPanel {
                         )
                         .child(
                             div()
-                                .bg(rgb(t.bg_secondary))
+                                .bg(rgb(t.bg_primary))
                                 .border_1()
                                 .border_color(rgb(t.border))
                                 .rounded(px(4.0))
-                                .child(SimpleInput::new(&self.listen_address_input).text_size(ui_text_md(cx))),
+                                .child(SimpleInput::new(&self.listen_address_input).text_size(ui_text(13.0, cx))),
                         ),
                 )
-            })
-            .child(self.render_number_stepper(
-                "min-col-width", "Min Column Width", s.min_column_width,
-                "{}px", 50.0, 60.0, false,
-                |state, val, cx| state.set_min_column_width(val, cx), cx,
-            ));
-
-        div()
-            .child(section_header("Appearance", &t, cx))
-            .child(section)
-            .child(section_header("File Opener", &t, cx))
-            .child(
-                section_container(&t).child(
-                    div()
-                        .px(px(12.0))
-                        .py(px(8.0))
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.0))
+            });
+        let file_opener_section = section_container(&t).child(
+            div()
+                .px(px(16.0))
+                .py(px(14.0))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(
+                    v_flex()
+                        .gap(px(2.0))
                         .child(
-                            v_flex()
-                                .gap(px(2.0))
-                                .child(
-                                    div()
-                                        .text_size(ui_text(13.0, cx))
-                                        .text_color(rgb(t.text_primary))
-                                        .child("Editor Command"),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(ui_text_sm(cx))
-                                        .text_color(rgb(t.text_muted))
-                                        .child(
-                                            "Command to open file paths (empty = system default)",
-                                        ),
-                                ),
+                            div()
+                                .text_size(ui_text(13.0, cx))
+                                .text_color(rgb(t.text_primary))
+                                .child("Editor Command"),
                         )
                         .child(
                             div()
-                                .bg(rgb(t.bg_secondary))
-                                .border_1()
-                                .border_color(rgb(t.border))
-                                .rounded(px(4.0))
-                                .child(
-                                    SimpleInput::new(&self.file_opener_input)
-                                        .text_size(ui_text_md(cx)),
-                                ),
+                                .text_size(ui_text_sm(cx))
+                                .text_color(rgb(t.text_muted))
+                                .child("Command to open file paths (empty = system default)"),
                         ),
+                )
+                .child(
+                    div()
+                        .bg(rgb(t.bg_primary))
+                        .border_1()
+                        .border_color(rgb(t.border))
+                        .rounded(px(4.0))
+                        .child(SimpleInput::new(&self.file_opener_input).text_size(ui_text(13.0, cx))),
                 ),
+        );
+        v_flex()
+            .gap(px(24.0))
+            .child(section_header("General", &t, cx))
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("APPEARANCE", &t, cx))
+                    .child(appearance_toggles),
+            )
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("REMOTE", &t, cx))
+                    .child(remote_section),
+            )
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("FILE OPENER", &t, cx))
+                    .child(file_opener_section),
             )
     }
-}
+    }

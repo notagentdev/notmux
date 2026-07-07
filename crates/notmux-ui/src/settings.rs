@@ -1,29 +1,30 @@
 //! Settings panel components.
 
 use crate::theme::ThemeColors;
-use crate::tokens::{ui_text, ui_text_ms, ui_text_sm, ui_text_xl};
+use crate::tokens::{ui_text, ui_text_sm, ui_text_xl, ui_text_xs};
 use gpui::*;
 use gpui_component::v_flex;
 
 /// Render a section header.
 pub fn section_header(title: &str, t: &ThemeColors, cx: &App) -> impl IntoElement {
     div()
-        .px(px(16.0))
-        .py(px(8.0))
-        .text_size(ui_text_ms(cx))
+        .text_size(ui_text_xl(cx))
         .font_weight(FontWeight::SEMIBOLD)
+        .text_color(rgb(t.text_primary))
+        .child(title.to_string())
+}
+pub fn subsection_label(label: &str, t: &ThemeColors, cx: &App) -> Div {
+    div()
+        .text_size(ui_text_xs(cx))
         .text_color(rgb(t.text_muted))
-        .child(title.to_uppercase())
+        .child(label.to_string())
 }
 
 /// Render a settings section container.
 pub fn section_container(t: &ThemeColors) -> Div {
     div()
-        .mx(px(16.0))
-        .mb(px(12.0))
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(rgb(t.border))
+        .rounded_lg()
+        .bg(rgb(t.bg_secondary))
         .overflow_hidden()
 }
 
@@ -37,13 +38,19 @@ pub fn settings_row(
 ) -> Stateful<Div> {
     div()
         .id(ElementId::Name(id.into()))
-        .px(px(12.0))
-        .py(px(8.0))
+        .px(px(16.0))
+        .py(px(14.0))
         .flex()
+        .flex_row()
         .items_center()
         .justify_between()
+        .gap(px(16.0))
+        .border_b_1()
+        .border_color(rgb(t.border))
         .child(
             div()
+                .flex_1()
+                .min_w_0()
                 .text_size(ui_text(13.0, cx))
                 .text_color(rgb(t.text_primary))
                 .child(label.to_string()),
@@ -61,13 +68,19 @@ pub fn settings_row_with_desc(
 ) -> Stateful<Div> {
     div()
         .id(ElementId::Name(id.into()))
-        .px(px(12.0))
-        .py(px(8.0))
+        .px(px(16.0))
+        .py(px(14.0))
         .flex()
+        .flex_row()
         .items_center()
         .justify_between()
+        .gap(px(16.0))
+        .border_b_1()
+        .border_color(rgb(t.border))
         .child(
             v_flex()
+                .flex_1()
+                .min_w_0()
                 .gap(px(2.0))
                 .child(
                     div()

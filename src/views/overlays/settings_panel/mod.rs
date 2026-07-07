@@ -1173,13 +1173,21 @@ impl SettingsPanel {
                 self.render_extension_settings(ext_id.clone(), cx)
             }
         };
-
         div()
             .id("settings-content")
             .flex_1()
-            .overflow_y_scroll()
+            .h_full()
             .min_w_0()
-            .child(content)
+            .overflow_y_scroll()
+            .bg(rgb(theme(cx).bg_primary))
+            .child(
+                div()
+                    .max_w(px(720.0))
+                    .mx_auto()
+                    .px(px(40.0))
+                    .py(px(40.0))
+                    .child(content),
+            )
     }
 
     fn render_extension_settings(&mut self, ext_id: String, cx: &mut Context<Self>) -> AnyElement {

@@ -4,88 +4,117 @@ use crate::ui::tokens::ui_text_md;
 use crate::workspace::settings::CursorShape;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_component::h_flex;
-
+use gpui_component::{h_flex, v_flex};
 use super::SettingsPanel;
 use super::components::*;
-
 impl SettingsPanel {
     pub(super) fn render_terminal(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let s = settings_entity(cx).read(cx).settings.clone();
-
-        div().child(section_header("Terminal", &t, cx)).child(
-            section_container(&t)
-                .child(self.render_shell_dropdown_row(&s.default_shell, cx))
-                .child(self.render_session_backend_dropdown_row(&s.session_backend, cx))
-                .child(self.render_toggle(
-                    "show-shell-selector",
-                    "Show Shell Selector",
-                    s.show_shell_selector,
-                    true,
-                    |state, val, cx| state.set_show_shell_selector(val, cx),
-                    cx,
-                ))
-                .child(self.render_cursor_style_row(s.cursor_style, cx))
-                .child(self.render_toggle(
-                    "cursor-blink",
-                    "Cursor Blink",
-                    s.cursor_blink,
-                    true,
-                    |state, val, cx| state.set_cursor_blink(val, cx),
-                    cx,
-                ))
-                .child(self.render_integer_stepper(
-                    "scrollback",
-                    "Scrollback Lines",
-                    s.scrollback_lines,
-                    1000,
-                    70.0,
-                    true,
-                    |state, val, cx| state.set_scrollback_lines(val, cx),
-                    cx,
-                ))
-                .child(self.render_toggle(
-                    "persist-scrollback",
-                    "Persist Scrollback Across Restarts",
-                    s.persist_scrollback,
-                    true,
-                    |state, val, cx| state.set_persist_scrollback(val, cx),
-                    cx,
-                ))
-                .when(s.persist_scrollback, |el| {
-                    el.child(self.render_integer_stepper(
-                        "persist-scrollback-lines",
-                        "Lines to Restore",
-                        s.persist_scrollback_lines,
-                        50,
-                        70.0,
-                        false,
-                        |state, val, cx| state.set_persist_scrollback_lines(val, cx),
-                        cx,
-                    ))
-                })
-                .child(self.render_toggle(
-                    "idle-detection",
-                    "Idle Detection",
-                    s.idle_timeout_secs > 0,
-                    true,
-                    |state, val, cx| state.set_idle_timeout_secs(if val { 5 } else { 0 }, cx),
-                    cx,
-                ))
-                .when(s.idle_timeout_secs > 0, |el| {
-                    el.child(self.render_integer_stepper(
-                        "idle-timeout",
-                        "Idle Timeout (seconds)",
-                        s.idle_timeout_secs,
-                        1,
-                        50.0,
-                        false,
-                        |state, val, cx| state.set_idle_timeout_secs(val, cx),
-                        cx,
-                    ))
-                }),
-        )
+        v_flex()
+            .gap(px(24.0))
+            .child(section_header("Terminal", &t, cx))
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("SHELL & SESSION", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .child(self.render_shell_dropdown_row(&s.default_shell, cx))
+                            .child(self.render_session_backend_dropdown_row(&s.session_backend, cx))
+                            .child(self.render_toggle(
+                                "show-shell-selector",
+                                "Show Shell Selector",
+                                s.show_shell_selector,
+                                true,
+                                |state, val, cx| state.set_show_shell_selector(val, cx),
+                                cx,
+                            )),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("CURSOR", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .child(self.render_cursor_style_row(s.cursor_style, cx))
+                            .child(self.render_toggle(
+                                "cursor-blink",
+                                "Cursor Blink",
+                                s.cursor_blink,
+                                true,
+                                |state, val, cx| state.set_cursor_blink(val, cx),
+                                cx,
+                            )),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("SCROLLBACK", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .child(self.render_integer_stepper(
+                                "scrollback",
+                                "Scrollback Lines",
+                                s.scrollback_lines,
+                                1000,
+                                70.0,
+                                true,
+                                |state, val, cx| state.set_scrollback_lines(val, cx),
+                                cx,
+                            ))
+                            .child(self.render_toggle(
+                                "persist-scrollback",
+                                "Persist Scrollback Across Restarts",
+                                s.persist_scrollback,
+                                true,
+                                |state, val, cx| state.set_persist_scrollback(val, cx),
+                                cx,
+                            ))
+                            .when(s.persist_scrollback, |el| {
+                                el.child(self.render_integer_stepper(
+                                    "persist-scrollback-lines",
+                                    "Lines to Restore",
+                                    s.persist_scrollback_lines,
+                                    50,
+                                    70.0,
+                                    false,
+                                    |state, val, cx| state.set_persist_scrollback_lines(val, cx),
+                                    cx,
+                                ))
+                            }),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("IDLE DETECTION", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .child(self.render_toggle(
+                                "idle-detection",
+                                "Idle Detection",
+                                s.idle_timeout_secs > 0,
+                                true,
+                                |state, val, cx| state.set_idle_timeout_secs(if val { 5 } else { 0 }, cx),
+                                cx,
+                            ))
+                            .when(s.idle_timeout_secs > 0, |el| {
+                                el.child(self.render_integer_stepper(
+                                    "idle-timeout",
+                                    "Idle Timeout (seconds)",
+                                    s.idle_timeout_secs,
+                                    1,
+                                    50.0,
+                                    false,
+                                    |state, val, cx| state.set_idle_timeout_secs(val, cx),
+                                    cx,
+                                ))
+                            }),
+                    ),
+            )
     }
 
     fn render_cursor_style_row(

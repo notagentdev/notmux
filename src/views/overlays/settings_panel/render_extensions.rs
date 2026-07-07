@@ -1,16 +1,14 @@
 use crate::settings::settings_entity;
 use crate::theme::theme;
 use gpui::*;
+use gpui_component::v_flex;
 use notmux_extensions::ExtensionRegistry;
-
 use super::SettingsPanel;
 use super::components::*;
-
 impl SettingsPanel {
     pub(super) fn render_extensions(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let s = settings_entity(cx).read(cx).settings.clone();
-
         let ext_infos: Vec<(String, String)> = cx
             .try_global::<ExtensionRegistry>()
             .map(|registry| {
@@ -21,9 +19,7 @@ impl SettingsPanel {
                     .collect()
             })
             .unwrap_or_default();
-
         let mut section = section_container(&t);
-
         for (i, (ext_id, ext_name)) in ext_infos.iter().enumerate() {
             let enabled = s.enabled_extensions.contains(ext_id);
             let toggle_id = format!("ext-{}", ext_id);
@@ -38,9 +34,14 @@ impl SettingsPanel {
                 cx,
             ));
         }
-
-        div()
+        v_flex()
+            .gap(px(24.0))
             .child(section_header("Extensions", &t, cx))
-            .child(section)
+            .child(
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("INSTALLED", &t, cx))
+                    .child(section),
+            )
     }
 }

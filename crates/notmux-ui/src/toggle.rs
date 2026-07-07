@@ -2,6 +2,7 @@
 
 use crate::theme::ThemeColors;
 use crate::tokens::ui_text_md;
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 /// Segmented toggle button for switching between options.
@@ -49,22 +50,18 @@ pub fn toggle_switch(id: impl Into<SharedString>, enabled: bool, t: &ThemeColors
     div()
         .id(ElementId::Name(id.into()))
         .cursor_pointer()
-        .w(px(40.0))
+        .w(px(38.0))
         .h(px(22.0))
-        .rounded(px(11.0))
-        .bg(if enabled {
-            rgb(t.border_active)
-        } else {
-            rgb(t.bg_secondary)
-        })
+        .flex_shrink_0()
+        .rounded_full()
+        .p(px(3.0))
         .flex()
-        .items_center()
+        .when(enabled, |d| d.justify_end().bg(rgb(t.border_active)))
+        .when(!enabled, |d| d.justify_start().bg(rgb(t.bg_hover)))
         .child(
             div()
-                .w(px(18.0))
-                .h(px(18.0))
+                .size(px(16.0))
                 .rounded_full()
-                .bg(rgb(t.text_primary))
-                .ml(if enabled { px(20.0) } else { px(2.0) }),
+                .bg(rgb(t.text_primary)),
         )
 }

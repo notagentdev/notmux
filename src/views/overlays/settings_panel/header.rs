@@ -1,30 +1,22 @@
 use crate::settings::open_settings_file;
 use crate::theme::theme;
-use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_xl};
+use crate::ui::tokens::ui_text_ms;
 use crate::views::components::{dropdown_button, dropdown_option, dropdown_overlay};
 use gpui::*;
 use gpui_component::h_flex;
-
 use super::SettingsPanel;
-
 impl SettingsPanel {
     pub(super) fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
-
-        div()
+        h_flex()
             .px(px(16.0))
             .py(px(10.0))
             .border_b_1()
             .border_color(rgb(t.border))
-            .flex()
             .items_center()
             .justify_between()
+            .child(self.render_project_selector(cx))
             .child(
-                // Left: Project selector
-                self.render_project_selector(cx),
-            )
-            .child(
-                // Right: Edit in settings.json button
                 h_flex()
                     .gap(px(8.0))
                     .child(
@@ -46,34 +38,11 @@ impl SettingsPanel {
                                     this.close(cx);
                                 }),
                             ),
-                    )
-                    .child(
-                        div()
-                            .id("settings-close-btn")
-                            .cursor_pointer()
-                            .w(px(24.0))
-                            .h(px(24.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(4.0))
-                            .hover(|s| s.bg(rgb(t.bg_hover)))
-                            .text_size(ui_text_xl(cx))
-                            .text_color(rgb(t.text_muted))
-                            .child("\u{2715}")
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, _, cx| {
-                                    this.close(cx);
-                                }),
-                            ),
                     ),
             )
     }
-
     pub(super) fn render_project_selector(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
-
         let label = match &self.selected_project_id {
             None => "User".to_string(),
             Some(pid) => self
@@ -83,48 +52,31 @@ impl SettingsPanel {
                 .map(|p| p.name.clone())
                 .unwrap_or_else(|| "Unknown".to_string()),
         };
-
-        h_flex()
-            .gap(px(4.0))
-            .child(
-                div()
-                    .text_size(ui_text_xl(cx))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(t.text_primary))
-                    .child("Settings"),
-            )
-            .child(
-                div()
-                    .text_size(ui_text_md(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child("\u{2014}"),
-            )
-            .child(
-                {
-                    let project_bounds_setter =
-                        Self::bounds_setter(cx, |s, b| s.project_button_bounds = b);
-                    dropdown_button(
-                        "project-selector-btn",
-                        &label,
-                        self.project_dropdown_open,
-                        &t,
-                        cx,
-                        project_bounds_setter,
-                    )
-                }
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.project_dropdown_open = !this.project_dropdown_open;
-                        this.font_dropdown_open = false;
-                        this.shell_dropdown_open = false;
-                        this.session_backend_dropdown_open = false;
-                        cx.notify();
-                    }),
-                ),
-            )
+        h_flex().gap(px(4.0)).child(
+            {
+                let project_bounds_setter =
+                    Self::bounds_setter(cx, |s, b| s.project_button_bounds = b);
+                dropdown_button(
+                    "project-selector-btn",
+                    &label,
+                    self.project_dropdown_open,
+                    &t,
+                    cx,
+                    project_bounds_setter,
+                )
+            }
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.project_dropdown_open = !this.project_dropdown_open;
+                    this.font_dropdown_open = false;
+                    this.shell_dropdown_open = false;
+                    this.session_backend_dropdown_open = false;
+                    cx.notify();
+                }),
+            ),
+        )
     }
-
     pub(super) fn render_project_dropdown_overlay(
         &mut self,
         cx: &mut Context<Self>,
@@ -137,9 +89,7 @@ impl SettingsPanel {
             .iter()
             .map(|p| (p.id.clone(), p.name.clone()))
             .collect();
-
         let is_user_selected = self.selected_project_id.is_none();
-
         dropdown_overlay("project-selector-dropdown", &t)
             .min_w(px(180.0))
             .max_h(px(250.0))

@@ -12,7 +12,7 @@ impl SettingsPanel {
 
         div()
             .px(px(16.0))
-            .py(px(8.0))
+            .py(px(6.0))
             .border_t_1()
             .border_color(rgb(t.border))
             .child(

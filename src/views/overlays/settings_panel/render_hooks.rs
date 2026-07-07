@@ -1,15 +1,13 @@
 use crate::theme::theme;
 use crate::ui::tokens::ui_text_sm;
 use gpui::*;
-
+use gpui_component::v_flex;
 use super::SettingsPanel;
 use super::components::*;
-
 impl SettingsPanel {
     pub(super) fn render_hooks(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let is_project = self.selected_project_id.is_some();
-
         let (h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, t1, t2, t3) = if is_project {
             (
                 self.project_hook_project_open.clone(),
@@ -43,125 +41,125 @@ impl SettingsPanel {
                 self.hook_terminal_shell_wrapper.clone(),
             )
         };
-
-        let scope_label = if is_project {
-            "Project Hooks (override global)"
-        } else {
-            "Global Hooks"
-        };
+        let title = if is_project { "Project Hooks" } else { "Hooks" };
         let env_note = "Available env: $NOTMUX_PROJECT_ID, $NOTMUX_PROJECT_NAME, $NOTMUX_PROJECT_PATH";
         let merge_env_note = "Extra env: $NOTMUX_BRANCH, $NOTMUX_TARGET_BRANCH, $NOTMUX_MAIN_REPO_PATH";
         let multiline_hint = "Use multiple lines to chain actions. Prefix with terminal: to open in a terminal pane.";
-
-        div()
-            .child(section_header(scope_label, &t, cx))
+        v_flex()
+            .gap(px(24.0))
+            .child(section_header(title, &t, cx))
             .child(
-                div()
-                    .mx(px(16.0))
-                    .mb(px(4.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child(env_note),
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("PROJECT & WORKTREE", &t, cx))
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(env_note),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(multiline_hint),
+                    )
+                    .child(
+                        section_container(&t)
+                            .child(hook_input_row(
+                                "hook-project-open", "On Project Open",
+                                "Runs when a project is added to the workspace or on startup",
+                                &h1, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-project-close", "On Project Close",
+                                "Runs when a project is removed from the workspace",
+                                &h2, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-worktree-create", "On Worktree Create",
+                                "Runs in the new worktree directory after git worktree add completes",
+                                &h3, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-worktree-close", "On Worktree Close",
+                                "Runs after a worktree project is removed from the workspace",
+                                &h4, "", &t, false, cx,
+                            )),
+                    ),
             )
             .child(
-                div()
-                    .mx(px(16.0))
-                    .mb(px(8.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child(multiline_hint),
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("TERMINAL", &t, cx))
+                    .child(
+                        section_container(&t)
+                            .child(hook_input_row(
+                                "hook-terminal-on-create", "On Terminal Create",
+                                "Runs inside each new terminal after the shell starts",
+                                &t1, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-terminal-on-close", "On Terminal Close",
+                                "Runs when a terminal process exits",
+                                &t2, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-terminal-shell-wrapper", "Shell Wrapper",
+                                "Wraps the shell invocation. Use {shell} as placeholder for the original command",
+                                &t3, "", &t, false, cx,
+                            )),
+                    ),
             )
             .child(
-                section_container(&t)
-                    .child(hook_input_row(
-                        "hook-project-open", "On Project Open",
-                        "Runs when a project is added to the workspace or on startup",
-                        &h1, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-project-close", "On Project Close",
-                        "Runs when a project is removed from the workspace",
-                        &h2, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-worktree-create", "On Worktree Create",
-                        "Runs in the new worktree directory after git worktree add completes",
-                        &h3, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-worktree-close", "On Worktree Close",
-                        "Runs after a worktree project is removed from the workspace",
-                        &h4, "", &t, false, cx,
-                    )),
-            )
-            .child(section_header("Terminal Hooks", &t, cx))
-            .child(
-                section_container(&t)
-                    .child(hook_input_row(
-                        "hook-terminal-on-create", "On Terminal Create",
-                        "Runs inside each new terminal after the shell starts",
-                        &t1, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-terminal-on-close", "On Terminal Close",
-                        "Runs when a terminal process exits",
-                        &t2, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-terminal-shell-wrapper", "Shell Wrapper",
-                        "Wraps the shell invocation. Use {shell} as placeholder for the original command",
-                        &t3, "", &t, false, cx,
-                    )),
-            )
-            .child(section_header("Worktree Close Flow", &t, cx))
-            .child(
-                div()
-                    .mx(px(16.0))
-                    .mb(px(4.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child(merge_env_note),
-            )
-            .child(
-                div()
-                    .mx(px(16.0))
-                    .mb(px(8.0))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child("Close flow: stash \u{2192} fetch \u{2192} pre merge \u{2192} rebase \u{2192} merge \u{2192} post merge \u{2192} remove"),
-            )
-            .child(
-                section_container(&t)
-                    .child(hook_input_row(
-                        "hook-pre-merge", "Pre Merge",
-                        "Runs before rebase + merge. Blocks the flow \u{2014} non-zero exit aborts the merge",
-                        &h5, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-post-merge", "Post Merge",
-                        "Runs after branch is merged into the default branch",
-                        &h6, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-before-worktree-remove", "Before Worktree Remove",
-                        "Runs before git worktree remove. Blocks \u{2014} non-zero exit aborts removal",
-                        &h7, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-worktree-removed", "After Worktree Remove",
-                        "Runs after the worktree directory is deleted from disk",
-                        &h8, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-on-rebase-conflict", "On Rebase Conflict",
-                        "Runs when rebase fails due to conflicts. Extra env: $NOTMUX_REBASE_ERROR",
-                        &h9, "", &t, true, cx,
-                    ))
-                    .child(hook_input_row(
-                        "hook-on-dirty-worktree-close", "On Dirty Close",
-                        "Runs when closing a worktree that has uncommitted changes without merging",
-                        &h10, "", &t, false, cx,
-                    )),
+                v_flex()
+                    .gap(px(10.0))
+                    .child(subsection_label("WORKTREE CLOSE FLOW", &t, cx))
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(merge_env_note),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child("Close flow: stash \u{2192} fetch \u{2192} pre merge \u{2192} rebase \u{2192} merge \u{2192} post merge \u{2192} remove"),
+                    )
+                    .child(
+                        section_container(&t)
+                            .child(hook_input_row(
+                                "hook-pre-merge", "Pre Merge",
+                                "Runs before rebase + merge. Blocks the flow \u{2014} non-zero exit aborts the merge",
+                                &h5, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-post-merge", "Post Merge",
+                                "Runs after branch is merged into the default branch",
+                                &h6, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-before-worktree-remove", "Before Worktree Remove",
+                                "Runs before git worktree remove. Blocks \u{2014} non-zero exit aborts removal",
+                                &h7, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-worktree-removed", "After Worktree Remove",
+                                "Runs after the worktree directory is deleted from disk",
+                                &h8, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-on-rebase-conflict", "On Rebase Conflict",
+                                "Runs when rebase fails due to conflicts. Extra env: $NOTMUX_REBASE_ERROR",
+                                &h9, "", &t, true, cx,
+                            ))
+                            .child(hook_input_row(
+                                "hook-on-dirty-worktree-close", "On Dirty Close",
+                                "Runs when closing a worktree that has uncommitted changes without merging",
+                                &h10, "", &t, false, cx,
+                            )),
+                    ),
             )
     }
 }
