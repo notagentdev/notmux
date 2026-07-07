@@ -402,7 +402,7 @@ pub fn render_graph_row(
                                 .text_color(rgb(t.text_primary))
                                 .text_ellipsis()
                                 .overflow_hidden()
-                                .flex_shrink()
+                                .flex_shrink_1()
                                 .min_w_0()
                                 .child(entry.message.clone()),
                         )

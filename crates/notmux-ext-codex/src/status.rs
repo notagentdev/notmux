@@ -219,7 +219,7 @@ impl CodexStatus {
         deferred(
             anchored()
                 .position(position)
-                .anchor(Corner::BottomLeft)
+                .anchor(Anchor::BottomLeft)
                 .snap_to_window()
                 .child(
                     div()

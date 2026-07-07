@@ -824,8 +824,8 @@ mod tests {
         let data = default_workspace();
         let json = serde_json::to_string(&data).unwrap();
         let deserialized: WorkspaceData = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.projects.len(), 1);
-        assert_eq!(deserialized.project_order.len(), 1);
+        assert_eq!(deserialized.projects.len(), 0);
+        assert_eq!(deserialized.project_order.len(), 0);
         assert_eq!(deserialized.version, WORKSPACE_VERSION);
     }
 

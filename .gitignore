@@ -15,6 +15,7 @@ Thumbs.db
 # Project specific
 .ralph-tui/
 .notmux/
+.vryn/scrollback/
 settings.local.json
 
 # Vendored reference projects (zed-main, vryn-main, etc. — GPL / third-party)
