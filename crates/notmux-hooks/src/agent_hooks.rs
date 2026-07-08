@@ -232,9 +232,6 @@ pub fn install_claude() -> Result<(), String> {
     let stop_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" || true"
     );
-    let notify_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Needs input\" || true"
-    );
 
     let hooks = settings
         .as_object_mut()
@@ -247,10 +244,16 @@ pub fn install_claude() -> Result<(), String> {
         "Stop".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": stop_cmd }] }]),
     );
-    hooks_obj.insert(
-        "Notification".to_string(),
-        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": notify_cmd }] }]),
-    );
+    // We only surface turn completion. Claude's `Notification` event also covers
+    // the 60s idle "waiting for input" ping, which we deliberately ignore — so
+    // drop any Notification hook a previous notmux version installed.
+    if hooks_obj
+        .get("Notification")
+        .map(|v| v.to_string().contains(&exe))
+        .unwrap_or(false)
+    {
+        hooks_obj.remove("Notification");
+    }
 
     std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", settings_path.display()))?;
