@@ -120,6 +120,10 @@ pub struct NotMux {
     listen_addr: IpAddr,
     /// Whether the listen address was forced via CLI --listen flag
     force_remote: bool,
+    /// Whether the running server is announced as remote-accessible (drives the
+    /// status-bar REMOTE/Pair affordance). False when it runs loopback-only for
+    /// local notifications.
+    server_for_remote: bool,
     /// Service manager for project-scoped background processes
     service_manager: Entity<ServiceManager>,
 }
@@ -327,6 +331,7 @@ impl NotMux {
             remote_info: remote_info.clone(),
             listen_addr,
             force_remote,
+            server_for_remote: false,
             service_manager: service_manager.clone(),
         };
 
@@ -435,6 +440,7 @@ impl NotMux {
         hooks_enabled: bool,
         listen_address: &str,
     ) {
+        let for_remote = self.force_remote || remote_enabled;
         let desired: Option<IpAddr> = if self.force_remote {
             // `--remote` / `--listen` pins the address regardless of settings.
             Some(self.listen_addr)
@@ -451,24 +457,31 @@ impl NotMux {
             None
         };
 
-        let current = self.remote_server.as_ref().map(|_| self.listen_addr);
+        let current = self
+            .remote_server
+            .as_ref()
+            .map(|_| (self.listen_addr, self.server_for_remote));
         match desired {
-            Some(addr) if current != Some(addr) => {
+            Some(addr) if current != Some((addr, for_remote)) => {
                 if self.remote_server.is_some() {
                     self.stop_remote_server();
                 }
                 self.listen_addr = addr;
-                self.start_remote_server(bridge_tx.clone());
+                self.server_for_remote = for_remote;
+                self.start_remote_server(bridge_tx.clone(), for_remote);
             }
             None if self.remote_server.is_some() => {
                 self.stop_remote_server();
+                self.server_for_remote = false;
             }
             _ => {}
         }
     }
 
-    /// Start the remote HTTP/WS server.
-    fn start_remote_server(&mut self, bridge_tx: bridge::BridgeSender) {
+    /// Start the remote HTTP/WS server. `for_remote` is true only when the user
+    /// enabled remote access; when false the server runs loopback-only for local
+    /// notifications and stays invisible in the UI.
+    fn start_remote_server(&mut self, bridge_tx: bridge::BridgeSender, for_remote: bool) {
         match RemoteServer::start(
             bridge_tx,
             self.auth_store.clone(),
@@ -481,20 +494,25 @@ impl NotMux {
         ) {
             Ok(server) => {
                 let port = server.port();
-                self.remote_info.set_active(port, self.auth_store.clone());
                 log::info!(
                     "Local control server started on {}:{}",
                     self.listen_addr,
                     port
                 );
 
-                // Only advertise pairing when reachable beyond loopback; the
-                // always-on local server for notifications must not spam it.
-                if !self.listen_addr.is_loopback() {
-                    let code = self.auth_store.get_or_create_code();
-                    println!("Remote server listening on port {port}");
-                    println!("Pairing code: {code} (expires in 60s)");
-                    println!("Run `notmux pair` anytime for a fresh code.");
+                // Only surface the REMOTE / Pair affordance (and console pairing
+                // code) when remote access is actually enabled. The always-on
+                // loopback server for notifications stays invisible.
+                if for_remote {
+                    self.remote_info.set_active(port, self.auth_store.clone());
+                    if !self.listen_addr.is_loopback() {
+                        let code = self.auth_store.get_or_create_code();
+                        println!("Remote server listening on port {port}");
+                        println!("Pairing code: {code} (expires in 60s)");
+                        println!("Run `notmux pair` anytime for a fresh code.");
+                    }
+                } else {
+                    self.remote_info.set_inactive();
                 }
 
                 self.remote_server = Some(server);
