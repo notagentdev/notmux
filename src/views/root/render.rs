@@ -1115,25 +1115,21 @@ impl Render for RootView {
                                     .flex_1()
                                     .min_h_0()
                                     .min_w_0()
-                                    .when_some(settings_panel.clone(), |d, panel| {
-                                        d.child(
-                                            AnyView::from(panel)
-                                                .cached(StyleRefinement::default().size_full()),
-                                        )
-                                    })
-                                    .when(settings_panel.is_none(), |d| {
-                                        if let Some(viewer) = main_file_viewer.clone() {
-                                            d.child(
-                                                AnyView::from(viewer)
-                                                    .cached(StyleRefinement::default().size_full()),
-                                            )
-                                        } else if let Some(viewer) = main_diff_viewer.clone() {
-                                            d.child(viewer.update(cx, |viewer, cx| {
+                                    // Settings is now a full-window overlay (added
+                                    // at the root below), so the main area always
+                                    // shows the file viewer / diff viewer / grid.
+                                    .child(if let Some(viewer) = main_file_viewer.clone() {
+                                        AnyView::from(viewer)
+                                            .cached(StyleRefinement::default().size_full())
+                                            .into_any_element()
+                                    } else if let Some(viewer) = main_diff_viewer.clone() {
+                                        viewer
+                                            .update(cx, |viewer, cx| {
                                                 viewer.render_embedded(window, cx)
-                                            }))
-                                        } else {
-                                            d.child(self.render_projects_grid(cx))
-                                        }
+                                            })
+                                            .into_any_element()
+                                    } else {
+                                        self.render_projects_grid(cx).into_any_element()
                                     }),
                             ),
                     )
@@ -1142,6 +1138,16 @@ impl Render for RootView {
             )
             // Status bar at the bottom
             .child(self.status_bar.clone())
+            // Settings panel: a full-window overlay covering sidebar + main area +
+            // git panel (not just the middle panel). Popovers opened from within it
+            // (color picker, context menus) render above it as they come later.
+            .when_some(settings_panel.clone(), |d, panel| {
+                d.child(
+                    div().absolute().inset_0().child(
+                        AnyView::from(panel).cached(StyleRefinement::default().size_full()),
+                    ),
+                )
+            })
             // App menu dropdown (renders on top of everything, not on macOS where native menu is used)
             .when(
                 !cfg!(target_os = "macos") && self.title_bar.read(cx).is_menu_open(),

@@ -406,7 +406,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let project_for_names = project.cloned();
         let monochrome_icons = terminal_view_settings(cx).monochrome_icons;
 
-        let is_pane_focused = workspace_reader
+        let _is_pane_focused = workspace_reader
             .focus_manager
             .focused_terminal_state()
             .is_some_and(|f| {
@@ -481,20 +481,22 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     .relative()
                     .flex_shrink_0()
                     .max_w(px(200.0))
-                    .h(px(32.0))
+                    // Rounded pill inset in the bar (no divider): a bordered card
+                    // when active, transparent border otherwise to avoid jitter.
+                    .h(px(22.0))
+                    .mx(px(2.0))
+                    .rounded(px(6.0))
                     .overflow_hidden()
-                    .border_r_1()
-                    .border_color(rgb(t.border))
+                    .border_1()
                     .text_size(ui_text_md(cx))
-                    .when(is_active && is_pane_focused, |d| {
-                        d.bg(rgb(t.term_background)).text_color(rgb(t.text_primary))
-                    })
-                    .when(is_active && !is_pane_focused, |d| {
-                        d.bg(rgb(t.term_background_unfocused))
+                    .when(is_active, |d| {
+                        d.bg(rgb(t.bg_secondary))
+                            .border_color(rgb(t.border))
                             .text_color(rgb(t.text_primary))
                     })
                     .when(!is_active, |d| {
-                        d.text_color(rgb(t.text_secondary))
+                        d.border_color(with_alpha(t.border, 0.0))
+                            .text_color(rgb(t.text_secondary))
                             .hover(|s| s.bg(rgb(t.bg_hover)))
                     })
                     .when(has_drop_animation, |d| {
@@ -568,30 +570,41 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                         .text_color(icon_color),
                                 );
 
-                            // End slot: close button (Zed-style: muted icon, subtle hover bg)
+                            // End slot: close button as an absolute overlay pinned
+                            // to the tab's right edge — it reserves no layout space,
+                            // fades in on hover, and its background covers the end
+                            // of the label (the tab clips the corners via its own
+                            // rounded + overflow_hidden).
                             let bg_hover = t.bg_hover;
                             let muted = t.text_muted;
+                            let cover_bg = if is_active { t.bg_secondary } else { t.bg_hover };
                             let end_slot = h_flex()
-                                .flex_none()
-                                .justify_center()
-                                .mt(px(2.0))
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .right_0()
+                                .items_center()
+                                .pr(px(4.0))
+                                .pl(px(12.0))
+                                .bg(rgb(cover_bg))
+                                .opacity(0.0)
+                                .group_hover(tab_group.clone(), |s| s.opacity(1.0))
                                 .when_some(close_terminal_id, |slot, tid| {
                                     slot.child(
                                         h_flex()
                                             .id(close_id)
                                             .flex_none()
-                                            .w(px(24.0))
-                                            .h(px(24.0))
+                                            .w(px(20.0))
+                                            .h(px(20.0))
                                             .justify_center()
+                                            .items_center()
                                             .rounded(px(4.0))
                                             .cursor_pointer()
-                                            .opacity(0.0)
-                                            .group_hover(tab_group.clone(), |s| s.opacity(1.0))
                                             .hover(move |s| s.bg(rgb(bg_hover)))
                                             .child(
                                                 svg()
                                                     .path("icons/close.svg")
-                                                    .size(px(16.0))
+                                                    .size(px(14.0))
                                                     .text_color(rgb(muted)),
                                             )
                                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
@@ -621,7 +634,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 .child(tab_label.clone());
 
                             h_flex()
-                                .h(px(32.0))
+                                .h_full()
                                 .w_full()
                                 .px(px(8.0))
                                 .gap(px(6.0))
@@ -933,6 +946,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         div()
             .group("tab-bar-row")
             .flex_shrink_0()
+            .h(px(32.0))
             .px(px(0.0))
             .flex()
             .items_stretch()
