@@ -244,7 +244,13 @@ impl EventListener for ZedEventListener {
                 *self.title.lock() = None;
             }
             TermEvent::Bell => {
-                *self.has_bell.lock() = true;
+                // Ignore bells emitted while replaying persisted scrollback on
+                // startup — that content is historical and must not light up the
+                // notification ring. `suppress_pty_responses` is set for the
+                // duration of replay's `advance()` (see `process_output_inner`).
+                if !self.suppress_pty_responses.load(Ordering::Relaxed) {
+                    *self.has_bell.lock() = true;
+                }
             }
             TermEvent::PtyWrite(data) => {
                 if self.suppress_pty_responses.load(Ordering::Relaxed) {
