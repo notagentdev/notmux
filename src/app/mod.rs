@@ -379,41 +379,42 @@ impl NotMux {
             .detach();
         }
 
-        // Auto-start remote server if enabled in settings or forced via --remote
+        // The local HTTP action server backs both the `notmux` CLI / agent
+        // notifications (loopback only) and — when enabled — remote access. Run
+        // it whenever notifications OR the remote server are on, binding an
+        // externally-reachable address only for the remote server so the CLI
+        // works locally without exposing the device. A single server serves
+        // both, so the two toggles never collide.
         let settings = cx.global::<GlobalSettings>().0.clone();
-        if settings.read(cx).get().remote_server_enabled || force_remote {
-            manager.start_remote_server(bridge_tx.clone());
+        {
+            let (remote_enabled, hooks_enabled, listen_address) = {
+                let s = settings.read(cx).get();
+                (
+                    s.remote_server_enabled,
+                    s.agent_hooks_enabled,
+                    s.remote_listen_address.clone(),
+                )
+            };
+            manager.sync_remote_server(&bridge_tx, remote_enabled, hooks_enabled, &listen_address);
         }
 
-        // Observe settings changes to start/stop server dynamically
+        // Re-sync whenever either toggle (or the listen address) changes.
         let bridge_tx_for_observer = bridge_tx.clone();
         cx.observe(&settings, move |this, settings, cx| {
-            let s = settings.read(cx).get();
-            let enabled = s.remote_server_enabled;
-            let running = this.remote_server.is_some();
-
-            if enabled && !running {
-                // Update listen_addr from settings if not forced via CLI
-                if !this.force_remote
-                    && let Ok(addr) = s.remote_listen_address.parse::<IpAddr>()
-                {
-                    this.listen_addr = addr;
-                }
-                this.start_remote_server(bridge_tx_for_observer.clone());
-            } else if !enabled && running && !this.force_remote {
-                // Don't stop a server that was force-started via `--remote`, even
-                // if the persisted setting says disabled.
-                this.stop_remote_server();
-            } else if enabled && running && !this.force_remote {
-                // Check if address changed while server is running
-                if let Ok(new_addr) = s.remote_listen_address.parse::<IpAddr>()
-                    && new_addr != this.listen_addr
-                {
-                    this.listen_addr = new_addr;
-                    this.stop_remote_server();
-                    this.start_remote_server(bridge_tx_for_observer.clone());
-                }
-            }
+            let (remote_enabled, hooks_enabled, listen_address) = {
+                let s = settings.read(cx).get();
+                (
+                    s.remote_server_enabled,
+                    s.agent_hooks_enabled,
+                    s.remote_listen_address.clone(),
+                )
+            };
+            this.sync_remote_server(
+                &bridge_tx_for_observer,
+                remote_enabled,
+                hooks_enabled,
+                &listen_address,
+            );
         })
         .detach();
 
@@ -421,6 +422,49 @@ impl NotMux {
         // GlobalUpdateInfo is set in main.rs via notmux_ext_updater::init().
 
         manager
+    }
+
+    /// Reconcile the running server with the desired state derived from the
+    /// notification (`agent_hooks_enabled`) and remote (`remote_server_enabled`)
+    /// toggles. One server serves both, so the two features never collide: this
+    /// runs at most a single server and only rebinds when the target changes.
+    fn sync_remote_server(
+        &mut self,
+        bridge_tx: &bridge::BridgeSender,
+        remote_enabled: bool,
+        hooks_enabled: bool,
+        listen_address: &str,
+    ) {
+        let desired: Option<IpAddr> = if self.force_remote {
+            // `--remote` / `--listen` pins the address regardless of settings.
+            Some(self.listen_addr)
+        } else if remote_enabled {
+            Some(
+                listen_address
+                    .parse::<IpAddr>()
+                    .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+            )
+        } else if hooks_enabled {
+            // Local notifications only → loopback, never exposed to the network.
+            Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+        } else {
+            None
+        };
+
+        let current = self.remote_server.as_ref().map(|_| self.listen_addr);
+        match desired {
+            Some(addr) if current != Some(addr) => {
+                if self.remote_server.is_some() {
+                    self.stop_remote_server();
+                }
+                self.listen_addr = addr;
+                self.start_remote_server(bridge_tx.clone());
+            }
+            None if self.remote_server.is_some() => {
+                self.stop_remote_server();
+            }
+            _ => {}
+        }
     }
 
     /// Start the remote HTTP/WS server.
@@ -438,12 +482,20 @@ impl NotMux {
             Ok(server) => {
                 let port = server.port();
                 self.remote_info.set_active(port, self.auth_store.clone());
-                log::info!("Remote server started on port {}", port);
+                log::info!(
+                    "Local control server started on {}:{}",
+                    self.listen_addr,
+                    port
+                );
 
-                let code = self.auth_store.get_or_create_code();
-                println!("Remote server listening on port {port}");
-                println!("Pairing code: {code} (expires in 60s)");
-                println!("Run `notmux pair` anytime for a fresh code.");
+                // Only advertise pairing when reachable beyond loopback; the
+                // always-on local server for notifications must not spam it.
+                if !self.listen_addr.is_loopback() {
+                    let code = self.auth_store.get_or_create_code();
+                    println!("Remote server listening on port {port}");
+                    println!("Pairing code: {code} (expires in 60s)");
+                    println!("Run `notmux pair` anytime for a fresh code.");
+                }
 
                 self.remote_server = Some(server);
             }
