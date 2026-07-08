@@ -223,7 +223,7 @@ fi
 # Hook commands are simple `notmux notify` / `notmux clear-notification` calls.
 # No jq, no stdin parsing in shell. The notmux binary handles routing via
 # NOTMUX_TERMINAL_ID from the environment.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Turn complete — ready for input\"","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Notification\"","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" clear-notification","timeout":5}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Turn complete\"","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Notification\"","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" clear-notification","timeout":5}]}]}}'
 
 # ── Fold user-provided --settings into HOOKS_JSON (deep merge via node) ────
 NOTMUX_FILTERED_ARGS=()

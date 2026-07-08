@@ -401,6 +401,20 @@ impl NotMux {
                 )
             };
             manager.sync_remote_server(&bridge_tx, remote_enabled, hooks_enabled, &listen_address);
+
+            // Re-install the agent hook configs on every launch so the hook
+            // commands stay current (the notmux binary path and hook bodies can
+            // change between versions) instead of only updating on a settings
+            // toggle. Only claude + codex here — the shell integration writes to
+            // the user's rc and must not churn it on every launch.
+            if hooks_enabled {
+                if let Err(e) = notmux_hooks::agent_hooks::install_claude() {
+                    log::warn!("Claude hook install on startup: {e}");
+                }
+                if let Err(e) = notmux_hooks::agent_hooks::install_codex() {
+                    log::warn!("Codex hook install on startup: {e}");
+                }
+            }
         }
 
         // Re-sync whenever either toggle (or the listen address) changes.

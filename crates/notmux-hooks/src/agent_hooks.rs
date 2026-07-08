@@ -224,10 +224,16 @@ pub fn install_claude() -> Result<(), String> {
         .unwrap_or_else(|| serde_json::json!({}));
 
     let exe = notmux_binary();
-    let stop_cmd =
-        format!("{exe} notify --title \"Claude Code\" --body \"$(cat | jq -r '.last_assistant_message // \"Agent finished\"' 2>/dev/null | head -c 200)\" || true");
+    // Static, guarded bodies. Guard on NOTMUX_SURFACE_ID so `claude` run outside
+    // notmux never broadcasts to every pane. Use a fixed short "Turn complete"
+    // rather than the assistant's full message — the message could be long and,
+    // when it contained quotes/newlines, broke the `--body "$(…)"` interpolation
+    // and produced an empty label.
+    let stop_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" || true"
+    );
     let notify_cmd = format!(
-        "{exe} notify --title \"$(cat | jq -r '.title // \"Claude Code\"' 2>/dev/null)\" --body \"$(cat | jq -r '.message // \"Notification\"' 2>/dev/null | head -c 200)\" || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Needs input\" || true"
     );
 
     let hooks = settings

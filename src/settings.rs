@@ -136,9 +136,9 @@ impl SettingsState {
     pub fn set_agent_hooks_enabled(&mut self, value: bool, cx: &mut Context<Self>) {
         let was_enabled = self.settings.agent_hooks_enabled;
         self.settings.agent_hooks_enabled = value;
-        if value && !self.settings.remote_server_enabled {
-            self.settings.remote_server_enabled = true;
-        }
+        // Notifications no longer require the (externally-reachable) remote
+        // server: the app runs a loopback-only control server whenever agent
+        // hooks are enabled, so we must NOT force `remote_server_enabled` on.
         self.save_and_notify(cx);
         if value != was_enabled {
             let errors = if value {
