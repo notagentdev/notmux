@@ -183,15 +183,24 @@ fi
 # ── Resolve notmux binary for hook commands ────────────────────────────────
 NOTMUX_BIN="$(resolve_notmux_bin)"
 
-# ── Build the fire-and-forget hook command ─────────────────────────────────
-# Fire-and-forget is critical: codex runs hooks synchronously and BLOCKS until
-# they return, so a synchronous `notmux notify` made every launch hang ~35s on
-# "Running SessionStart hook". The command captures codex's stdin payload to a
-# temp file, nohup-backgrounds the real notmux call with a 30s watchdog, and
-# `echo '{}'` returns to codex instantly.
+# ── Build self-contained fire-and-forget hook commands ─────────────────────
+# Codex runs hooks synchronously and BLOCKS until they return, so each command
+# discards codex's stdin payload, nohup-backgrounds the real notmux call, and
+# prints exactly `{}` so codex's JSON parse succeeds and it never blocks.
 #
-# The runner takes the notmux command as "$@" and runs it in the background.
-FF_RUNNER='payload="$(mktemp "${TMPDIR:-/tmp}/notmux-codex-hook.XXXXXX" 2>/dev/null || mktemp -t notmux-codex-hook 2>/dev/null)" || { echo "{}"; exit 0; }; cat >"$payload" 2>/dev/null || true; ( nohup sh -c '"'"'shift; "$@" <"$1" >/dev/null 2>&1; rm -f "$1"'"'"' _ "$payload" "$@" >/dev/null 2>&1 & ) 2>/dev/null; echo "{}"'
+# The command must be SELF-CONTAINED: codex runs it as a single `sh -c
+# "<command>"` with no extra argv. The previous design passed the notmux call as
+# "$@", but codex appended those tokens to the trailing `echo "{}"` instead —
+# which polluted stdout (codex rejected `{} notmux notify …` as invalid JSON)
+# AND left "$@" empty so notify never actually ran.
+notmux_ff() {
+    # $* = the notmux invocation (already quoted)
+    printf 'cat >/dev/null 2>&1; ( nohup %s >/dev/null 2>&1 & ) 2>/dev/null; echo {}' "$*"
+}
+NM="\"$NOTMUX_BIN\""
+FF_SESSION_START="$(notmux_ff "$NM notify --title \"Codex\" --body \"Session started\"")"
+FF_CLEAR="$(notmux_ff "$NM clear-notification")"
+FF_STOP="$(notmux_ff "$NM notify --title \"Codex\" --body \"Turn complete — ready for input\"")"
 
 # ── Build the per-invocation hook injection via -c flags ───────────────────
 # Each event gets its own -c 'hooks.EVENT=[{hooks=[{type="command",command=...}]}]'
@@ -200,9 +209,9 @@ INJECT_ARGS=(
     --enable
     hooks
     --dangerously-bypass-hook-trust
-    -c "hooks.SessionStart=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" notify --title \"Codex\" --body \"Session started\"''',timeout=10000}]}]"
-    -c "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" clear-notification''',timeout=10000}]}]"
-    -c "hooks.Stop=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" notify --title \"Codex\" --body \"Turn complete — ready for input\"''',timeout=10000}]}]"
+    -c "hooks.SessionStart=[{hooks=[{type=\"command\",command='''$FF_SESSION_START''',timeout=10000}]}]"
+    -c "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''$FF_CLEAR''',timeout=10000}]}]"
+    -c "hooks.Stop=[{hooks=[{type=\"command\",command='''$FF_STOP''',timeout=10000}]}]"
 )
 
 # Execute real codex with injected hooks
