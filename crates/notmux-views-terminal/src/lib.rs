@@ -54,6 +54,8 @@ pub struct TerminalViewSettings {
     pub cursor_style: notmux_workspace::settings::CursorShape,
     pub cursor_blink: bool,
     pub show_focused_border: bool,
+    #[serde(default = "default_show_notification_label")]
+    pub show_notification_label: bool,
     pub show_shell_selector: bool,
     pub idle_timeout_secs: u32,
     pub color_tinted_background: bool,
@@ -74,6 +76,9 @@ pub struct TerminalViewSettings {
     pub option_as_meta: bool,
 }
 
+fn default_show_notification_label() -> bool {
+    true
+}
 fn default_persist_scrollback() -> bool {
     true
 }
@@ -94,6 +99,7 @@ pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
             cursor_style: Default::default(),
             cursor_blink: false,
             show_focused_border: false,
+            show_notification_label: true,
             show_shell_selector: false,
             idle_timeout_secs: 0,
             color_tinted_background: false,

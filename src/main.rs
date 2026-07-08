@@ -457,6 +457,7 @@ fn main() {
                             cursor_style: s.settings.cursor_style,
                             cursor_blink: s.settings.cursor_blink,
                             show_focused_border: s.settings.show_focused_border,
+                            show_notification_label: s.settings.show_notification_label,
                             show_shell_selector: s.settings.show_shell_selector,
                             idle_timeout_secs: s.settings.idle_timeout_secs,
                             color_tinted_background: s.settings.color_tinted_background,
@@ -498,6 +499,7 @@ fn main() {
                                 state.settings.cursor_style = tvs.cursor_style;
                                 state.settings.cursor_blink = tvs.cursor_blink;
                                 state.settings.show_focused_border = tvs.show_focused_border;
+                                state.settings.show_notification_label = tvs.show_notification_label;
                                 state.settings.show_shell_selector = tvs.show_shell_selector;
                                 state.settings.idle_timeout_secs = tvs.idle_timeout_secs;
                                 state.settings.color_tinted_background = tvs.color_tinted_background;

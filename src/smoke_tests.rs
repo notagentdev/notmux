@@ -46,6 +46,7 @@ mod tests {
                                 cursor_style: s.settings.cursor_style,
                                 cursor_blink: s.settings.cursor_blink,
                                 show_focused_border: s.settings.show_focused_border,
+                                show_notification_label: s.settings.show_notification_label,
                                 show_shell_selector: s.settings.show_shell_selector,
                                 idle_timeout_secs: s.settings.idle_timeout_secs,
                                 color_tinted_background: s.settings.color_tinted_background,

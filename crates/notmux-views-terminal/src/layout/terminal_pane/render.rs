@@ -94,7 +94,9 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         }
         self.was_focused = is_focused;
 
-        let show_focused_border = terminal_view_settings(cx).show_focused_border;
+        let view_settings = terminal_view_settings(cx);
+        let show_focused_border = view_settings.show_focused_border;
+        let show_notification_label = view_settings.show_notification_label;
         let is_waiting = !is_focused
             && self
                 .terminal
@@ -314,7 +316,7 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                                     .border_color(border_color),
                             )
                         })
-                        .when(has_bell && !is_focused, |el| {
+                        .when(has_bell && !is_focused && show_notification_label, |el| {
                             let notif_body = self
                                 .terminal
                                 .as_ref()

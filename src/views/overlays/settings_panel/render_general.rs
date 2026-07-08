@@ -16,6 +16,15 @@ impl SettingsPanel {
                 "focus-border", "Show Focus Border", s.show_focused_border, true,
                 |state, val, cx| state.set_show_focused_border(val, cx), cx,
             ))
+            .child(self.render_toggle_with_desc(
+                "notification-label",
+                "Show Notification Label",
+                "Show the agent's message as a label on unfocused panes (ring + badge always show)",
+                s.show_notification_label,
+                true,
+                |state, val, cx| state.set_show_notification_label(val, cx),
+                cx,
+            ))
             .child(self.render_toggle(
                 "color-tinted-bg", "Color Tinted Background", s.color_tinted_background, true,
                 |state, val, cx| state.set_color_tinted_background(val, cx), cx,

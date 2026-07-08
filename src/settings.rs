@@ -104,6 +104,7 @@ impl SettingsState {
         50000
     );
     setting_setter!(set_show_focused_border, show_focused_border, bool);
+    setting_setter!(set_show_notification_label, show_notification_label, bool);
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
     setting_setter!(set_monochrome_icons, monochrome_icons, bool);
     setting_setter!(set_transparent_background, transparent_background, bool);

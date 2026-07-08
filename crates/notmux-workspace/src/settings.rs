@@ -370,6 +370,9 @@ pub struct AppSettings {
     /// Whether to show border around focused terminal
     #[serde(default = "default_show_focused_border")]
     pub show_focused_border: bool,
+    /// Whether to show the agent notification body as a label overlay on the pane
+    #[serde(default = "default_show_notification_label")]
+    pub show_notification_label: bool,
     /// Tint project backgrounds with the folder color
     #[serde(default)]
     pub color_tinted_background: bool,
@@ -523,6 +526,7 @@ impl Default for AppSettings {
             git_panel: GitPanelSettings::default(),
             file_explorer: FileExplorerSettings::default(),
             show_focused_border: default_show_focused_border(),
+            show_notification_label: default_show_notification_label(),
             color_tinted_background: false,
             monochrome_icons: false,
             transparent_background: default_transparent_background(),
@@ -572,6 +576,9 @@ fn default_settings_version() -> u32 {
 
 fn default_show_focused_border() -> bool {
     false
+}
+fn default_show_notification_label() -> bool {
+    true
 }
 fn default_transparent_background() -> bool {
     true
@@ -758,6 +765,9 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
 
     if let Some(v) = obj.get("show_focused_border").and_then(|v| v.as_bool()) {
         settings.show_focused_border = v;
+    }
+    if let Some(v) = obj.get("show_notification_label").and_then(|v| v.as_bool()) {
+        settings.show_notification_label = v;
     }
     if let Some(v) = obj.get("color_tinted_background").and_then(|v| v.as_bool()) {
         settings.color_tinted_background = v;
