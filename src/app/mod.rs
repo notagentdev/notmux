@@ -400,7 +400,9 @@ impl NotMux {
                     this.listen_addr = addr;
                 }
                 this.start_remote_server(bridge_tx_for_observer.clone());
-            } else if !enabled && running {
+            } else if !enabled && running && !this.force_remote {
+                // Don't stop a server that was force-started via `--remote`, even
+                // if the persisted setting says disabled.
                 this.stop_remote_server();
             } else if enabled && running && !this.force_remote {
                 // Check if address changed while server is running

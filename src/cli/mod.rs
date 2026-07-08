@@ -1,4 +1,5 @@
 mod commands;
+mod hooks;
 mod register;
 
 use crate::workspace::persistence::config_dir;
@@ -31,6 +32,9 @@ pub fn try_handle_cli() -> Option<i32> {
         }
         "services" => commands::cli_services(rest),
         "service" => commands::cli_service(rest),
+        "notify" => commands::cli_notify(rest),
+        "clear-notification" => commands::cli_clear_notification(rest),
+        "hooks" => hooks::cli_hooks(rest),
         "whoami" => commands::cli_whoami(rest),
         "--help" | "-h" | "help" => {
             print_help();
@@ -52,6 +56,9 @@ fn print_help() {
     eprintln!("  service start <name> [project]     Start a service");
     eprintln!("  service stop <name> [project]      Stop a service");
     eprintln!("  service restart <name> [project]   Restart a service");
+    eprintln!("  notify [--title <t>] [--body <b>]  Send a notification to the current or specified terminal");
+    eprintln!("  hooks setup [claude|codex|shell]  Install agent notification hooks");
+    eprintln!("  hooks uninstall [agent]           Remove agent notification hooks");
     eprintln!("  whoami [--json]                    Identify current terminal and project");
     eprintln!("  health [--json]                    Server health check");
     eprintln!("  pair                               Generate a pairing code for remote clients");

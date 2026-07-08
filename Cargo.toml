@@ -29,6 +29,7 @@ notmux-ui = { path = "crates/notmux-ui" }
 notmux-theme = { path = "crates/notmux-theme" }
 notmux-files = { path = "crates/notmux-files" }
 notmux-markdown = { path = "crates/notmux-markdown" }
+notmux-hooks = { path = "crates/notmux-hooks" }
 
 # Extension system
 notmux-extensions = { path = "crates/notmux-extensions" }

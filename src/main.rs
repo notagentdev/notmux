@@ -687,7 +687,7 @@ fn main() {
                     width: px(400.0),
                     height: px(300.0),
                 }),
-window_background: WindowBackgroundAppearance::Blurred,
+window_background: if app_settings.transparent_background { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque },
                 app_id: Some(
                     if cfg!(debug_assertions) { "notmux-dev" } else { "notmux" }.to_string(),
                 ),

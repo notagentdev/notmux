@@ -212,7 +212,8 @@ impl RootView {
                             .show_all_projects_on_projects_click,
                         monochrome_icons: app_settings.monochrome_icons,
                         show_hidden: app_settings.file_explorer.show_hidden,
-                    }
+                        transparent_background: app_settings.transparent_background,
+                        }
                 }));
 
                 let workspace_for_fs = workspace.clone();

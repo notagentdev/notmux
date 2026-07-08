@@ -61,9 +61,8 @@ pub struct SidebarSettings {
     pub hooks: notmux_workspace::settings::HooksConfig,
     pub show_all_projects_on_projects_click: bool,
     pub monochrome_icons: bool,
-    /// Show hidden (dotfile) entries in the file explorer. `.git` is
-    /// always hidden regardless of this flag.
     pub show_hidden: bool,
+    pub transparent_background: bool,
 }
 
 /// Snapshot of a remote connection for rendering.
@@ -1645,12 +1644,12 @@ impl Sidebar {
         let is_files = self.view == SidebarView::Files;
         let is_search = self.view == SidebarView::Search;
         let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
+        let transparent = self.sidebar_settings(cx).transparent_background;
         let tab_icon_color = if monochrome_icons {
             t.text_primary
         } else {
             0xffffff
         };
-
         h_flex()
             .h(px(34.0))
             .px(px(8.0))
@@ -1658,7 +1657,7 @@ impl Sidebar {
             .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
-            .bg(with_alpha(t.bg_header, 0.5))
+            .bg(if transparent { with_alpha(t.bg_header, 0.3) } else { with_alpha(t.bg_header, 1.0) })
             // View toggle: Projects
             .child(
                 div()
@@ -1832,6 +1831,7 @@ impl Sidebar {
 
     fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+        let transparent = self.sidebar_settings(cx).transparent_background;
         let is_files = self.view == SidebarView::Files;
         let is_search = self.view == SidebarView::Search;
         let title = if is_files {
@@ -1848,7 +1848,7 @@ impl Sidebar {
             .flex()
             .items_center()
             .justify_between()
-            .bg(with_alpha(t.bg_header, 0.5))
+            .bg(if transparent { with_alpha(t.bg_header, 0.3) } else { with_alpha(t.bg_header, 1.0) })
             .border_b_1()
             .border_color(rgb(t.border))
             .child(
@@ -2124,7 +2124,7 @@ impl Render for Sidebar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
 
-        // Process pending sidebar requests (drained from Workspace by observer)
+        let transparent = self.sidebar_settings(cx).transparent_background;
         let pending = std::mem::take(&mut self.pending_sidebar_requests);
         for request in pending {
             match request {
@@ -2774,7 +2774,7 @@ impl Render for Sidebar {
             .h_full()
             .flex()
             .flex_col()
-            .bg(with_alpha(t.bg_secondary, 0.55))
+            .bg(if transparent { with_alpha(t.bg_secondary, 0.4) } else { with_alpha(t.bg_secondary, 1.0) })
             .track_focus(&self.focus_handle)
             .key_context("Sidebar")
             .on_action(cx.listener(Self::handle_sidebar_up))

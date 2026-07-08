@@ -24,6 +24,15 @@ impl SettingsPanel {
                 "monochrome-icons", "Monochrome Icons", s.monochrome_icons, true,
                 |state, val, cx| state.set_monochrome_icons(val, cx), cx,
             ))
+            .child(self.render_toggle_with_desc(
+                "transparent-background",
+                "Transparent Background",
+                "Blur and transparency effect (restart required to fully apply)",
+                s.transparent_background,
+                true,
+                |state, val, cx| state.set_transparent_background(val, cx),
+                cx,
+            ))
             .child(self.render_toggle(
                 "show-hidden-files",
                 "Show Hidden Files in Explorer",
@@ -49,6 +58,15 @@ impl SettingsPanel {
             .child(self.render_toggle(
                 "remote-server", "Remote Server", s.remote_server_enabled, true,
                 |state, val, cx| state.set_remote_server_enabled(val, cx), cx,
+            ))
+            .child(self.render_toggle_with_desc(
+                "agent-hooks",
+                "Agent Notifications",
+                "Install hooks so Claude Code, Codex & shell notify notmux when a turn finishes",
+                s.agent_hooks_enabled,
+                true,
+                |state, val, cx| state.set_agent_hooks_enabled(val, cx),
+                cx,
             ))
             .when(s.remote_server_enabled, |d| {
                 d.child(

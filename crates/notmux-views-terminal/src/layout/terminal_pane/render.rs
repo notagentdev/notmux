@@ -68,6 +68,13 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         if is_focused
             && has_bell
             && let Some(ref terminal) = self.terminal
+            // Only auto-clear a plain terminal bell when the pane is focused.
+            // Agent completion notifications (which carry a body) must persist
+            // while focused — otherwise the ring/badge is cleared in the same
+            // frame it is set (the user is watching the agent finish and never
+            // sees it). They clear on the agent's next prompt via the
+            // UserPromptSubmit hook (`notmux clear-notification`).
+            && terminal.last_notification().is_none()
         {
             terminal.clear_bell();
         }
@@ -94,10 +101,12 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                 .as_ref()
                 .is_some_and(|t| t.is_waiting_for_input());
         let show_border = (is_focused && show_focused_border) || has_bell || is_waiting;
-        let border_color = if is_focused && show_focused_border {
-            rgb(t.border_focused)
-        } else if has_bell {
+        // A pending notification (bell) wins over the focused-border color so the
+        // ring is actually visible on the focused pane where the agent finished.
+        let border_color = if has_bell {
             rgb(t.border_bell)
+        } else if is_focused && show_focused_border {
+            rgb(t.border_focused)
         } else {
             rgb(t.border_idle)
         };

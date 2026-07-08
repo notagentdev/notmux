@@ -106,6 +106,7 @@ impl SettingsState {
     setting_setter!(set_show_focused_border, show_focused_border, bool);
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
     setting_setter!(set_monochrome_icons, monochrome_icons, bool);
+    setting_setter!(set_transparent_background, transparent_background, bool);
     setting_setter!(
         set_show_all_projects_on_projects_click,
         show_all_projects_on_projects_click,
@@ -130,6 +131,26 @@ impl SettingsState {
     pub fn set_remote_server_enabled(&mut self, value: bool, cx: &mut Context<Self>) {
         self.settings.remote_server_enabled = value;
         self.save_and_notify(cx);
+    }
+    pub fn set_agent_hooks_enabled(&mut self, value: bool, cx: &mut Context<Self>) {
+        let was_enabled = self.settings.agent_hooks_enabled;
+        self.settings.agent_hooks_enabled = value;
+        if value && !self.settings.remote_server_enabled {
+            self.settings.remote_server_enabled = true;
+        }
+        self.save_and_notify(cx);
+        if value != was_enabled {
+            let errors = if value {
+                notmux_hooks::agent_hooks::install_all()
+            } else {
+                notmux_hooks::agent_hooks::uninstall_all()
+            };
+            if !errors.is_empty() {
+                log::warn!("Agent hooks {}: {}", if value { "install" } else { "uninstall" }, errors.join("; "));
+            } else {
+                log::info!("Agent hooks {}", if value { "installed" } else { "removed" });
+            }
+        }
     }
 
     /// Set the remote server listen address

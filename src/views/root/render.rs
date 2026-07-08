@@ -424,7 +424,7 @@ impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
 
-        // Get overlay visibility state from overlay manager
+        let transparent = settings_entity(cx).read(cx).settings.transparent_background;
         let om = self.overlay_manager.read(cx);
         let has_context_menu = om.has_context_menu();
         let has_folder_context_menu = om.has_folder_context_menu();
@@ -466,7 +466,7 @@ impl Render for RootView {
             .size_full()
             .flex()
             .flex_col()
-.bg(with_alpha(t.bg_primary, 0.85))
+.bg(if transparent { with_alpha(t.bg_primary, 0.7) } else { with_alpha(t.bg_primary, 1.0) })
             .track_focus(&focus_handle)
             // Global mouse move handler for resize and auto-hide
             .on_mouse_move(cx.listener({

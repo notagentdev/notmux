@@ -13,6 +13,102 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
+const CLAUDE_WRAPPER: &str = include_str!("../../../resources/bin/notmux-claude-wrapper");
+const CODEX_WRAPPER: &str = include_str!("../../../resources/bin/notmux-codex-wrapper");
+
+// Generated zsh ZDOTDIR init files (see `agent_hook_zsh_dir`). `__SHELL__` /
+// `__SHIM__` are replaced with the absolute notmux shell-init / shim dirs.
+#[cfg(not(windows))]
+const ZSHENV_TEMPLATE: &str = r#"# notmux: generated — do not edit.
+[ -f "$NOTMUX_REAL_ZDOTDIR/.zshenv" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshenv"
+if [ -n "${ZDOTDIR:-}" ] && [ "$ZDOTDIR" != "__SHELL__" ]; then export NOTMUX_REAL_ZDOTDIR="$ZDOTDIR"; fi
+if [ -z "${HISTFILE:-}" ]; then export HISTFILE="$NOTMUX_REAL_ZDOTDIR/.zsh_history"; fi
+export ZDOTDIR="__SHELL__"
+"#;
+#[cfg(not(windows))]
+const ZPROFILE_TEMPLATE: &str = r#"# notmux: generated — do not edit.
+[ -f "$NOTMUX_REAL_ZDOTDIR/.zprofile" ] && source "$NOTMUX_REAL_ZDOTDIR/.zprofile"
+"#;
+#[cfg(not(windows))]
+const ZSHRC_TEMPLATE: &str = r#"# notmux: generated — do not edit.
+[ -f "$NOTMUX_REAL_ZDOTDIR/.zshrc" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshrc"
+# Ensure the agent shim dir wins even after the user's rc reordered PATH.
+case "$PATH" in
+  "__SHIM__:"*|"__SHIM__") ;;
+  *) export PATH="__SHIM__:$PATH" ;;
+esac
+rehash 2>/dev/null || hash -r 2>/dev/null || true
+"#;
+#[cfg(not(windows))]
+const ZLOGIN_TEMPLATE: &str = r#"# notmux: generated — do not edit.
+[ -f "$NOTMUX_REAL_ZDOTDIR/.zlogin" ] && source "$NOTMUX_REAL_ZDOTDIR/.zlogin"
+"#;
+
+/// Base config dir used for the agent hook shim + shell-init files.
+/// `NOTMUX_CONFIG_DIR` overrides; otherwise `$HOME/.config/notmux`.
+fn agent_hook_base_dir() -> Option<std::path::PathBuf> {
+    if let Ok(config) = std::env::var("NOTMUX_CONFIG_DIR")
+        && !config.is_empty()
+    {
+        return Some(std::path::PathBuf::from(config));
+    }
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(|home| std::path::PathBuf::from(home).join(".config").join("notmux"))
+}
+
+fn write_if_changed(path: &std::path::Path, content: &str, _mode: u32) {
+    let needs_write = match std::fs::read_to_string(path) {
+        Ok(existing) => existing != content,
+        Err(_) => true,
+    };
+    if needs_write {
+        let _ = std::fs::write(path, content);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(_mode));
+        }
+    }
+}
+
+/// Install the per-terminal `claude`/`codex` wrapper shims and return their dir.
+fn agent_hook_shim_dir() -> Option<std::path::PathBuf> {
+    let dir = agent_hook_base_dir()?.join("shims");
+    let _ = std::fs::create_dir_all(&dir);
+    write_if_changed(&dir.join("claude"), CLAUDE_WRAPPER, 0o755);
+    write_if_changed(&dir.join("codex"), CODEX_WRAPPER, 0o755);
+    Some(dir)
+}
+
+/// Install a zsh ZDOTDIR whose `.zshrc` sources the user's rc and *then*
+/// re-prepends the agent shim dir to PATH, and return that dir.
+///
+/// Setting PATH at spawn time is not enough: an interactive zsh re-sources the
+/// user's `.zshrc`/`.zprofile`, which usually re-prepend Homebrew/asdf/... ahead
+/// of our shim dir, so `claude`/`codex` resolve to the real binary and the
+/// wrapper never runs. Pointing ZDOTDIR at our own dir lets us run *after* the
+/// user's rc. Modeled on the reference implementation's ZDOTDIR bootstrap (RemoteRelayZshBootstrap).
+#[cfg(not(windows))]
+fn agent_hook_zsh_dir(shim_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let shell_dir = agent_hook_base_dir()?.join("shell");
+    let _ = std::fs::create_dir_all(&shell_dir);
+    let shim = shim_dir.display().to_string();
+    let shell = shell_dir.display().to_string();
+    write_if_changed(
+        &shell_dir.join(".zshenv"),
+        &ZSHENV_TEMPLATE.replace("__SHELL__", &shell),
+        0o644,
+    );
+    write_if_changed(&shell_dir.join(".zprofile"), ZPROFILE_TEMPLATE, 0o644);
+    write_if_changed(
+        &shell_dir.join(".zshrc"),
+        &ZSHRC_TEMPLATE.replace("__SHIM__", &shim),
+        0o644,
+    );
+    write_if_changed(&shell_dir.join(".zlogin"), ZLOGIN_TEMPLATE, 0o644);
+    Some(shell_dir)
+}
 
 /// Trait for broadcasting PTY output to external consumers (e.g. remote WebSocket clients).
 /// Implementations must be thread-safe as this is called from PTY reader threads.
@@ -486,8 +582,42 @@ pub fn build_terminal_env(
 
     // Allow processes inside the terminal to identify which NotMux terminal they run in.
     env.insert("NOTMUX_TERMINAL_ID".to_string(), terminal_id.to_string());
-
-    // Set terminal capability variables required for proper terminal operation.
+    env.insert("NOTMUX_SURFACE_ID".to_string(), terminal_id.to_string());
+    if let Ok(exe) = std::env::current_exe() {
+        env.insert("NOTMUX_BINARY_PATH".to_string(), exe.to_string_lossy().to_string());
+    }
+    if let Some(shim_dir) = agent_hook_shim_dir() {
+        let current_path = env.get("PATH").cloned().unwrap_or_default();
+        env.insert(
+            "PATH".to_string(),
+            format!("{}:{}", shim_dir.display(), current_path),
+        );
+        // Spawn-time PATH is not enough: an interactive zsh re-sources the
+        // user's rc, which usually re-prepends Homebrew/asdf/... ahead of our
+        // shim dir. Point ZDOTDIR at a notmux-owned dir whose .zshrc sources the
+        // user's rc and *then* re-prepends the shim dir, so `claude`/`codex`
+        // resolve to the wrapper. Only zsh honors ZDOTDIR; other shells ignore
+        // it harmlessly.
+        // `user_env` is the curated per-terminal env (often just settings'
+        // `terminal_env`, which is empty), so fall back to the notmux process
+        // env for the user's real ZDOTDIR / HOME.
+        #[cfg(not(windows))]
+        if let Some(zsh_dir) = agent_hook_zsh_dir(&shim_dir) {
+            let real_zdotdir = [
+                user_env.get("ZDOTDIR").cloned(),
+                std::env::var("ZDOTDIR").ok(),
+                user_env.get("HOME").cloned(),
+                std::env::var("HOME").ok(),
+            ]
+            .into_iter()
+            .flatten()
+            .find(|s| !s.is_empty());
+            if let Some(real_zdotdir) = real_zdotdir {
+                env.insert("NOTMUX_REAL_ZDOTDIR".to_string(), real_zdotdir);
+                env.insert("ZDOTDIR".to_string(), zsh_dir.display().to_string());
+            }
+        }
+    }
     env.insert("TERM".to_string(), "xterm-256color".to_string());
     env.insert("COLORTERM".to_string(), "truecolor".to_string());
 

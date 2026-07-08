@@ -4376,6 +4376,7 @@ dependencies = [
  "notmux-extensions",
  "notmux-files",
  "notmux-git",
+ "notmux-hooks",
  "notmux-markdown",
  "notmux-remote-client",
  "notmux-services",
@@ -4535,6 +4536,8 @@ dependencies = [
  "notmux-state",
  "notmux-terminal",
  "parking_lot",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

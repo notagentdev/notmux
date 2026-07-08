@@ -399,6 +399,91 @@ fn print_service_result(svc: &notmux_core::api::ApiServiceInfo, json_mode: bool)
 ///
 /// Default: tab-separated: terminal_id \t project_id \t project_name \t project_path
 /// --json: object
+pub fn cli_notify(args: &[String]) -> i32 {
+    let mut title = String::new();
+    let mut body = String::new();
+    let mut terminal_id: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--title" | "-t" => {
+                i += 1;
+                if i < args.len() { title = args[i].clone(); }
+            }
+            "--body" | "-b" => {
+                i += 1;
+                if i < args.len() { body = args[i].clone(); }
+            }
+            "--terminal-id" => {
+                i += 1;
+                if i < args.len() { terminal_id = Some(args[i].clone()); }
+            }
+            _ if !args[i].starts_with("--") => {
+                if title.is_empty() { title = args[i].clone(); }
+                else if body.is_empty() { body = args[i].clone(); }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if title.is_empty() && body.is_empty() {
+        eprintln!("Usage: notmux notify [--title <text>] [--body <text>] [--terminal-id <id>]");
+        eprintln!("  --title, -t     Notification title (or first positional arg)");
+        eprintln!("  --body, -b      Notification body (or second positional arg)");
+        eprintln!("  --terminal-id   Target specific terminal (default: current terminal from NOTMUX_TERMINAL_ID)");
+        return 1;
+    }
+    if terminal_id.as_ref().is_some_and(|s| s.is_empty()) {
+        terminal_id = None;
+    }
+    if terminal_id.is_none() {
+        terminal_id = std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty());
+    }
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let payload = serde_json::json!({
+        "action": "notify",
+        "terminal_id": terminal_id,
+        "title": title,
+        "body": body,
+    });
+    match api_post("/v1/actions", &token, &payload.to_string()) {
+        Ok(resp) => {
+            if !resp.is_empty() { println!("{resp}"); }
+            0
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+pub fn cli_clear_notification(_args: &[String]) -> i32 {
+    let terminal_id = std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty());
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let payload = serde_json::json!({
+        "action": "clear_notification",
+        "terminal_id": terminal_id,
+    });
+    match api_post("/v1/actions", &token, &payload.to_string()) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
 pub fn cli_whoami(args: &[String]) -> i32 {
     let json_mode = has_json_flag(args);
 

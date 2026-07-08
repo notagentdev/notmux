@@ -10,6 +10,7 @@
 //! flows back through a plain struct so the workspace can attach it to its
 //! entity state.
 
+pub mod agent_hooks;
 pub mod hook_monitor;
 pub mod hooks;
 

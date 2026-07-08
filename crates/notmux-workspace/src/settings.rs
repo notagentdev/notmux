@@ -376,6 +376,8 @@ pub struct AppSettings {
     /// Render file and tab icons with the theme foreground color instead of type colors.
     #[serde(default)]
     pub monochrome_icons: bool,
+    #[serde(default = "default_transparent_background")]
+    pub transparent_background: bool,
     /// Clicking the Projects label exits single-project view and shows all projects.
     #[serde(default)]
     pub show_all_projects_on_projects_click: bool,
@@ -457,6 +459,8 @@ pub struct AppSettings {
     /// Enable remote control server (default: false)
     #[serde(default)]
     pub remote_server_enabled: bool,
+    #[serde(default)]
+    pub agent_hooks_enabled: bool,
 
     /// Listen address for the remote server (default: "127.0.0.1")
     #[serde(default = "default_remote_listen_address")]
@@ -521,6 +525,7 @@ impl Default for AppSettings {
             show_focused_border: default_show_focused_border(),
             color_tinted_background: false,
             monochrome_icons: false,
+            transparent_background: default_transparent_background(),
             show_all_projects_on_projects_click: false,
             font_size: default_font_size(),
             font_family: default_font_family(),
@@ -543,6 +548,7 @@ impl Default for AppSettings {
             hooks: HooksConfig::default(),
             diff_view_mode: DiffViewMode::default(),
             remote_server_enabled: false,
+            agent_hooks_enabled: false,
             remote_listen_address: default_remote_listen_address(),
             min_column_width: default_min_column_width(),
             diff_ignore_whitespace: false,
@@ -566,6 +572,9 @@ fn default_settings_version() -> u32 {
 
 fn default_show_focused_border() -> bool {
     false
+}
+fn default_transparent_background() -> bool {
+    true
 }
 
 fn default_auto_update_enabled() -> bool {

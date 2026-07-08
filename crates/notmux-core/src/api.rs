@@ -416,7 +416,18 @@ pub enum ActionRequest {
         project_id: String,
         top_level_index: usize,
     },
-}
+    Notify {
+        #[serde(default)]
+        terminal_id: Option<String>,
+        title: String,
+        #[serde(default)]
+        body: String,
+    },
+    ClearNotification {
+        #[serde(default)]
+        terminal_id: Option<String>,
+    },
+    }
 
 fn default_search_mode() -> String {
     "literal".to_string()
@@ -754,7 +765,12 @@ mod tests {
                 project_id: "p1".into(),
                 top_level_index: 0,
             },
-        ];
+            ActionRequest::Notify {
+                terminal_id: Some("t1".into()),
+                title: "Test".into(),
+                body: "Done".into(),
+            },
+            ];
         for action in actions {
             let json = serde_json::to_string(&action).unwrap();
             let _parsed: ActionRequest = serde_json::from_str(&json).unwrap();

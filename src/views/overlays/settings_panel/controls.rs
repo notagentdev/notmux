@@ -116,8 +116,31 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let t = theme(cx);
-
         settings_row(id.to_string(), label, &t, cx, has_border).child(
+            toggle_switch(format!("{}-toggle", id), enabled, &t).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |_, _, _, cx| {
+                    let update_fn = update_fn.clone();
+                    settings_entity(cx).update(cx, |state, cx| {
+                        update_fn(state, !enabled, cx);
+                    });
+                }),
+            ),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_toggle_with_desc(
+        &self,
+        id: &str,
+        label: &str,
+        desc: &str,
+        enabled: bool,
+        has_border: bool,
+        update_fn: impl Fn(&mut SettingsState, bool, &mut Context<SettingsState>) + 'static + Clone,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme(cx);
+        settings_row_with_desc(id.to_string(), label, desc, &t, cx, has_border).child(
             toggle_switch(format!("{}-toggle", id), enabled, &t).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |_, _, _, cx| {

@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# notmux claude wrapper - injects hooks and session tracking at runtime
+#
+# When running inside a notmux terminal (NOTMUX_SURFACE_ID is set AND the notmux
+# remote server is reachable), this wrapper intercepts `claude` invocations to
+# inject --settings flags so that Claude Code hooks fire back into notmux for
+# notifications/status. Outside notmux, it passes through unchanged.
+#
+# Modeled on the reference implementation's the reference implementation, adapted for notmux's HTTP-based API.
+
+# ── Find the real claude binary, skipping this wrapper ─────────────────────
+find_real_claude() {
+    local custom="${NOTMUX_CUSTOM_CLAUDE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! notmux_claude_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/claude"
+        notmux_claude_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+notmux_claude_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */notmux-shims/*/claude|*/notmux-shims/claude) return 0 ;;
+        */Resources/bin/claude|*/Contents/Resources/bin/claude) return 0 ;;
+    esac
+    return 1
+}
+
+# ── Resolve the notmux binary for hook commands ────────────────────────────
+resolve_notmux_bin() {
+    local bin="${NOTMUX_BINARY_PATH:-}"
+    if [[ -n "$bin" && -x "$bin" ]]; then
+        printf '%s' "$bin"
+        return 0
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local parent_dir
+    parent_dir="$(cd "$self_dir/.." && pwd)"
+    if [[ -x "$parent_dir/notmux" ]]; then
+        printf '%s' "$parent_dir/notmux"
+        return 0
+    fi
+    local found
+    found="$(command -v notmux 2>/dev/null || true)"
+    if [[ -n "$found" ]]; then
+        printf '%s' "$found"
+        return 0
+    fi
+    printf '%s' "notmux"
+}
+
+# ── Check if the notmux remote server is reachable ─────────────────────────
+notmux_server_available() {
+    local bin
+    bin="$(resolve_notmux_bin)"
+    [[ -n "$bin" && -x "$bin" ]] || return 1
+    NOTMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$bin" health >/dev/null 2>&1
+}
+
+# ── Clear inherited Claude session env vars (avoid nested-session detection) ─
+clear_inherited_claude_session_env() {
+    unset CLAUDECODE
+    unset CLAUDE_CODE
+    unset CLAUDE_CODE_CHILD_SESSION
+    unset CLAUDE_CODE_PARENT_SESSION_ID
+    unset CLAUDE_CODE_SESSION_ID
+    unset CLAUDE_CODE_ENTRYPOINT
+    unset CLAUDE_CODE_EXECPATH
+    unset CLAUDE_CODE_SSE_PORT
+}
+
+# ── Option parsing helpers ─────────────────────────────────────────────────
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0 ;;
+    esac
+    return 1
+}
+
+claude_interactive_entry_flag() {
+    case "$1" in
+        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
+        --session-id|--session-id=*|--remote-control|--remote-control=*|\
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+            return 0 ;;
+    esac
+    return 1
+}
+
+claude_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v) return 0 ;;
+    esac
+    return 1
+}
+
+claude_builtin_command_name() {
+    case "$1" in
+        agents|auth|auto-mode|config|api-key|daemon|doctor|gateway|install|mcp|\
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
+            return 0 ;;
+    esac
+    return 1
+}
+
+claude_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*) return 1 ;;
+    esac
+    claude_builtin_command_name "$candidate"
+}
+
+# ── Decide whether this invocation should get hooks injected ──────────────
+should_inject_claude_hooks() {
+    (( $# == 0 )) && return 0
+    local arg skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 0 ;;
+            -*)
+                if claude_passthrough_option_flag "$arg"; then return 1; fi
+                if claude_interactive_entry_flag "$arg"; then return 0; fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue ;;
+            *)
+                if claude_command_like_invocation "$arg"; then return 1; fi
+                return 0 ;;
+        esac
+    done
+    return 0
+}
+
+claude_explicit_session_flag_present() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --) return 1 ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0 ;;
+        esac
+    done
+    return 1
+}
+
+# ── Gate: pass through if not in notmux, hooks disabled, or server down ────
+IN_NOTMUX=0
+if [[ -n "${NOTMUX_SURFACE_ID:-}" ]]; then
+    IN_NOTMUX=1
+fi
+
+if [[ "${NOTMUX_CLAUDE_HOOKS_DISABLED:-}" == "1" ]]; then
+    clear_inherited_claude_session_env
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+if [[ "$IN_NOTMUX" == "0" ]] || ! notmux_server_available; then
+    if [[ "$IN_NOTMUX" == "1" ]]; then
+        clear_inherited_claude_session_env
+    fi
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+# ── Find real claude ───────────────────────────────────────────────────────
+REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+
+# ── Only inject hooks for session entrypoints ──────────────────────────────
+if ! should_inject_claude_hooks "$@"; then
+    clear_inherited_claude_session_env
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+# ── Clear inherited session env to avoid nested-session detection ──────────
+clear_inherited_claude_session_env
+
+# ── Resolve notmux binary for hook commands ────────────────────────────────
+NOTMUX_BIN="$(resolve_notmux_bin)"
+
+# ── Check if user already specified a session flag ─────────────────────────
+SKIP_SESSION_ID=false
+if claude_explicit_session_flag_present "$@"; then
+    SKIP_SESSION_ID=true
+fi
+
+# ── Build Claude settings JSON with hooks ──────────────────────────────────
+# Hook commands are simple `notmux notify` / `notmux clear-notification` calls.
+# No jq, no stdin parsing in shell. The notmux binary handles routing via
+# NOTMUX_TERMINAL_ID from the environment.
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Turn complete — ready for input\"","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" notify --title \"Claude Code\" --body \"Notification\"","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"'"$NOTMUX_BIN"'\" clear-notification","timeout":5}]}]}}'
+
+# ── Fold user-provided --settings into HOOKS_JSON (deep merge via node) ────
+NOTMUX_FILTERED_ARGS=()
+NOTMUX_USER_SETTINGS=()
+notmux_collect_settings_value=false
+notmux_pending_option_value=false
+notmux_positional_only=false
+for arg in "$@"; do
+    if [[ "$notmux_positional_only" == true ]]; then
+        NOTMUX_FILTERED_ARGS+=("$arg")
+        continue
+    fi
+    if [[ "$notmux_collect_settings_value" == true ]]; then
+        NOTMUX_USER_SETTINGS+=("$arg")
+        notmux_collect_settings_value=false
+        continue
+    fi
+    if [[ "$notmux_pending_option_value" == true ]]; then
+        NOTMUX_FILTERED_ARGS+=("$arg")
+        notmux_pending_option_value=false
+        continue
+    fi
+    case "$arg" in
+        --)
+            notmux_positional_only=true
+            NOTMUX_FILTERED_ARGS+=("$arg") ;;
+        --settings)
+            notmux_collect_settings_value=true ;;
+        --settings=*)
+            NOTMUX_USER_SETTINGS+=("${arg#--settings=}") ;;
+        -*)
+            NOTMUX_FILTERED_ARGS+=("$arg")
+            if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                notmux_pending_option_value=true
+            fi ;;
+        *)
+            NOTMUX_FILTERED_ARGS+=("$arg") ;;
+    esac
+done
+if [[ "$notmux_collect_settings_value" == true ]]; then
+    NOTMUX_FILTERED_ARGS+=("--settings")
+fi
+
+if (( ${#NOTMUX_USER_SETTINGS[@]} > 0 )) && command -v node >/dev/null 2>&1; then
+    NOTMUX_MERGED_SETTINGS="$(
+        NOTMUX_BASE_SETTINGS="$HOOKS_JSON" \
+        NOTMUX_USER_SETTINGS_B64="$(printf '%s\0' "${NOTMUX_USER_SETTINGS[@]}" | base64 | tr -d '\n')" \
+        node -e '
+const fs=require("fs"),os=require("os"),path=require("path");
+const isObj=x=>x&&typeof x==="object"&&!Array.isArray(x);
+const merge=(a,b)=>{
+  if(Array.isArray(a)&&Array.isArray(b))return a.concat(b);
+  if(isObj(a)&&isObj(b)){const o=Object.assign({},a);for(const k of Object.keys(b))o[k]=(k in a)?merge(a[k],b[k]):b[k];return o;}
+  if(isObj(a)||Array.isArray(a))return a;
+  return b;
+};
+const expand=p=>p.indexOf("~/")===0?path.join(os.homedir(),p.slice(2)):p;
+const load=v=>{const t=String(v).trim();return (t[0]==="{"||t[0]==="[")?JSON.parse(t):JSON.parse(fs.readFileSync(expand(t),"utf8"));};
+let acc=JSON.parse(process.env.NOTMUX_BASE_SETTINGS);
+const raw=Buffer.from(process.env.NOTMUX_USER_SETTINGS_B64||"","base64").toString("utf8");
+try{for(const it of raw.split("\0").slice(0,-1).reverse())acc=merge(acc,load(it));}
+catch(e){process.stderr.write("notmux: --settings merge error: "+((e&&e.message)||e)+"\n");process.exit(1);}
+process.stdout.write(JSON.stringify(acc));
+'
+    )"
+    notmux_merge_status=$?
+    if [[ $notmux_merge_status -eq 0 && -n "$NOTMUX_MERGED_SETTINGS" ]]; then
+        HOOKS_JSON="$NOTMUX_MERGED_SETTINGS"
+        set -- "${NOTMUX_FILTERED_ARGS[@]}"
+    else
+        printf 'notmux: warning: --settings merge failed; your --settings was ignored\n' >&2
+    fi
+    unset NOTMUX_MERGED_SETTINGS notmux_merge_status
+fi
+
+# ── Execute real claude with injected settings ─────────────────────────────
+if [[ "$SKIP_SESSION_ID" == true ]]; then
+    exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+else
+    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+fi

@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# notmux codex wrapper - per-invocation Codex hook injection + launch detection.
+#
+# When running inside a notmux terminal (NOTMUX_SURFACE_ID is set AND the notmux
+# remote server is reachable), this wrapper makes `codex` carry notmux's hooks
+# for THIS invocation only (nothing is written to ~/.codex), so Codex's own
+# SessionStart/UserPromptSubmit/Stop fire back into notmux with fire-and-forget
+# semantics. Outside notmux, it passes through unchanged.
+#
+# Modeled on the reference implementation's the reference implementation, adapted for notmux's HTTP-based API.
+
+# Deliberately NOT using `set -e`/`set -u`: a wrapper that aborts on any error
+# would break the user's `codex`. Each helper handles its own failures and the
+# script always reaches an `exec "$REAL_CODEX"`.
+
+# ── Find the real codex binary, skipping this wrapper ──────────────────────
+find_real_codex() {
+    local custom="${NOTMUX_CUSTOM_CODEX_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! notmux_codex_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/codex"
+        notmux_codex_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+notmux_codex_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */notmux-shims/*/codex|*/notmux-shims/codex) return 0 ;;
+        */Resources/bin/codex|*/Contents/Resources/bin/codex) return 0 ;;
+    esac
+    return 1
+}
+
+# ── Resolve the notmux binary for hook commands ────────────────────────────
+resolve_notmux_bin() {
+    local bin="${NOTMUX_BINARY_PATH:-}"
+    if [[ -n "$bin" && -x "$bin" ]]; then
+        printf '%s' "$bin"
+        return 0
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local parent_dir
+    parent_dir="$(cd "$self_dir/.." && pwd)"
+    if [[ -x "$parent_dir/notmux" ]]; then
+        printf '%s' "$parent_dir/notmux"
+        return 0
+    fi
+    local found
+    found="$(command -v notmux 2>/dev/null || true)"
+    if [[ -n "$found" ]]; then
+        printf '%s' "$found"
+        return 0
+    fi
+    printf '%s' "notmux"
+}
+
+# ── Check if the notmux remote server is reachable ─────────────────────────
+notmux_server_available() {
+    local bin
+    bin="$(resolve_notmux_bin)"
+    [[ -n "$bin" && -x "$bin" ]] || return 1
+    NOTMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$bin" health >/dev/null 2>&1
+}
+
+# ── Subcommand detection: which codex invocations start a session? ─────────
+# The interactive session, `exec`/`e`, and `resume` all START a Codex session,
+# so all three must receive hook injection; everything else passes through.
+codex_subcommand_starts_session() {
+    case "$1" in
+        exec|e|resume) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+codex_known_subcommand() {
+    case "$1" in
+        exec|e|review|login|logout|mcp|plugin|mcp-server|app-server|\
+        remote-control|app|completion|update|doctor|sandbox|debug|apply|a|\
+        resume|archive|delete|unarchive|fork|cloud|exec-server|features|help)
+            return 0 ;;
+    esac
+    return 1
+}
+
+codex_option_consumes_value() {
+    case "$1" in
+        -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
+        -s|--sandbox|--output-last-message|--enable|--disable)
+            return 0 ;;
+    esac
+    return 1
+}
+
+codex_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|-V|--version) return 0 ;;
+    esac
+    return 1
+}
+
+# ── Decide whether this invocation is a Codex session entrypoint ──────────
+should_inject_codex_hooks() {
+    (( $# == 0 )) && return 0
+    local arg skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 0 ;;
+            -*)
+                if codex_passthrough_option_flag "$arg"; then return 1; fi
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue ;;
+            *)
+                if codex_known_subcommand "$arg"; then
+                    codex_subcommand_starts_session "$arg" && return 0
+                    return 1
+                fi
+                # First bare token is a prompt -> interactive session.
+                return 0 ;;
+        esac
+    done
+    return 0
+}
+
+# ── Gate: pass through if not in notmux, hooks disabled, or server down ────
+IN_NOTMUX=0
+if [[ -n "${NOTMUX_SURFACE_ID:-}" ]]; then
+    IN_NOTMUX=1
+fi
+
+# Resolve real codex up front; error like a missing binary would.
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+exec_real_codex_passthrough() {
+    if [[ "$IN_NOTMUX" == "1" ]]; then
+        local nm_key
+        for nm_key in "${!NOTMUX_@}"; do
+            unset "$nm_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_CODEX" "$@"
+}
+
+# Opt-out, outside notmux, or stale/dead server: pass straight through.
+if [[ "${NOTMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+if [[ "$IN_NOTMUX" == "0" ]] || ! notmux_server_available; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# Not a session entrypoint (review/login/doctor/--help/...): pass through.
+if ! should_inject_codex_hooks "$@"; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# ── Resolve notmux binary for hook commands ────────────────────────────────
+NOTMUX_BIN="$(resolve_notmux_bin)"
+
+# ── Build the fire-and-forget hook command ─────────────────────────────────
+# Fire-and-forget is critical: codex runs hooks synchronously and BLOCKS until
+# they return, so a synchronous `notmux notify` made every launch hang ~35s on
+# "Running SessionStart hook". The command captures codex's stdin payload to a
+# temp file, nohup-backgrounds the real notmux call with a 30s watchdog, and
+# `echo '{}'` returns to codex instantly.
+#
+# The runner takes the notmux command as "$@" and runs it in the background.
+FF_RUNNER='payload="$(mktemp "${TMPDIR:-/tmp}/notmux-codex-hook.XXXXXX" 2>/dev/null || mktemp -t notmux-codex-hook 2>/dev/null)" || { echo "{}"; exit 0; }; cat >"$payload" 2>/dev/null || true; ( nohup sh -c '"'"'shift; "$@" <"$1" >/dev/null 2>&1; rm -f "$1"'"'"' _ "$payload" "$@" >/dev/null 2>&1 & ) 2>/dev/null; echo "{}"'
+
+# ── Build the per-invocation hook injection via -c flags ───────────────────
+# Each event gets its own -c 'hooks.EVENT=[{hooks=[{type="command",command=...}]}]'
+# TOML multi-line literal string ('''...''') preserves bytes verbatim.
+INJECT_ARGS=(
+    --enable
+    hooks
+    --dangerously-bypass-hook-trust
+    -c "hooks.SessionStart=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" notify --title \"Codex\" --body \"Session started\"''',timeout=10000}]}]"
+    -c "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" clear-notification''',timeout=10000}]}]"
+    -c "hooks.Stop=[{hooks=[{type=\"command\",command='''$FF_RUNNER \"$NOTMUX_BIN\" notify --title \"Codex\" --body \"Turn complete — ready for input\"''',timeout=10000}]}]"
+)
+
+# Execute real codex with injected hooks
+exec "$REAL_CODEX" "${INJECT_ARGS[@]}" "$@"

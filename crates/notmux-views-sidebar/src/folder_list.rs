@@ -72,18 +72,18 @@ impl Sidebar {
         // Folder header row
         div()
             .id(ElementId::Name(format!("folder-row-{}", folder.id).into()))
-            .h(px(32.0))
+            .mx(px(6.0))
             .pl(px(4.0))
-            .pr(px(8.0))
+            .pr(px(14.0))
+            .py(px(7.0))
             .flex()
             .items_center()
-            .gap(px(4.0))
+            .gap(px(8.0))
+            .rounded_lg()
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_active_filter, |d| d.bg(rgb(t.bg_hover)))
-            .when(is_cursor, |d| {
-                d.border_l_2().border_color(rgb(t.border_active))
-            })
+            .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
             .when(all_hidden, |d| d.opacity(0.75))
             // Drag source for folder reordering
             .on_drag(
@@ -303,18 +303,18 @@ impl Sidebar {
                 format!("folder-project-row-{}", project.id).into(),
             ))
             .group("folder-project-item")
-            .h(px(32.0))
-            .pl(px(20.0)) // Indented for folder nesting
-            .pr(px(8.0))
+            .mx(px(6.0))
+            .pl(px(20.0))
+            .pr(px(14.0))
+            .py(px(7.0))
             .flex()
             .items_center()
-            .gap(px(4.0))
+            .gap(px(8.0))
+            .rounded_lg()
             .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_focused_project, |d| d.bg(rgb(t.bg_hover)))
-            .when(is_cursor, |d| {
-                d.border_l_2().border_color(rgb(t.border_active))
-            })
+            .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
             .when(!project.show_in_overview, |d| d.opacity(0.75))
             // Drag source
             .on_drag(

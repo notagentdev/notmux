@@ -926,9 +926,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             self.tab_scroll_handle.scroll_to_item(active_tab);
             self.last_scrolled_to_tab = Some(active_tab);
         }
-
-        let focus_marker_color = t.border_active;
-
         let workspace_for_header = self.workspace.clone();
         let project_id_for_header = self.project_id.clone();
         let layout_path_for_header = self.layout_path.clone();
@@ -981,38 +978,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         el.child(self.render_shell_indicator(active_tab, cx))
                     })
                     .child(action_buttons),
-            )
-            .when(is_pane_focused, |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .w(px(FOCUS_TRIANGLE_SIZE))
-                        .h(px(FOCUS_TRIANGLE_SIZE))
-                        .group_hover("tab-bar-row", |s| s.opacity(0.0))
-                        .child(
-                            canvas(
-                                |_bounds, _window, _cx| {},
-                                move |bounds, _state, window, _cx| {
-                                    let tr =
-                                        point(bounds.origin.x + bounds.size.width, bounds.origin.y);
-                                    let br = point(
-                                        bounds.origin.x + bounds.size.width,
-                                        bounds.origin.y + bounds.size.height,
-                                    );
-                                    let tl = bounds.origin;
-                                    let mut path = Path::new(tr);
-                                    path.line_to(br);
-                                    path.line_to(tl);
-                                    window.paint_path(path, rgb(focus_marker_color));
-                                },
-                            )
-                            .size_full(),
-                        ),
-                )
-            })
-    }
-}
-
-const FOCUS_TRIANGLE_SIZE: f32 = 24.0;
+                    )
+                    }
+                    }

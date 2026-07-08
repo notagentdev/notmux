@@ -1264,6 +1264,21 @@ impl Terminal {
     }
     pub fn clear_notification(&self) {
         *self.last_notification.lock() = None;
+        *self.has_bell.lock() = false;
+        // Repaint the mounted pane so the ring clears promptly (mirrors the
+        // dirty flag set by real PTY output in `process_output_inner`).
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+    pub fn set_notification(&self, title: String, body: String) {
+        *self.last_notification.lock() = Some(TerminalNotification {
+            title,
+            body,
+            timestamp: std::time::Instant::now(),
+        });
+        *self.has_bell.lock() = true;
+        // Mark dirty so the pane's dirty-check loop repaints the notification
+        // ring/overlay even without further PTY output.
+        self.dirty.store(true, Ordering::Relaxed);
     }
 
     /// Get the initial working directory for this terminal

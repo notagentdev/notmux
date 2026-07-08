@@ -859,6 +859,45 @@ pub fn execute_action(
             ws.move_project_out_of_folder(&project_id, top_level_index, cx);
             ActionResult::Ok(None)
         }
+        ActionRequest::Notify {
+            terminal_id,
+            title,
+            body,
+        } => {
+            let title = if title.is_empty() { "Notification".to_string() } else { title };
+            // Repaint every window so the pane ring + tab/sidebar badges update
+            // immediately. Local terminals' panes are not on the remote-only 8ms
+            // dirty-check loop, so without a forced refresh they would not repaint
+            // until the next PTY output. `refresh_windows` marks all views dirty.
+            cx.notify();
+            cx.refresh_windows();
+            if let Some(tid) = terminal_id {
+                if let Some(term) = terminals.lock().get(&tid).cloned() {
+                    term.set_notification(title.clone(), body.clone());
+                    return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
+                }
+                return ActionResult::Err(format!("terminal not found: {}", tid));
+            }
+            for (_, term) in terminals.lock().iter() {
+                term.set_notification(title.clone(), body.clone());
+            }
+            ActionResult::Ok(Some(serde_json::json!({ "notified": "all", "title": title })))
+            }
+            ActionRequest::ClearNotification { terminal_id } => {
+            cx.notify();
+            cx.refresh_windows();
+            if let Some(tid) = terminal_id {
+                if let Some(term) = terminals.lock().get(&tid) {
+                    term.clear_notification();
+                    return ActionResult::Ok(Some(serde_json::json!({ "cleared": tid })));
+                }
+                return ActionResult::Err(format!("terminal not found: {}", tid));
+            }
+            for (_, term) in terminals.lock().iter() {
+                term.clear_notification();
+            }
+            ActionResult::Ok(Some(serde_json::json!({ "cleared": "all" })))
+            }
         ActionRequest::CreateWorktree {
             project_id,
             branch,
