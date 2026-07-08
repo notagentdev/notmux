@@ -3,6 +3,7 @@
 //! Installs/uninstalls hooks into agent config files so that agents
 //! call `notmux notify` when they finish a turn or need input.
 
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 fn home_dir() -> Option<PathBuf> {
@@ -23,63 +24,188 @@ fn notmux_binary() -> String {
 
 const MARKER_BEGIN: &str = "# >>> notmux hooks >>>";
 const MARKER_END: &str = "# <<< notmux hooks <<<";
-fn add_codex_notify_entry(config: &str, cmd: &str) -> String {
-    if config.contains(cmd) {
-        return config.to_string();
-    }
-    let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"");
-    if let Some(start) = config.find("notify = [") {
-        let bracket_open = config[start..].find('[').unwrap() + start;
-        let bracket_close = config[bracket_open..].find(']').unwrap() + bracket_open;
-        let before = &config[..bracket_close];
-        let after = &config[bracket_close..];
-        let inner = config[bracket_open + 1..bracket_close].trim();
-        if inner.is_empty() {
-         return format!("{}\"{}\"{}", &config[..bracket_open + 1], escaped, after);
-        }
-        return format!("{}, \"{}\"{}", before, escaped, after);
-    }
-    let mut result = config.to_string();
-    if !result.ends_with('\n') && !result.is_empty() {
-        result.push('\n');
-    }
-    result.push_str(&format!("notify = [\"{}\"]\n", escaped));
-    result
+/// Timeout (ms) baked into every codex hook — must match the value used when
+/// computing the trust hash, or codex will treat the hook as untrusted.
+const CODEX_HOOK_TIMEOUT_MS: u64 = 10_000;
+
+/// Compute codex's per-hook trust hash for a `command`-type handler with no
+/// matcher. Verified byte-for-byte against codex 0.142.5: `sha256:` + sha256 of
+/// the canonical JSON
+/// `{"event_name":<label>,"hooks":[{"async":false,"command":<cmd>,"timeout":<ms>,"type":"command"}]}`
+/// (keys in exactly this order, forward slashes unescaped). `serde_json` matches
+/// codex's serialization for ASCII commands, which ours always are.
+fn codex_hook_trust_hash(event_label: &str, command: &str, timeout_ms: u64) -> String {
+    let cmd = serde_json::to_string(command).unwrap_or_else(|_| "\"\"".to_string());
+    let label = serde_json::to_string(event_label).unwrap_or_else(|_| "\"\"".to_string());
+    let identity = format!(
+        "{{\"event_name\":{label},\"hooks\":[{{\"async\":false,\"command\":{cmd},\"timeout\":{timeout_ms},\"type\":\"command\"}}]}}"
+    );
+    let digest = Sha256::digest(identity.as_bytes());
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("sha256:{hex}")
 }
-fn remove_codex_notify_entry(config: &str, exe: &str) -> String {
-    if !config.contains(exe) {
-        return config.to_string();
-    }
-    let mut result = String::new();
-    for line in config.lines() {
-        if line.trim_start().starts_with("notify = [") && line.contains(exe) {
-         let escaped_exe = exe.replace('\\', "\\\\").replace('"', "\\\"");
-         let entries: Vec<&str> = line[10..]
-            .trim_end()
-            .trim_end_matches(']')
-            .split(',')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect();
-         let remaining: Vec<&str> = entries
-            .into_iter()
-            .filter(|e| !e.contains(&escaped_exe) && !e.contains(exe))
-            .collect();
-         if remaining.is_empty() {
+
+/// Escape a string for use inside a TOML basic string (`"..."`).
+fn toml_basic_string_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Split the inside of a single-line TOML array on top-level commas (i.e. commas
+/// that are not inside a quoted string). Returns trimmed elements.
+fn split_toml_array(inner: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_str = false;
+    let mut escaped = false;
+    for c in inner.chars() {
+        if in_str {
+            cur.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_str = false;
+            }
             continue;
-         }
-         result.push_str("notify = [");
-         result.push_str(&remaining.join(", "));
-         result.push_str("]\n");
-         continue;
         }
-        result.push_str(line);
-        result.push('\n');
+        match c {
+            '"' => {
+                in_str = true;
+                cur.push(c);
+            }
+            ',' => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
     }
-    if result.ends_with('\n') && !config.ends_with('\n') {
-        result.pop();
+    if !cur.trim().is_empty() {
+        out.push(cur.trim().to_string());
     }
-    result
+    out
+}
+
+/// Drop any `notify = [...]` array elements that reference the notmux binary
+/// (cleanup for the mangled entry an earlier notify-based install could append).
+fn strip_notmux_codex_notify(lines: Vec<String>) -> Vec<String> {
+    lines
+        .into_iter()
+        .filter_map(|line| {
+            let t = line.trim_start();
+            if !(t.starts_with("notify") && t.contains('=') && line.contains('[')) {
+                return Some(line);
+            }
+            let lb = line.find('[');
+            let rb = line.rfind(']');
+            let (Some(lb), Some(rb)) = (lb, rb) else {
+                return Some(line);
+            };
+            if rb <= lb {
+                return Some(line);
+            }
+            let prefix = &line[..=lb];
+            let suffix = &line[rb..];
+            let kept: Vec<String> = split_toml_array(&line[lb + 1..rb])
+                .into_iter()
+                .filter(|e| !e.contains("notmux"))
+                .collect();
+            if kept.is_empty() {
+                return None; // whole notify entry was ours
+            }
+            Some(format!("{prefix}{}{suffix}", kept.join(", ")))
+        })
+        .collect()
+}
+
+/// Remove `[hooks.state."<hooks_path>:..."]` trust blocks we previously wrote,
+/// so re-installing (e.g. after the binary path changes) never leaves stale
+/// hashes behind.
+fn strip_codex_hook_trust_blocks(lines: Vec<String>, hooks_path: &str) -> Vec<String> {
+    let prefix = format!("[hooks.state.\"{}:", toml_basic_string_escape(hooks_path));
+    let mut out = Vec::new();
+    let mut skipping = false;
+    for line in lines {
+        let t = line.trim_start();
+        if t.starts_with('[') {
+            skipping = t.starts_with(&prefix);
+            if skipping {
+                continue;
+            }
+        }
+        if skipping {
+            continue;
+        }
+        out.push(line);
+    }
+    // Collapse a trailing run of blank lines to at most one.
+    while out.len() >= 2
+        && out.last().map(|l| l.trim().is_empty()).unwrap_or(false)
+        && out[out.len() - 2].trim().is_empty()
+    {
+        out.pop();
+    }
+    out
+}
+
+/// Ensure `hooks = true` exists under a `[features]` table.
+fn ensure_features_hooks_true(lines: &mut Vec<String>) {
+    if let Some(fi) = lines.iter().position(|l| l.trim() == "[features]") {
+        let mut i = fi + 1;
+        while i < lines.len() {
+            let t = lines[i].trim();
+            if t.starts_with('[') {
+                break;
+            }
+            if t.starts_with("hooks") && t.contains('=') {
+                lines[i] = "hooks = true".to_string();
+                return;
+            }
+            i += 1;
+        }
+        lines.insert(fi + 1, "hooks = true".to_string());
+        return;
+    }
+    if lines.last().map(|l| !l.trim().is_empty()).unwrap_or(false) {
+        lines.push(String::new());
+    }
+    lines.push("[features]".to_string());
+    lines.push("hooks = true".to_string());
+}
+
+/// Produce config.toml content that enables + trusts the notmux codex hooks.
+fn codex_config_with_hooks(
+    existing: &str,
+    hooks_path: &str,
+    entries: &[(String, String)],
+) -> String {
+    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
+    lines = strip_notmux_codex_notify(lines);
+    lines = strip_codex_hook_trust_blocks(lines, hooks_path);
+    ensure_features_hooks_true(&mut lines);
+    if lines.last().map(|l| !l.trim().is_empty()).unwrap_or(false) {
+        lines.push(String::new());
+    }
+    for (key, hash) in entries {
+        lines.push(format!("[hooks.state.\"{}\"]", toml_basic_string_escape(key)));
+        lines.push(format!("trusted_hash = \"{hash}\""));
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+/// Produce config.toml content with the notmux codex hook trust removed.
+fn codex_config_without_hooks(existing: &str, hooks_path: &str) -> String {
+    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
+    lines = strip_notmux_codex_notify(lines);
+    lines = strip_codex_hook_trust_blocks(lines, hooks_path);
+    let mut out = lines.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
 }
 
 /// Install Claude Code hooks: `Stop` + `Notification` events.
@@ -175,47 +301,92 @@ pub fn uninstall_claude() -> Result<(), String> {
     Ok(())
 }
 
-/// Install Codex hooks: `Stop` event + enable hooks in config.toml.
+/// Install persistent, *trusted* codex hooks so they run WITHOUT the
+/// `--dangerously-bypass-hook-trust` warning.
+///
+/// Writes `~/.codex/hooks.json` (Stop → notify, UserPromptSubmit → clear) and,
+/// in `config.toml`, enables `features.hooks` and adds the matching
+/// `[hooks.state."…"]` trust hashes codex expects. Each hook command no-ops
+/// unless `NOTMUX_SURFACE_ID` is set, so plain codex outside notmux stays quiet.
+///
+/// Only runs when codex is already set up (`~/.codex` exists) — we never create
+/// codex config for users who don't use it.
 pub fn install_codex() -> Result<(), String> {
     let home = home_dir().ok_or("HOME not set")?;
     let codex_dir = std::env::var("CODEX_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| home.join(".codex"));
-    std::fs::create_dir_all(&codex_dir)
-        .map_err(|e| format!("Failed to create {}: {e}", codex_dir.display()))?;
+    if !codex_dir.exists() {
+        log::info!("Codex not set up ({} missing); skipping", codex_dir.display());
+        return Ok(());
+    }
     let exe = notmux_binary();
+    // ASCII-only, guarded, fire-and-forget (codex blocks on hooks). The exact
+    // bytes here feed the trust hash below, so keep them in sync.
     let stop_cmd = format!(
-        "{exe} notify --title \"Codex\" --body \"Turn complete\""
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Turn complete\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
+    let clear_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" clear-notification >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+    );
+
+    let hooks_path = codex_dir.join("hooks.json");
+    let doc = serde_json::json!({
+        "hooks": {
+            "Stop": [{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
+            "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": clear_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
+        }
+    });
+    let hooks_content =
+        serde_json::to_string_pretty(&doc).map_err(|e| format!("Failed to serialize hooks: {e}"))?;
+    std::fs::write(&hooks_path, &hooks_content)
+        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+
+    // codex keys hook trust on the *canonicalized* hooks-file path.
+    let key_path = std::fs::canonicalize(&hooks_path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| hooks_path.to_string_lossy().to_string());
+    let entries = vec![
+        (
+            format!("{key_path}:stop:0:0"),
+            codex_hook_trust_hash("stop", &stop_cmd, CODEX_HOOK_TIMEOUT_MS),
+        ),
+        (
+            format!("{key_path}:user_prompt_submit:0:0"),
+            codex_hook_trust_hash("user_prompt_submit", &clear_cmd, CODEX_HOOK_TIMEOUT_MS),
+        ),
+    ];
+
     let config_path = codex_dir.join("config.toml");
     let config = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let new_config = add_codex_notify_entry(&config, &stop_cmd);
+    let new_config = codex_config_with_hooks(&config, &key_path, &entries);
     if new_config != config {
         std::fs::write(&config_path, &new_config)
-         .map_err(|e| format!("Failed to write {}: {e}", config_path.display()))?;
+            .map_err(|e| format!("Failed to write {}: {e}", config_path.display()))?;
     }
-    log::info!("Installed Codex notify -> {}", config_path.display());
+    log::info!("Installed Codex hooks -> {}", config_path.display());
     Ok(())
 }
 
-/// Remove Codex hooks.
+/// Remove the persistent codex hooks + trust written by [`install_codex`].
 pub fn uninstall_codex() -> Result<(), String> {
     let home = home_dir().ok_or("HOME not set")?;
     let codex_dir = std::env::var("CODEX_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| home.join(".codex"));
+    let hooks_path = codex_dir.join("hooks.json");
+    let key_path = std::fs::canonicalize(&hooks_path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| hooks_path.to_string_lossy().to_string());
     let config_path = codex_dir.join("config.toml");
     if let Ok(config) = std::fs::read_to_string(&config_path) {
-        let exe = notmux_binary();
-        let new_config = remove_codex_notify_entry(&config, &exe);
+        let new_config = codex_config_without_hooks(&config, &key_path);
         if new_config != config {
-         let _ = std::fs::write(&config_path, &new_config);
+            let _ = std::fs::write(&config_path, &new_config);
         }
     }
-    let hooks_path = codex_dir.join("hooks.json");
     if hooks_path.exists() {
-        std::fs::remove_file(&hooks_path)
-         .map_err(|e| format!("Failed to remove {}: {e}", hooks_path.display()))?;
+        let _ = std::fs::remove_file(&hooks_path);
     }
     log::info!("Removed Codex hooks <- {}", codex_dir.display());
     Ok(())

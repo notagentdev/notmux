@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 const CLAUDE_WRAPPER: &str = include_str!("../../../resources/bin/notmux-claude-wrapper");
-const CODEX_WRAPPER: &str = include_str!("../../../resources/bin/notmux-codex-wrapper");
 
 // Generated zsh ZDOTDIR init files (see `agent_hook_zsh_dir`). `__SHELL__` /
 // `__SHIM__` are replaced with the absolute notmux shell-init / shim dirs.
@@ -77,7 +76,11 @@ fn agent_hook_shim_dir() -> Option<std::path::PathBuf> {
     let dir = agent_hook_base_dir()?.join("shims");
     let _ = std::fs::create_dir_all(&dir);
     write_if_changed(&dir.join("claude"), CLAUDE_WRAPPER, 0o755);
-    write_if_changed(&dir.join("codex"), CODEX_WRAPPER, 0o755);
+    // codex now uses persistent, pre-trusted hooks (see notmux-hooks
+    // `install_codex`) instead of a per-invocation wrapper, so remove any codex
+    // shim left over from an older build to avoid double hooks + the
+    // `--dangerously-bypass-hook-trust` warning.
+    let _ = std::fs::remove_file(dir.join("codex"));
     Some(dir)
 }
 
