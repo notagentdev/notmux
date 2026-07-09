@@ -32,12 +32,12 @@ impl HeaderAction {
             HeaderAction::AddTab => "icons/tabs.svg",
             HeaderAction::Minimize => "icons/minimize.svg",
             HeaderAction::ExportBuffer => "icons/copy.svg",
-            HeaderAction::Fullscreen => "icons/fullscreen.svg",
+            HeaderAction::Fullscreen => "icons/maximize.svg",
             HeaderAction::Detach => "icons/detach.svg",
             HeaderAction::Close => "icons/close.svg",
             HeaderAction::ZoomPrev => "icons/chevron-left.svg",
             HeaderAction::ZoomNext => "icons/chevron-right.svg",
-            HeaderAction::ExitZoom => "icons/minimize.svg",
+            HeaderAction::ExitZoom => "icons/collapse.svg",
         }
     }
 

@@ -123,7 +123,13 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         div()
             .id(format!("terminal-pane-main-{}", id_suffix))
             .track_focus(&focus_handle)
-            .key_context("TerminalPane")
+            // Add a fullscreen-only context so arrow keys can cycle terminals
+            // while maximized without swallowing the shell's arrows otherwise.
+            .key_context(if is_zoomed {
+                "TerminalPane TerminalPaneFullscreen"
+            } else {
+                "TerminalPane"
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _event: &MouseDownEvent, window, cx| {

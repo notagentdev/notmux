@@ -153,6 +153,8 @@ impl KeybindingConfig {
             vec![
                 KeybindingEntry::new("cmd-]", Some("TerminalPane")),
                 KeybindingEntry::new("ctrl-]", Some("TerminalPane")),
+                // Arrow keys cycle terminals only while maximized.
+                KeybindingEntry::new("right", Some("TerminalPaneFullscreen")),
             ],
         );
         bindings.insert(
@@ -160,6 +162,7 @@ impl KeybindingConfig {
             vec![
                 KeybindingEntry::new("cmd-[", Some("TerminalPane")),
                 KeybindingEntry::new("ctrl-[", Some("TerminalPane")),
+                KeybindingEntry::new("left", Some("TerminalPaneFullscreen")),
             ],
         );
 
