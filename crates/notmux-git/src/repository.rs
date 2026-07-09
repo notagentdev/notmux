@@ -1,7 +1,91 @@
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use crate::{GitStatus, StashEntry};
 use notmux_core::process::{command, safe_output};
+
+/// Skip line-counting untracked files bigger than this (they'd be rejected
+/// by the viewers anyway and reading them on every poll is wasted I/O).
+const UNTRACKED_COUNT_MAX_SIZE: u64 = 5 * 1024 * 1024;
+
+/// Untracked-file line counts, keyed by absolute path and validated by
+/// `(mtime, size)`; the cached value is `(mtime, size, line_count)`.
+type UntrackedLineCache = std::collections::HashMap<PathBuf, (SystemTime, u64, usize)>;
+
+/// Cache for untracked-file line counts. Status refreshes run every few seconds
+/// from several places; without this every poll re-reads every untracked file.
+static UNTRACKED_LINE_CACHE: Mutex<Option<UntrackedLineCache>> = Mutex::new(None);
+
+/// Upper bound on cache entries; the cache is dropped wholesale when it
+/// grows past this (untracked sets are usually small — this is a backstop).
+const UNTRACKED_CACHE_MAX_ENTRIES: usize = 4096;
+
+/// Count the lines of an untracked file (as `str::lines` would), cached by
+/// (mtime, size). Binary files (NUL byte in the first chunk) and files over
+/// `UNTRACKED_COUNT_MAX_SIZE` count as 0.
+pub(crate) fn count_untracked_lines(path: &Path) -> usize {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return 0;
+    };
+    let size = meta.len();
+    if size == 0 || size > UNTRACKED_COUNT_MAX_SIZE {
+        return 0;
+    }
+    let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+
+    {
+        let mut guard = UNTRACKED_LINE_CACHE.lock().expect("cache lock");
+        if let Some(cache) = guard.as_mut()
+            && let Some(&(cached_mtime, cached_size, lines)) = cache.get(path)
+            && cached_mtime == mtime
+            && cached_size == size
+        {
+            return lines;
+        }
+    }
+
+    let lines = count_lines_uncached(path);
+
+    let mut guard = UNTRACKED_LINE_CACHE.lock().expect("cache lock");
+    let cache = guard.get_or_insert_with(Default::default);
+    if cache.len() >= UNTRACKED_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(path.to_path_buf(), (mtime, size, lines));
+    lines
+}
+
+/// Stream the file and count newlines (plus an unterminated last line),
+/// without materializing the content. Returns 0 for binary-looking files.
+fn count_lines_uncached(path: &Path) -> usize {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return 0;
+    };
+    let mut reader = std::io::BufReader::new(file);
+    let mut buf = [0u8; 64 * 1024];
+    let mut newlines = 0usize;
+    let mut last_byte = b'\n';
+    let mut first_chunk = true;
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let chunk = &buf[..n];
+                // Binary heuristic (like git's): NUL in the first chunk.
+                if first_chunk && chunk.contains(&0) {
+                    return 0;
+                }
+                first_chunk = false;
+                newlines += chunk.iter().filter(|&&b| b == b'\n').count();
+                last_byte = chunk[n - 1];
+            }
+            Err(_) => return 0,
+        }
+    }
+    newlines + usize::from(last_byte != b'\n')
+}
 
 /// Get the root directory of the git repository containing the given path.
 /// Returns None if the path is not inside a git repository.
@@ -1320,6 +1404,11 @@ pub fn get_working_tree_status(path: &Path) -> WorkingTreeStatus {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut status = parse_porcelain_v2(&stdout);
     add_numstat_counts(&mut status, path);
+    // Untracked files have no git diff; count their lines (all "added") so the
+    // changes view shows +N for them like tracked files.
+    for file in status.untracked.iter_mut() {
+        file.added = count_untracked_lines(&path.join(&file.path));
+    }
     status
 }
 

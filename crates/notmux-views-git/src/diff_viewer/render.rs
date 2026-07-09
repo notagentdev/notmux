@@ -13,7 +13,12 @@ use notmux_ui::toggle::segmented_toggle;
 use notmux_ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 
 impl DiffViewer {
+    // The `render_embedded_*` cluster (plus the `blend_u32`/`embedded_header_bg`
+    // helpers it uses) is the ported notmux embedded-diff header/content feature.
+    // It is self-consistent but not yet wired into notagent's embedding, so it
+    // reads as dead. Kept verbatim from the port rather than deleted.
     /// Alpha-blend `fg` over `bg` and return opaque RGB u32.
+    #[allow(dead_code)]
     fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
         let a = alpha as u32;
         let inv = 255 - a;
@@ -23,10 +28,12 @@ impl DiffViewer {
         (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
     }
 
+    #[allow(dead_code)]
     fn embedded_header_bg(t: &ThemeColors) -> u32 {
         Self::blend_u32(t.text_primary, 0x14, t.term_background)
     }
 
+    #[allow(dead_code)]
     pub(super) fn render_embedded_header(
         &self,
         file_path: &str,
@@ -145,6 +152,7 @@ impl DiffViewer {
             )
     }
 
+    #[allow(dead_code)]
     fn render_embedded_view_button(
         &self,
         id: &'static str,
@@ -161,6 +169,7 @@ impl DiffViewer {
             }))
     }
 
+    #[allow(dead_code)]
     fn render_embedded_icon_button(
         &self,
         id: &'static str,
@@ -173,7 +182,7 @@ impl DiffViewer {
         use gpui_component::tooltip::Tooltip;
 
         div()
-            .id(format!("main-diff-{}", id))
+            .id(SharedString::from(format!("main-diff-{}", id)))
             .w(px(24.0))
             .h(px(24.0))
             .flex()
@@ -594,7 +603,7 @@ impl DiffViewer {
             })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, dead_code)]
     pub(super) fn render_embedded_content(
         &mut self,
         t: &ThemeColors,
@@ -829,7 +838,7 @@ impl DiffViewer {
             .top_0()
             .bottom_0()
             .right_0()
-            .w(px(12.0))
+            .w(px(8.0))
             .cursor(CursorStyle::Arrow)
             .on_mouse_down(
                 MouseButton::Left,
@@ -854,8 +863,8 @@ impl DiffViewer {
                 div()
                     .absolute()
                     .top(px(thumb_y))
-                    .right(px(3.0))
-                    .w(px(6.0))
+                    .right(px(0.0))
+                    .w(px(5.0))
                     .h(px(thumb_height))
                     .rounded(px(3.0))
                     .bg(rgb(if is_dragging {

@@ -13,26 +13,71 @@ use notmux_files::syntax::{
 use notmux_git::diff::DiffHunk;
 use notmux_git::{DiffLineType, FileDiff};
 
-/// Pre-highlight an entire file and return a map of line number -> spans.
-/// Line numbers are 1-based to match git diff line numbers.
-fn highlight_full_file(
+/// Highlight only the given 1-based, inclusive line ranges, returning a map of
+/// line number -> spans. Each range is highlighted with its own fresh syntect
+/// state (so multi-line constructs are correct *within* a range); ranges carry
+/// the hunk's surrounding context so this is correct for changes that open and
+/// close within their context. This keeps highlighting proportional to the diff
+/// size — O(shown lines) — instead of O(file size).
+pub(crate) fn highlight_ranges(
     content: &str,
+    ranges: &[(usize, usize)],
     syntax: &syntect::parsing::SyntaxReference,
     theme: &syntect::highlighting::Theme,
     syntax_set: &SyntaxSet,
     default_color: Rgba,
 ) -> HashMap<usize, Vec<HighlightedSpan>> {
-    let mut highlighter = HighlightLines::new(syntax, theme);
     let mut result = HashMap::new();
-
-    // Use LinesWithEndings to preserve newlines - syntect needs them for proper state tracking
-    for (idx, line) in LinesWithEndings::from(content).enumerate() {
-        let line_num = idx + 1; // 1-based line numbers
-        let spans = highlight_line(line, &mut highlighter, syntax_set, default_color);
-        result.insert(line_num, spans);
+    if ranges.is_empty() {
+        return result;
     }
-
+    // Slice the content into lines once (cheap — borrows); only the requested
+    // ranges are actually run through the (costly) highlighter.
+    let lines: Vec<&str> = LinesWithEndings::from(content).collect();
+    for &(start, end) in ranges {
+        let mut highlighter = HighlightLines::new(syntax, theme);
+        let from = start.saturating_sub(1);
+        let to = end.min(lines.len());
+        for (idx, line) in lines.iter().enumerate().take(to).skip(from) {
+            if result.contains_key(&(idx + 1)) {
+                continue;
+            }
+            let spans = highlight_line(line, &mut highlighter, syntax_set, default_color);
+            result.insert(idx + 1, spans);
+        }
+    }
     result
+}
+
+/// A list of 1-based inclusive `(start, end)` line ranges.
+type LineRanges = Vec<(usize, usize)>;
+
+/// The 1-based inclusive old/new line ranges covered by a file's hunks. Used to
+/// limit highlighting to the lines actually shown in the diff.
+fn hunk_line_ranges(file: &FileDiff) -> (LineRanges, LineRanges) {
+    let mut old_ranges = Vec::new();
+    let mut new_ranges = Vec::new();
+    for hunk in &file.hunks {
+        let (mut o_min, mut o_max) = (usize::MAX, 0usize);
+        let (mut n_min, mut n_max) = (usize::MAX, 0usize);
+        for line in &hunk.lines {
+            if let Some(n) = line.old_line_num {
+                o_min = o_min.min(n);
+                o_max = o_max.max(n);
+            }
+            if let Some(n) = line.new_line_num {
+                n_min = n_min.min(n);
+                n_max = n_max.max(n);
+            }
+        }
+        if o_max > 0 {
+            old_ranges.push((o_min, o_max));
+        }
+        if n_max > 0 {
+            new_ranges.push((n_min, n_max));
+        }
+    }
+    (old_ranges, new_ranges)
 }
 
 /// Create a fallback span for content without highlighting.
@@ -64,9 +109,15 @@ pub fn process_file(
     let theme = build_syntax_theme(colors);
     let default_color = default_text_color_for(colors);
 
+    // Only highlight the line ranges the diff actually shows (hunk lines +
+    // their context), not the whole file — keeps load O(diff) not O(file).
+    let (old_ranges, new_ranges) = hunk_line_ranges(file);
+
     let t1 = std::time::Instant::now();
     let old_highlighted = match old_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
+        Some(content) => {
+            highlight_ranges(content, &old_ranges, syntax, &theme, syntax_set, default_color)
+        }
         None => HashMap::new(),
     };
     log::debug!(
@@ -77,7 +128,9 @@ pub fn process_file(
 
     let t2 = std::time::Instant::now();
     let new_highlighted = match new_content.as_ref() {
-        Some(content) => highlight_full_file(content, syntax, &theme, syntax_set, default_color),
+        Some(content) => {
+            highlight_ranges(content, &new_ranges, syntax, &theme, syntax_set, default_color)
+        }
         None => HashMap::new(),
     };
     log::debug!(
@@ -95,6 +148,12 @@ pub fn process_file(
     for hunk in &file.hunks {
         let mut items = Vec::new();
         for line in &hunk.lines {
+            // Skip the `@@ … @@` hunk-header lines entirely — the context
+            // expanders ("N unmodified lines") already separate hunks, so a
+            // header row would just be a blank/redundant line.
+            if line.line_type == DiffLineType::Header {
+                continue;
+            }
             if let Some(num) = line.old_line_num {
                 *max_line_num = (*max_line_num).max(num);
             }
@@ -102,21 +161,7 @@ pub fn process_file(
                 *max_line_num = (*max_line_num).max(num);
             }
 
-            // For header lines, use special styling
-            let (spans, plain_text) = if line.line_type == DiffLineType::Header {
-                (
-                    vec![HighlightedSpan {
-                        color: Rgba {
-                            r: 0.5,
-                            g: 0.6,
-                            b: 0.8,
-                            a: 1.0,
-                        },
-                        text: line.content.clone(),
-                    }],
-                    line.content.clone(),
-                )
-            } else {
+            let (spans, plain_text) = {
                 let plain = line.content.replace('\t', "    ");
 
                 // Look up pre-highlighted spans based on line type and line number

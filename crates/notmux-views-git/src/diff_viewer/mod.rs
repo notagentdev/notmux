@@ -7,8 +7,8 @@ mod line_render;
 pub mod provider;
 mod render;
 mod scrollbar;
-mod syntax;
-mod types;
+pub(crate) mod syntax;
+pub(crate) mod types;
 
 use gpui::prelude::*;
 use gpui::*;
@@ -20,7 +20,9 @@ use notmux_core::types::DiffViewMode;
 use notmux_files::code_view::extract_selected_text;
 use notmux_files::file_tree::build_file_tree;
 use notmux_files::selection::{Selection2DNonEmpty, copy_to_clipboard};
-use notmux_files::syntax::load_syntax_set;
+use notmux_files::syntax::{
+    build_syntax_theme, default_text_color_for, get_syntax_for_path, load_syntax_set,
+};
 use notmux_files::theme::theme;
 use notmux_git::{CommitLogEntry, DiffMode, DiffResult, FileDiff};
 use notmux_ui::modal::fullscreen_overlay;
@@ -80,6 +82,10 @@ pub struct DiffViewer {
     scroll_x: f32,
     /// Maximum line length in characters (for horizontal scroll range).
     max_line_chars: usize,
+    /// Real pixel width of the widest line, measured via the text system (0 =
+    /// not measured yet). Used instead of a char-count estimate, which is wrong
+    /// when the font isn't truly monospace.
+    measured_content_width: f32,
     /// Cached diff pane viewport width (updated from scroll handle geometry).
     diff_pane_width: f32,
     /// Horizontal scrollbar drag state.
@@ -103,6 +109,9 @@ pub struct DiffViewer {
     commits: Vec<CommitLogEntry>,
     /// Current index in the commits list.
     commit_index: usize,
+    /// When true, the entity renders via `render_embedded` (no fullscreen
+    /// overlay / file tree) so it can be embedded inline in another view.
+    embedded: bool,
 }
 
 impl DiffViewer {
@@ -148,6 +157,7 @@ impl DiffViewer {
             side_by_side_lines: Vec::new(),
             scroll_x: 0.0,
             max_line_chars: 0,
+            measured_content_width: 0.0,
             diff_pane_width: 0.0,
             h_scrollbar_drag: None,
             selection_side: None,
@@ -159,6 +169,7 @@ impl DiffViewer {
             commit_message,
             commits: commits.unwrap_or_default(),
             commit_index: commit_index.unwrap_or(0),
+            embedded: false,
         };
 
         if !provider.is_git_repo() {
@@ -168,6 +179,167 @@ impl DiffViewer {
 
         viewer.load_diff_async(mode.unwrap_or(DiffMode::WorkingTree), select_file, cx);
         viewer
+    }
+
+    /// Mark this viewer as embedded (renders via `render_embedded` — no
+    /// fullscreen overlay or file-tree sidebar — for inline use in the panel).
+    pub fn set_embedded(&mut self, embedded: bool) {
+        self.embedded = embedded;
+    }
+
+    // ── Host-virtualized inline rendering ──────────────────────────────
+    // A host (e.g. the git panel) can place the diff in its own viewported
+    // list and render one item at a time, so the diff shows at full natural
+    // height with only the visible lines realized (Warp-style virtualization),
+    // while keeping the real per-line rendering (selection, syntax, clickable
+    // context expanders).
+
+    /// Number of display items (diff lines + context expanders) in the file.
+    pub fn inline_item_count(&self) -> usize {
+        self.current_file.as_ref().map(|f| f.items.len()).unwrap_or(0)
+    }
+
+    /// True while the diff is still being fetched/highlighted (no items yet,
+    /// no error). The host shows a single stable "Loading…" row for this.
+    pub fn inline_loading(&self) -> bool {
+        self.current_file.is_none() && self.error_message.is_none()
+    }
+
+    /// The load error, if any.
+    pub fn inline_error(&self) -> Option<String> {
+        self.error_message.clone()
+    }
+
+    /// The fixed line height (whole pixels) the host should reserve per item.
+    pub fn inline_line_height(&self) -> f32 {
+        self.line_height()
+    }
+
+    // Horizontal-scroll geometry, exposed so the host can draw a horizontal
+    // scrollbar at the bottom of the diff block.
+    /// Current horizontal scroll offset (px).
+    pub fn inline_scroll_x(&self) -> f32 {
+        self.scroll_x
+    }
+    /// Maximum horizontal scroll offset (px) — 0 when the code fits.
+    pub fn inline_max_scroll_x(&self) -> f32 {
+        self.max_scroll_x()
+    }
+    /// Total code width (px).
+    pub fn inline_content_width(&self) -> f32 {
+        self.max_text_width()
+    }
+    /// Visible code width (viewport minus gutter, px).
+    pub fn inline_viewport_width(&self) -> f32 {
+        self.available_text_width()
+    }
+    /// Set the horizontal scroll offset (clamped), e.g. from a scrollbar drag.
+    pub fn set_inline_scroll_x(&mut self, x: f32, cx: &mut Context<Self>) {
+        let max = self.max_scroll_x();
+        self.scroll_x = x.clamp(0.0, max);
+        cx.notify();
+    }
+
+    /// Set the viewport width (the diff column's pixel width) so horizontal
+    /// scroll math (`max_scroll_x`, scrollbar geometry) is correct. The host
+    /// captures this once from the list and pushes it in.
+    pub fn set_inline_viewport_width(&mut self, width: f32) {
+        if width > 0.0 {
+            self.diff_pane_width = width;
+            // Re-clamp in case the viewport grew past the current offset.
+            let max = self.max_scroll_x();
+            if self.scroll_x > max {
+                self.scroll_x = max;
+            }
+        }
+    }
+
+    /// Render a single inline diff item (a line or a context expander) by index,
+    /// using the real diff rendering — full functionality intact.
+    pub fn render_inline_item(
+        &mut self,
+        index: usize,
+        t: &notmux_core::theme::ThemeColors,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // Measure the monospace character width from font metrics so the
+        // line-number gutter is sized correctly (mirrors `render_embedded`).
+        let font = Font {
+            family: "monospace".into(),
+            weight: FontWeight::NORMAL,
+            style: FontStyle::Normal,
+            features: FontFeatures::default(),
+            fallbacks: None,
+        };
+        let font_id = window.text_system().resolve_font(&font);
+        self.measured_char_width = window
+            .text_system()
+            .advance(font_id, px(self.file_font_size), 'm')
+            .map(|size| f32::from(size.width))
+            .unwrap_or(self.file_font_size * 0.6);
+
+        let char_width = self.char_width();
+        let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
+        let gutter_width = 2.0 * num_col_width + 1.0;
+
+        // Measure the real pixel width of the widest line once (per content
+        // change) via the text system — char-count × char-width is wrong when
+        // the font isn't truly monospace, which made the horizontal scroll
+        // overshoot (text scrolled off into empty space).
+        if self.measured_content_width <= 0.0 {
+            let longest = self.current_file.as_ref().and_then(|f| {
+                f.items
+                    .iter()
+                    .filter_map(|i| match i {
+                        DisplayItem::Line(l) => Some(l.plain_text.clone()),
+                        _ => None,
+                    })
+                    .max_by_key(|t| t.chars().count())
+            });
+            if let Some(text) = longest.filter(|t| !t.is_empty()) {
+                let run = TextRun {
+                    len: text.len(),
+                    font: font.clone(),
+                    color: gpui::black(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                let layout =
+                    window
+                        .text_system()
+                        .layout_line(&text, px(self.file_font_size), &[run], None);
+                self.measured_content_width = f32::from(layout.width);
+            }
+        }
+
+        let Some(file) = &self.current_file else {
+            return div().into_any_element();
+        };
+        let line_el = match file.items.get(index) {
+            Some(DisplayItem::Line(line)) => {
+                self.render_line(index, line, t, gutter_width, cx).into_any_element()
+            }
+            // Expanders never overflow horizontally — render them plainly.
+            Some(DisplayItem::Expander(expander)) => {
+                return self.render_expander_row(index, expander, t, cx).into_any_element();
+            }
+            None => return div().into_any_element(),
+        };
+
+        // Wrap content lines so they scroll horizontally (per file) when the code
+        // runs past the viewport: a scroll-wheel handler drives the shared
+        // `scroll_x` (every line reads it, so they shift together, gutter fixed).
+        // The viewport width for clamping is pushed in by the host via
+        // `set_inline_viewport_width`.
+        div()
+            .w_full()
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _window, cx| {
+                this.handle_scroll_x(event, cx);
+            }))
+            .child(line_el)
+            .into_any_element()
     }
 
     /// Current diff view mode (for persisting on close).
@@ -317,6 +489,7 @@ impl DiffViewer {
                 this.line_num_width = max_line_num.to_string().len().max(3);
                 this.max_line_chars = Self::calc_max_line_chars(&display_file);
                 this.current_file = Some(display_file);
+                this.measured_content_width = 0.0;
                 this.update_side_by_side_cache();
                 cx.notify();
             });
@@ -342,6 +515,7 @@ impl DiffViewer {
 
         self.line_num_width = max_line_num.to_string().len().max(3);
         self.max_line_chars = Self::calc_max_line_chars(&display_file);
+        self.measured_content_width = 0.0;
         self.current_file = Some(display_file);
     }
 
@@ -388,6 +562,9 @@ impl DiffViewer {
         self.finish_view_mode_change(cx);
     }
 
+    /// Explicit counterpart to `toggle_view_mode` (ported API); unused on this
+    /// branch but kept for symmetry with the notmux original.
+    #[allow(dead_code)]
     fn set_view_mode(&mut self, view_mode: DiffViewMode, cx: &mut Context<Self>) {
         if self.view_mode == view_mode {
             return;
@@ -526,26 +703,65 @@ impl DiffViewer {
 
     /// Expand all hidden context lines at the given item index.
     fn expand_context(&mut self, item_index: usize, cx: &mut Context<Self>) {
-        let file = match self.current_file.as_mut() {
-            Some(f) => f,
-            None => return,
-        };
-
-        let expander = match &file.items[item_index] {
-            DisplayItem::Expander(e) => e.clone(),
+        // Read the expander's hidden ranges (immutable).
+        let expander = match self
+            .current_file
+            .as_ref()
+            .and_then(|f| f.items.get(item_index))
+        {
+            Some(DisplayItem::Expander(e)) => e.clone(),
             _ => return,
         };
 
         let (old_start, old_end) = expander.old_range;
         let (new_start, new_end) = expander.new_range;
-
-        // Validate ranges
         if new_start == 0 || new_end < new_start || old_end < old_start {
             return;
         }
 
         self.selection.clear();
         self.selection_side = None;
+
+        // Syntax-highlight the just-revealed ranges on demand. `process_file`
+        // only highlights the hunk ranges (to keep loading O(diff)), so these
+        // previously-hidden lines have no precomputed spans — highlight exactly
+        // the revealed ranges here (still proportional to what's shown).
+        let path = self
+            .file_stats
+            .get(self.selected_file_index)
+            .map(|f| f.path.clone())
+            .unwrap_or_default();
+        let syntax = get_syntax_for_path(std::path::Path::new(&path), &self.syntax_set);
+        let theme = build_syntax_theme(&self.theme_colors);
+        let default_color = default_text_color_for(&self.theme_colors);
+        let new_spans = self
+            .current_file_new_content
+            .as_deref()
+            .map(|c| {
+                syntax::highlight_ranges(
+                    c,
+                    &[(new_start, new_end)],
+                    syntax,
+                    &theme,
+                    &self.syntax_set,
+                    default_color,
+                )
+            })
+            .unwrap_or_default();
+        let old_spans = self
+            .current_file_old_content
+            .as_deref()
+            .map(|c| {
+                syntax::highlight_ranges(
+                    c,
+                    &[(old_start, old_end)],
+                    syntax,
+                    &theme,
+                    &self.syntax_set,
+                    default_color,
+                )
+            })
+            .unwrap_or_default();
 
         let old_lines: Vec<&str> = self
             .current_file_old_content
@@ -557,6 +773,11 @@ impl DiffViewer {
             .as_deref()
             .map(|c| c.lines().collect())
             .unwrap_or_default();
+        let (old_line_count, new_line_count) = self
+            .current_file
+            .as_ref()
+            .map(|f| (f.old_line_count, f.new_line_count))
+            .unwrap_or((0, 0));
 
         let count = new_end - new_start + 1;
         let mut new_items: Vec<DisplayItem> = Vec::with_capacity(count);
@@ -565,31 +786,27 @@ impl DiffViewer {
             let new_ln = new_start + i;
             let old_ln = old_start + i;
 
-            let spans = file
-                .new_highlighted
-                .get(&new_ln)
-                .or_else(|| file.old_highlighted.get(&old_ln))
-                .cloned()
-                .unwrap_or_default();
-
             let plain_text = new_lines
                 .get(new_ln - 1)
                 .or_else(|| old_lines.get(old_ln - 1))
                 .unwrap_or(&"")
                 .replace('\t', "    ");
 
+            let spans = new_spans
+                .get(&new_ln)
+                .or_else(|| old_spans.get(&old_ln))
+                .cloned()
+                .unwrap_or_else(|| {
+                    vec![types::HighlightedSpan {
+                        color: default_color,
+                        text: plain_text.clone(),
+                    }]
+                });
+
             new_items.push(DisplayItem::Line(types::DisplayLine {
                 line_type: notmux_git::DiffLineType::Context,
-                old_line_num: if old_ln >= 1 && old_ln <= file.old_line_count {
-                    Some(old_ln)
-                } else {
-                    None
-                },
-                new_line_num: if new_ln >= 1 && new_ln <= file.new_line_count {
-                    Some(new_ln)
-                } else {
-                    None
-                },
+                old_line_num: (old_ln >= 1 && old_ln <= old_line_count).then_some(old_ln),
+                new_line_num: (new_ln >= 1 && new_ln <= new_line_count).then_some(new_ln),
                 spans,
                 plain_text,
             }));
@@ -602,6 +819,7 @@ impl DiffViewer {
         file.items.splice(item_index..=item_index, new_items);
 
         self.max_line_chars = Self::calc_max_line_chars(file);
+        self.measured_content_width = 0.0;
         self.update_side_by_side_cache();
         cx.notify();
     }
@@ -707,20 +925,27 @@ impl notmux_ui::overlay::CloseEvent for DiffViewerEvent {
 
 impl Render for DiffViewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.render_view(window, cx)
+        if self.embedded {
+            self.render_embedded(window, cx)
+        } else {
+            self.render_view(window, cx)
+        }
     }
 }
 
 impl DiffViewer {
-    /// Render the diff viewer inside the main content area instead of as a
-    /// fullscreen overlay. Close still emits `DiffViewerEvent::Close`.
+    /// Render the diff inline at its full natural height — every line and
+    /// context expander rendered flat (NO virtualized internal scroll, NO fixed
+    /// height). The host's list scroll handles scrolling, so the whole diff is
+    /// shown without a bounded scrollbox.
     pub fn render_embedded(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Measure actual monospace character width from font metrics.
         let font = Font {
             family: "monospace".into(),
             weight: FontWeight::NORMAL,
             style: FontStyle::Normal,
-            ..Default::default()
+            features: FontFeatures::default(),
+            fallbacks: None,
         };
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);
@@ -730,76 +955,72 @@ impl DiffViewer {
             .unwrap_or(self.file_font_size * 0.6);
 
         let t = theme(cx);
-        let has_error = self.error_message.is_some();
-        let error_message = self.error_message.clone();
-        let has_files = !self.file_stats.is_empty();
+
+        if let Some(err) = self.error_message.clone() {
+            return div()
+                .w_full()
+                .py(px(10.0))
+                .px(px(16.0))
+                .bg(rgb(t.bg_secondary))
+                .text_color(rgb(t.text_muted))
+                .child(err)
+                .into_any_element();
+        }
+        let is_binary = self
+            .file_stats
+            .get(self.selected_file_index)
+            .map(|f| f.is_binary)
+            .unwrap_or(false);
+        if is_binary {
+            return div()
+                .w_full()
+                .py(px(10.0))
+                .px(px(16.0))
+                .bg(rgb(t.bg_secondary))
+                .text_color(rgb(t.text_muted))
+                .child("Binary file — cannot display diff")
+                .into_any_element();
+        }
 
         let char_width = self.char_width();
         let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
         let gutter_width = 2.0 * num_col_width + 1.0;
 
-        let current_stats = self.file_stats.get(self.selected_file_index);
-        let file_path = current_stats.map(|f| f.path.clone()).unwrap_or_default();
-        let is_binary = current_stats.map(|f| f.is_binary).unwrap_or(false);
-        let added = current_stats.map(|f| f.added).unwrap_or(0);
-        let removed = current_stats.map(|f| f.removed).unwrap_or(0);
-        let line_count = self
-            .current_file
-            .as_ref()
-            .map(|f| f.items.len())
-            .unwrap_or(0);
-        let theme_colors = Arc::new(t);
+        // `current_file` is None both while loading AND in the brief gap between
+        // the diff-structure load and the async syntax-highlight. Show one stable
+        // "Loading…" for both so the panel never flashes an empty frame.
+        let Some(file) = &self.current_file else {
+            return div()
+                .w_full()
+                .py(px(10.0))
+                .flex()
+                .justify_center()
+                .bg(rgb(t.bg_secondary))
+                .child(div().text_color(rgb(t.text_muted)).child("Loading…"))
+                .into_any_element();
+        };
+        let count = file.items.len();
 
-        div()
+        let mut col = div()
             .id("main-diff-pane")
-            .size_full()
-            .bg(rgb(t.bg_primary))
+            .w_full()
             .flex()
             .flex_col()
+            .bg(rgb(t.bg_secondary))
             .overflow_hidden()
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                if this.scrollbar_drag.is_some() {
-                    let y = f32::from(event.position.y);
-                    this.update_scrollbar_drag(y, cx);
+            .cursor(CursorStyle::IBeam);
+        for i in 0..count {
+            let el = match &file.items[i] {
+                DisplayItem::Line(line) => {
+                    self.render_line(i, line, &t, gutter_width, cx).into_any_element()
                 }
-                if let Some(drag) = this.h_scrollbar_drag {
-                    let x = f32::from(event.position.x);
-                    let delta_x = x - drag.start_x;
-                    let max = this.max_scroll_x();
-                    let text_w = this.max_text_width();
-                    let avail_w = this.available_text_width();
-                    let scale = if avail_w > 0.0 { text_w / avail_w } else { 1.0 };
-                    this.scroll_x = (drag.start_scroll_x + delta_x * scale).clamp(0.0, max);
-                    cx.notify();
+                DisplayItem::Expander(expander) => {
+                    self.render_expander_row(i, expander, &t, cx).into_any_element()
                 }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _window, cx| {
-                    if this.scrollbar_drag.is_some() {
-                        this.end_scrollbar_drag(cx);
-                    }
-                    if this.h_scrollbar_drag.is_some() {
-                        this.h_scrollbar_drag = None;
-                        cx.notify();
-                    }
-                }),
-            )
-            .child(self.render_embedded_header(&file_path, added, removed, &t, cx))
-            .child(self.render_embedded_content(
-                &t,
-                self.loading,
-                has_error,
-                error_message,
-                has_files,
-                is_binary,
-                file_path,
-                line_count,
-                gutter_width,
-                theme_colors,
-                cx,
-            ))
-            .into_any_element()
+            };
+            col = col.child(el);
+        }
+        col.into_any_element()
     }
 
     fn render_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -808,7 +1029,8 @@ impl DiffViewer {
             family: "monospace".into(),
             weight: FontWeight::NORMAL,
             style: FontStyle::Normal,
-            ..Default::default()
+            features: FontFeatures::default(),
+            fallbacks: None,
         };
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);

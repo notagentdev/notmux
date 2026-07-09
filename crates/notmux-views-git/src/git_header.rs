@@ -12,9 +12,13 @@ use notmux_workspace::request_broker::RequestBroker;
 use notmux_workspace::requests::OverlayRequest;
 use notmux_workspace::state::Workspace;
 
+use crate::diff_hscrollbar::{DiffHScrollbar, HSCROLLBAR_HEIGHT};
+use crate::diff_viewer::DiffViewer;
 use crate::diff_viewer::provider::GitProvider;
+use crate::list_scrollbar::ListScrollbar;
 use crate::project_header;
 use crate::settings::git_settings;
+use std::collections::{HashMap, HashSet};
 
 use gpui::prelude::*;
 use gpui::*;
@@ -24,9 +28,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use notmux_core::theme::ThemeColors;
-use notmux_files::code_view::{
-    ScrollbarDrag, get_scrollbar_geometry, start_scrollbar_drag, update_scrollbar_drag,
-};
 use notmux_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 use notmux_ui::vscode_icon::vscode_file_icon_with_options;
 
@@ -54,14 +55,87 @@ enum FileSectionKind {
     Untracked,
 }
 
-/// Flattened row model for the virtualized commit-tab file list.
+/// Flattened row model for the commit-tab list. The whole tab (section headers,
+/// file rows, and — for expanded files — diff lines / context expanders) is one
+/// viewported `list()`, so the diff shows at full height with only the visible
+/// rows realized (Warp-style virtualization) while every row keeps its real
+/// rendering and handlers.
 #[derive(Clone)]
-enum FileRow {
+enum CommitRow {
     Header(FileSectionKind, bool),
     File {
         file: WorkingFile,
         is_untracked: bool,
     },
+    /// One diff line or context-expander of `path`'s inline diff, by item index
+    /// into the owning `DiffViewer`.
+    DiffItem {
+        path: String,
+        item_index: usize,
+    },
+    /// A status note under a file (loading / empty / error).
+    DiffNote {
+        text: SharedString,
+    },
+    /// Horizontal scrollbar row at the bottom of `path`'s expanded diff.
+    DiffHScrollbar {
+        path: String,
+    },
+    /// "Stashed changes" header row (with a close button) atop the stash view.
+    StashHeader,
+    /// A file in the stash view — filename + stats + disclosure chevron.
+    StashFile {
+        path: String,
+        added: usize,
+        removed: usize,
+    },
+}
+
+/// One file in the stash view (path + diff stats).
+#[derive(Clone)]
+struct StashFileRow {
+    path: String,
+    added: usize,
+    removed: usize,
+}
+
+/// The git ref for the most recent stash, diffed like a commit.
+const STASH_REF: &str = "stash@{0}";
+
+/// Whether two commit rows render identically — used to compute a minimal list
+/// splice (common prefix/suffix) so the scroll position is preserved across
+/// structural changes. Files compare by the fields that affect their row.
+fn rows_eq(a: &CommitRow, b: &CommitRow) -> bool {
+    match (a, b) {
+        (CommitRow::Header(k1, c1), CommitRow::Header(k2, c2)) => k1 == k2 && c1 == c2,
+        (
+            CommitRow::File { file: f1, is_untracked: u1 },
+            CommitRow::File { file: f2, is_untracked: u2 },
+        ) => {
+            u1 == u2
+                && f1.path == f2.path
+                && f1.added == f2.added
+                && f1.removed == f2.removed
+                && f1.effective_status() == f2.effective_status()
+                && f1.is_fully_staged() == f2.is_fully_staged()
+                && f1.is_partially_staged() == f2.is_partially_staged()
+                && f1.has_conflict() == f2.has_conflict()
+        }
+        (
+            CommitRow::DiffItem { path: p1, item_index: i1 },
+            CommitRow::DiffItem { path: p2, item_index: i2 },
+        ) => p1 == p2 && i1 == i2,
+        (CommitRow::DiffNote { text: t1 }, CommitRow::DiffNote { text: t2 }) => t1 == t2,
+        (CommitRow::DiffHScrollbar { path: p1 }, CommitRow::DiffHScrollbar { path: p2 }) => {
+            p1 == p2
+        }
+        (CommitRow::StashHeader, CommitRow::StashHeader) => true,
+        (
+            CommitRow::StashFile { path: p1, added: a1, removed: r1 },
+            CommitRow::StashFile { path: p2, added: a2, removed: r2 },
+        ) => p1 == p2 && a1 == a2 && r1 == r2,
+        _ => false,
+    }
 }
 
 /// Which tab is active in the git panel.
@@ -104,6 +178,9 @@ pub struct GitHeader {
 
     // ── Commit log state ────────────────────────────────────────────
     commit_log_visible: bool,
+    /// The provider's path is not a git repository (drives the panel's
+    /// "No repo found" state; kept current by loads and refreshes).
+    repo_missing: bool,
     commit_log_entries: Vec<GraphRow>,
     commit_log_loading: bool,
     commit_log_bounds: Bounds<Pixels>,
@@ -118,6 +195,15 @@ pub struct GitHeader {
     commit_log_compare_base: Option<String>,
     commit_log_compare_head: Option<String>,
     commit_log_picker_target: BranchPickerTarget,
+    /// Viewported list state for the History tab's commit graph. The log grows
+    /// unbounded via load-more, so rows must be virtualized like the commit tab.
+    history_list_state: ListState,
+    /// Render cache for the history rows, rebuilt whenever the entries change
+    /// (per-row recomputation would make each visible row O(entries)).
+    history_max_graph_len: usize,
+    history_first_commit_idx: Option<usize>,
+    history_last_commit_idx: Option<usize>,
+    history_all_commits: Arc<Vec<CommitLogEntry>>,
 
     /// Active tab in the git panel (Commit / Changes / History)
     active_tab: GitPanelTab,
@@ -142,10 +228,20 @@ pub struct GitHeader {
     untracked_collapsed: bool,
     /// Last operation error message (shown as toast/inline)
     last_error: Option<String>,
-    /// Scroll handle for the virtualized commit-tab file list.
-    commit_file_scroll: UniformListScrollHandle,
-    /// Drag state for the visible commit-tab file-list scrollbar.
-    commit_file_scrollbar_drag: Option<ScrollbarDrag>,
+    /// Viewported list state for the commit-tab list (headers + file rows +
+    /// inline diff rows). One list for the whole tab → virtualized, scrolls as
+    /// one, no per-diff scrollbox.
+    commit_list_state: ListState,
+    /// Flattened row model backing `commit_list_state`; rebuilt on structural
+    /// changes (status refresh, expand/collapse, diff load).
+    commit_rows: Vec<CommitRow>,
+    /// Pixel width of the commit list (captured during render), pushed into the
+    /// inline diff viewers so their horizontal-scroll math is correct.
+    diff_viewport_width: f32,
+    /// When `Some`, the commit tab shows the latest stash's files (read-only)
+    /// instead of the working tree; each row's inline diff loads from the stash
+    /// commit. `None` = normal working-tree view.
+    stash_files: Option<Vec<StashFileRow>>,
 
     /// Bounds of the panel-header three-dots button, used to anchor
     /// the overflow popover.
@@ -159,6 +255,16 @@ pub struct GitHeader {
     /// Commit footer options menu state (Amend / Sign-off).
     commit_options_menu_visible: bool,
     commit_options_menu_anchor: Option<Point<Pixels>>,
+    /// Header three-dots overflow menu state (Stage/Unstage/Stash/Discard).
+    overflow_menu_visible: bool,
+    overflow_menu_anchor: Option<Point<Pixels>>,
+
+    // ── Inline diff state (expand a file's diff directly in the list) ──
+    /// Paths whose diff is currently expanded inline, in click order.
+    inline_expanded: HashSet<String>,
+    /// Embedded diff-viewer entities (the real notmux diff rendering), one per
+    /// expanded file, created lazily and kept alive while expanded.
+    inline_viewers: HashMap<String, Entity<DiffViewer>>,
 }
 
 const COMMIT_PAGE_SIZE: usize = 50;
@@ -182,6 +288,7 @@ impl GitHeader {
             hover_token: Arc::new(AtomicU64::new(0)),
             diff_stats_bounds: Bounds::default(),
             commit_log_visible: false,
+            repo_missing: false,
             commit_log_entries: Vec::new(),
             commit_log_loading: false,
             commit_log_bounds: Bounds::default(),
@@ -214,14 +321,106 @@ impl GitHeader {
             tracked_collapsed: false,
             untracked_collapsed: false,
             last_error: None,
-            commit_file_scroll: UniformListScrollHandle::new(),
-            commit_file_scrollbar_drag: None,
+            // `measure_all` so the scrollbar is exact immediately (the list
+            // measures every row once per structural change instead of lazily
+            // while scrolling — otherwise the thumb shrinks as rows are
+            // discovered). Re-measure happens only on splice, not per frame.
+            commit_list_state: ListState::new(0, ListAlignment::Top, px(400.0)).measure_all(),
+            history_list_state: ListState::new(0, ListAlignment::Top, px(400.0)).measure_all(),
+            history_max_graph_len: 0,
+            history_first_commit_idx: None,
+            history_last_commit_idx: None,
+            history_all_commits: Arc::new(Vec::new()),
+            commit_rows: Vec::new(),
+            diff_viewport_width: 0.0,
+            stash_files: None,
             overflow_button_bounds: Bounds::default(),
             has_stash: false,
             uncommitting: false,
             commit_options_menu_visible: false,
             commit_options_menu_anchor: None,
+            overflow_menu_visible: false,
+            overflow_menu_anchor: None,
+            inline_expanded: HashSet::new(),
+            inline_viewers: HashMap::new(),
         }
+    }
+
+    /// Toggle the inline diff for a file. Expanding lazily builds a real
+    /// embedded `DiffViewer` for the file (working-tree changes, or staged
+    /// changes when the file is fully staged) — the exact notmux diff rendering.
+    fn toggle_inline_diff(&mut self, path: String, staged: bool, cx: &mut Context<Self>) {
+        if self.inline_expanded.remove(&path) {
+            self.rebuild_commit_rows(cx);
+            return;
+        }
+        self.inline_expanded.insert(path.clone());
+        if !self.inline_viewers.contains_key(&path) {
+            let provider = self.git_provider.clone();
+            // Stash view diffs the stash commit; otherwise staged/working tree.
+            let mode = if self.stash_files.is_some() {
+                DiffMode::Commit(STASH_REF.to_string())
+            } else if staged {
+                DiffMode::Staged
+            } else {
+                DiffMode::WorkingTree
+            };
+            let select = path.clone();
+            // Match the file-list font size so the whole panel is uniform.
+            let font_size = f32::from(ui_text_md(cx));
+            let is_dark = git_settings(cx).is_dark;
+            let viewer = cx.new(|cx| {
+                let mut v =
+                    DiffViewer::new(provider, Some(select), Some(mode), None, None, None, cx);
+                v.set_embedded(true);
+                v.update_config(font_size, is_dark, cx);
+                v
+            });
+            // The viewer loads/expands async and mutates its line count; rebuild
+            // the row model (and resize the list) whenever it notifies.
+            cx.observe(&viewer, |this, _, cx| this.rebuild_commit_rows(cx)).detach();
+            self.inline_viewers.insert(path, viewer);
+        }
+        self.rebuild_commit_rows(cx);
+    }
+
+    /// Load the latest stash's file list and show it in the commit tab (read-only
+    /// inline diffs from the stash commit). Reuses the whole inline-diff list.
+    fn handle_show_stash(&mut self, cx: &mut Context<Self>) {
+        // Reset inline state — viewers must be recreated with the stash mode.
+        self.inline_expanded.clear();
+        self.inline_viewers.clear();
+        let provider = self.git_provider.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let files = smol::unblock(move || {
+                match provider.get_diff(DiffMode::Commit(STASH_REF.to_string()), false) {
+                    Ok(result) => result
+                        .files
+                        .iter()
+                        .map(|f| StashFileRow {
+                            path: f.display_name().to_string(),
+                            added: f.lines_added,
+                            removed: f.lines_removed,
+                        })
+                        .collect::<Vec<_>>(),
+                    Err(_) => Vec::new(),
+                }
+            })
+            .await;
+            let _ = this.update(cx, |this, cx| {
+                this.stash_files = Some(files);
+                this.rebuild_commit_rows(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Leave the stash view and return to the working tree.
+    fn close_stash(&mut self, cx: &mut Context<Self>) {
+        self.stash_files = None;
+        self.inline_expanded.clear();
+        self.inline_viewers.clear();
+        self.rebuild_commit_rows(cx);
     }
 
     /// Update the current branch name (from the git status watcher).
@@ -342,7 +541,7 @@ impl GitHeader {
                     .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
-                this.commit_log_entries = entries;
+                this.set_commit_log_entries(entries, false);
                 this.commit_log_branches = branches;
                 cx.notify();
             });
@@ -375,11 +574,66 @@ impl GitHeader {
                     .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
-                this.commit_log_entries = entries;
+                this.set_commit_log_entries(entries, false);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Replaces the commit-log entries and syncs the virtualized history list:
+    /// `preserve_scroll` splices (append/refresh keeps the scroll position),
+    /// otherwise the list resets to the top (fresh load, branch switch). Also
+    /// rebuilds the per-render cache so visible rows stay O(1).
+    fn set_commit_log_entries(&mut self, entries: Vec<GraphRow>, preserve_scroll: bool) {
+        let old_len = self.commit_log_entries.len();
+        self.commit_log_entries = entries;
+        let new_len = self.commit_log_entries.len();
+        if preserve_scroll && old_len > 0 && new_len >= old_len {
+            // Append (load-more): splice only the tail so the scroll anchor
+            // stays in the untouched prefix — splicing the full range drops
+            // the anchor and the list jumps back to the top. A small overlap
+            // re-measures the old tail rows, whose rails change when they
+            // stop being the last commit row. With no new rows this is a
+            // no-op-sized splice: reaching the true end must simply stop.
+            let overlap_start = old_len.saturating_sub(4);
+            self.history_list_state.splice(overlap_start..old_len, new_len - overlap_start);
+            // Like the commit list: `splice` inserts unmeasured rows and does
+            // not clear the one-shot `measure_all` flag — re-arm it so the
+            // appended page is measured immediately and the scrollbar stays
+            // exact instead of shrinking while scrolling. (`reset` in the
+            // other branch re-arms on its own.)
+            self.history_list_state = self.history_list_state.clone().measure_all();
+        } else {
+            self.history_list_state.reset(new_len);
+        }
+
+        self.history_max_graph_len = self
+            .commit_log_entries
+            .iter()
+            .map(|row| match row {
+                GraphRow::Commit(e) => e.graph.len(),
+                GraphRow::Connector(g) => g.len(),
+            })
+            .max()
+            .unwrap_or(0);
+        self.history_first_commit_idx = self
+            .commit_log_entries
+            .iter()
+            .position(|r| matches!(r, GraphRow::Commit(_)));
+        self.history_last_commit_idx = self
+            .commit_log_entries
+            .iter()
+            .rposition(|r| matches!(r, GraphRow::Commit(_)));
+        self.history_all_commits = Arc::new(
+            self.commit_log_entries
+                .iter()
+                .filter_map(|r| match r {
+                    GraphRow::Commit(e) => Some(e.clone()),
+                    _ => None,
+                })
+                .collect(),
+        );
     }
 
     fn load_more_commits(&mut self, cx: &mut Context<Self>) {
@@ -409,7 +663,7 @@ impl GitHeader {
                     .count();
                 this.commit_log_has_more = commit_count >= new_total;
                 this.commit_log_count = commit_count;
-                this.commit_log_entries = entries;
+                this.set_commit_log_entries(entries, true);
                 cx.notify();
             });
         })
@@ -422,6 +676,15 @@ impl GitHeader {
             self.commit_log_visible = false;
             cx.notify();
         }
+    }
+
+    /// Re-shows the commit log WITHOUT reloading (data is kept). Hosts that
+    /// embed the panel permanently (the notagent right panel) call this each
+    /// render: internal flows (branch-compare, backdrop clicks) hide the log
+    /// for the standalone overlay use-case, which would otherwise leave the
+    /// embedded panel blank — "only the Git tab" visible.
+    pub fn ensure_commit_log_visible(&mut self) {
+        self.commit_log_visible = true;
     }
 
     /// Open the commit log (loads data, sets visible). Called by the git
@@ -450,29 +713,32 @@ impl GitHeader {
         let provider = self.git_provider.clone();
         self.working_tree_loading = true;
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (entries, branches, diff_summaries, wt_status) = smol::unblock(move || {
-                let entries = provider.get_commit_graph(page, None);
-                let branches = provider.list_branches();
-                let diff_summaries = provider.get_diff_file_summary();
-                let wt_status = provider.get_working_tree_status();
-                (entries, branches, diff_summaries, wt_status)
-            })
-            .await;
+            let (entries, branches, diff_summaries, wt_status, is_repo) =
+                smol::unblock(move || {
+                    let is_repo = provider.is_git_repo();
+                    let entries = provider.get_commit_graph(page, None);
+                    let branches = provider.list_branches();
+                    let diff_summaries = provider.get_diff_file_summary();
+                    let wt_status = provider.get_working_tree_status();
+                    (entries, branches, diff_summaries, wt_status, is_repo)
+                })
+                .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
                 this.working_tree_loading = false;
+                this.repo_missing = !is_repo;
                 let commit_count = entries
                     .iter()
                     .filter(|r| matches!(r, git::GraphRow::Commit(_)))
                     .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
-                this.commit_log_entries = entries;
+                this.set_commit_log_entries(entries, false);
                 this.commit_log_branches = branches;
                 this.diff_file_summaries = diff_summaries;
                 this.working_tree_status = Some(wt_status);
-                cx.notify();
+                this.rebuild_commit_rows(cx);
             });
         })
         .detach();
@@ -502,7 +768,7 @@ impl GitHeader {
             let results = smol::unblock(move || provider.get_file_statuses(&rel_paths)).await;
             let _ = this.update(cx, |this, cx| {
                 this.apply_file_refresh(results);
-                cx.notify();
+                this.rebuild_commit_rows(cx);
             });
         })
         .detach();
@@ -528,9 +794,9 @@ impl GitHeader {
                 }
             }
         }
-        status.tracked.sort_by_key(|a| a.path.to_lowercase());
-        status.untracked.sort_by_key(|a| a.path.to_lowercase());
-        status.conflicts.sort_by_key(|a| a.path.to_lowercase());
+        status.tracked.sort_by_key(|f| f.path.to_lowercase());
+        status.untracked.sort_by_key(|f| f.path.to_lowercase());
+        status.conflicts.sort_by_key(|f| f.path.to_lowercase());
     }
 
     /// Refresh only the working tree status (after stage/unstage/commit).
@@ -540,23 +806,27 @@ impl GitHeader {
         let provider2 = provider.clone();
         let provider3 = provider.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            let (wt_status, diff_summaries, has_stash) = smol::unblock(move || {
+            let (wt_status, diff_summaries, has_stash, is_repo) = smol::unblock(move || {
                 let wt_status = provider.get_working_tree_status();
                 let diff_summaries = provider2.get_diff_file_summary();
                 let has_stash = provider3
                     .stash_list()
                     .map(|s| !s.is_empty())
                     .unwrap_or(false);
-                (wt_status, diff_summaries, has_stash)
+                let is_repo = provider3.is_git_repo();
+                (wt_status, diff_summaries, has_stash, is_repo)
             })
             .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.working_tree_loading = false;
+                // A repo can appear (git init) or vanish while the panel is
+                // open; the refresh keeps the missing-repo state current.
+                this.repo_missing = !is_repo;
                 this.working_tree_status = Some(wt_status);
                 this.diff_file_summaries = diff_summaries;
                 this.has_stash = has_stash;
-                cx.notify();
+                this.rebuild_commit_rows(cx);
             });
         })
         .detach();
@@ -739,6 +1009,32 @@ impl GitHeader {
             return div().size_0().into_any_element();
         }
 
+        // Not a git repository: the whole panel is a single, honest empty
+        // state — no tabs, no bogus "HEAD" branch bar.
+        if self.repo_missing {
+            return v_flex()
+                .id("git-panel-content")
+                .size_full()
+                .items_center()
+                .justify_center()
+                .gap(px(8.0))
+                .p(px(20.0))
+                .bg(rgb(t.bg_secondary))
+                .child(
+                    svg()
+                        .path("icons/git-branch.svg")
+                        .size(px(32.0))
+                        .text_color(rgb(t.text_muted)),
+                )
+                .child(
+                    div()
+                        .text_size(ui_text_md(cx))
+                        .text_color(rgb(t.text_muted))
+                        .child("No repo found"),
+                )
+                .into_any_element();
+        }
+
         v_flex()
             .id("git-panel-content")
             .size_full()
@@ -752,40 +1048,36 @@ impl GitHeader {
                 GitPanelTab::History => self.render_history_tab(t, cx),
             })
             .child(self.render_commit_options_menu(t, cx))
+            .child(self.render_overflow_menu(t, cx))
             .into_any_element()
     }
 
-    /// Render a single header icon-button for switching tabs.
+    /// Render a single header tab for switching panel views — icon + label with
+    /// an active-tab underline.
     fn render_panel_header_button(
         &self,
         id: &'static str,
         icon_path: &'static str,
-        tooltip: &'static str,
+        label: &'static str,
         target: GitPanelTab,
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let active = self.active_tab == target;
-        div()
+        let color = rgb(if active { t.text_primary } else { t.text_muted });
+        h_flex()
             .id(id)
-            .w(px(28.0))
-            .h(px(32.0))
-            .flex()
+            .size(px(26.0))
             .items_center()
             .justify_center()
-            .rounded(px(4.0))
+            .rounded_md()
             .cursor_pointer()
-            .hover(|s| s.opacity(0.85))
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(px(16.0))
-                    .text_color(rgb(if active {
-                        t.text_primary
-                    } else {
-                        t.text_muted
-                    })),
-            )
+            // Plain icon button (not a tab): the active one is a filled square,
+            // others just highlight on hover — no underline indicator.
+            .when(active, |d| d.bg(rgb(t.bg_hover)))
+            .when(!active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+            .child(svg().path(icon_path).size(px(15.0)).text_color(color))
+            .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
@@ -793,18 +1085,14 @@ impl GitHeader {
                 this.active_tab = target;
                 cx.notify();
             }))
-            .tooltip({
-                let label = tooltip;
-                move |_window, cx| Tooltip::new(label).build(_window, cx)
-            })
     }
 
-    /// Panel header — three compact icon-buttons for switching tabs.
+    /// Panel header — Changes / History switch buttons.
     fn render_panel_header(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(34.0))
             .px(px(6.0))
-            .gap(px(2.0))
+            .gap(px(4.0))
             .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
@@ -812,7 +1100,7 @@ impl GitHeader {
             .child(self.render_panel_header_button(
                 "git-btn-commit",
                 "icons/git-commit.svg",
-                "Commit",
+                "Changes",
                 GitPanelTab::Commit,
                 t,
                 cx,
@@ -875,38 +1163,155 @@ impl GitHeader {
     /// Push an overlay request to open the overflow popover, anchored
     /// just below the three-dots button.
     fn open_overflow_menu(&mut self, cx: &mut Context<Self>) {
+        // Popover opens downward from the three-dots button, right edge aligned
+        // with the button so the menu doesn't overhang.
+        let bounds = self.overflow_button_bounds;
+        const MENU_W: Pixels = px(220.0);
+        self.overflow_menu_anchor = Some(point(
+            bounds.origin.x + bounds.size.width - MENU_W,
+            bounds.origin.y + bounds.size.height + px(4.0),
+        ));
+        self.overflow_menu_visible = true;
+        cx.notify();
+    }
+
+    /// The header three-dots overflow menu (Stage/Unstage All, Stash All/Pop,
+    /// Discard All Tracked). Rendered inline (deferred popover), like the commit
+    /// options menu. Item enablement reflects the current working-tree status.
+    fn render_overflow_menu(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
+        if !self.overflow_menu_visible {
+            return div().size_0().into_any_element();
+        }
         let status = self.working_tree_status.as_ref();
         let has_staged = status.map(|s| s.staged_count() > 0).unwrap_or(false);
         let has_tracked = status.map(|s| !s.tracked.is_empty()).unwrap_or(false);
-        let has_untracked = status.map(|s| !s.untracked.is_empty()).unwrap_or(false);
         let all_staged = status.map(|s| s.all_staged()).unwrap_or(false);
         let has_unstaged = has_tracked && !all_staged;
-
-        // Popover opens downward from the three-dots button at the top of the
-        // commit tab header. Right edge aligned with the button so the menu
-        // doesn't overhang into the next column.
-        let bounds = self.overflow_button_bounds;
-        const MENU_W: Pixels = px(240.0);
-        let position = point(
-            bounds.origin.x + bounds.size.width - MENU_W,
-            bounds.origin.y + bounds.size.height + px(4.0),
-        );
-        let project_id = self.project_id.clone();
+        let has_changes = has_tracked || status.map(|s| !s.untracked.is_empty()).unwrap_or(false);
         let has_stash = self.has_stash;
-        self.request_broker.update(cx, |broker, cx| {
-            broker.push_overlay_request(
-                OverlayRequest::GitOverflowMenu {
-                    project_id,
-                    position,
-                    has_staged,
-                    has_unstaged,
-                    has_tracked,
-                    has_untracked,
-                    has_stash,
-                },
-                cx,
-            );
-        });
+        let position = self.overflow_menu_anchor.unwrap_or_default();
+
+        let sep = || div().h(px(1.0)).mx(px(8.0)).my(px(4.0)).bg(rgb(t.border));
+
+        deferred(
+            anchored()
+                .position(position)
+                .anchor(Anchor::TopLeft)
+                .snap_to_window_with_margin(px(8.0))
+                .child(
+                    v_flex()
+                        .id("git-overflow-menu")
+                        .occlude()
+                        .w(px(220.0))
+                        .bg(rgb(t.bg_primary))
+                        .border_1()
+                        .border_color(rgb(t.border))
+                        .rounded(px(6.0))
+                        .shadow_lg()
+                        .py(px(4.0))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation())
+                        .on_mouse_down_out(cx.listener(|this, _, _window, cx| {
+                            this.overflow_menu_visible = false;
+                            cx.notify();
+                        }))
+                        .child(self.render_overflow_menu_item(
+                            "ovf-stage-all",
+                            "icons/chevron-up.svg",
+                            "Stage All",
+                            has_unstaged,
+                            false,
+                            |this, cx| this.handle_stage_all(cx),
+                            t,
+                            cx,
+                        ))
+                        .child(self.render_overflow_menu_item(
+                            "ovf-unstage-all",
+                            "icons/chevron-up.svg",
+                            "Unstage All",
+                            has_staged,
+                            false,
+                            |this, cx| this.handle_unstage_all(cx),
+                            t,
+                            cx,
+                        ))
+                        .child(sep())
+                        .child(self.render_overflow_menu_item(
+                            "ovf-stash-all",
+                            "icons/bookmark.svg",
+                            "Stash All",
+                            has_changes,
+                            false,
+                            |this, cx| this.handle_stash_all(cx),
+                            t,
+                            cx,
+                        ))
+                        .child(self.render_overflow_menu_item(
+                            "ovf-stash-pop",
+                            "icons/chevron-up.svg",
+                            "Stash Pop",
+                            has_stash,
+                            false,
+                            |this, cx| this.handle_stash_pop(cx),
+                            t,
+                            cx,
+                        ))
+                        .child(self.render_overflow_menu_item(
+                            "ovf-show-stash",
+                            "icons/file.svg",
+                            "Show Stash",
+                            has_stash,
+                            false,
+                            |this, cx| this.handle_show_stash(cx),
+                            t,
+                            cx,
+                        ))
+                        .child(sep())
+                        .child(self.render_overflow_menu_item(
+                            "ovf-discard-all",
+                            "icons/trash.svg",
+                            "Discard All Tracked",
+                            has_tracked,
+                            true,
+                            |this, cx| this.handle_discard_all_tracked(cx),
+                            t,
+                            cx,
+                        )),
+                ),
+        )
+        .into_any_element()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_overflow_menu_item(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        label: &'static str,
+        enabled: bool,
+        danger: bool,
+        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let color = if danger { t.error } else { t.text_secondary };
+        h_flex()
+            .id(id)
+            .h(px(30.0))
+            .px(px(10.0))
+            .gap(px(10.0))
+            .items_center()
+            .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(rgb(t.bg_hover))))
+            .when(!enabled, |d| d.opacity(0.45))
+            .when(enabled, |d| {
+                d.on_click(cx.listener(move |this, _, _window, cx| {
+                    this.overflow_menu_visible = false;
+                    action(this, cx);
+                    cx.notify();
+                }))
+            })
+            .child(svg().path(icon).size(px(14.0)).text_color(rgb(color)))
+            .child(div().text_size(ui_text_sm(cx)).text_color(rgb(color)).child(label))
     }
 
     // ── Commit tab ─────────────────────────────────────────────────
@@ -914,7 +1319,8 @@ impl GitHeader {
     /// Render the Commit tab (staging + commit message + remote operations).
     fn render_commit_tab(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
         let status_ref = self.working_tree_status.as_ref();
-        let is_empty = status_ref.map(|s| s.total_files() == 0).unwrap_or(true);
+        let is_empty =
+            self.stash_files.is_none() && status_ref.map(|s| s.total_files() == 0).unwrap_or(true);
         let loading = self.working_tree_loading && status_ref.is_none();
 
         if loading {
@@ -974,6 +1380,19 @@ impl GitHeader {
         let all_staged = status.map(|s| s.all_staged()).unwrap_or(false);
         let has_any_changes = total > 0;
 
+        // Total added/removed line counts across all changed files.
+        let (total_added, total_removed) = status
+            .map(|s| {
+                let sum = |files: &[WorkingFile]| {
+                    files.iter().fold((0usize, 0usize), |(a, r), f| (a + f.added, r + f.removed))
+                };
+                let (ca, cr) = sum(&s.conflicts);
+                let (ta, tr) = sum(&s.tracked);
+                let (ua, ur) = sum(&s.untracked);
+                (ca + ta + ua, cr + tr + ur)
+            })
+            .unwrap_or((0, 0));
+
         let label = match total {
             0 => "No Changes".to_string(),
             1 => "1 Change".to_string(),
@@ -984,6 +1403,7 @@ impl GitHeader {
             .pl(px(12.0))
             .pr(px(6.0))
             .py(px(5.0))
+            .gap(px(8.0))
             .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
@@ -993,6 +1413,16 @@ impl GitHeader {
                     .text_color(rgb(t.text_muted))
                     .child(label),
             )
+            // Aggregate +added / -removed line counts for all changes.
+            .when(has_any_changes && (total_added > 0 || total_removed > 0), |d| {
+                d.child(
+                    h_flex()
+                        .gap(px(5.0))
+                        .text_size(ui_text_sm(cx))
+                        .child(div().text_color(rgb(t.success)).child(format!("+{total_added}")))
+                        .child(div().text_color(rgb(t.error)).child(format!("-{total_removed}"))),
+                )
+            })
             .child(div().flex_1())
             .when(has_any_changes, |d| {
                 d.child(
@@ -1057,182 +1487,389 @@ impl GitHeader {
             )
     }
 
-    /// Render the three file sections (Conflicts / Tracked / Untracked) in a scroll view.
-    /// Flatten conflicts/tracked/untracked sections into a single row vec
-    /// that `uniform_list` can drive. Each row is fixed-height.
-    fn build_file_rows(&self) -> Vec<FileRow> {
+    /// Append a file's row and, when its diff is expanded, the diff rows
+    /// (one per diff line / context expander, or a status note).
+    fn append_file_diff_rows(
+        &self,
+        rows: &mut Vec<CommitRow>,
+        file: &WorkingFile,
+        is_untracked: bool,
+        cx: &App,
+    ) {
+        rows.push(CommitRow::File { file: file.clone(), is_untracked });
+        self.append_inline_diff_rows(rows, &file.path, cx);
+    }
+
+    /// Append the inline diff rows for `path` when it's expanded (diff lines +
+    /// optional h-scrollbar, or a status note). Shared by file and stash rows.
+    fn append_inline_diff_rows(&self, rows: &mut Vec<CommitRow>, path: &str, cx: &App) {
+        if !self.inline_expanded.contains(path) {
+            return;
+        }
+        let Some(viewer) = self.inline_viewers.get(path) else {
+            return;
+        };
+        let v = viewer.read(cx);
+        if let Some(err) = v.inline_error() {
+            rows.push(CommitRow::DiffNote { text: format!("Error: {err}").into() });
+        } else if v.inline_loading() {
+            rows.push(CommitRow::DiffNote { text: "Loading…".into() });
+        } else {
+            let n = v.inline_item_count();
+            if n == 0 {
+                rows.push(CommitRow::DiffNote { text: "No changes".into() });
+            } else {
+                for i in 0..n {
+                    rows.push(CommitRow::DiffItem { path: path.to_string(), item_index: i });
+                }
+                if v.inline_max_scroll_x() > 0.5 {
+                    rows.push(CommitRow::DiffHScrollbar { path: path.to_string() });
+                }
+            }
+        }
+    }
+
+    /// Rebuild the flattened commit-tab row model and resize the list state to
+    /// match. Call on any structural change (status refresh, expand/collapse,
+    /// diff load, context expansion, section collapse).
+    fn rebuild_commit_rows(&mut self, cx: &mut Context<Self>) {
+        // Push the current viewport width into the inline viewers first so their
+        // horizontal-overflow check (which decides whether to add a scrollbar
+        // row) and scroll math are correct.
+        let vw = self.diff_viewport_width;
+        if vw > 0.0 {
+            let viewers: Vec<_> = self.inline_viewers.values().cloned().collect();
+            for v in viewers {
+                v.update(cx, |v, _| v.set_inline_viewport_width(vw));
+            }
+        }
+
+        let mut rows: Vec<CommitRow> = Vec::new();
+
+        // Stash view: a header + the stash's files (read-only) with inline diffs.
+        if let Some(stash) = self.stash_files.clone() {
+            rows.push(CommitRow::StashHeader);
+            for f in &stash {
+                rows.push(CommitRow::StashFile {
+                    path: f.path.clone(),
+                    added: f.added,
+                    removed: f.removed,
+                });
+                self.append_inline_diff_rows(&mut rows, &f.path, cx);
+            }
+            self.sync_commit_list(rows);
+            cx.notify();
+            return;
+        }
+
         let status = self.working_tree_status.as_ref();
         let conflicts: Vec<WorkingFile> = status.map(|s| s.conflicts.clone()).unwrap_or_default();
         let tracked: Vec<WorkingFile> = status.map(|s| s.tracked.clone()).unwrap_or_default();
         let untracked: Vec<WorkingFile> = status.map(|s| s.untracked.clone()).unwrap_or_default();
 
-        let mut rows: Vec<FileRow> = Vec::new();
         if !conflicts.is_empty() {
-            rows.push(FileRow::Header(
-                FileSectionKind::Conflicts,
-                self.conflicts_collapsed,
-            ));
+            rows.push(CommitRow::Header(FileSectionKind::Conflicts, self.conflicts_collapsed));
             if !self.conflicts_collapsed {
-                for f in conflicts {
-                    rows.push(FileRow::File {
-                        file: f,
-                        is_untracked: false,
-                    });
+                for f in &conflicts {
+                    self.append_file_diff_rows(&mut rows, f, false, cx);
                 }
             }
         }
         if !tracked.is_empty() {
-            rows.push(FileRow::Header(
-                FileSectionKind::Tracked,
-                self.tracked_collapsed,
-            ));
+            rows.push(CommitRow::Header(FileSectionKind::Tracked, self.tracked_collapsed));
             if !self.tracked_collapsed {
-                for f in tracked {
-                    rows.push(FileRow::File {
-                        file: f,
-                        is_untracked: false,
-                    });
+                for f in &tracked {
+                    self.append_file_diff_rows(&mut rows, f, false, cx);
                 }
             }
         }
         if !untracked.is_empty() {
-            rows.push(FileRow::Header(
-                FileSectionKind::Untracked,
-                self.untracked_collapsed,
-            ));
+            rows.push(CommitRow::Header(FileSectionKind::Untracked, self.untracked_collapsed));
             if !self.untracked_collapsed {
-                for f in untracked {
-                    rows.push(FileRow::File {
-                        file: f,
-                        is_untracked: true,
-                    });
+                for f in &untracked {
+                    self.append_file_diff_rows(&mut rows, f, true, cx);
                 }
             }
         }
-        rows
+
+        self.sync_commit_list(rows);
+        cx.notify();
+    }
+
+    /// Apply `new_rows` to the list with a minimal splice (replace only the
+    /// changed middle, keeping the common prefix/suffix) so the scroll anchor
+    /// survives — e.g. expanding hidden context mid-file must not jump to the
+    /// top. A full `splice(0..old, new)` would reset the scroll.
+    fn sync_commit_list(&mut self, new_rows: Vec<CommitRow>) {
+        let old = &self.commit_rows;
+        let (old_len, new_len) = (old.len(), new_rows.len());
+
+        let mut prefix = 0;
+        while prefix < old_len
+            && prefix < new_len
+            && rows_eq(&old[prefix], &new_rows[prefix])
+        {
+            prefix += 1;
+        }
+        let mut suffix = 0;
+        while suffix < old_len - prefix
+            && suffix < new_len - prefix
+            && rows_eq(&old[old_len - 1 - suffix], &new_rows[new_len - 1 - suffix])
+        {
+            suffix += 1;
+        }
+
+        let removed = old_len - prefix - suffix;
+        let added = new_len - prefix - suffix;
+        self.commit_rows = new_rows;
+        if removed != 0 || added != 0 {
+            self.commit_list_state.splice(prefix..(prefix + removed), added);
+            // `splice` inserts the new rows as *unmeasured* and does NOT clear
+            // the one-shot `measure_all` flag, so without this they'd be measured
+            // lazily while scrolling (shrinking the scrollbar). Re-arm full
+            // measurement so the next layout measures every row → exact scrollbar
+            // immediately after expand/collapse. (`measure_all` only sets the
+            // measuring flag; it does not touch the scroll position.)
+            self.commit_list_state = self.commit_list_state.clone().measure_all();
+        }
+    }
+
+    /// Render one commit-tab row by index (the `list()` render closure target).
+    /// Runs after the parent render borrow is released, so re-entering the
+    /// entity is safe.
+    fn render_commit_row(
+        entity: &Entity<Self>,
+        ix: usize,
+        t: &ThemeColors,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let Some(row) = entity.read(cx).commit_rows.get(ix).cloned() else {
+            return div().into_any_element();
+        };
+        match row {
+            CommitRow::Header(kind, collapsed) => {
+                let (title, color) = match kind {
+                    FileSectionKind::Conflicts => ("Conflicts", Some(t.error)),
+                    FileSectionKind::Tracked => ("Tracked", None),
+                    FileSectionKind::Untracked => ("Untracked", None),
+                };
+                entity.update(cx, |this, cx| {
+                    this.render_section_header_kind(title, collapsed, kind, color, t, cx)
+                        .into_any_element()
+                })
+            }
+            CommitRow::File { file, is_untracked } => entity.update(cx, |this, cx| {
+                this.render_file_entry(&file, is_untracked, t, cx).into_any_element()
+            }),
+            CommitRow::DiffItem { path, item_index } => {
+                let (viewer, vw) = {
+                    let this = entity.read(cx);
+                    (this.inline_viewers.get(&path).cloned(), this.diff_viewport_width)
+                };
+                match viewer {
+                    Some(v) => v.update(cx, |v, cx| {
+                        v.set_inline_viewport_width(vw);
+                        v.render_inline_item(item_index, t, window, cx)
+                    }),
+                    None => div().into_any_element(),
+                }
+            }
+            CommitRow::DiffNote { text } => h_flex()
+                .w_full()
+                .px(px(16.0))
+                .py(px(4.0))
+                .text_color(rgb(t.text_muted))
+                .child(text)
+                .into_any_element(),
+            CommitRow::DiffHScrollbar { path } => {
+                let viewer = entity.read(cx).inline_viewers.get(&path).cloned();
+                match viewer {
+                    Some(v) => div()
+                        .w_full()
+                        .h(px(HSCROLLBAR_HEIGHT))
+                        .child(DiffHScrollbar::new(
+                            v,
+                            rgb(t.scrollbar).into(),
+                            rgb(t.scrollbar_hover).into(),
+                        ))
+                        .into_any_element(),
+                    None => div().into_any_element(),
+                }
+            }
+            CommitRow::StashHeader => entity.update(cx, |this, cx| {
+                this.render_stash_header(t, cx).into_any_element()
+            }),
+            CommitRow::StashFile { path, added, removed } => entity.update(cx, |this, cx| {
+                this.render_stash_file(&path, added, removed, t, cx).into_any_element()
+            }),
+        }
+    }
+
+    /// The "Stashed changes" header row, with a close button to return to the
+    /// working tree.
+    fn render_stash_header(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .w_full()
+            .h(px(30.0))
+            .pl(px(12.0))
+            .pr(px(8.0))
+            .items_center()
+            .gap(px(6.0))
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .bg(rgb(t.bg_header))
+            .child(svg().path("icons/bookmark.svg").size(px(13.0)).text_color(rgb(t.text_secondary)))
+            .child(
+                div()
+                    .flex_1()
+                    .text_size(ui_text_sm(cx))
+                    .text_color(rgb(t.text_primary))
+                    .child("Stashed changes"),
+            )
+            .child(
+                div()
+                    .id("stash-close")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(px(20.0))
+                    .rounded(px(3.0))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .child(svg().path("icons/close.svg").size(px(11.0)).text_color(rgb(t.text_muted)))
+                    .on_click(cx.listener(|this, _, _window, cx| this.close_stash(cx))),
+            )
+    }
+
+    /// A stash file row — filename + diff stats + disclosure chevron; clicking
+    /// toggles its inline diff (loaded from the stash commit).
+    fn render_stash_file(
+        &self,
+        path: &str,
+        added: usize,
+        removed: usize,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let is_expanded = self.inline_expanded.contains(path);
+        let (dir_part, file_name) = match path.rfind('/') {
+            Some(i) => (path[..=i].to_string(), path[i + 1..].to_string()),
+            None => (String::new(), path.to_string()),
+        };
+        let path_owned = path.to_string();
+        h_flex()
+            .id(ElementId::Name(format!("stash-{path}").into()))
+            .w_full()
+            .pl(px(8.0))
+            .pr(px(8.0))
+            .h(px(32.0))
+            .gap(px(6.0))
+            .items_center()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.toggle_inline_diff(path_owned.clone(), false, cx);
+            }))
+            .child(vscode_file_icon_with_options(
+                &file_name,
+                t,
+                git_settings(cx).monochrome_icons,
+                cx,
+            ))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(4.0))
+                    .text_size(ui_text_md(cx))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(div().flex_shrink_0().text_color(rgb(t.text_primary)).child(file_name))
+                    .when(!dir_part.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_color(rgb(t.text_muted))
+                                .text_ellipsis()
+                                .overflow_hidden()
+                                .child(dir_part),
+                        )
+                    })
+                    .child(
+                        svg()
+                            .path(if is_expanded {
+                                "icons/chevron-down.svg"
+                            } else {
+                                "icons/chevron-right.svg"
+                            })
+                            .size(px(12.0))
+                            .flex_shrink_0()
+                            .text_color(rgb(t.text_muted)),
+                    ),
+            )
+            .when(added > 0 || removed > 0, |d| {
+                d.child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap(px(4.0))
+                        .text_size(ui_text_sm(cx))
+                        .child(div().text_color(rgb(t.success)).child(format!("+{added}")))
+                        .child(div().text_color(rgb(t.error)).child(format!("-{removed}"))),
+                )
+            })
     }
 
     fn render_file_sections(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows = self.build_file_rows();
         let t = *t;
-        let view = cx.entity().clone();
-        let scroll = self.commit_file_scroll.clone();
-        let scrollbar_geometry = get_scrollbar_geometry(&self.commit_file_scroll);
-        let needs_scrollbar_measurement =
-            !rows.is_empty() && self.commit_file_scroll.0.borrow().last_item_size.is_none();
-        if needs_scrollbar_measurement {
-            cx.notify();
-        }
-
+        let entity = cx.entity();
+        let entity_w = cx.entity();
+        // One viewported list for the whole tab: virtualized (only visible rows
+        // realized), scrolls as one, no per-diff scrollbox. Diffs show at full
+        // height because every diff line is its own list row.
         div()
+            .id("commit-file-list")
             .relative()
             .flex_1()
             .min_h_0()
             .size_full()
+            // Capture the list width once (and on resize) and push it into the
+            // inline diff viewers so horizontal-scroll math + scrollbar
+            // visibility are correct. Runs before the list prepaints (first
+            // child), so the rebuilt rows apply the same frame.
             .child(
-                uniform_list("commit-file-list", rows.len(), move |range, _window, cx| {
-                    let rows_ref = rows.clone();
-                    let tc = t;
-                    view.update(cx, |this, cx| {
-                        range
-                            .into_iter()
-                            .map(|i| match &rows_ref[i] {
-                                FileRow::Header(kind, collapsed) => {
-                                    let (title, color) = match kind {
-                                        FileSectionKind::Conflicts => {
-                                            ("Conflicts", Some(tc.error))
-                                        }
-                                        FileSectionKind::Tracked => ("Tracked", None),
-                                        FileSectionKind::Untracked => ("Untracked", None),
-                                    };
-                                    let kind = *kind;
-                                    let collapsed = *collapsed;
-                                    this.render_section_header_kind(
-                                        title, collapsed, kind, color, &tc, cx,
-                                    )
-                                    .into_any_element()
-                                }
-                                FileRow::File { file, is_untracked } => this
-                                    .render_file_entry(file, *is_untracked, &tc, cx)
-                                    .into_any_element(),
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .size_full()
-                .h_full()
-                .map(|mut list| {
-                    list.style().restrict_scroll_to_axis = Some(true);
-                    list
-                })
-                .track_scroll(&scroll),
-            )
-            .when(scrollbar_geometry.is_some(), |d| {
-                let (_, _, thumb_y, thumb_height) =
-                    scrollbar_geometry.expect("guarded by is_some() in when()");
-                d.child(self.render_commit_file_scrollbar(thumb_y, thumb_height, t, cx))
-            })
-    }
-
-    fn render_commit_file_scrollbar(
-        &self,
-        thumb_y: f32,
-        thumb_height: f32,
-        t: ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let is_dragging = self.commit_file_scrollbar_drag.is_some();
-
-        div()
-            .id("git-panel-file-scrollbar-track")
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .right_0()
-            .w(px(12.0))
-            .cursor(CursorStyle::Arrow)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
-                    if get_scrollbar_geometry(&this.commit_file_scroll).is_some() {
-                        let mut drag = start_scrollbar_drag(&this.commit_file_scroll);
-                        drag.start_y = f32::from(event.position.y);
-                        this.commit_file_scrollbar_drag = Some(drag);
-                        cx.notify();
-                    }
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                if let Some(drag) = this.commit_file_scrollbar_drag {
-                    update_scrollbar_drag(
-                        &this.commit_file_scroll,
-                        drag,
-                        f32::from(event.position.y),
-                    );
-                    cx.notify();
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _window, cx| {
-                    this.commit_file_scrollbar_drag = None;
-                    cx.notify();
-                }),
+                canvas(
+                    move |bounds, _window, app| {
+                        let w = f32::from(bounds.size.width);
+                        entity_w.update(app, |this, cx| {
+                            if (this.diff_viewport_width - w).abs() > 0.5 {
+                                this.diff_viewport_width = w;
+                                this.rebuild_commit_rows(cx);
+                            }
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
             )
             .child(
-                div()
-                    .absolute()
-                    .top(px(thumb_y))
-                    .right(px(3.0))
-                    .w(px(6.0))
-                    .h(px(thumb_height))
-                    .rounded(px(3.0))
-                    .bg(rgb(if is_dragging {
-                        t.scrollbar_hover
-                    } else {
-                        t.scrollbar
-                    }))
-                    .hover(move |s| s.bg(rgb(t.scrollbar_hover))),
+                list(self.commit_list_state.clone(), move |ix, window, cx| {
+                    Self::render_commit_row(&entity, ix, &t, window, cx)
+                })
+                .size_full(),
+            )
+            // Draggable scrollbar overlaid on the right edge.
+            .child(
+                div().absolute().top_0().right_0().bottom_0().w(px(8.0)).py(px(4.0)).child(
+                    ListScrollbar::new(
+                        self.commit_list_state.clone(),
+                        gpui::transparent_black(),
+                        rgb(t.scrollbar).into(),
+                        rgb(t.scrollbar_hover).into(),
+                    ),
+                ),
             )
     }
 
@@ -1285,7 +1922,7 @@ impl GitHeader {
             })
             .on_click(cx.listener(move |this, _, _window, cx| {
                 toggle(this);
-                cx.notify();
+                this.rebuild_commit_rows(cx);
             }))
             .child(
                 div()
@@ -1309,6 +1946,7 @@ impl GitHeader {
         let file_path_click = file.path.clone();
         let file_path_ctx = file.path.clone();
         let is_fully_staged = file.is_fully_staged();
+        let is_expanded = self.inline_expanded.contains(&file.path);
         let is_partial = file.is_partially_staged();
         let is_conflict = file.has_conflict();
         let status = file.effective_status();
@@ -1339,9 +1977,7 @@ impl GitHeader {
         let dir_part = dir_part.to_string();
         let file_name = file_name.to_string();
 
-        let request_broker = self.request_broker.clone();
         let request_broker_ctx = self.request_broker.clone();
-        let project_id = self.project_id.clone();
         let project_id_ctx = self.project_id.clone();
 
         h_flex()
@@ -1402,24 +2038,12 @@ impl GitHeader {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    .on_click(cx.listener(move |_this, _, _window, cx| {
-                        let pid = project_id.clone();
-                        let fp = file_path_click.clone();
-                        request_broker.update(cx, |broker, cx| {
-                            broker.push_overlay_request(
-                                OverlayRequest::DiffViewer {
-                                    project_id: pid,
-                                    file: Some(fp),
-                                    mode: None,
-                                    commit_message: None,
-                                    commits: None,
-                                    commit_index: None,
-                                },
-                                cx,
-                            );
-                        });
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        // Toggle the diff inline (expand directly in the list)
+                        // instead of opening the overlay diff viewer.
+                        this.toggle_inline_diff(file_path_click.clone(), is_fully_staged, cx);
                     }))
-                    .child(div().text_color(rgb(name_color)).child(file_name))
+                    .child(div().flex_shrink_0().text_color(rgb(name_color)).child(file_name))
                     .when(!dir_part.is_empty(), |d| {
                         d.child(
                             div()
@@ -1428,7 +2052,20 @@ impl GitHeader {
                                 .overflow_hidden()
                                 .child(dir_part),
                         )
-                    }),
+                    })
+                    // Disclosure chevron: right when collapsed, down when the
+                    // inline diff is expanded.
+                    .child(
+                        svg()
+                            .path(if is_expanded {
+                                "icons/chevron-down.svg"
+                            } else {
+                                "icons/chevron-right.svg"
+                            })
+                            .size(px(12.0))
+                            .flex_shrink_0()
+                            .text_color(rgb(t.text_muted)),
+                    ),
             )
             // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
             .when(added > 0 || removed > 0, |d| {
@@ -1687,6 +2324,9 @@ impl GitHeader {
                             .bg(rgb(t.bg_primary))
                             .px(px(8.0))
                             .py(px(6.0))
+                            // Match the composer's "Send follow-up" typeface/size
+                            // so the commit input reads as the same input.
+                            .text_size(ui_text_md(cx))
                             .child(self.commit_message_input.clone()),
                     )
             })
@@ -2217,7 +2857,10 @@ impl GitHeader {
                     .count();
                 this.commit_log_has_more = commit_count >= page;
                 this.commit_log_count = commit_count;
-                this.commit_log_entries = entries;
+                // The new commit PREPENDS — the tail-splice's stable-prefix
+                // assumption doesn't hold, so reset (the user just committed;
+                // jumping to the new commit at the top is the right outcome).
+                this.set_commit_log_entries(entries, false);
                 cx.notify();
             });
         })
@@ -2227,7 +2870,20 @@ impl GitHeader {
     /// Render the History tab (commit log with graph).
     fn render_history_tab(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
         let branch_name = self.current_branch.clone();
-        let content = self.build_commit_log_content(t, cx);
+        // Placeholder for the empty/initial-loading states; `None` renders the
+        // virtualized row list instead.
+        let content: Option<AnyElement> =
+            if self.commit_log_entries.is_empty() {
+                Some(project_header::render_commit_log_content(
+                    &self.commit_log_entries,
+                    self.commit_log_loading,
+                    None,
+                    t,
+                    cx,
+                ))
+            } else {
+                None
+            };
 
         let compare_bar = if self.commit_log_compare_mode {
             self.render_compare_bar(t, cx).into_any_element()
@@ -2249,34 +2905,132 @@ impl GitHeader {
             .child(compare_bar)
             // Branch picker (conditional)
             .child(branch_picker)
-            // Scrollable commit list
-            .child(
-                div()
-                    .id("git-panel-scroll")
+            // Virtualized commit list: the log grows unbounded via load-more,
+            // so only the visible rows are built (`content` covers the empty
+            // and initial-loading states).
+            .child(match content {
+                Some(placeholder) => div()
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.commit_log_scroll)
-                    .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _window, cx| {
-                        let delta_y = f32::from(event.delta.pixel_delta(px(1.0)).y);
-                        if delta_y >= 0.0 {
-                            return;
-                        }
-                        if !this.commit_log_has_more || this.commit_log_loading {
-                            return;
-                        }
-                        let row_count = this.commit_log_entries.len();
-                        let est_content_h = row_count as f32 * 32.0;
-                        let scroll_y = -f32::from(this.commit_log_scroll.offset().y);
-                        let viewport_h = 600.0;
-                        if scroll_y + viewport_h > est_content_h - 200.0 {
-                            this.load_more_commits(cx);
-                        }
-                    }))
                     .py(px(4.0))
-                    .child(content),
-            )
+                    .child(placeholder)
+                    .into_any_element(),
+                None => {
+                    let entity = cx.entity().clone();
+                    let row_theme = *t;
+                    div()
+                        .id("git-panel-scroll")
+                        .relative()
+                        .flex_1()
+                        .min_h_0()
+                        .py(px(4.0))
+                        .child(
+                            list(self.history_list_state.clone(), move |ix, window, cx| {
+                                Self::render_history_row(&entity, ix, &row_theme, window, cx)
+                            })
+                            .size_full(),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .bottom_0()
+                                .w(px(8.0))
+                                .py(px(4.0))
+                                .child(ListScrollbar::new(
+                                    self.history_list_state.clone(),
+                                    gpui::transparent_black(),
+                                    rgb(t.scrollbar).into(),
+                                    rgb(t.scrollbar_hover).into(),
+                                )),
+                        )
+                        .into_any_element()
+                }
+            })
             .into_any_element()
+    }
+
+    /// Renders one virtualized row of the History tab's commit graph. Reads
+    /// the cached graph metrics from the entity, arms the load-more lookahead
+    /// near the end of the list, and builds the row via
+    /// `project_header::render_graph_row`.
+    fn render_history_row(
+        entity: &Entity<Self>,
+        ix: usize,
+        t: &ThemeColors,
+        _window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        // Approaching the tail: fetch the next page. Deferred because the
+        // entity is mid-render here; load_more_commits guards re-entry.
+        let near_end = {
+            let this = entity.read(cx);
+            ix + 20 >= this.commit_log_entries.len()
+                && this.commit_log_has_more
+                && !this.commit_log_loading
+        };
+        if near_end {
+            let entity = entity.clone();
+            cx.defer(move |cx| {
+                entity.update(cx, |this, cx| this.load_more_commits(cx));
+            });
+        }
+
+        let this = entity.read(cx);
+        let Some(row) = this.commit_log_entries.get(ix) else {
+            return div().into_any_element();
+        };
+        let before_first = this.history_first_commit_idx.is_none_or(|f| ix < f);
+        let after_last = this.history_last_commit_idx.is_none_or(|l| ix > l);
+        let is_first = Some(ix) == this.history_first_commit_idx;
+        let is_last = Some(ix) == this.history_last_commit_idx;
+        let opts = project_header::GraphRowOpts {
+            skip_above_center: is_first || before_first,
+            skip_below_center: is_last || after_last,
+            is_head: is_first,
+        };
+
+        let on_commit_click: Option<CommitClickHandler> = {
+            let project_id = this.project_id.clone();
+            let request_broker = this.request_broker.clone();
+            let all_commits = this.history_all_commits.clone();
+            Some(Arc::new(
+                move |hash: &str, msg: &str, _idx: usize, _window: &mut Window, cx: &mut App| {
+                    let commit_hash = hash.to_string();
+                    let commit_msg = msg.to_string();
+                    let commit_idx = all_commits
+                        .iter()
+                        .position(|c| c.hash == commit_hash)
+                        .unwrap_or(0);
+                    let commits_vec: Vec<CommitLogEntry> = (*all_commits).clone();
+                    request_broker.update(cx, |broker, cx| {
+                        broker.push_overlay_request(
+                            OverlayRequest::DiffViewer {
+                                project_id: project_id.clone(),
+                                file: None,
+                                mode: Some(DiffMode::Commit(commit_hash)),
+                                commit_message: Some(commit_msg),
+                                commits: Some(commits_vec),
+                                commit_index: Some(commit_idx),
+                            },
+                            cx,
+                        );
+                    });
+                },
+            ))
+        };
+
+        project_header::render_graph_row(
+            row,
+            ix,
+            this.history_max_graph_len,
+            &this.history_all_commits,
+            on_commit_click,
+            opts,
+            t,
+            cx,
+        )
     }
 
     /// Build the commit log content (commit list with graph).

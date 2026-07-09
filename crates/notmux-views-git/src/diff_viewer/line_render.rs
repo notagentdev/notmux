@@ -42,6 +42,9 @@ pub(super) fn rgba(color: u32, alpha: f32) -> Rgba {
 /// Extract the function/context name from a hunk header.
 /// Input:  "@@ -19,6 +19,7 @@ fn some_function"
 /// Output: "fn some_function" (or empty if no context)
+///
+/// Ported notmux helper for showing hunk context; not yet wired in on this branch.
+#[allow(dead_code)]
 pub(super) fn extract_hunk_context(header: &str) -> &str {
     if let Some(pos) = header.find("@@") {
         let rest = &header[pos + 2..];
@@ -58,9 +61,11 @@ pub(super) fn extract_hunk_context(header: &str) -> &str {
 // ── Shared DiffViewer methods ───────────────────────────────────────────
 
 impl DiffViewer {
-    /// Line height in pixels for the current font size.
+    /// Line height in pixels for the current font size. Rounded to a whole
+    /// pixel so flat-stacked diff lines tile flush — a fractional height makes
+    /// sub-pixel rounding leave periodic gaps that read as horizontal blocks.
     pub(super) fn line_height(&self) -> f32 {
-        self.file_font_size * LINE_HEIGHT_FACTOR
+        (self.file_font_size * LINE_HEIGHT_FACTOR).round()
     }
 
     /// Measured character width for monospace font.
@@ -90,53 +95,21 @@ impl DiffViewer {
         }
     }
 
-    /// Render a chunk/hunk header (@@ ... @@) as a clean separator.
+    /// Render a chunk/hunk separator. Intentionally blank — we don't show the
+    /// blue `@@`-context line; the row height is preserved so the virtualized
+    /// line list stays index-aligned.
     pub(super) fn render_hunk_header(
         &self,
-        text: &str,
+        _text: &str,
         idx: usize,
         prefix: &str,
-        t: &ThemeColors,
+        _t: &ThemeColors,
     ) -> Stateful<Div> {
-        let context = extract_hunk_context(text);
-        let font_size = self.file_font_size;
         let line_height = self.line_height();
-
         div()
             .id(ElementId::Name(format!("{}-{}", prefix, idx).into()))
             .w_full()
             .h(px(line_height))
-            .flex()
-            .items_center()
-            .font_family("monospace")
-            .bg(rgba(t.diff_hunk_header_bg, 0.3))
-            .border_t_1()
-            .border_color(rgba(t.border, 0.5))
-            .px(px(16.0))
-            .gap(px(8.0))
-            .child(
-                div()
-                    .w(px(32.0))
-                    .h(px(1.0))
-                    .bg(rgba(t.diff_hunk_header_fg, 0.3))
-                    .flex_shrink_0(),
-            )
-            .when(!context.is_empty(), |d| {
-                d.child(
-                    div()
-                        .text_size(px(font_size * 0.85))
-                        .text_color(rgba(t.diff_hunk_header_fg, 0.7))
-                        .font_family("monospace")
-                        .child(context.to_string()),
-                )
-            })
-            .child(
-                div()
-                    .flex_1()
-                    .h(px(1.0))
-                    .bg(rgba(t.diff_hunk_header_fg, 0.15))
-                    .flex_shrink_0(),
-            )
     }
 
     /// Render a context expander row (clickable to load all hidden lines).
@@ -155,10 +128,16 @@ impl DiffViewer {
         let new_range = expander.new_range;
 
         let label = if hidden == 1 {
-            "1 hidden line".to_string()
+            "1 unmodified line".to_string()
         } else {
-            format!("{} hidden lines", hidden)
+            format!("{} unmodified lines", hidden)
         };
+
+        // Match the diff-line gutter so the expand icon sits under the line-number
+        // columns and the label aligns with the code column.
+        let char_width = self.char_width();
+        let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
+        let gutter_width = 2.0 * num_col_width + 1.0;
 
         div()
             .id(ElementId::Name(format!("expander-{}", idx).into()))
@@ -166,20 +145,36 @@ impl DiffViewer {
             .h(px(line_height))
             .flex()
             .items_center()
-            .justify_center()
             .font_family("monospace")
             .bg(rgba(t.diff_hunk_header_bg, 0.15))
             .border_t_1()
+            .border_b_1()
             .border_color(rgba(t.border, 0.3))
             .cursor_pointer()
             .hover(|s| s.bg(rgba(t.bg_hover, 0.6)))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.expand_context_by_range(old_range, new_range, cx);
             }))
+            // Up/down chevron, centered in the gutter column.
             .child(
                 div()
-                    .text_size(px(font_size * 0.8))
-                    .text_color(rgba(t.text_muted, 0.6))
+                    .w(px(gutter_width))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path("icons/chevrons-up-down.svg")
+                            .size(px(font_size))
+                            .text_color(rgba(t.text_muted, 0.8)),
+                    ),
+            )
+            .child(
+                div()
+                    .pl(px(CONTENT_PADDING))
+                    .text_size(px(font_size))
+                    .text_color(rgba(t.text_muted, 0.85))
                     .child(label),
             )
     }

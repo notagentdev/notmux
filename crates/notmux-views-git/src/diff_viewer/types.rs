@@ -118,8 +118,12 @@ pub struct DiffDisplayFile {
     /// Display items (lines and expanders).
     pub items: Vec<DisplayItem>,
     /// Pre-highlighted old file spans (1-based line num -> spans).
+    /// Populated by the port's syntax pass; not yet consumed on this branch.
+    #[allow(dead_code)]
     pub old_highlighted: HashMap<usize, Vec<HighlightedSpan>>,
     /// Pre-highlighted new file spans (1-based line num -> spans).
+    /// Populated by the port's syntax pass; not yet consumed on this branch.
+    #[allow(dead_code)]
     pub new_highlighted: HashMap<usize, Vec<HighlightedSpan>>,
     /// Total lines in the old file.
     pub old_line_count: usize,

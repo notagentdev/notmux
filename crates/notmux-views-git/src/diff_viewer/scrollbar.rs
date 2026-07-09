@@ -80,18 +80,26 @@ impl DiffViewer {
         cx.notify();
     }
 
-    /// Width of a single panel's gutter (line number column + accent + padding).
+    /// Width of the gutter before the code (must match `render_line`'s layout:
+    /// accent bar + the two line-number columns + separator + content padding).
+    /// Uses the *measured* monospace advance — the same value `render_line` uses
+    /// — so the geometry matches what is actually painted.
     fn panel_gutter_width(&self) -> f32 {
-        let char_width = self.file_font_size * 0.6;
+        let char_width = self.char_width();
         let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
-        // accent(3) + line number column + separator(1) + content padding(10)
-        3.0 + num_col_width + 1.0 + 10.0
+        // accent(3) + old# col + new# col + separator(1) + content padding(10)
+        3.0 + 2.0 * num_col_width + 1.0 + 10.0
     }
 
     /// Maximum text content width in pixels (just the code text, no gutter).
+    /// Prefers the real measured width of the widest line; falls back to a
+    /// char-count estimate until that measurement is available.
     pub(super) fn max_text_width(&self) -> f32 {
-        let char_width = self.file_font_size * 0.6;
-        self.max_line_chars as f32 * char_width
+        if self.measured_content_width > 0.0 {
+            self.measured_content_width
+        } else {
+            self.max_line_chars as f32 * self.char_width()
+        }
     }
 
     /// Available text width per panel (viewport minus gutter).

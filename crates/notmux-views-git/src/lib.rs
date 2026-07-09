@@ -1,6 +1,8 @@
 pub mod close_worktree_dialog;
+pub mod diff_hscrollbar;
 pub mod diff_viewer;
 pub mod git_header;
+pub mod list_scrollbar;
 pub mod project_header;
 pub mod settings;
 pub mod simple_input;
