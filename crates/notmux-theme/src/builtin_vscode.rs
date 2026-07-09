@@ -55,6 +55,12 @@ const SPECS: &[BuiltinThemeSpec] = &[
         description: "Light counterpart of Dracula (dracula/cursor)",
         json: include_str!("../assets/themes/alucard.json"),
     },
+    BuiltinThemeSpec {
+        id: "builtin-nord-midnight",
+        name: "Nord Midnight",
+        description: "Darkened Nord palette (frost + aurora) — from notagent",
+        json: include_str!("../assets/themes/nord-midnight.json"),
+    },
 ];
 
 /// The default theme id used on first launch (no prior settings).
