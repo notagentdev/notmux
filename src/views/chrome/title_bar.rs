@@ -2,10 +2,9 @@ use crate::keybindings::{
     Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel,
     ToggleSidebar,
 };
-use crate::theme::{theme, with_alpha};
+use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
 use crate::views::components::menu_item;
-use crate::views::overlays::command_palette::CommandPaletteAnchor;
 use crate::workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
@@ -28,9 +27,6 @@ pub struct TitleBar {
     menu_open: bool,
     sidebar_open: bool,
     git_panel_open: bool,
-    command_palette_open: bool,
-    command_palette_query: String,
-    command_palette_select_all: bool,
     workspace: Entity<Workspace>,
     action_focus_handle: Option<FocusHandle>,
     _workspace_subscription: Subscription,
@@ -51,9 +47,6 @@ impl TitleBar {
             menu_open: false,
             sidebar_open: true,
             git_panel_open: false,
-            command_palette_open: false,
-            command_palette_query: String::new(),
-            command_palette_select_all: false,
             workspace,
             action_focus_handle: None,
             _workspace_subscription: subscription,
@@ -64,24 +57,6 @@ impl TitleBar {
 
     pub fn set_action_focus_handle(&mut self, focus_handle: FocusHandle) {
         self.action_focus_handle = Some(focus_handle);
-    }
-
-    pub fn set_command_palette_state(
-        &mut self,
-        open: bool,
-        query: String,
-        select_all: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if self.command_palette_open != open
-            || self.command_palette_query != query
-            || self.command_palette_select_all != select_all
-        {
-            self.command_palette_open = open;
-            self.command_palette_query = query;
-            self.command_palette_select_all = select_all;
-            cx.notify();
-        }
     }
 
     fn focused_project_name(&self, cx: &App) -> Option<SharedString> {
@@ -131,108 +106,6 @@ impl TitleBar {
             self.git_panel_open = open;
             cx.notify();
         }
-    }
-
-    /// Render the centred command-palette search field.
-    fn render_command_palette_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
-        let project_hint = self.focused_project_name(cx);
-        let placeholder = if self.command_palette_open {
-            "Type to search commands...".to_string()
-        } else {
-            match project_hint {
-                Some(name) => format!("Search {}", name),
-                None => "Search projects, files, commands...".to_string(),
-            }
-        };
-        let field_text = if self.command_palette_open && !self.command_palette_query.is_empty() {
-            self.command_palette_query.clone()
-        } else {
-            placeholder
-        };
-        let show_placeholder = self.command_palette_query.is_empty();
-        let select_all = self.command_palette_open
-            && self.command_palette_select_all
-            && !self.command_palette_query.is_empty();
-
-        h_flex()
-            .id("title-bar-command-field")
-            .flex_shrink_0()
-            .w(px(520.0))
-            .h(px(24.0))
-            .px(px(8.0))
-            .gap(px(6.0))
-            .items_center()
-            .rounded(px(5.0))
-            .bg(rgb(t.bg_primary))
-            .border_1()
-            .border_color(rgb(if self.command_palette_open {
-                t.border_active
-            } else {
-                t.border
-            }))
-            .cursor_pointer()
-            .hover(|s| s.border_color(rgb(t.border_active)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_click(cx.listener(|this, _, window, cx| {
-                cx.stop_propagation();
-                if !this.command_palette_open {
-                    window.dispatch_action(Box::new(ShowCommandPalette), cx);
-                }
-            }))
-            .child(
-                svg()
-                    .path("icons/search.svg")
-                    .size(px(12.0))
-                    .text_color(rgb(t.text_muted))
-                    .flex_shrink_0(),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(if show_placeholder {
-                        t.text_muted
-                    } else {
-                        t.text_primary
-                    }))
-                    .text_ellipsis()
-                    .overflow_hidden()
-                    .when(select_all, |d| {
-                        d.child(
-                            div()
-                                .bg(with_alpha(t.border_active, 0.3))
-                                .rounded(px(2.0))
-                                .text_color(rgb(t.text_primary))
-                                .child(field_text.clone()),
-                        )
-                    })
-                    .when(!select_all, |d| d.child(field_text)),
-            )
-            .when(self.command_palette_open && !select_all, |d| {
-                d.child(
-                    div()
-                        .w(px(1.0))
-                        .h(px(14.0))
-                        .bg(rgb(t.text_primary)),
-                )
-            })
-            .child(
-                canvas(
-                    |bounds, _window, cx| {
-                        cx.set_global(CommandPaletteAnchor {
-                            bounds: Some(bounds),
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0()
-                .size_full(),
-            )
     }
 
     pub fn is_menu_open(&self) -> bool {
@@ -649,17 +522,9 @@ impl Render for TitleBar {
                     .children(self.render_project_chip(cx)),
             )
             .child(
-                // Center — flexible region containing the command-palette
-                // search field. Two flex_1 spacers around the field keep it
-                // centred even when the left/right halves grow asymmetrically.
-                h_flex()
-                    .h_full()
-                    .flex_1()
-                    .px(px(8.0))
-                    .items_center()
-                    .child(div().flex_1())
-                    .child(self.render_command_palette_field(cx))
-                    .child(div().flex_1()),
+                // Center — flexible draggable spacer. Search now opens from the
+                // sidebar's Search entry (command palette), not a titlebar field.
+                div().h_full().flex_1(),
             )
             .child(
                 // Right side — panel toggles + settings + native window controls

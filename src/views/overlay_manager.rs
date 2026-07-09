@@ -105,13 +105,6 @@ impl CloseEvent for PairingDialogEvent {
 /// actions that need access to RootView's state (terminals, PTY manager, etc.)
 #[derive(Clone)]
 pub enum OverlayManagerEvent {
-    /// Command palette state mirrored into the titlebar search field.
-    CommandPaletteState {
-        open: bool,
-        query: String,
-        select_all: bool,
-    },
-
     /// Session manager requested workspace switch
     SwitchWorkspace(WorkspaceData),
 
@@ -357,16 +350,8 @@ impl OverlayManager {
     /// Close the active modal, restoring terminal focus if needed.
     fn close_modal(&mut self, cx: &mut Context<Self>) {
         if self.active_modal.is_some() {
-            let closing_command_palette = self.is_modal::<CommandPalette>();
             self.active_modal = None;
             self.modal_type_id = None;
-            if closing_command_palette {
-                cx.emit(OverlayManagerEvent::CommandPaletteState {
-                    open: false,
-                    query: String::new(),
-                    select_all: false,
-                });
-            }
             self.workspace
                 .update(cx, |ws, cx| ws.restore_focused_terminal(cx));
             cx.notify();
@@ -543,22 +528,9 @@ impl OverlayManager {
                     CommandPaletteEvent::Close => {
                         this.close_modal(cx);
                     }
-                    CommandPaletteEvent::StateChanged { query, select_all } => {
-                        cx.emit(OverlayManagerEvent::CommandPaletteState {
-                            open: true,
-                            query: query.clone(),
-                            select_all: *select_all,
-                        });
-                    }
                 }
             })
             .detach();
-            let (query, select_all) = entity.read(cx).state_snapshot();
-            cx.emit(OverlayManagerEvent::CommandPaletteState {
-                open: true,
-                query,
-                select_all,
-            });
             self.open_modal(entity, cx);
         }
         cx.notify();

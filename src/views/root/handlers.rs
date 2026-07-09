@@ -118,15 +118,6 @@ impl RootView {
         cx: &mut Context<Self>,
     ) {
         match event {
-            OverlayManagerEvent::CommandPaletteState {
-                open,
-                query,
-                select_all,
-            } => {
-                self.title_bar.update(cx, |tb, cx| {
-                    tb.set_command_palette_state(*open, query.clone(), *select_all, cx);
-                });
-            }
             OverlayManagerEvent::SwitchWorkspace(data) => {
                 self.handle_switch_workspace(data.clone(), cx);
             }
@@ -806,6 +797,11 @@ impl RootView {
                     let rm = self.remote_manager.clone();
                     self.overlay_manager.update(cx, |om, cx| {
                         om.toggle_add_project_dialog(rm, cx);
+                    });
+                }
+                OverlayRequest::CommandPalette => {
+                    self.overlay_manager.update(cx, |om, cx| {
+                        om.toggle_command_palette(cx);
                     });
                 }
                 OverlayRequest::DiffViewer {

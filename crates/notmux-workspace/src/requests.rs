@@ -47,6 +47,8 @@ pub enum OverlayRequest {
         current_shell: notmux_terminal::shell_config::ShellType,
     },
     AddProjectDialog,
+    /// Open the command palette / search dialog (centered).
+    CommandPalette,
     DiffViewer {
         project_id: String,
         file: Option<String>,

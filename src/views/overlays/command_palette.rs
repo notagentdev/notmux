@@ -125,17 +125,6 @@ impl CommandPalette {
         cx.emit(CommandPaletteEvent::Close);
     }
 
-    pub fn state_snapshot(&self) -> (String, bool) {
-        (self.state.search_query.clone(), self.select_all)
-    }
-
-    fn emit_state(&self, cx: &mut Context<Self>) {
-        cx.emit(CommandPaletteEvent::StateChanged {
-            query: self.state.search_query.clone(),
-            select_all: self.select_all,
-        });
-    }
-
     fn execute_command(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(filter_result) = self.state.filtered.get(index) {
             let command = &self.state.items[filter_result.index];
@@ -246,7 +235,6 @@ impl CommandPalette {
 
 pub enum CommandPaletteEvent {
     Close,
-    StateChanged { query: String, select_all: bool },
 }
 
 impl EventEmitter<CommandPaletteEvent> for CommandPalette {}
@@ -286,7 +274,6 @@ impl Render for CommandPalette {
                             this.state.search_query.clear();
                             this.select_all = false;
                             this.filter_commands();
-                            this.emit_state(cx);
                             cx.notify();
                             return;
                         }
@@ -302,7 +289,6 @@ impl Render for CommandPalette {
                         }
                         "up" | "down" => {
                             this.select_all = false;
-                            this.emit_state(cx);
                         }
                         _ => {}
                     }
@@ -320,7 +306,6 @@ impl Render for CommandPalette {
                     ListOverlayAction::QueryChanged => {
                         this.select_all = false;
                         this.filter_commands();
-                        this.emit_state(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -334,6 +319,15 @@ impl Render for CommandPalette {
             );
 
         let popover = |this: &Self, cx: &mut Context<Self>| {
+            let query = this.state.search_query.clone();
+            let query_empty = query.is_empty();
+            let field_text = if query_empty {
+                "Type to search commands...".to_string()
+            } else {
+                query
+            };
+            let highlight = this.select_all && !query_empty;
+
             div()
                     .id("command-palette-popover")
                     .w(px(config_width))
@@ -347,6 +341,52 @@ impl Render for CommandPalette {
                     .shadow_xl()
                     .overflow_hidden()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        // Search input field
+                        h_flex()
+                            .flex_shrink_0()
+                            .h(px(42.0))
+                            .px(px(12.0))
+                            .gap(px(8.0))
+                            .items_center()
+                            .border_b_1()
+                            .border_color(rgb(t.border))
+                            .child(
+                                svg()
+                                    .path("icons/search.svg")
+                                    .size(px(15.0))
+                                    .text_color(rgb(t.text_muted))
+                                    .flex_shrink_0(),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(ui_text(14.0, cx))
+                                    .text_color(rgb(if query_empty {
+                                        t.text_muted
+                                    } else {
+                                        t.text_primary
+                                    }))
+                                    .text_ellipsis()
+                                    .overflow_hidden()
+                                    .when(highlight, |d| {
+                                        d.child(
+                                            div()
+                                                .bg(with_alpha(t.border_active, 0.3))
+                                                .rounded(px(2.0))
+                                                .text_color(rgb(t.text_primary))
+                                                .child(field_text.clone()),
+                                        )
+                                    })
+                                    .when(!highlight, |d| d.child(field_text)),
+                            )
+                            .when(!this.select_all, |d| {
+                                d.child(
+                                    div().w(px(1.0)).h(px(16.0)).bg(rgb(t.text_primary)),
+                                )
+                            }),
+                    )
                     .child(
                         // Command list
                         div()
@@ -374,11 +414,11 @@ impl Render for CommandPalette {
                     .child(popover(self, cx)),
             )
         } else {
+            // No titlebar anchor anymore — open centered in the middle of the app.
             backdrop
                 .flex()
-                .items_start()
+                .items_center()
                 .justify_center()
-                .pt(px(42.0))
                 .child(popover(self, cx))
         }
     }

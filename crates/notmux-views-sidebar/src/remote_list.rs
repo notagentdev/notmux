@@ -1,7 +1,7 @@
 use gpui::*;
 use notmux_core::client::{ConnectionStatus, RemoteConnectionConfig};
 use notmux_ui::theme::theme;
-use notmux_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
+use notmux_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 
 use crate::sidebar::Sidebar;
 
@@ -57,18 +57,62 @@ impl Sidebar {
 
     fn render_remote_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
+        let request_broker = self.request_broker.clone();
         div()
             .h(px(32.0))
-            .px(px(12.0))
+            .pl(px(12.0))
+            // Right padding matches the rows' pr(14) so the "+" lines up in the
+            // same column as the per-row eye (visibility) buttons.
+            .pr(px(14.0))
             .mt(px(8.0))
             .flex()
             .items_center()
+            .justify_between()
             .child(
                 div()
-                    .text_size(ui_text_ms(cx))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(t.text_secondary))
-                    .child("REMOTE"),
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        svg()
+                            .path("icons/link.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(t.text_secondary)),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_ms(cx))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(t.text_secondary))
+                            .child("REMOTE"),
+                    ),
+            )
+            .child(
+                div()
+                    .id("remote-add-btn")
+                    .cursor_pointer()
+                    .w(px(18.0))
+                    .h(px(18.0))
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_secondary))
+                            .child("+"),
+                    )
+                    .on_click(move |_, _window, cx| {
+                        request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(
+                                notmux_workspace::requests::OverlayRequest::RemoteConnect,
+                                cx,
+                            );
+                        });
+                        cx.stop_propagation();
+                    }),
             )
     }
 

@@ -1959,15 +1959,58 @@ impl Sidebar {
             .count()
     }
 
+    /// A "Search" entry above the PROJECTS header. Clicking it opens the
+    /// centered command-palette / search dialog.
+    fn render_search_entry(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let request_broker = self.request_broker.clone();
+        div()
+            .id("sidebar-search-entry")
+            .mx(px(6.0))
+            .mt(px(6.0))
+            .h(px(30.0))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .cursor_pointer()
+            .rounded(px(6.0))
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .child(
+                svg()
+                    .path("icons/search.svg")
+                    .size(px(14.0))
+                    .text_color(rgb(t.text_secondary))
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_ms(cx))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(t.text_secondary))
+                    .child("SEARCH"),
+            )
+            .on_click(move |_, _window, cx| {
+                request_broker.update(cx, |broker, cx| {
+                    broker.push_overlay_request(OverlayRequest::CommandPalette, cx);
+                });
+                cx.stop_propagation();
+            })
+    }
+
     fn render_projects_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let workspace_entity = self.workspace.clone();
+        let request_broker = self.request_broker.clone();
         let show_all_projects_on_projects_click =
             self.sidebar_settings(cx).show_all_projects_on_projects_click;
 
         div()
             .h(px(28.0))
-            .px(px(12.0))
+            .pl(px(12.0))
+            // Right padding matches the project rows' pr(14) so the "+" lines up
+            // in the same column as the per-row eye (visibility) buttons.
+            .pr(px(14.0))
             .flex()
             .items_center()
             .justify_between()
@@ -1985,10 +2028,46 @@ impl Sidebar {
             })
             .child(
                 div()
-                    .text_size(ui_text_ms(cx))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(t.text_secondary))
-                    .child("PROJECTS"),
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .child(
+                        svg()
+                            .path("icons/folder.svg")
+                            .size(px(14.0))
+                            .text_color(rgb(t.text_secondary)),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_ms(cx))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(t.text_secondary))
+                            .child("PROJECTS"),
+                    ),
+            )
+            .child(
+                div()
+                    .id("projects-add-btn")
+                    .cursor_pointer()
+                    .w(px(18.0))
+                    .h(px(18.0))
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(ui_text_xl(cx))
+                            .text_color(rgb(t.text_secondary))
+                            .child("+"),
+                    )
+                    .on_click(move |_, _window, cx| {
+                        request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(OverlayRequest::AddProjectDialog, cx);
+                        });
+                        cx.stop_propagation();
+                    }),
             )
     }
 }
@@ -2782,11 +2861,13 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::handle_sidebar_confirm))
             .on_action(cx.listener(Self::handle_sidebar_toggle_expand))
             .on_action(cx.listener(Self::handle_sidebar_escape))
-            .child(self.render_view_switcher(cx))
-            .child(self.render_header(cx));
+            .child(self.render_view_switcher(cx));
 
         match self.view {
+            // Projects view: no "WORKSPACES" header row — the PROJECTS and REMOTE
+            // section headers carry their own "+" to add a project / remote.
             SidebarView::Projects => root
+                .child(self.render_search_entry(cx))
                 .child(self.render_projects_header(cx))
                 .child(
                     div()
@@ -2799,8 +2880,14 @@ impl Render for Sidebar {
                 )
                 .when(self.add_menu_open, |d| d.child(self.render_add_menu(cx)))
                 .into_any_element(),
-            SidebarView::Files => root.child(self.render_files_view(cx)).into_any_element(),
-            SidebarView::Search => root.child(self.render_search_view(cx)).into_any_element(),
+            SidebarView::Files => root
+                .child(self.render_header(cx))
+                .child(self.render_files_view(cx))
+                .into_any_element(),
+            SidebarView::Search => root
+                .child(self.render_header(cx))
+                .child(self.render_search_view(cx))
+                .into_any_element(),
         }
     }
 }

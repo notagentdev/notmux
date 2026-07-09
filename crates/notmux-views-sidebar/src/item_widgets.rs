@@ -235,6 +235,10 @@ pub fn sidebar_visibility_button(
     t: &ThemeColors,
 ) -> Stateful<Div> {
     icon_button(id, "icons/eye.svg", t)
+        // Rows are inset by mx(6) for the rounded highlight; pull the eye 6px
+        // into the right padding so it lines up in the same column as the
+        // section headers' "+" buttons (which have no mx inset).
+        .mr(px(-6.0))
         .opacity(0.0)
         .when(show_in_overview, |d| d.opacity(1.0))
         .group_hover(group_name, |s| s.opacity(1.0))
