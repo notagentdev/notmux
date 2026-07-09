@@ -476,6 +476,32 @@ fn notagent_config_dir() -> Option<PathBuf> {
     home_dir().map(|h| h.join(".notagent"))
 }
 
+/// Ensure `hooks_enabled = true` at the top level of a notagent `.notagent.toml`.
+/// notagent's hook system is gated on this global switch — when it's `false`,
+/// no `hooks.json` is read at all.
+fn ensure_notagent_hooks_enabled(existing: &str) -> String {
+    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
+    for line in lines.iter_mut() {
+        let t = line.trim_start();
+        if t.starts_with("hooks_enabled") && t.contains('=') {
+            *line = "hooks_enabled = true".to_string();
+            let mut out = lines.join("\n");
+            out.push('\n');
+            return out;
+        }
+    }
+    // Not present: insert as a top-level key before the first `[table]` header
+    // (a bare key appended after a table would be parsed as part of that table).
+    let insert_at = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .unwrap_or(lines.len());
+    lines.insert(insert_at, "hooks_enabled = true".to_string());
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
 /// Install notagent hooks. notagent uses the same hook format as Claude/Codex,
 /// but hooks are on by default with no trust step — so we simply write our
 /// events into `<config>/hooks.json`. Stdout is suppressed so `notify`'s JSON
@@ -519,6 +545,16 @@ pub fn install_notagent() -> Result<(), String> {
     );
     std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+
+    // Respect the global on/off switch: notagent ignores hooks.json entirely
+    // when `hooks_enabled = false`, so make sure it's enabled.
+    let config_toml = config_dir.join(".notagent.toml");
+    let existing_cfg = std::fs::read_to_string(&config_toml).unwrap_or_default();
+    let updated_cfg = ensure_notagent_hooks_enabled(&existing_cfg);
+    if updated_cfg != existing_cfg {
+        let _ = std::fs::write(&config_toml, updated_cfg);
+    }
+
     log::info!("Installed notagent hooks -> {}", hooks_path.display());
     Ok(())
 }
