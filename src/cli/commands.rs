@@ -484,6 +484,45 @@ pub fn cli_clear_notification(_args: &[String]) -> i32 {
         }
     }
 }
+/// `notmux agent-status <working|idle>` — set the current terminal's agent
+/// activity (drives the sidebar working spinner). Called by agent lifecycle hooks.
+pub fn cli_agent_status(args: &[String]) -> i32 {
+    let state = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let working = match state {
+        "working" | "busy" | "running" | "start" => true,
+        "idle" | "done" | "complete" | "stop" => false,
+        _ => {
+            eprintln!("Usage: notmux agent-status <working|idle>");
+            return 1;
+        }
+    };
+    let terminal_id = std::env::var("NOTMUX_TERMINAL_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let payload = serde_json::json!({
+        "action": "set_agent_activity",
+        "terminal_id": terminal_id,
+        "working": working,
+    });
+    match api_post("/v1/actions", &token, &payload.to_string()) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
 pub fn cli_whoami(args: &[String]) -> i32 {
     let json_mode = has_json_flag(args);
 

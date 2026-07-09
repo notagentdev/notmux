@@ -476,7 +476,7 @@ impl Sidebar {
         let t = theme(cx);
         let project_id = project_id.to_string();
         let terminal_id = terminal_id.to_string();
-let (terminal_name, has_bell, idle_label) = {
+let (terminal_name, has_bell, idle_label, agent_working) = {
             let ws = self.workspace.read(cx);
             let project = ws.project(&project_id);
             let terminals = self.terminals.lock();
@@ -491,6 +491,7 @@ let (terminal_name, has_bell, idle_label) = {
             };
             let bell = terminal.is_some_and(|t| t.has_bell());
             let waiting = terminal.is_some_and(|t| t.is_waiting_for_input());
+            let working = terminal.is_some_and(|t| t.agent_working());
             let idle = if bell {
                 terminal
                     .and_then(|t| t.last_notification())
@@ -509,7 +510,7 @@ let (terminal_name, has_bell, idle_label) = {
             } else {
                 None
             };
-            (name, bell, idle)
+            (name, bell, idle, working)
             };
 
         // Check if this terminal is being renamed
@@ -579,7 +580,25 @@ let (terminal_name, has_bell, idle_label) = {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(
+                    .child(if agent_working {
+                        // Rotating spinner while the agent is working a turn.
+                        svg()
+                            .path("icons/spinner.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.border_active))
+                            .with_animation(
+                                ElementId::Name(
+                                    format!("term-spinner-{}", terminal_id).into(),
+                                ),
+                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                                |svg, delta| {
+                                    svg.with_transformation(Transformation::rotate(
+                                        percentage(delta),
+                                    ))
+                                },
+                            )
+                            .into_any_element()
+                    } else {
                         svg()
                             .path(if has_bell {
                                 "icons/bell.svg"
@@ -595,8 +614,9 @@ let (terminal_name, has_bell, idle_label) = {
                                 rgb(t.text_muted)
                             } else {
                                 rgb(t.text_secondary)
-                            }),
-                    ),
+                            })
+                            .into_any_element()
+                    }),
             )
             .child(
                 // Terminal name (or input if renaming)

@@ -404,6 +404,9 @@ pub struct Terminal {
     title: Arc<Mutex<Option<String>>>,
     has_bell: Arc<Mutex<bool>>,
     last_notification: Arc<Mutex<Option<TerminalNotification>>>,
+    /// True while an agent (claude/codex/…) is actively working a turn, driven
+    /// by its hooks. Surfaces as a spinner in the sidebar list.
+    agent_working: Arc<Mutex<bool>>,
     pending_output: Mutex<Vec<u8>>,
     /// Rolling PTY byte stream used for persistent scrollback snapshots.
     ///
@@ -468,6 +471,7 @@ impl Terminal {
         let title = Arc::new(Mutex::new(None));
         let has_bell = Arc::new(Mutex::new(false));
         let last_notification = Arc::new(Mutex::new(None));
+        let agent_working = Arc::new(Mutex::new(false));
         let suppress_pty_responses = Arc::new(AtomicBool::new(false));
         let event_listener = ZedEventListener::new(
             title.clone(),
@@ -497,6 +501,7 @@ impl Terminal {
             title,
             has_bell,
             last_notification,
+            agent_working,
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
             restored_replay_buffer: Mutex::new(Vec::new()),
@@ -1284,6 +1289,16 @@ impl Terminal {
         *self.has_bell.lock() = true;
         // Mark dirty so the pane's dirty-check loop repaints the notification
         // ring/overlay even without further PTY output.
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether an agent is actively working a turn in this terminal.
+    pub fn agent_working(&self) -> bool {
+        *self.agent_working.lock()
+    }
+    /// Set the agent working state (driven by agent lifecycle hooks).
+    pub fn set_agent_working(&self, working: bool) {
+        *self.agent_working.lock() = working;
         self.dirty.store(true, Ordering::Relaxed);
     }
 

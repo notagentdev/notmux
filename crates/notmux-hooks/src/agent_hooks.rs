@@ -232,6 +232,10 @@ pub fn install_claude() -> Result<(), String> {
     let stop_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" || true"
     );
+    // Submitting a prompt marks the agent as working (drives the sidebar spinner)
+    // and clears any stale turn-complete notification.
+    let working_cmd =
+        format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working || true");
 
     let hooks = settings
         .as_object_mut()
@@ -243,6 +247,10 @@ pub fn install_claude() -> Result<(), String> {
     hooks_obj.insert(
         "Stop".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": stop_cmd }] }]),
+    );
+    hooks_obj.insert(
+        "UserPromptSubmit".to_string(),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": working_cmd }] }]),
     );
     // We only surface turn completion. Claude's `Notification` event also covers
     // the 60s idle "waiting for input" ping, which we deliberately ignore — so
@@ -335,15 +343,15 @@ pub fn install_codex() -> Result<(), String> {
     let stop_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Turn complete\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
-    let clear_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" clear-notification >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" agent-status working >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
 
     let hooks_path = codex_dir.join("hooks.json");
     let doc = serde_json::json!({
         "hooks": {
             "Stop": [{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
-            "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": clear_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
+            "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
         }
     });
     let hooks_content =
@@ -362,7 +370,7 @@ pub fn install_codex() -> Result<(), String> {
         ),
         (
             format!("{key_path}:user_prompt_submit:0:0"),
-            codex_hook_trust_hash("user_prompt_submit", &clear_cmd, CODEX_HOOK_TIMEOUT_MS),
+            codex_hook_trust_hash("user_prompt_submit", &working_cmd, CODEX_HOOK_TIMEOUT_MS),
         ),
     ];
 
@@ -458,6 +466,88 @@ pub fn uninstall_shell() -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve the notagent config dir: `$NOTAGENT_CONFIG` or `~/.notagent`.
+fn notagent_config_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("NOTAGENT_CONFIG")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
+    }
+    home_dir().map(|h| h.join(".notagent"))
+}
+
+/// Install notagent hooks. notagent uses the same hook format as Claude/Codex,
+/// but hooks are on by default with no trust step — so we simply write our
+/// events into `<config>/hooks.json`. Stdout is suppressed so `notify`'s JSON
+/// output can't be mistaken for a hook decision. Only runs if `~/.notagent`
+/// already exists.
+pub fn install_notagent() -> Result<(), String> {
+    let config_dir = notagent_config_dir().ok_or("HOME not set")?;
+    if !config_dir.exists() {
+        log::info!(
+            "notagent not set up ({} missing); skipping",
+            config_dir.display()
+        );
+        return Ok(());
+    }
+    let exe = notmux_binary();
+    let stop_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Turn complete\" >/dev/null 2>&1 || true"
+    );
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    let hooks_path = config_dir.join("hooks.json");
+    // Preserve any hooks the user already defined; only replace our two events.
+    let mut doc: serde_json::Value = std::fs::read_to_string(&hooks_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let hooks = doc
+        .as_object_mut()
+        .ok_or("hooks.json is not an object")?
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
+    hooks_obj.insert(
+        "Stop".to_string(),
+        serde_json::json!([{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": 10 }] }]),
+    );
+    hooks_obj.insert(
+        "UserPromptSubmit".to_string(),
+        serde_json::json!([{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": 10 }] }]),
+    );
+    std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
+        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+    log::info!("Installed notagent hooks -> {}", hooks_path.display());
+    Ok(())
+}
+
+/// Remove the notagent hooks written by [`install_notagent`].
+pub fn uninstall_notagent() -> Result<(), String> {
+    let config_dir = notagent_config_dir().ok_or("HOME not set")?;
+    let hooks_path = config_dir.join("hooks.json");
+    if let Ok(content) = std::fs::read_to_string(&hooks_path)
+        && let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        let exe = notmux_binary();
+        if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+            for key in ["Stop", "UserPromptSubmit"] {
+                if hooks_obj
+                    .get(key)
+                    .map(|v| v.to_string().contains(&exe))
+                    .unwrap_or(false)
+                {
+                    hooks_obj.remove(key);
+                }
+            }
+        }
+        let _ = std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap());
+    }
+    log::info!("Removed notagent hooks <- {}", config_dir.display());
+    Ok(())
+}
+
 /// Install all agent hooks. Returns a list of errors (empty on full success).
 pub fn install_all() -> Vec<String> {
     let mut errors = Vec::new();
@@ -465,6 +555,9 @@ pub fn install_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = install_codex() {
+        errors.push(e);
+    }
+    if let Err(e) = install_notagent() {
         errors.push(e);
     }
     if let Err(e) = install_shell() {
@@ -480,6 +573,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_codex() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_notagent() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {

@@ -873,12 +873,15 @@ pub fn execute_action(
             cx.refresh_windows();
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
+                    // A turn-complete notification means the agent is no longer working.
+                    term.set_agent_working(false);
                     term.set_notification(title.clone(), body.clone());
                     return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
             }
             for (_, term) in terminals.lock().iter() {
+                term.set_agent_working(false);
                 term.set_notification(title.clone(), body.clone());
             }
             ActionResult::Ok(Some(serde_json::json!({ "notified": "all", "title": title })))
@@ -897,6 +900,31 @@ pub fn execute_action(
                 term.clear_notification();
             }
             ActionResult::Ok(Some(serde_json::json!({ "cleared": "all" })))
+            }
+            ActionRequest::SetAgentActivity {
+            terminal_id,
+            working,
+        } => {
+            cx.notify();
+            cx.refresh_windows();
+            // Starting a turn clears any stale turn-complete notification.
+            let apply = |term: &Arc<Terminal>| {
+                term.set_agent_working(working);
+                if working {
+                    term.clear_notification();
+                }
+            };
+            if let Some(tid) = terminal_id {
+                if let Some(term) = terminals.lock().get(&tid) {
+                    apply(term);
+                    return ActionResult::Ok(Some(serde_json::json!({ "agent_working": working, "terminal": tid })));
+                }
+                return ActionResult::Err(format!("terminal not found: {}", tid));
+            }
+            for (_, term) in terminals.lock().iter() {
+                apply(term);
+            }
+            ActionResult::Ok(Some(serde_json::json!({ "agent_working": working, "terminal": "all" })))
             }
         ActionRequest::CreateWorktree {
             project_id,

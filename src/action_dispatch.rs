@@ -775,5 +775,12 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::ClearNotification { terminal_id } => ActionRequest::ClearNotification {
             terminal_id: terminal_id.as_ref().map(|t| s(t)),
         },
+        ActionRequest::SetAgentActivity {
+            terminal_id,
+            working,
+        } => ActionRequest::SetAgentActivity {
+            terminal_id: terminal_id.as_ref().map(|t| s(t)),
+            working,
+        },
         }
         }

@@ -427,6 +427,11 @@ pub enum ActionRequest {
         #[serde(default)]
         terminal_id: Option<String>,
     },
+    SetAgentActivity {
+        #[serde(default)]
+        terminal_id: Option<String>,
+        working: bool,
+    },
     }
 
 fn default_search_mode() -> String {

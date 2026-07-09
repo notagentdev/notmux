@@ -414,6 +414,9 @@ impl NotMux {
                 if let Err(e) = notmux_hooks::agent_hooks::install_codex() {
                     log::warn!("Codex hook install on startup: {e}");
                 }
+                if let Err(e) = notmux_hooks::agent_hooks::install_notagent() {
+                    log::warn!("notagent hook install on startup: {e}");
+                }
             }
         }
 

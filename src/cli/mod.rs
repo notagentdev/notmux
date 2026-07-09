@@ -34,6 +34,7 @@ pub fn try_handle_cli() -> Option<i32> {
         "service" => commands::cli_service(rest),
         "notify" => commands::cli_notify(rest),
         "clear-notification" => commands::cli_clear_notification(rest),
+        "agent-status" => commands::cli_agent_status(rest),
         "hooks" => hooks::cli_hooks(rest),
         "whoami" => commands::cli_whoami(rest),
         "--help" | "-h" | "help" => {
