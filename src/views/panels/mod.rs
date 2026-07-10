@@ -8,5 +8,6 @@
 pub mod hook_panel;
 pub mod project_column;
 pub mod sidebar;
+pub mod right_files;
 pub mod status_bar;
 pub mod toast;

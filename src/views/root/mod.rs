@@ -44,6 +44,13 @@ pub fn content_pane_registry() -> &'static ContentPaneRegistry {
     CONTENT_PANE_REGISTRY.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
 }
 
+/// Which view the tabbed right panel currently shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RightView {
+    Git,
+    Files,
+}
+
 /// Root view of the application
 pub struct RootView {
     workspace: Entity<Workspace>,
@@ -97,6 +104,17 @@ pub struct RootView {
     git_panel_ctrl: SidebarController,
     /// Project ID whose git log is shown in the git panel
     git_panel_project_id: Option<String>,
+    /// Which tab the right panel shows (Git commit log or the file explorer).
+    right_view: RightView,
+    /// Deferred window-move flag: set on title-bar mouse-down, consumed on the
+    /// next mouse-move to start a manual window drag (macOS uses is_movable=false
+    /// so tabs stay draggable; window moves go through start_window_move).
+    title_should_move: bool,
+    /// Per-project optimized file explorers shown in the right panel's Files
+    /// tab. Wired to RootView's request broker so file clicks open in the
+    /// central editor (`main_file_viewer`).
+    right_explorers:
+        HashMap<String, Entity<crate::views::panels::right_files::file_explorer::FileExplorer>>,
     /// Diff viewer shown in the central project area from the git changes list.
     main_diff_viewer: Option<Entity<notmux_views_git::diff_viewer::DiffViewer>>,
     /// File viewer shown in the central project area from the sidebar explorer.
@@ -265,6 +283,9 @@ impl RootView {
             pending_center_scroll: None,
             git_panel_ctrl,
             git_panel_project_id: None,
+            right_view: RightView::Git,
+            title_should_move: false,
+            right_explorers: HashMap::new(),
             main_diff_viewer: None,
             main_file_viewer: None,
             pending_git_internal_refresh: HashMap::new(),

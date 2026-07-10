@@ -19,7 +19,8 @@ fn collect_terminal_keys(
             let key = notmux_terminal::scrollback_snapshot::snapshot_key(slot_id);
             out.push((project_path.to_string(), key, tid.clone()));
         }
-        notmux_workspace::state::LayoutNode::Terminal { .. } => {}
+        notmux_workspace::state::LayoutNode::Terminal { .. }
+        | notmux_workspace::state::LayoutNode::Editor { .. } => {}
         notmux_workspace::state::LayoutNode::Split { children, .. }
         | notmux_workspace::state::LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
@@ -48,6 +49,7 @@ fn collect_terminal_snapshot_keys(
                 path.pop();
             }
         }
+        notmux_workspace::state::LayoutNode::Editor { .. } => {}
     }
 }
 

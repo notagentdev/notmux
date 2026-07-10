@@ -3,6 +3,7 @@ use crate::theme::theme;
 use crate::ui::tokens::ui_text_md;
 use crate::views::layout::split_pane::render_git_panel_divider;
 use crate::views::sidebar_controller::{AnimationTarget, FRAME_TIME_MS, SidebarController};
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 
 use super::RootView;
@@ -57,6 +58,64 @@ impl RootView {
                     .update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
                 cx.notify();
             }
+        }
+    }
+
+    /// Open the tabbed right panel to a specific view (opening it if closed).
+    pub(super) fn open_right_panel(&mut self, view: super::RightView, cx: &mut Context<Self>) {
+        self.right_view = view;
+        // The Git tab needs a bound project + an open commit log.
+        if view == super::RightView::Git {
+            let pid = self
+                .workspace
+                .read(cx)
+                .focus_manager
+                .focused_terminal_state()
+                .map(|f| f.project_id.clone())
+                .or_else(|| {
+                    self.workspace
+                        .read(cx)
+                        .visible_projects()
+                        .first()
+                        .map(|p| p.id.clone())
+                });
+            if let Some(pid) = pid {
+                self.git_panel_project_id = Some(pid.clone());
+                if let Some(col) = self.project_columns.get(&pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    gh.update(cx, |gh, cx| gh.open_commit_log(cx));
+                }
+            }
+        }
+        if !self.git_panel_ctrl.is_open() {
+            let target = self.git_panel_ctrl.toggle();
+            settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(true, cx));
+            self.title_bar
+                .update(cx, |tb, cx| tb.set_git_panel_open(true, cx));
+            self.animate_git_panel_to(target, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    /// Close the tabbed right panel.
+    pub(super) fn close_right_panel(&mut self, cx: &mut Context<Self>) {
+        if self.git_panel_ctrl.is_open() {
+            let target = self.git_panel_ctrl.toggle();
+            settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(false, cx));
+            self.title_bar
+                .update(cx, |tb, cx| tb.set_git_panel_open(false, cx));
+            self.animate_git_panel_to(target, cx);
+        }
+    }
+
+    /// Toggle a right-panel tab: open+activate it, or close if it's already the
+    /// active view.
+    pub(super) fn toggle_right_panel(&mut self, view: super::RightView, cx: &mut Context<Self>) {
+        if self.git_panel_ctrl.is_open() && self.right_view == view {
+            self.close_right_panel(cx);
+        } else {
+            self.open_right_panel(view, cx);
         }
     }
 
@@ -119,7 +178,7 @@ impl RootView {
         let configured_width = self.git_panel_ctrl.width();
         let t = theme(cx);
 
-        let content: AnyElement = if has_content {
+        let git_content: AnyElement = if has_content {
             let pid = self
                 .git_panel_project_id
                 .clone()
@@ -144,6 +203,74 @@ impl RootView {
                 .into_any_element()
         };
 
+        // Body switches on the active right-panel tab.
+        let body: AnyElement = match self.right_view {
+            super::RightView::Git => git_content,
+            super::RightView::Files => self.render_right_files_tab(cx),
+        };
+
+        // One tab (icon + label) in the right-panel tab bar.
+        let render_tab = |this: &Self,
+                          view: super::RightView,
+                          icon: &'static str,
+                          label: &'static str,
+                          cx: &mut Context<Self>| {
+            let is_active = this.right_view == view;
+            let fg = if is_active { t.text_primary } else { t.text_muted };
+            div()
+                .id(label)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(10.0))
+                .h(px(26.0))
+                .rounded_md()
+                .cursor_pointer()
+                .when(is_active, |d| d.bg(rgb(t.bg_hover)))
+                .when(!is_active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+                .child(svg().path(icon).size(px(13.0)).text_color(rgb(fg)))
+                .child(
+                    div()
+                        .text_size(ui_text_md(cx))
+                        .text_color(rgb(fg))
+                        .child(label),
+                )
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.right_view = view;
+                    cx.notify();
+                }))
+        };
+
+        // Tab bar at the top (42px, aligned with the title-bar overlay). Right
+        // pad clears the git/settings controls floating over the top-right.
+        let tab_bar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
+            .h(px(42.0))
+            .flex_shrink_0()
+            .pl(px(8.0))
+            .pr(px(76.0))
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .child(render_tab(
+                self,
+                super::RightView::Git,
+                "icons/git-branch.svg",
+                "Git",
+                cx,
+            ))
+            .child(render_tab(
+                self,
+                super::RightView::Files,
+                "icons/folder.svg",
+                "Files",
+                cx,
+            ));
+
         let panel_container = div()
             .id("git-panel-container")
             .h_full()
@@ -151,7 +278,10 @@ impl RootView {
             .bg(rgb(t.bg_secondary))
             .overflow_hidden()
             .flex_shrink_0()
-            .child(div().w(px(configured_width)).h_full().child(content));
+            .flex()
+            .flex_col()
+            .child(tab_bar)
+            .child(div().w(px(configured_width)).flex_1().min_h_0().child(body));
 
         div()
             .id("git-panel-wrapper")
@@ -160,6 +290,60 @@ impl RootView {
             .flex_shrink_0()
             .child(render_git_panel_divider(&self.active_drag, cx))
             .child(panel_container)
+            .into_any_element()
+    }
+
+    /// Render the Files tab: the focused project's optimized file explorer,
+    /// wired to RootView's request broker so a file click opens the central
+    /// editor (`main_file_viewer`) rather than a viewer inside this panel.
+    fn render_right_files_tab(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let proj = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager
+                .focused_terminal_state()
+                .map(|f| f.project_id)
+                .and_then(|pid| ws.project(&pid).map(|p| (pid, p.path.clone())))
+                .or_else(|| {
+                    ws.visible_projects()
+                        .first()
+                        .map(|p| (p.id.clone(), p.path.clone()))
+                })
+        };
+        let Some((pid, path)) = proj else {
+            let t = theme(cx);
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(ui_text_md(cx))
+                .text_color(rgb(t.text_muted))
+                .child("No project")
+                .into_any_element();
+        };
+        if !self.right_explorers.contains_key(&pid) {
+            let broker = self.request_broker.clone();
+            let explorer = cx.new({
+                let pid = pid.clone();
+                move |cx| {
+                    crate::views::panels::right_files::file_explorer::FileExplorer::new(
+                        pid,
+                        std::path::PathBuf::from(&path),
+                        broker,
+                        cx,
+                    )
+                }
+            });
+            cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
+            self.right_explorers.insert(pid.clone(), explorer);
+        }
+        let explorer = self
+            .right_explorers
+            .get(&pid)
+            .cloned()
+            .expect("just inserted");
+        AnyView::from(explorer)
+            .cached(StyleRefinement::default().size_full())
             .into_any_element()
     }
 

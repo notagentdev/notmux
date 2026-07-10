@@ -1637,99 +1637,6 @@ impl Sidebar {
         }
     }
 
-    /// Top header bar — only contains the buttons that switch between
-    /// the panel's sub-views (Projects / Files / Search).
-    fn render_view_switcher(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = theme(cx);
-        let is_files = self.view == SidebarView::Files;
-        let is_search = self.view == SidebarView::Search;
-        let monochrome_icons = self.sidebar_settings(cx).monochrome_icons;
-        let transparent = self.sidebar_settings(cx).transparent_background;
-        let tab_icon_color = if monochrome_icons {
-            t.text_primary
-        } else {
-            0xffffff
-        };
-        h_flex()
-            .h(px(34.0))
-            .px(px(8.0))
-            .gap(px(2.0))
-            .items_center()
-            .border_b_1()
-            .border_color(rgb(t.border))
-            .bg(if transparent { with_alpha(t.bg_header, 0.3) } else { with_alpha(t.bg_header, 1.0) })
-            // View toggle: Projects
-            .child(
-                div()
-                    .id("sidebar-view-projects")
-                    .cursor_pointer()
-                    .w(px(28.0))
-                    .h(px(24.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                    .when(self.view == SidebarView::Projects, |d| {
-                        d.bg(rgb(t.bg_hover))
-                    })
-                    .child(
-                        svg()
-                            .path("icons/terminal.svg")
-                            .size(px(14.0))
-                            .text_color(rgb(tab_icon_color)),
-                    )
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.set_view(SidebarView::Projects, cx);
-                    })),
-            )
-            // View toggle: Files
-            .child(
-                div()
-                    .id("sidebar-view-files")
-                    .cursor_pointer()
-                    .w(px(28.0))
-                    .h(px(24.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                    .when(is_files, |d| d.bg(rgb(t.bg_hover)))
-                    .child(
-                        svg()
-                            .path("icons/folder.svg")
-                            .size(px(14.0))
-                            .text_color(rgb(tab_icon_color)),
-                    )
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.set_view(SidebarView::Files, cx);
-                    })),
-            )
-            // View toggle: Search
-            .child(
-                div()
-                    .id("sidebar-view-search")
-                    .cursor_pointer()
-                    .w(px(28.0))
-                    .h(px(24.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.0))
-                    .hover(|s| s.bg(rgb(t.bg_hover)))
-                    .when(is_search, |d| d.bg(rgb(t.bg_hover)))
-                    .child(
-                        svg()
-                            .path("icons/search.svg")
-                            .size(px(14.0))
-                            .text_color(rgb(tab_icon_color)),
-                    )
-                    .on_click(cx.listener(|this, _, _window, cx| {
-                        this.set_view(SidebarView::Search, cx);
-                    })),
-            )
-    }
 
     /// Section header below the switcher: "WORKSPACES" / "FILES" / "SEARCH"
     /// left, and the add menu action on the right (only for the Projects view).
@@ -2860,8 +2767,7 @@ impl Render for Sidebar {
             .on_action(cx.listener(Self::handle_sidebar_down))
             .on_action(cx.listener(Self::handle_sidebar_confirm))
             .on_action(cx.listener(Self::handle_sidebar_toggle_expand))
-            .on_action(cx.listener(Self::handle_sidebar_escape))
-            .child(self.render_view_switcher(cx));
+            .on_action(cx.listener(Self::handle_sidebar_escape));
 
         match self.view {
             // Projects view: no "WORKSPACES" header row — the PROJECTS and REMOTE

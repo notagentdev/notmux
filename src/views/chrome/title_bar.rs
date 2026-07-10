@@ -3,14 +3,12 @@ use crate::keybindings::{
     ToggleSidebar,
 };
 use crate::theme::theme;
-use crate::ui::tokens::{ui_text, ui_text_sm, ui_text_xl};
+use crate::ui::tokens::{ui_text, ui_text_sm};
 use crate::views::components::menu_item;
 use crate::workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
-
-const MAX_PROJECT_NAME_LENGTH: usize = 40;
 
 /// Window control button types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +25,6 @@ pub struct TitleBar {
     menu_open: bool,
     sidebar_open: bool,
     git_panel_open: bool,
-    workspace: Entity<Workspace>,
     action_focus_handle: Option<FocusHandle>,
     _workspace_subscription: Subscription,
     /// Flag for Linux compositor-driven window move (set on mouse-down, consumed on mouse-move)
@@ -47,7 +44,6 @@ impl TitleBar {
             menu_open: false,
             sidebar_open: true,
             git_panel_open: false,
-            workspace,
             action_focus_handle: None,
             _workspace_subscription: subscription,
             #[cfg(target_os = "linux")]
@@ -57,41 +53,6 @@ impl TitleBar {
 
     pub fn set_action_focus_handle(&mut self, focus_handle: FocusHandle) {
         self.action_focus_handle = Some(focus_handle);
-    }
-
-    fn focused_project_name(&self, cx: &App) -> Option<SharedString> {
-        let workspace = self.workspace.read(cx);
-        let id = workspace.focused_project_id()?;
-        let project = workspace.project(id)?;
-        let name = &project.name;
-        let display = if name.chars().count() > MAX_PROJECT_NAME_LENGTH {
-            let truncated: String = name.chars().take(MAX_PROJECT_NAME_LENGTH).collect();
-            format!("{truncated}…")
-        } else {
-            name.clone()
-        };
-        Some(SharedString::from(display))
-    }
-
-    fn render_project_chip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let name = self.focused_project_name(cx)?;
-        let t = theme(cx);
-        Some(
-            div()
-                .id("title-bar-project-name")
-                .flex()
-                .items_center()
-                .px(px(8.0))
-                .py(px(2.0))
-                .rounded(px(4.0))
-                .text_size(ui_text_sm(cx))
-                .text_color(rgb(t.text_primary))
-                .hover(|s| s.opacity(0.85))
-                .child(name)
-                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                    cx.stop_propagation();
-                }),
-        )
     }
 
     pub fn set_sidebar_open(&mut self, open: bool, cx: &mut Context<Self>) {
@@ -354,243 +315,131 @@ impl TitleBar {
     }
 }
 
-impl Render for TitleBar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl TitleBar {
+    /// Left cluster overlay (top-left): sidebar toggle (+ app menu on non-macOS),
+    /// after the traffic-light padding. Rendered by RootView as its own corner
+    /// overlay so nothing covers the tab region in the middle.
+    pub fn render_left_cluster(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let t = theme(cx);
+        let traffic_light_padding = if cfg!(target_os = "macos") {
+            px(80.0)
+        } else {
+            px(8.0)
+        };
+        h_flex()
+            .h(px(42.0))
+            .items_center()
+            .gap(px(4.0))
+            .pl(traffic_light_padding)
+            .window_control_area(WindowControlArea::Drag)
+            .child(self.render_panel_toggle_button(
+                "tb-toggle-sidebar",
+                "icons/layout-sidebar-left.svg",
+                "icons/layout-sidebar-left-off.svg",
+                self.sidebar_open,
+                Box::new(ToggleSidebar),
+                cx,
+            ))
+            .when(!cfg!(target_os = "macos"), |d| {
+                d.child({
+                    let menu_open = self.menu_open;
+                    let chevron = if menu_open { "▲" } else { "▼" };
+                    div()
+                        .id("app-menu-trigger")
+                        .cursor_pointer()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .rounded(px(4.0))
+                        .hover(|s| s.opacity(0.85))
+                        .child(
+                            div()
+                                .text_size(ui_text(13.0, cx))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(rgb(t.text_primary))
+                                .child(self.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(ui_text(8.0, cx))
+                                .text_color(rgb(t.text_muted))
+                                .child(chevron),
+                        )
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            cx.stop_propagation();
+                            this.toggle_menu(cx);
+                        }))
+                })
+            })
+    }
+
+    /// Right cluster overlay (top-right): git-panel toggle + settings + native
+    /// window controls.
+    pub fn render_right_cluster(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let is_maximized = window.is_maximized();
-        let action_focus_handle = self.action_focus_handle.clone();
-        // On Windows, always show custom window controls since we use a custom titlebar
-        // On macOS, use native traffic lights (server decorations)
-        // On Linux, check runtime decorations
         let needs_controls = if cfg!(target_os = "windows") {
             true
         } else if cfg!(target_os = "macos") {
             false
         } else {
-            // Linux: check runtime decorations
             matches!(window.window_decorations(), Decorations::Client { .. })
         };
-
-        // On macOS with server decorations, we need to leave space for traffic lights
-        let traffic_light_padding = if cfg!(target_os = "macos") {
-            px(80.0) // Space for macOS traffic lights (close, minimize, fullscreen)
-        } else {
-            px(8.0)
-        };
-
-        // On macOS, the title bar only provides space for traffic lights (no content)
-        let title_bar_height = px(42.0);
-
-        div()
-            .id("title-bar")
-            .h(title_bar_height)
-            .w_full()
-            .flex_shrink_0()
-            .flex()
+        h_flex()
+            .h(px(42.0))
+            .gap(px(4.0))
+            .pr(px(4.0))
             .items_center()
-            .justify_between()
-            .bg(rgb(t.bg_header))
-            .border_b_1()
-            .border_color(rgb(t.border))
-            // Mark titlebar as drag region - GPUI maps this to HTCAPTION on Windows
-            // (enabling native snap gestures, unmaximize-on-drag) and platform-native
-            // drag on other platforms.
             .window_control_area(WindowControlArea::Drag)
-            // On Linux, WindowControlArea::Drag is a no-op (GPUI doesn't wire
-            // the hit-test callback), so use a mouse-down → mouse-move pattern
-            // to start a compositor-native window move. The move is deferred to
-            // mouse-move so that double-click to maximize still works.
-            .when(cfg!(target_os = "linux"), |d| {
-                d.on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _cx| {
-                        #[cfg(target_os = "linux")]
-                        {
-                            this.should_move = true;
-                        }
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            let _ = this;
-                        }
-                    }),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _cx| {
-                        #[cfg(target_os = "linux")]
-                        {
-                            this.should_move = false;
-                        }
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            let _ = this;
-                        }
-                    }),
-                )
-                .on_mouse_move(cx.listener(|this, _, window, _cx| {
-                    #[cfg(target_os = "linux")]
-                    if this.should_move {
-                        this.should_move = false;
-                        window.start_window_move();
-                    }
-                    #[cfg(not(target_os = "linux"))]
-                    {
-                        let _ = (this, window);
-                    }
-                }))
-                .on_click(|event: &ClickEvent, window, _| {
-                    if event.click_count() == 2 {
-                        window.zoom_window();
-                    }
-                })
-            })
-            .child(
-                // Left side - sidebar toggle + title
-                h_flex()
-                    .h_full()
-                    .items_center()
-                    .gap(px(8.0))
-                    .pl(traffic_light_padding)
-                    // On macOS, sidebar toggle lives in the sidebar footer instead
-                    .when(!cfg!(target_os = "macos"), |d| {
-                        d.child(
-                            // Sidebar toggle
-                            div()
-                                .cursor_pointer()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(4.0))
-                                .hover(|s| s.opacity(0.85))
-                                .text_size(ui_text_xl(cx))
-                                .text_color(rgb(if self.sidebar_open {
-                                    t.text_primary
-                                } else {
-                                    t.text_muted
-                                }))
-                                .child("☰")
-                                .id("sidebar-toggle")
-                                // Stop propagation to prevent title bar drag from capturing the click
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                    cx.stop_propagation();
-                                })
-                                .on_click(move |_, window, cx| {
-                                    cx.stop_propagation();
-                                    if let Some(focus_handle) = action_focus_handle.as_ref() {
-                                        window.focus(focus_handle, cx);
-                                    }
-                                    window.dispatch_action(Box::new(ToggleSidebar), cx);
-                                }),
-                        )
-                    })
-                    // On macOS, app menu items live in the native menu bar
-                    .when(!cfg!(target_os = "macos"), |d| {
-                        d.child({
-                            let menu_open = self.menu_open;
-                            let chevron = if menu_open { "▲" } else { "▼" };
-                            div()
-                                .id("app-menu-trigger")
-                                .cursor_pointer()
-                                .flex()
-                                .items_center()
-                                .gap(px(4.0))
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(4.0))
-                                .hover(|s| s.opacity(0.85))
-                                .child(
-                                    div()
-                                        .text_size(ui_text(13.0, cx))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(rgb(t.text_primary))
-                                        .child(self.title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(ui_text(8.0, cx))
-                                        .text_color(rgb(t.text_muted))
-                                        .child(chevron),
-                                )
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                    cx.stop_propagation();
-                                })
-                                .on_click(cx.listener(|this, _, _window, cx| {
-                                    cx.stop_propagation();
-                                    this.toggle_menu(cx);
-                                }))
+            .child(self.render_panel_toggle_button(
+                "tb-toggle-git-panel",
+                "icons/layout-sidebar-right.svg",
+                "icons/layout-sidebar-right-off.svg",
+                self.git_panel_open,
+                Box::new(ToggleGitPanel),
+                cx,
+            ))
+            .child(self.render_action_button(
+                "tb-settings",
+                "icons/settings-gear.svg",
+                false,
+                Box::new(ShowSettings),
+                cx,
+            ))
+            .when(needs_controls, |d| {
+                d.child(
+                    h_flex()
+                        .ml(px(4.0))
+                        .gap(px(2.0))
+                        .child(self.render_window_control(WindowControlType::Minimize, window, cx))
+                        .child(if is_maximized {
+                            self.render_window_control(WindowControlType::Restore, window, cx)
+                                .into_any_element()
+                        } else {
+                            self.render_window_control(WindowControlType::Maximize, window, cx)
+                                .into_any_element()
                         })
-                    })
-                    .children(self.render_project_chip(cx)),
-            )
-            .child(
-                // Center — flexible draggable spacer. Search now opens from the
-                // sidebar's Search entry (command palette), not a titlebar field.
-                div().h_full().flex_1(),
-            )
-            .child(
-                // Right side — panel toggles + settings + native window controls
-                h_flex()
-                    .h_full()
-                    .gap(px(4.0))
-                    .pr(px(4.0))
-                    .items_center()
-                    // Left sidebar toggle
-                    .child(self.render_panel_toggle_button(
-                        "tb-toggle-sidebar",
-                        "icons/layout-sidebar-left.svg",
-                        "icons/layout-sidebar-left-off.svg",
-                        self.sidebar_open,
-                        Box::new(ToggleSidebar),
-                        cx,
-                    ))
-                    // Right git panel toggle
-                    .child(self.render_panel_toggle_button(
-                        "tb-toggle-git-panel",
-                        "icons/layout-sidebar-right.svg",
-                        "icons/layout-sidebar-right-off.svg",
-                        self.git_panel_open,
-                        Box::new(ToggleGitPanel),
-                        cx,
-                    ))
-                    // Settings (far right, before window controls)
-                    .child(self.render_action_button(
-                        "tb-settings",
-                        "icons/settings-gear.svg",
-                        false,
-                        Box::new(ShowSettings),
-                        cx,
-                    ))
-                    .when(needs_controls, |d| {
-                        d.child(
-                            h_flex()
-                                .ml(px(4.0))
-                                .gap(px(2.0))
-                                .child(self.render_window_control(
-                                    WindowControlType::Minimize,
-                                    window,
-                                    cx,
-                                ))
-                                .child(if is_maximized {
-                                    self.render_window_control(
-                                        WindowControlType::Restore,
-                                        window,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                } else {
-                                    self.render_window_control(
-                                        WindowControlType::Maximize,
-                                        window,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                })
-                                .child(self.render_window_control(
-                                    WindowControlType::Close,
-                                    window,
-                                    cx,
-                                )),
-                        )
-                    }),
-            )
+                        .child(self.render_window_control(WindowControlType::Close, window, cx)),
+                )
+            })
+    }
+}
+
+impl Render for TitleBar {
+    #[allow(unused_variables)]
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
     }
 }

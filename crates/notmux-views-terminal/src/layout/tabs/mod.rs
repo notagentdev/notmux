@@ -110,7 +110,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .flex_none()
             .items_center()
             .gap(px(2.0))
-            .px(px(4.0))
+            .pl(px(4.0))
+            // Right reserve so the top-right pane's buttons shift left, clear of
+            // window controls / title-bar chrome floating over them (0 by default).
+            .pr(px(4.0 + crate::tab_action_right_reserve_for(&self.layout_path, cx)))
             .child(
                 header_button_base(
                     HeaderAction::SplitVertical,
@@ -434,6 +437,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     _ => None,
                 };
 
+                let editor_file = match child {
+                    LayoutNode::Editor { file_path, .. } => Some(file_path.clone()),
+                    _ => None,
+                };
+
                 let (is_waiting, idle_label) = terminal_id.as_ref().map_or((false, None), |tid| {
                     let guard = terminals.lock();
                     guard.get(tid).map_or((false, None), |t| {
@@ -454,7 +462,13 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         .is_some_and(|p| p.hook_terminals.contains_key(tid))
                 });
 
-                let tab_label = if let Some(ref tid) = terminal_id {
+                let tab_label = if let Some(ref fp) = editor_file {
+                    std::path::Path::new(fp)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(fp)
+                        .to_string()
+                } else if let Some(ref tid) = terminal_id {
                     if let Some(ref p) = project_for_names {
                         let osc_title = terminals.lock().get(tid).and_then(|t| t.title());
                         p.terminal_display_name(tid, osc_title)
@@ -700,7 +714,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             cx.stop_propagation();
                         })
                     })
-                    .when_some(terminal_id.clone(), |el, tid| {
+                    // Draggable for terminals *and* editors — the reorder drop
+                    // keys off `layout_path`, so editor tabs move the same way.
+                    .when(terminal_id.is_some() || editor_file.is_some(), |el| {
                         let terminal_path = if standalone {
                             layout_path_for_drag.clone()
                         } else {
@@ -712,7 +728,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             PaneDrag {
                                 project_id: project_id_for_drag.clone(),
                                 layout_path: terminal_path,
-                                terminal_id: tid,
+                                terminal_id: terminal_id.clone().unwrap_or_default(),
                                 terminal_name: tab_label.clone(),
                             },
                             move |drag, _position, _window, cx| {
@@ -851,6 +867,30 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 }
             }));
 
+        // The empty filler behind the tabs doubles as a window-drag handle, but
+        // only when this tab strip actually sits at the window's top edge (i.e. it
+        // is part of the title-bar region). Inner panes lower down must not move
+        // the whole window. We read the last painted container origin: top-row
+        // strips render at y≈0, everything else below the 42px title bar.
+        let bar_at_window_top = self.container_bounds_ref.borrow().origin.y < px(6.0);
+        if bar_at_window_top {
+            end_drop_zone = end_drop_zone
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| this.title_should_move = true),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| this.title_should_move = false),
+                )
+                .on_mouse_move(cx.listener(|this, _, window, _| {
+                    if this.title_should_move {
+                        this.title_should_move = false;
+                        window.start_window_move();
+                    }
+                }));
+        }
+
         if !standalone {
             let active_drag_for_end_hover = self.active_drag.clone();
             let active_drag_for_end_drop = self.active_drag.clone();
@@ -943,13 +983,25 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let project_id_for_header = self.project_id.clone();
         let layout_path_for_header = self.layout_path.clone();
 
+        // Left reserve applies only to the top-left pane's bar (the one whose
+        // strip touches the window's left edge — an all-zero layout path), so
+        // its first tab clears chrome floating over it (0 by default).
+        let left_reserve = if self.layout_path.iter().all(|&i| i == 0) {
+            crate::tab_action_left_reserve(cx)
+        } else {
+            0.0
+        };
+
         div()
             .group("tab-bar-row")
             .flex_shrink_0()
-            .h(px(32.0))
-            .px(px(0.0))
+            // Height from the host so the tab strip centers with a taller
+            // title-bar overlay floating over it (defaults to 32).
+            .h(px(crate::tab_bar_height(cx)))
+            .pl(px(left_reserve))
+            .pr(px(0.0))
             .flex()
-            .items_stretch()
+            .items_center()
             .gap(px(0.0))
             .relative()
             .border_t_1()

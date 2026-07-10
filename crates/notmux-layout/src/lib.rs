@@ -46,6 +46,14 @@ pub enum LayoutNode {
         #[serde(default)]
         active_tab: usize,
     },
+    /// A file/code editor leaf — a draggable tab in the middle panel, moved and
+    /// split exactly like a `Terminal` leaf.
+    Editor {
+        #[serde(default = "default_slot_id")]
+        slot_id: String,
+        #[serde(default)]
+        file_path: String,
+    },
 }
 
 impl LayoutNode {
@@ -57,6 +65,7 @@ impl LayoutNode {
                 detached,
                 ..
             } => *minimized || *detached,
+            LayoutNode::Editor { .. } => false,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.iter().all(|c| c.is_all_hidden())
             }
@@ -76,6 +85,7 @@ impl LayoutNode {
                     child.replace_terminal_id(old_id, new_id);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -88,6 +98,35 @@ impl LayoutNode {
             detached: false,
             shell_type: ShellType::Default,
             zoom_level: 1.0,
+        }
+    }
+
+    /// Create a new editor node for a file path.
+    pub fn new_editor(file_path: impl Into<String>) -> Self {
+        LayoutNode::Editor {
+            slot_id: default_slot_id(),
+            file_path: file_path.into(),
+        }
+    }
+
+    /// Collect (slot_id, file_path) for every editor leaf in this tree.
+    pub fn collect_editors(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        self.collect_editors_recursive(&mut out);
+        out
+    }
+
+    fn collect_editors_recursive(&self, out: &mut Vec<(String, String)>) {
+        match self {
+            LayoutNode::Editor {
+                slot_id, file_path, ..
+            } => out.push((slot_id.clone(), file_path.clone())),
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for c in children {
+                    c.collect_editors_recursive(out);
+                }
+            }
+            LayoutNode::Terminal { .. } => {}
         }
     }
 
@@ -124,7 +163,7 @@ impl LayoutNode {
         }
 
         match self {
-            LayoutNode::Terminal { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.get(path[0])?.get_at_path(&path[1..])
             }
@@ -138,7 +177,7 @@ impl LayoutNode {
         }
 
         match self {
-            LayoutNode::Terminal { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.get_mut(path[0])?.get_at_path_mut(&path[1..])
             }
@@ -164,6 +203,7 @@ impl LayoutNode {
                     child.collect_terminal_ids_recursive(ids);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -189,6 +229,7 @@ impl LayoutNode {
                     child.clear_terminal_ids_except(keep);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -222,6 +263,7 @@ impl LayoutNode {
                     .iter()
                     .find_map(|child| child.find_terminal_slot_id(target_id))
             }
+            LayoutNode::Editor { .. } => None,
         }
     }
 
@@ -250,6 +292,7 @@ impl LayoutNode {
                 }
                 None
             }
+            LayoutNode::Editor { .. } => None,
         }
     }
 
@@ -286,6 +329,7 @@ impl LayoutNode {
                     child.collect_inactive_tabs_recursive(result, inactive);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -315,6 +359,7 @@ impl LayoutNode {
                     child.collect_tab_group_recursive(result, is_group || inside_tab_group);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -326,7 +371,7 @@ impl LayoutNode {
             return;
         }
         match self {
-            LayoutNode::Terminal { .. } => {}
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
             LayoutNode::Split { children, .. } => {
                 if let Some(child) = children.get_mut(path[0]) {
                     child.activate_tabs_along_path(&path[1..]);
@@ -373,6 +418,7 @@ impl LayoutNode {
                     child.collect_minimized_recursive(result, child_path);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -405,6 +451,7 @@ impl LayoutNode {
                     child.collect_detached_recursive(result, child_path);
                 }
             }
+            LayoutNode::Editor { .. } => {}
         }
     }
 
@@ -421,7 +468,7 @@ impl LayoutNode {
             LayoutNode::Terminal {
                 terminal_id: None, ..
             } => Some(current_path),
-            LayoutNode::Terminal { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 for (i, child) in children.iter().enumerate() {
                     let mut child_path = current_path.clone();
@@ -458,7 +505,7 @@ impl LayoutNode {
         follow_active_tab: bool,
     ) -> Vec<usize> {
         match self {
-            LayoutNode::Terminal { .. } => current_path,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => current_path,
             LayoutNode::Split { children, .. } => {
                 if let Some(first_child) = children.first() {
                     let mut child_path = current_path;
@@ -503,7 +550,7 @@ impl LayoutNode {
         let parent = self.get_at_path_mut(parent_path)?;
 
         match parent {
-            LayoutNode::Terminal { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
             LayoutNode::Split {
                 children, sizes, ..
             } => {
@@ -546,7 +593,7 @@ impl LayoutNode {
     /// - Remove empty containers
     pub fn normalize(&mut self) {
         match self {
-            LayoutNode::Terminal { .. } => return,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => return,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 for child in children.iter_mut() {
                     child.normalize();
@@ -663,6 +710,10 @@ impl LayoutNode {
                 detached: false,
                 shell_type: shell_type.clone(),
                 zoom_level: *zoom_level,
+            },
+            LayoutNode::Editor { file_path, .. } => LayoutNode::Editor {
+                slot_id: default_slot_id(),
+                file_path: file_path.clone(),
             },
             LayoutNode::Split {
                 direction,
@@ -901,6 +952,12 @@ impl LayoutNode {
                 terminal_id: terminal_id.clone(),
                 minimized: *minimized,
                 detached: *detached,
+            },
+            // Editors are local-only; remote clients see an empty placeholder.
+            LayoutNode::Editor { .. } => notmux_core::api::ApiLayoutNode::Terminal {
+                terminal_id: None,
+                minimized: false,
+                detached: false,
             },
             LayoutNode::Split {
                 direction,

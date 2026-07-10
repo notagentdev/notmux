@@ -165,3 +165,84 @@ pub fn toast_error(msg: String, cx: &mut gpui::App) {
         log::error!("{}", msg);
     }
 }
+
+// --- Title-bar overlay reserves -------------------------------------------
+// When the host renders a transparent title-bar overlay on top of the tab bars
+// (macOS traffic lights + toggles on the left, window controls on the right),
+// the pane touching that edge must inset its tabs/buttons so they aren't
+// covered. These globals let the host set that inset per edge; the tab bar
+// applies them only to the edge pane. All default to 0 (no change).
+
+/// Right space (px) reserved at the end of the top-right pane's action buttons.
+#[derive(Clone, Copy, Default)]
+pub struct TabActionRightReserve(pub f32);
+impl gpui::Global for TabActionRightReserve {}
+
+pub fn tab_action_right_reserve(cx: &gpui::App) -> f32 {
+    cx.try_global::<TabActionRightReserve>()
+        .map(|r| r.0)
+        .unwrap_or(0.0)
+}
+
+pub fn set_tab_action_right_reserve(reserve: f32, cx: &mut gpui::App) {
+    cx.set_global(TabActionRightReserve(reserve));
+}
+
+/// Layout path of the pane whose tab bar carries the right reserve (the pane at
+/// the top-right corner). `None` applies it to every pane's bar.
+#[derive(Clone, Default)]
+pub struct TabActionRightReservePath(pub Option<Vec<usize>>);
+impl gpui::Global for TabActionRightReservePath {}
+
+/// The right reserve (px) that applies to the tab bar at `layout_path`.
+pub fn tab_action_right_reserve_for(layout_path: &[usize], cx: &gpui::App) -> f32 {
+    let applies = cx
+        .try_global::<TabActionRightReservePath>()
+        .and_then(|p| p.0.as_deref())
+        .is_none_or(|path| path == layout_path);
+    if applies {
+        tab_action_right_reserve(cx)
+    } else {
+        0.0
+    }
+}
+
+pub fn set_tab_action_right_reserve_path(path: Option<Vec<usize>>, cx: &mut gpui::App) {
+    cx.set_global(TabActionRightReservePath(path));
+}
+
+/// Left space (px) reserved at the start of the top-left pane's tab bar.
+#[derive(Clone, Copy, Default)]
+pub struct TabActionLeftReserve(pub f32);
+impl gpui::Global for TabActionLeftReserve {}
+
+pub fn tab_action_left_reserve(cx: &gpui::App) -> f32 {
+    cx.try_global::<TabActionLeftReserve>()
+        .map(|r| r.0)
+        .unwrap_or(0.0)
+}
+
+pub fn set_tab_action_left_reserve(reserve: f32, cx: &mut gpui::App) {
+    cx.set_global(TabActionLeftReserve(reserve));
+}
+
+/// Height (px) of the terminal tab bar. The host raises it so the tab strip
+/// vertically centers with a taller title-bar overlay floating over it.
+/// Defaults to 32 (notmux standalone).
+#[derive(Clone, Copy)]
+pub struct TabBarHeight(pub f32);
+impl gpui::Global for TabBarHeight {}
+impl Default for TabBarHeight {
+    fn default() -> Self {
+        Self(32.0)
+    }
+}
+
+pub fn tab_bar_height(cx: &gpui::App) -> f32 {
+    cx.try_global::<TabBarHeight>().map(|h| h.0).unwrap_or(32.0)
+}
+
+pub fn set_tab_bar_height(height: f32, cx: &mut gpui::App) {
+    cx.set_global(TabBarHeight(height));
+}
+

@@ -172,6 +172,71 @@ impl Workspace {
         self.set_focused_terminal(project_id.to_string(), new_path, cx);
     }
 
+    /// Open a file as a new editor tab next to the node at `path` (mirrors
+    /// `add_tab`, but inserts an `Editor` leaf instead of a terminal).
+    pub fn add_editor(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        file_path: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if !path.is_empty() {
+            let parent_path = &path[..path.len() - 1];
+            if let Some(project) = self.project(project_id)
+                && let Some(ref layout) = project.layout
+                && let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path)
+            {
+                self.add_editor_to_group(project_id, parent_path, file_path, cx);
+                return;
+            }
+        }
+
+        let file_path_owned = file_path.to_string();
+        self.with_layout_node(project_id, path, cx, |node| {
+            let old_node = node.clone();
+            *node = LayoutNode::Tabs {
+                children: vec![old_node, LayoutNode::new_editor(file_path_owned.clone())],
+                active_tab: 1,
+            };
+            true
+        });
+
+        let mut new_path = path.to_vec();
+        new_path.push(1);
+        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+    }
+
+    /// Add a new editor tab to an existing Tabs container.
+    pub fn add_editor_to_group(
+        &mut self,
+        project_id: &str,
+        tabs_path: &[usize],
+        file_path: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let file_path_owned = file_path.to_string();
+        let mut new_tab_index = 0;
+        self.with_layout_node(project_id, tabs_path, cx, |node| {
+            if let LayoutNode::Tabs {
+                children,
+                active_tab,
+            } = node
+            {
+                children.push(LayoutNode::new_editor(file_path_owned.clone()));
+                *active_tab = children.len() - 1;
+                new_tab_index = *active_tab;
+                true
+            } else {
+                false
+            }
+        });
+
+        let mut new_path = tabs_path.to_vec();
+        new_path.push(new_tab_index);
+        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+    }
+
     /// Close a terminal at a path.
     /// Returns the terminal IDs that were removed from the layout.
     pub fn close_terminal(

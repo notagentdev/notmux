@@ -1135,6 +1135,7 @@ pub fn spawn_uninitialized_terminals(
 fn find_first_terminal_id(node: &LayoutNode) -> Option<String> {
     match node {
         LayoutNode::Terminal { terminal_id, .. } => terminal_id.clone(),
+        LayoutNode::Editor { .. } => None,
         LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
             children.iter().find_map(find_first_terminal_id)
         }
@@ -1241,7 +1242,7 @@ fn collect_uninitialized_terminals_with_shell(
         } => {
             result.push((current_path, shell_type.clone()));
         }
-        LayoutNode::Terminal { .. } => {}
+        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
         LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 let mut child_path = current_path.clone();

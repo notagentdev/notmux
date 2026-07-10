@@ -42,6 +42,12 @@ pub struct LayoutContainer<D: ActionDispatch> {
     pub(super) action_dispatcher: Option<D>,
     pub(super) tab_scroll_handle: ScrollHandle,
     pub(super) last_scrolled_to_tab: Option<usize>,
+    /// Deferred window-move latch: set on mouse-down in the empty tab-strip area,
+    /// consumed on the next mouse-move to call `start_window_move` (mirrors Zed's
+    /// title-bar drag so a plain click doesn't move the window).
+    pub(super) title_should_move: bool,
+    /// File viewer entity for an `Editor` leaf (lazily created on first render).
+    file_viewer: Option<Entity<notmux_files::file_viewer::FileViewer>>,
 }
 
 impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
@@ -82,11 +88,56 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             action_dispatcher,
             tab_scroll_handle: ScrollHandle::new(),
             last_scrolled_to_tab: None,
+            title_should_move: false,
+            file_viewer: None,
         }
     }
 
     pub fn set_project_path(&mut self, path: String) {
         self.project_path = path;
+    }
+
+    /// Lazily build the file viewer for an `Editor` leaf.
+    fn ensure_file_viewer(&mut self, file_path: &str, cx: &mut Context<Self>) {
+        if self.file_viewer.is_none() {
+            let t = theme(cx);
+            let is_dark = t.is_dark();
+            let fs: Arc<dyn notmux_files::project_fs::ProjectFs> = Arc::new(
+                notmux_files::project_fs::LocalProjectFs::new(std::path::PathBuf::from(
+                    &self.project_path,
+                )),
+            );
+            let path = std::path::PathBuf::from(file_path);
+            self.file_viewer = Some(cx.new(move |cx| {
+                notmux_files::file_viewer::FileViewer::new_embedded(
+                    path, fs, 14.0, is_dark, t, false, cx,
+                )
+            }));
+        }
+    }
+
+    /// Render an `Editor` leaf: its tab bar (when standalone) plus the file
+    /// viewer body, mirroring `render_terminal` so it drags/splits identically.
+    fn render_editor(
+        &mut self,
+        _slot_id: String,
+        file_path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        self.ensure_file_viewer(&file_path, cx);
+        let in_tab_group = self.is_in_tab_group(cx);
+
+        let mut container = div().size_full().min_h_0().flex().flex_col().relative();
+        if !in_tab_group {
+            container = container.child(self.render_standalone_tab_bar(window, cx));
+        }
+        container.child(
+            div().flex_1().min_h_0().relative().child(
+                AnyView::from(self.file_viewer.clone().expect("ensure_file_viewer sets Some"))
+                    .cached(StyleRefinement::default().size_full()),
+            ),
+        )
     }
 
     fn ensure_terminal_pane(
@@ -550,6 +601,12 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
                     self.child_containers.clear();
                 }
             }
+            Some(LayoutNode::Editor { .. }) => {
+                self.terminal_pane = None;
+                if !self.child_containers.is_empty() {
+                    self.child_containers.clear();
+                }
+            }
             Some(LayoutNode::Split { .. }) | Some(LayoutNode::Tabs { .. }) => {
                 if self.terminal_pane.is_some() {
                     self.terminal_pane = None;
@@ -585,6 +642,12 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
                 active_tab,
             }) => self
                 .render_tabs(children, active_tab, window, cx)
+                .into_any_element(),
+
+            Some(LayoutNode::Editor {
+                slot_id, file_path, ..
+            }) => self
+                .render_editor(slot_id, file_path, window, cx)
                 .into_any_element(),
 
             None => div()

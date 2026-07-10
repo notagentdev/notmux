@@ -18,7 +18,46 @@ use gpui::prelude::*;
 use gpui::*;
 use std::future::Future;
 
-use super::RootView;
+use super::{RightView, RootView};
+
+/// Walk to the terminal at the top-right corner of a layout tree, recording the
+/// path — used to register which pane's tab bar carries the right reserve.
+fn top_right_terminal_path(node: &crate::workspace::state::LayoutNode, path: &mut Vec<usize>) {
+    use crate::workspace::state::{LayoutNode, SplitDirection};
+    match node {
+        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
+        LayoutNode::Split {
+            direction,
+            children,
+            ..
+        } => {
+            // Horizontal = stacked top/bottom (top-right is the top child);
+            // Vertical = side-by-side (top-right is the right-most child).
+            let idx = match direction {
+                SplitDirection::Horizontal => 0,
+                SplitDirection::Vertical => children.len().saturating_sub(1),
+            };
+            if let Some(child) = children.get(idx) {
+                path.push(idx);
+                top_right_terminal_path(child, path);
+            }
+        }
+        LayoutNode::Tabs {
+            children,
+            active_tab,
+        } => {
+            let idx = if children.get(*active_tab).is_some() {
+                *active_tab
+            } else {
+                0
+            };
+            if let Some(child) = children.get(idx) {
+                path.push(idx);
+                top_right_terminal_path(child, path);
+            }
+        }
+    }
+}
 
 impl RootView {
     /// Normalize raw project widths to percentages summing to 100%.
@@ -461,18 +500,67 @@ impl Render for RootView {
             window.focus(&focus_handle, cx);
         }
 
+        // Title-bar overlay reserves: when the sidebar is collapsed the grid
+        // reaches the window's left edge, so the top-left pane insets its tabs
+        // past the traffic lights + left toggle. On the right the top-right pane
+        // insets its buttons past the git/settings cluster (when the git panel is
+        // closed) and the Windows caption buttons.
+        let left_reserve = if self.sidebar_ctrl.should_render() {
+            0.0
+        } else {
+            114.0 // 80 traffic-light pad + 24 toggle + 10 gap
+        };
+        notmux_views_terminal::set_tab_action_left_reserve(left_reserve, cx);
+        // Match the title-bar overlay height so the tab strip centers with the
+        // traffic lights / controls floating over it.
+        notmux_views_terminal::set_tab_bar_height(42.0, cx);
+
+        let git_open = self.git_panel_ctrl.should_render();
+        let mut right_reserve = 0.0_f32;
+        if !git_open {
+            right_reserve += 64.0; // git-panel toggle + settings + gaps/pad
+        }
+        if cfg!(target_os = "windows") {
+            right_reserve += 138.0; // three 46px caption buttons
+        }
+        notmux_views_terminal::set_tab_action_right_reserve(right_reserve, cx);
+        let right_path = {
+            let ws = self.workspace.read(cx);
+            ws.visible_projects()
+                .last()
+                .and_then(|p| p.layout.as_ref())
+                .map(|layout| {
+                    let mut p = Vec::new();
+                    top_right_terminal_path(layout, &mut p);
+                    p
+                })
+        };
+        notmux_views_terminal::set_tab_action_right_reserve_path(right_path, cx);
+
         div()
             .id("root")
             .size_full()
+            .relative()
             .flex()
             .flex_col()
 .bg(if transparent { with_alpha(t.bg_primary, 0.7) } else { with_alpha(t.bg_primary, 1.0) })
             .track_focus(&focus_handle)
+            // Reset the title-bar window-move flag on any mouse-up.
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.title_should_move = false),
+            )
             // Global mouse move handler for resize and auto-hide
             .on_mouse_move(cx.listener({
                 let active_drag = active_drag.clone();
                 let workspace = workspace.clone();
                 move |this, event: &MouseMoveEvent, window, cx| {
+                    // Deferred window move: a title-bar mouse-down armed the flag;
+                    // start the native drag on the first move (matches zed).
+                    if this.title_should_move {
+                        this.title_should_move = false;
+                        window.start_window_move();
+                    }
                     // Handle resize drag
                     if let Some(ref state) = *active_drag.borrow() {
                         match state {
@@ -592,34 +680,13 @@ impl Render for RootView {
                 this.toggle_sidebar_auto_hide(cx);
             }))
             // Handle toggle git panel action
-            .on_action(cx.listener({
-                let workspace = workspace.clone();
-                move |this, _: &ToggleGitPanel, _window, cx| {
-                    // Get focused or first visible project
-                    let project_id = workspace
-                        .read(cx)
-                        .focus_manager
-                        .focused_terminal_state()
-                        .map(|f| f.project_id.clone())
-                        .or_else(|| {
-                            workspace
-                                .read(cx)
-                                .visible_projects()
-                                .first()
-                                .map(|p| p.id.clone())
-                        });
-                    if let Some(pid) = project_id {
-                        this.toggle_git_panel(&pid, cx);
-                    } else {
-                        this.toggle_git_panel_empty(cx);
-                    }
-                }
+            // Git panel = the Git tab of the tabbed right panel.
+            .on_action(cx.listener(|this, _: &ToggleGitPanel, _window, cx| {
+                this.toggle_right_panel(RightView::Git, cx);
             }))
-            // Handle toggle file-explorer action: swaps the sidebar between
-            // the Projects list and the file-tree view.
+            // File explorer = the Files tab of the tabbed right panel.
             .on_action(cx.listener(|this, _: &ToggleFileExplorer, _window, cx| {
-                this.sidebar
-                    .update(cx, |sidebar, cx| sidebar.toggle_view(cx));
+                this.toggle_right_panel(RightView::Files, cx);
             }))
             // Handle clear focus action (show all projects)
             .on_action(cx.listener(|this, _: &ClearFocus, _window, cx| {
@@ -1028,13 +1095,9 @@ impl Render for RootView {
                     }
                 }
             }))
-            // Title bar at the top (with window controls)
-            // On macOS fullscreen: hide title bar completely (traffic lights auto-hide)
-            // On macOS non-fullscreen: show minimal title bar for traffic lights
-            // On other platforms: show full title bar
-            .when(!cfg!(target_os = "macos") || !window.is_fullscreen(), |d| {
-                d.child(self.title_bar.clone())
-            })
+            // Title bar is now a transparent absolute overlay (added at the very
+            // end), so the main content fills the full height and the tab bars
+            // sit at the very top — one floor up — with the controls floating over.
             // Main content area
             .child(
                 // Content below title bar
@@ -1084,10 +1147,29 @@ impl Render for RootView {
                                 .w(px(sidebar_width))
                                 .overflow_hidden()
                                 .flex_shrink_0()
+                                .flex()
+                                .flex_col()
+                                // Reserve the title-bar overlay height so sidebar
+                                // content clears the traffic lights + left toggle.
+                                // This empty strip is also a window-drag handle
+                                // (full sidebar width, like Zed's full title bar)
+                                // so the window can be moved from the top-left.
+                                .child(
+                                    div()
+                                        .h(px(42.0))
+                                        .w_full()
+                                        .flex_shrink_0()
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, _, _, _| {
+                                                this.title_should_move = true
+                                            }),
+                                        ),
+                                )
                                 .when(show_sidebar, |d| {
                                     d.child(
                                         // Inner wrapper to maintain sidebar at full width for clipping effect
-                                        div().w(px(configured_width)).h_full().child(
+                                        div().w(px(configured_width)).flex_1().min_h_0().child(
                                             AnyView::from(self.sidebar.clone())
                                                 .cached(StyleRefinement::default().size_full()),
                                         ),
@@ -1138,6 +1220,46 @@ impl Render for RootView {
             )
             // Status bar at the bottom
             .child(self.status_bar.clone())
+            // Title-bar controls as two *corner* overlays (top-left + top-right),
+            // NOT a full-width bar. The middle over the tab bars is left
+            // completely uncovered so tab drag-and-drop reaches the tabs instead
+            // of the macOS window-move (a full-width overlay's transparent middle
+            // is draggable-by-default and would steal the gesture). Hidden on
+            // macOS fullscreen (traffic lights auto-hide).
+            .when(!cfg!(target_os = "macos") || !window.is_fullscreen(), |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .flex()
+                        .items_center()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.title_should_move = true),
+                        )
+                        .child(
+                            self.title_bar
+                                .update(cx, |tb, cx| tb.render_left_cluster(window, cx)),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .flex()
+                        .items_center()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.title_should_move = true),
+                        )
+                        .child(
+                            self.title_bar
+                                .update(cx, |tb, cx| tb.render_right_cluster(window, cx)),
+                        ),
+                )
+            })
             // Settings panel: a full-window overlay covering sidebar + main area +
             // git panel (not just the middle panel). Popovers opened from within it
             // (color picker, context menus) render above it as they come later.

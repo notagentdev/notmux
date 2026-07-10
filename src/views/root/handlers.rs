@@ -859,7 +859,7 @@ impl RootView {
                     );
                 }
                 OverlayRequest::MainFileViewer { project_id, file } => {
-                    self.show_main_file_viewer(project_id, file, cx);
+                    self.open_editor_tab(project_id, file, cx);
                 }
                 OverlayRequest::RemoteConnect => {
                     if let Some(ref rm) = self.remote_manager {
@@ -1118,6 +1118,34 @@ impl RootView {
         cx.notify();
     }
 
+    /// Open a file as a draggable editor tab in the middle panel: inserts a
+    /// `LayoutNode::Editor` next to the focused pane of the project (or its first
+    /// visible pane), so it drags/splits exactly like a terminal tab.
+    pub(super) fn open_editor_tab(
+        &mut self,
+        project_id: String,
+        file: String,
+        cx: &mut Context<Self>,
+    ) {
+        let path = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager
+                .focused_terminal_state()
+                .filter(|f| f.project_id == project_id)
+                .map(|f| f.layout_path)
+                .or_else(|| {
+                    ws.project(&project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .map(|l| l.find_visible_terminal_path())
+                })
+        };
+        let Some(path) = path else { return };
+        self.workspace.update(cx, |ws, cx| {
+            ws.add_editor(&project_id, &path, &file, cx);
+        });
+    }
+
+    #[allow(dead_code)]
     fn show_main_file_viewer(&mut self, project_id: String, file: String, cx: &mut Context<Self>) {
         let Some(fs) = self.build_project_fs(&project_id, cx) else {
             return;

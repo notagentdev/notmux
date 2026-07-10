@@ -679,6 +679,11 @@ fn main() {
                     size: size(px(app_settings.window.width), px(app_settings.window.height)),
                 })),
                 is_resizable: true,
+                // macOS: disable AppKit's native titlebar dragging (it owns a
+                // ~42px drag region over our tab strip and steals tab-drag
+                // gestures). We move the window ourselves via start_window_move.
+                // (Matches zed PR #59836.)
+                is_movable: !cfg!(target_os = "macos"),
                 // On Windows, use client-side decorations for custom window controls
                 window_decorations: Some(if cfg!(target_os = "windows") {
                     WindowDecorations::Client
