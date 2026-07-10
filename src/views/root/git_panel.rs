@@ -275,7 +275,8 @@ impl RootView {
             .id("git-panel-container")
             .h_full()
             .w(px(git_panel_width))
-            .bg(rgb(t.bg_secondary))
+            // Match the opaque center surface used by the reference right panel.
+            .bg(rgb(t.bg_primary))
             .overflow_hidden()
             .flex_shrink_0()
             .flex()

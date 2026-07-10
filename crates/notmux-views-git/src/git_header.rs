@@ -1019,7 +1019,7 @@ impl GitHeader {
                 .justify_center()
                 .gap(px(8.0))
                 .p(px(20.0))
-                .bg(rgb(t.bg_secondary))
+                .bg(rgb(t.bg_primary))
                 .child(
                     svg()
                         .path("icons/git-branch.svg")
@@ -1039,7 +1039,7 @@ impl GitHeader {
             .id("git-panel-content")
             .size_full()
             .relative()
-            .bg(rgb(t.bg_secondary))
+            .bg(rgb(t.bg_primary))
             // Header row with tab-switch buttons
             .child(self.render_panel_header(t, cx))
             // Active tab content
@@ -1096,7 +1096,7 @@ impl GitHeader {
             .items_center()
             .border_b_1()
             .border_color(rgb(t.border))
-            .bg(rgb(t.bg_header))
+            .bg(rgb(t.bg_primary))
             .child(self.render_panel_header_button(
                 "git-btn-commit",
                 "icons/git-commit.svg",

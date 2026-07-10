@@ -31,8 +31,11 @@ fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
 /// Derive a tab-bar bg that's always visibly distinct from the terminal
 /// content bg. Tints with text_primary at low alpha — lightens dark themes,
 /// darkens light ones.
-fn tab_bar_bg(term_bg: u32, text_primary: u32) -> u32 {
-    blend_u32(text_primary, 0x14, term_bg)
+fn tab_bar_bg(term_bg: u32, _text_primary: u32) -> u32 {
+    // Flush with the terminal background (notagent style): the tab strip reads
+    // as part of the pane, and the active-tab chip (bg_secondary) provides the
+    // only subtle elevation.
+    term_bg
 }
 
 /// Context for tab action button closures.
@@ -564,7 +567,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             } else if is_waiting {
                                 rgb(t.border_idle)
                             } else if is_active {
-                                rgb(t.success)
+                                // Active tab icon: neutral (like the notagent
+                                // reference) rather than the success accent, so
+                                // the tab strip reads as cohesive monochrome.
+                                rgb(t.text_primary)
                             } else {
                                 rgb(t.text_muted)
                             };

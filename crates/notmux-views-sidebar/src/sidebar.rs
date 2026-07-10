@@ -2760,7 +2760,10 @@ impl Render for Sidebar {
             .h_full()
             .flex()
             .flex_col()
-            .bg(if transparent { with_alpha(t.bg_secondary, 0.4) } else { with_alpha(t.bg_secondary, 1.0) })
+            // The root paints the reference chrome at 90% opacity. In transparent mode
+            // the sidebar deliberately has no background of its own, so that exact
+            // chrome shows through across both its title-bar strip and content.
+            .when(!transparent, |d| d.bg(with_alpha(t.bg_header, 1.0)))
             .track_focus(&self.focus_handle)
             .key_context("Sidebar")
             .on_action(cx.listener(Self::handle_sidebar_up))

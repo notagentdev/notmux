@@ -543,7 +543,7 @@ impl Render for RootView {
             .relative()
             .flex()
             .flex_col()
-.bg(if transparent { with_alpha(t.bg_primary, 0.7) } else { with_alpha(t.bg_primary, 1.0) })
+.bg(if transparent { with_alpha(t.bg_header, 0.9) } else { with_alpha(t.bg_primary, 1.0) })
             .track_focus(&focus_handle)
             // Reset the title-bar window-move flag on any mouse-up.
             .on_mouse_up(
