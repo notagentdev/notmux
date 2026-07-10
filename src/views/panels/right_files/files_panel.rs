@@ -27,7 +27,7 @@ use notmux_workspace::requests::OverlayRequest;
 use super::explorer_context_menu::{ExplorerContextMenu, ExplorerContextMenuEvent};
 use super::file_explorer::FileExplorer;
 use super::resize_handle::ResizeHandle;
-use crate::theme::theme as git_theme;
+use crate::theme::git_theme;
 
 /// Editor font size — matches the chat's body text size (`markdown::TEXT_SIZE`).
 const FILE_FONT_SIZE: f32 = 14.0;

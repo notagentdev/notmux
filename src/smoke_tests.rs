@@ -15,10 +15,10 @@ mod tests {
                 cx.new(|_cx| crate::settings::SettingsState::new(Default::default()));
             cx.set_global(crate::settings::GlobalSettings(settings_entity));
 
-            // Theme — AppTheme is a GPUI Entity, not a Global
-            let theme_entity =
-                cx.new(|_cx| crate::theme::AppTheme::new(notmux_core::theme::ThemeMode::Dark, false));
-            cx.set_global(crate::theme::GlobalTheme(theme_entity));
+            // Theme — the active notagent theme as GpuiTheme global
+            let gpui_theme = notmux_theme::load_gpui_theme(crate::theme::DEFAULT_THEME_NAME)
+                .expect("default theme must load");
+            cx.set_global(gpui_theme);
 
             // Theme provider for view crates
             cx.set_global(notmux_ui::theme::GlobalThemeProvider(|cx| {

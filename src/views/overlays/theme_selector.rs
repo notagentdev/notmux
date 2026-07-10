@@ -1,10 +1,10 @@
 use crate::keybindings::Cancel;
 use crate::settings::settings_entity;
 use crate::theme::{
-    DARK_THEME, HIGH_CONTRAST_THEME, LIGHT_THEME, PASTEL_DARK_THEME, ThemeColors, ThemeInfo,
-    ThemeMode, get_themes_dir, load_custom_themes, theme, theme_entity,
+    BUILTIN_THEMES, GpuiTheme, ThemeColor, get_custom_themes_dir, list_available_themes,
+    load_gpui_theme, theme,
 };
-use crate::ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
+use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use crate::views::components::{
     ListOverlayAction, ListOverlayConfig, ListOverlayState, badge, handle_list_overlay_key,
     modal_backdrop, modal_content, modal_header,
@@ -14,154 +14,65 @@ use gpui::*;
 use gpui_component::h_flex;
 use notmux_ui::selectable_list::selectable_list_item;
 
-/// Theme selection entry with preview and info
+/// Theme selection entry with preview swatches from the theme's own colors.
 #[derive(Clone)]
 pub(crate) struct ThemeEntry {
-    pub(crate) info: ThemeInfo,
-    pub(crate) colors: ThemeColors,
+    /// Theme name (also the persisted identifier), e.g. "nord-midnight".
+    pub(crate) name: String,
+    /// True for user themes from the custom themes directory.
+    pub(crate) is_custom: bool,
+    /// Preview colors resolved from the theme itself: (page bg, accent, text).
+    pub(crate) preview: Option<(Hsla, Hsla, Hsla)>,
 }
 
+/// All available themes: built-ins (in display order) plus custom themes.
 pub(crate) fn theme_entries() -> Vec<ThemeEntry> {
-    let mut themes = vec![
-        ThemeEntry {
-            info: ThemeInfo {
-                id: "auto".to_string(),
-                name: "Auto".to_string(),
-                description: "Follow system appearance".to_string(),
-                is_dark: true,
-            },
-            colors: DARK_THEME,
-        },
-        ThemeEntry {
-            info: ThemeInfo {
-                id: "dark".to_string(),
-                name: "Dark".to_string(),
-                description: "Default dark theme (VSCode-like)".to_string(),
-                is_dark: true,
-            },
-            colors: DARK_THEME,
-        },
-        ThemeEntry {
-            info: ThemeInfo {
-                id: "light".to_string(),
-                name: "Light".to_string(),
-                description: "Clean light theme".to_string(),
-                is_dark: false,
-            },
-            colors: LIGHT_THEME,
-        },
-        ThemeEntry {
-            info: ThemeInfo {
-                id: "pastel-dark".to_string(),
-                name: "Pastel Dark".to_string(),
-                description: "Soft pastel colors on dark background".to_string(),
-                is_dark: true,
-            },
-            colors: PASTEL_DARK_THEME,
-        },
-        ThemeEntry {
-            info: ThemeInfo {
-                id: "high-contrast".to_string(),
-                name: "High Contrast".to_string(),
-                description: "High contrast for better visibility".to_string(),
-                is_dark: true,
-            },
-            colors: HIGH_CONTRAST_THEME,
-        },
-    ];
-
-    for (info, colors) in load_custom_themes() {
-        themes.push(ThemeEntry { info, colors });
-    }
-
-    themes
+    list_available_themes()
+        .into_iter()
+        .map(|name| {
+            let is_custom = !BUILTIN_THEMES.contains(&name.as_str());
+            let preview = load_gpui_theme(&name).ok().map(|p| {
+                (
+                    p.bg_base(),
+                    p.fg(ThemeColor::Accent),
+                    p.fg(ThemeColor::Text),
+                )
+            });
+            ThemeEntry {
+                name,
+                is_custom,
+                preview,
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn selected_theme_index(themes: &[ThemeEntry], cx: &App) -> usize {
-    let current_mode = theme_entity(cx).read(cx).mode;
-    let settings = settings_entity(cx).read(cx).settings.clone();
+    let current = settings_entity(cx).read(cx).settings.theme.clone();
+    themes
+        .iter()
+        .position(|t| t.name == current)
+        .unwrap_or(0)
+}
 
-    match current_mode {
-        ThemeMode::Auto => 0,
-        ThemeMode::Dark => 1,
-        ThemeMode::Light => 2,
-        ThemeMode::PastelDark => 3,
-        ThemeMode::HighContrast => 4,
-        ThemeMode::Custom => settings
-            .custom_theme_id
-            .as_deref()
-            .and_then(|id| {
-                themes
-                    .iter()
-                    .position(|t| t.info.id == format!("custom:{id}"))
-            })
-            .or_else(|| themes.iter().position(|t| t.info.id.starts_with("custom:")))
-            .unwrap_or(0),
+/// Applies and persists a theme (rebuilds the theme global live).
+pub(crate) fn apply_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
+    crate::theme::set_theme(&theme_entry.name, cx);
+}
+
+/// Live preview: swaps the theme global without persisting.
+pub(crate) fn preview_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
+    if let Ok(t) = load_gpui_theme(&theme_entry.name) {
+        crate::theme::apply_gpui_theme(t, cx);
     }
 }
 
-pub(crate) fn apply_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
-    let theme_ent = theme_entity(cx);
-
-    let (mode, custom_colors) = match theme_entry.info.id.as_str() {
-        "auto" => (ThemeMode::Auto, None),
-        "dark" => (ThemeMode::Dark, None),
-        "light" => (ThemeMode::Light, None),
-        "pastel-dark" => (ThemeMode::PastelDark, None),
-        "high-contrast" => (ThemeMode::HighContrast, None),
-        id if id.starts_with("custom:") => (ThemeMode::Custom, Some(theme_entry.colors)),
-        _ => (ThemeMode::Dark, None),
-    };
-
-    theme_ent.update(cx, |theme, cx| {
-        theme.clear_preview();
-        if let Some(colors) = custom_colors {
-            theme.set_custom_colors(colors);
-        }
-        theme.set_mode(mode);
-        cx.notify();
-    });
-
-    let custom_id = if mode == ThemeMode::Custom {
-        theme_entry
-            .info
-            .id
-            .strip_prefix("custom:")
-            .map(|s| s.to_string())
-    } else {
-        None
-    };
-    settings_entity(cx).update(cx, |s, cx| {
-        s.set_theme_mode(mode, cx);
-        if custom_id.is_some() {
-            s.set_custom_theme_id(custom_id, cx);
-        }
-    });
-}
-
-pub(crate) fn preview_theme_entry(theme_entry: &ThemeEntry, cx: &mut App) {
-    let theme_ent = theme_entity(cx);
-
-    let mode = match theme_entry.info.id.as_str() {
-        "auto" => ThemeMode::Auto,
-        "dark" => ThemeMode::Dark,
-        "light" => ThemeMode::Light,
-        "pastel-dark" => ThemeMode::PastelDark,
-        "high-contrast" => ThemeMode::HighContrast,
-        id if id.starts_with("custom:") => {
-            theme_ent.update(cx, |theme, cx| {
-                theme.set_preview_colors(theme_entry.colors);
-                cx.notify();
-            });
-            return;
-        }
-        _ => ThemeMode::Dark,
-    };
-
-    theme_ent.update(cx, |theme, cx| {
-        theme.set_preview(mode);
-        cx.notify();
-    });
+/// Restores the persisted theme (used when a preview is abandoned).
+pub(crate) fn restore_persisted_theme(cx: &mut App) {
+    let name = settings_entity(cx).read(cx).settings.theme.clone();
+    if let Ok(t) = load_gpui_theme(&name) {
+        crate::theme::apply_gpui_theme(t, cx);
+    }
 }
 
 /// Theme selector overlay for choosing and previewing themes
@@ -194,10 +105,8 @@ impl ThemeSelector {
     }
 
     fn close(&self, cx: &mut Context<Self>) {
-        // Clear any preview before closing
-        theme_entity(cx).update(cx, |theme, _cx| {
-            theme.clear_preview();
-        });
+        // Abandon any preview before closing
+        restore_persisted_theme(cx);
         cx.emit(ThemeSelectorEvent::Close);
     }
 
@@ -208,7 +117,7 @@ impl ThemeSelector {
 
         let theme_entry = &self.state.items[index];
         // Apply and persist the theme
-        apply_theme_entry(theme_entry, cx);
+        apply_theme_entry(&theme_entry.clone(), cx);
 
         self.state.selected_index = index;
         cx.notify();
@@ -222,97 +131,35 @@ impl ThemeSelector {
             return;
         }
 
-        let theme_entry = &self.state.items[index];
-        preview_theme_entry(theme_entry, cx);
+        let theme_entry = self.state.items[index].clone();
+        preview_theme_entry(&theme_entry, cx);
     }
 
-    fn render_theme_preview(&self, colors: &ThemeColors, cx: &App) -> impl IntoElement {
-        // Mini terminal preview with the theme colors
+    /// Mini preview window built from the theme's own colors — the same
+    /// swatch layout as the notagent theme grid (accent pill + text pills on
+    /// the page background).
+    fn render_theme_preview(&self, entry: &ThemeEntry, cx: &App) -> impl IntoElement {
+        let t = theme(cx);
+        let (bg, ac, tx) = entry.preview.unwrap_or((
+            rgb(t.bg_primary).into(),
+            rgb(t.border_active).into(),
+            rgb(t.text_primary).into(),
+        ));
         div()
             .w(px(80.0))
             .h(px(50.0))
             .rounded(px(4.0))
-            .bg(rgb(colors.bg_primary))
+            .bg(bg)
             .border_1()
-            .border_color(rgb(colors.border))
-            .p(px(4.0))
+            .border_color(rgb(t.border))
+            .p(px(6.0))
             .flex()
             .flex_col()
-            .gap(px(2.0))
+            .gap(px(4.0))
             .overflow_hidden()
-            .child(
-                // Fake title bar
-                div()
-                    .h(px(8.0))
-                    .rounded(px(2.0))
-                    .bg(rgb(colors.bg_header))
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
-                    .px(px(2.0))
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_red)),
-                    )
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_yellow)),
-                    )
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_green)),
-                    ),
-            )
-            .child(
-                // Fake terminal content
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap(px(1.0))
-                    .child(
-                        h_flex()
-                            .gap(px(2.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text(6.0, cx))
-                                    .text_color(rgb(colors.term_green))
-                                    .child("$"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(ui_text(6.0, cx))
-                                    .text_color(rgb(colors.text_primary))
-                                    .child("ls"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(4.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text(5.0, cx))
-                                    .text_color(rgb(colors.term_blue))
-                                    .child("src"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(ui_text(5.0, cx))
-                                    .text_color(rgb(colors.text_primary))
-                                    .child("Cargo.toml"),
-                            ),
-                    ),
-            )
+            .child(div().w(px(36.0)).h(px(5.0)).rounded_full().bg(ac))
+            .child(div().w(px(56.0)).h(px(5.0)).rounded_full().bg(tx))
+            .child(div().w(px(46.0)).h(px(5.0)).rounded_full().bg(tx))
     }
 
     fn render_theme_row(
@@ -322,11 +169,10 @@ impl ThemeSelector {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let t = theme(cx);
+        let accent = cx.global::<GpuiTheme>().fg(ThemeColor::Accent);
         let is_selected = index == self.state.selected_index;
-        let colors = entry.colors;
-        let name = entry.info.name.clone();
-        let description = entry.info.description.clone();
-        let is_custom = entry.info.id.starts_with("custom:");
+        let name = entry.name.clone();
+        let is_custom = entry.is_custom;
 
         selectable_list_item(
             ElementId::Name(format!("theme-{}", index).into()),
@@ -340,12 +186,10 @@ impl ThemeSelector {
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _, _window, cx| {
-                // Preview on click before selection
-                this.preview_theme(index, cx);
                 this.select_theme(index, cx);
             }),
         )
-        .child(self.render_theme_preview(&colors, cx))
+        .child(self.render_theme_preview(entry, cx))
         .child(
             div()
                 .flex_1()
@@ -367,16 +211,10 @@ impl ThemeSelector {
                             d.child(
                                 div()
                                     .text_size(ui_text_md(cx))
-                                    .text_color(rgb(t.border_active))
+                                    .text_color(accent)
                                     .child("✓"),
                             )
                         }),
-                )
-                .child(
-                    div()
-                        .text_size(ui_text_md(cx))
-                        .text_color(rgb(t.text_muted))
-                        .child(description),
                 ),
         )
     }
@@ -392,7 +230,7 @@ impl Render for ThemeSelector {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let focus_handle = self.focus_handle.clone();
-        let themes_dir = get_themes_dir();
+        let themes_dir = get_custom_themes_dir();
         let config_width = self.state.config.width;
         let config_max_height = self.state.config.max_height;
         let config_title = self.state.config.title.clone();
@@ -448,8 +286,8 @@ impl Render for ThemeSelector {
                             .overflow_y_scroll()
                             .children(self.state.filtered.iter().enumerate().map(
                                 |(i, filter_result)| {
-                                    let entry = &self.state.items[filter_result.index];
-                                    self.render_theme_row(i, entry, cx)
+                                    let entry = self.state.items[filter_result.index].clone();
+                                    self.render_theme_row(i, &entry, cx)
                                 },
                             )),
                     )

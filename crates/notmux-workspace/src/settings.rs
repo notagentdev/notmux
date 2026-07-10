@@ -1,5 +1,4 @@
 use notmux_core::client::RemoteConnectionConfig;
-use notmux_core::theme::ThemeMode;
 pub use notmux_core::types::DiffViewMode;
 use notmux_terminal::session_backend::SessionBackend;
 use notmux_terminal::shell_config::ShellType;
@@ -227,7 +226,12 @@ impl Default for FileExplorerSettings {
 }
 
 /// Current settings schema version - increment when making breaking changes
-pub const SETTINGS_VERSION: u32 = 7;
+pub const SETTINGS_VERSION: u32 = 8;
+
+/// The default theme name (notagent theme system).
+fn default_theme() -> String {
+    notmux_theme::DEFAULT_THEME_NAME.to_string()
+}
 
 /// Strategy for choosing the working directory of new terminals.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -349,12 +353,17 @@ pub struct AppSettings {
     /// Settings schema version for migration support
     #[serde(default = "default_settings_version")]
     pub version: u32,
-    #[serde(default)]
-    pub theme_mode: ThemeMode,
-    /// Custom theme file stem (e.g. "example-theme" for themes/example-theme.json).
-    /// Only used when `theme_mode` is `Custom`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_theme_id: Option<String>,
+    /// Active theme name (notagent theme system), e.g. "dark" or "nord-midnight".
+    /// Built-in names plus custom `*.json` files in the custom themes directory.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Legacy (pre-v8) theme mode, kept only so old settings files can be
+    /// migrated to `theme` (see `migrate_settings`). Never written back.
+    #[serde(default, rename = "theme_mode", skip_serializing)]
+    legacy_theme_mode: Option<String>,
+    /// Legacy (pre-v8) custom theme id, kept only for migration to `theme`.
+    #[serde(default, rename = "custom_theme_id", skip_serializing)]
+    legacy_custom_theme_id: Option<String>,
     /// Name of the currently active session (None = default workspace.json)
     #[serde(default)]
     pub active_session: Option<String>,
@@ -518,9 +527,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
-            // Poimandres Dark is the shipped default on first launch.
-            custom_theme_id: Some(notmux_theme::DEFAULT_THEME_ID.to_string()),
-            theme_mode: ThemeMode::Custom,
+            theme: default_theme(),
+            legacy_theme_mode: None,
+            legacy_custom_theme_id: None,
             active_session: None,
             sidebar: SidebarSettings::default(),
             git_panel: GitPanelSettings::default(),
@@ -717,7 +726,6 @@ pub fn load_settings() -> AppSettings {
 /// This extracts valid fields and uses defaults for invalid/missing ones
 fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     use anyhow::Context;
-    use notmux_core::theme::ThemeMode;
 
     let value: serde_json::Value =
         serde_json::from_str(content).context("Settings file is not valid JSON")?;
@@ -733,12 +741,15 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
         settings.version = v as u32;
     }
 
-    if let Some(v) = obj.get("theme_mode") {
-        if let Ok(theme) = serde_json::from_value::<ThemeMode>(v.clone()) {
-            settings.theme_mode = theme;
-        } else {
-            log::warn!("Could not parse theme_mode, using default");
-        }
+    if let Some(v) = obj.get("theme").and_then(|v| v.as_str()) {
+        settings.theme = v.to_string();
+    }
+    // Legacy (pre-v8) theme fields; consumed by migrate_settings.
+    if let Some(v) = obj.get("theme_mode").and_then(|v| v.as_str()) {
+        settings.legacy_theme_mode = Some(v.to_string());
+    }
+    if let Some(v) = obj.get("custom_theme_id").and_then(|v| v.as_str()) {
+        settings.legacy_custom_theme_id = Some(v.to_string());
     }
 
     if let Some(v) = obj.get("active_session")
@@ -855,6 +866,30 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
 }
 
 /// Migrate settings from older versions to the current version
+/// Map a pre-v8 `theme_mode`/`custom_theme_id` pair to a notagent theme name.
+///
+/// The old built-in VS Code themes map to their notagent counterparts; modes
+/// without a counterpart (auto, pastel dark, high contrast) fall back to the
+/// nearest built-in.
+fn migrate_legacy_theme(theme_mode: Option<&str>, custom_theme_id: Option<&str>) -> String {
+    let name = match theme_mode {
+        Some("light") => "light",
+        Some("custom") => match custom_theme_id {
+            Some("builtin-poimandres-dark") => "poimandres-dark",
+            Some("builtin-poimandres-light") => "poimandres-light",
+            Some("builtin-dracula") => "dracula",
+            Some("builtin-onedark-pro") => "one-dark",
+            Some("builtin-tokyo-night") => "tokyo-night",
+            Some("builtin-alucard") => "alucard",
+            Some("builtin-nord-midnight") => "nord-midnight",
+            _ => notmux_theme::DEFAULT_THEME_NAME,
+        },
+        // dark, auto, pasteldark, highcontrast, unknown
+        _ => notmux_theme::DEFAULT_THEME_NAME,
+    };
+    name.to_string()
+}
+
 fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     let original_version = settings.version;
 
@@ -922,6 +957,19 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     if settings.version == 6 {
         log::info!("Migrating settings from v6 to v7 (Projects click overview setting)");
         settings.version = 7;
+    }
+
+    // v7 -> v8: notagent theme system. Map the old theme_mode/custom_theme_id
+    // pair to the closest notagent theme name.
+    if settings.version == 7 {
+        log::info!("Migrating settings from v7 to v8 (notagent theme system)");
+        settings.theme = migrate_legacy_theme(
+            settings.legacy_theme_mode.as_deref(),
+            settings.legacy_custom_theme_id.as_deref(),
+        );
+        settings.legacy_theme_mode = None;
+        settings.legacy_custom_theme_id = None;
+        settings.version = 8;
     }
 
     // Ensure version is current
@@ -1198,6 +1246,50 @@ mod tests {
         .resolve(project.to_string_lossy().as_ref(), None);
 
         assert_eq!(resolved, project.to_string_lossy());
+    }
+
+    #[test]
+    fn migrate_v7_builtin_vscode_theme_to_notagent_name() {
+        let json = r#"{"version": 7, "theme_mode": "custom", "custom_theme_id": "builtin-poimandres-dark"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        let migrated = migrate_settings(settings);
+        assert_eq!(migrated.version, SETTINGS_VERSION);
+        assert_eq!(migrated.theme, "poimandres-dark");
+        assert!(migrated.legacy_theme_mode.is_none());
+        assert!(migrated.legacy_custom_theme_id.is_none());
+    }
+
+    #[test]
+    fn migrate_v7_theme_modes_map_to_builtin_names() {
+        assert_eq!(migrate_legacy_theme(Some("light"), None), "light");
+        assert_eq!(migrate_legacy_theme(Some("dark"), None), "dark");
+        assert_eq!(migrate_legacy_theme(Some("auto"), None), "dark");
+        assert_eq!(migrate_legacy_theme(Some("pasteldark"), None), "dark");
+        assert_eq!(migrate_legacy_theme(Some("highcontrast"), None), "dark");
+        assert_eq!(migrate_legacy_theme(None, None), "dark");
+        assert_eq!(
+            migrate_legacy_theme(Some("custom"), Some("builtin-onedark-pro")),
+            "one-dark"
+        );
+        assert_eq!(
+            migrate_legacy_theme(Some("custom"), Some("builtin-nord-midnight")),
+            "nord-midnight"
+        );
+        // Unknown custom vscode themes fall back to the default.
+        assert_eq!(
+            migrate_legacy_theme(Some("custom"), Some("my-old-vscode-theme")),
+            "dark"
+        );
+    }
+
+    #[test]
+    fn theme_defaults_and_legacy_fields_not_serialized() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.theme, "dark");
+        let json = serde_json::to_value(&settings).unwrap();
+        assert_eq!(json.get("theme").and_then(|v| v.as_str()), Some("dark"));
+        assert!(json.get("theme_mode").is_none());
+        assert!(json.get("custom_theme_id").is_none());
     }
 
     #[test]

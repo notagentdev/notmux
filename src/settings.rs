@@ -5,7 +5,6 @@
 
 use crate::terminal::session_backend::SessionBackend;
 use crate::terminal::shell_config::ShellType;
-use crate::theme::ThemeMode;
 use crate::views::panels::toast::ToastManager;
 use crate::workspace::persistence::{AppSettings, get_settings_path, load_settings, save_settings};
 use gpui::*;
@@ -257,18 +256,9 @@ impl SettingsState {
         self.save_and_notify(cx);
     }
 
-    /// Set the theme mode and optional custom theme ID.
-    pub fn set_theme_mode(&mut self, value: ThemeMode, cx: &mut Context<Self>) {
-        self.settings.theme_mode = value;
-        if value != ThemeMode::Custom {
-            self.settings.custom_theme_id = None;
-        }
-        self.save_and_notify(cx);
-    }
-
-    /// Set the custom theme ID (file stem, e.g. "example-theme").
-    pub fn set_custom_theme_id(&mut self, id: Option<String>, cx: &mut Context<Self>) {
-        self.settings.custom_theme_id = id;
+    /// Set the active theme name (notagent theme system).
+    pub fn set_theme(&mut self, name: String, cx: &mut Context<Self>) {
+        self.settings.theme = name;
         self.save_and_notify(cx);
     }
 

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 // Re-export theme types for extension use
-pub use notmux_core::theme::{ThemeColors, ThemeMode};
+pub use notmux_core::theme::ThemeColors;
 
 /// Global theme provider — a function pointer that reads the current theme colors.
 /// The host app registers this at startup; extensions call `theme()` to read colors.

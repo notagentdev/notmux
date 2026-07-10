@@ -39,7 +39,8 @@ Most logic lives in `crates/`. The `src/` modules are thin re-exports (`pub use 
 | `notmux-workspace` | `Workspace` GPUI entity, persistence, settings, sessions, action methods |
 | `notmux-terminal` | PTY management, shell config, session backends |
 | `notmux-git` | Git status, diff parsing, worktree operations |
-| `notmux-theme` | Theming system (built-in + custom themes) |
+| `notagent-theme` | notagent theme engine: built-in JSON themes, custom themes dir, color resolution (verbatim port from notagent) |
+| `notmux-theme` | GPUI theme adapter (`GpuiTheme`) + bridges mapping it to `ThemeColors` |
 | `notmux-ui` | Design tokens, shared UI utilities |
 | `notmux-files` | File search, file viewer, syntax highlighting |
 | `notmux-markdown` | Markdown parsing and rendering |

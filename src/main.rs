@@ -61,7 +61,7 @@ use crate::keybindings::{
 };
 use crate::settings::GlobalSettings;
 use crate::terminal::pty_manager::PtyManager;
-use crate::theme::{AppTheme, GlobalTheme, ThemeMode};
+use crate::theme::GpuiTheme;
 use crate::views::panels::toast::{Toast, ToastManager};
 use crate::workspace::persistence;
 use crate::workspace::state::GlobalWorkspace;
@@ -576,34 +576,26 @@ fn main() {
             persistence::default_workspace()
         });
 
-        // Create theme entity from settings, restoring custom theme if applicable
-        let theme_entity = cx.new(|_cx| {
-            let mut theme = AppTheme::new(app_settings.theme_mode, true);
-            if app_settings.theme_mode == ThemeMode::Custom
-                && let Some(ref custom_id) = app_settings.custom_theme_id {
-                    for (info, colors) in crate::theme::load_custom_themes() {
-                        if info.id == format!("custom:{}", custom_id) {
-                            theme.set_custom_colors(colors);
-                            break;
-                        }
-                    }
-                }
-            theme
-        });
-        cx.set_global(GlobalTheme(theme_entity.clone()));
+        // Restore the persisted theme (falling back to the default if unset or
+        // invalid) and install it as the GpuiTheme global.
+        let gpui_theme = notmux_theme::load_gpui_theme(&app_settings.theme)
+            .or_else(|e| {
+                log::warn!(
+                    "Failed to load theme '{}': {}. Falling back to '{}'.",
+                    app_settings.theme,
+                    e,
+                    crate::theme::DEFAULT_THEME_NAME
+                );
+                notmux_theme::load_gpui_theme(crate::theme::DEFAULT_THEME_NAME)
+            })
+            .expect("default theme must load");
+        cx.set_global(gpui_theme);
+        *crate::theme::color_snapshot().lock() = crate::theme::theme(cx);
 
         // OSC color query resolver — reads a snapshot kept in sync with the active theme
         // so terminal apps querying `OSC 10/11/4 ; ? ST` get the real terminal colors.
         {
-            use parking_lot::Mutex as PLMutex;
-            let snapshot = Arc::new(PLMutex::new(theme_entity.read(cx).display_colors()));
-            {
-                let snap = snapshot.clone();
-                cx.observe(&theme_entity, move |entity, cx| {
-                    *snap.lock() = entity.read(cx).display_colors();
-                })
-                .detach();
-            }
+            let snapshot = crate::theme::color_snapshot().clone();
             notmux_terminal::terminal::register_color_resolver(Arc::new(move |index: usize| {
                 let t = snapshot.lock();
                 match index {
@@ -701,37 +693,12 @@ window_background: if app_settings.transparent_background { WindowBackgroundAppe
                 ..Default::default()
             },
             |window, cx| {
-                // Detect initial system appearance
-                let is_dark = matches!(
-                    window.appearance(),
-                    WindowAppearance::Dark | WindowAppearance::VibrantDark
-                );
-                theme_entity.update(cx, |theme, _cx| {
-                    theme.set_system_appearance(is_dark);
-                });
-
-                // Initialize gpui-component with correct theme from start
+                // Initialize gpui-component, following the active theme's
+                // light/dark base (the theme drives appearance, not the OS).
                 gpui_component::init(cx);
+                let is_dark = cx.global::<GpuiTheme>().bg_base().l <= 0.5;
                 let gpui_mode = if is_dark { GpuiThemeMode::Dark } else { GpuiThemeMode::Light };
                 GpuiComponentTheme::change(gpui_mode, Some(window), cx);
-
-                // Set up appearance change observer
-                let theme_for_observer = theme_entity.clone();
-                window
-                    .observe_window_appearance(move |window: &mut Window, cx: &mut App| {
-                        let is_dark = matches!(
-                            window.appearance(),
-                            WindowAppearance::Dark | WindowAppearance::VibrantDark
-                        );
-                        theme_for_observer.update(cx, |theme, cx| {
-                            theme.set_system_appearance(is_dark);
-                            cx.notify();
-                        });
-                        // Sync gpui-component theme
-                        let gpui_mode = if is_dark { GpuiThemeMode::Dark } else { GpuiThemeMode::Light };
-                        GpuiComponentTheme::change(gpui_mode, Some(window), cx);
-                    })
-                    .detach();
 
                 // Wire up content pane registration so PTY events can notify terminal views
                 notmux_views_terminal::set_register_content_pane_fn(Box::new(|terminal_id, weak_content| {

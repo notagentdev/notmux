@@ -1,13 +1,14 @@
-use crate::theme::theme;
-use crate::ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
+use super::SettingsPanel;
+use super::components::*;
+use crate::theme::{GpuiTheme, ThemeColor, theme};
+use crate::ui::tokens::ui_text_sm;
 use crate::views::overlays::theme_selector::{
     ThemeEntry, apply_theme_entry, selected_theme_index, theme_entries,
 };
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{h_flex, v_flex};
-use super::SettingsPanel;
-use super::components::*;
+use gpui_component::v_flex;
+
 impl SettingsPanel {
     pub(super) fn render_themes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
@@ -21,42 +22,56 @@ impl SettingsPanel {
                     .gap(px(10.0))
                     .child(subsection_label("AVAILABLE THEMES", &t, cx))
                     .child(
-                        section_container(&t)
+                        // Theme grid — same card layout as the notagent theme
+                        // settings: mini preview window with swatches from the
+                        // theme's own colors, active card outlined in accent.
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap(px(14.0))
                             .children(themes.iter().enumerate().map(|(index, entry)| {
-                                self.render_theme_row(index, entry, index == selected_index, cx)
+                                self.render_theme_card(index, entry, index == selected_index, cx)
                             })),
                     )
                     .child(
                         div()
                             .text_size(ui_text_sm(cx))
                             .text_color(rgb(t.text_muted))
-                            .child("Custom themes are loaded from your NotMux themes directory and appear here automatically."),
+                            .child("Custom themes are loaded from your themes directory and appear here automatically."),
                     ),
             )
     }
 
-    fn render_theme_row(
+    fn render_theme_card(
         &self,
         index: usize,
         entry: &ThemeEntry,
         is_selected: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let t = theme(cx);
-        let colors = entry.colors;
+        let g = cx.global::<GpuiTheme>().clone();
+        let accent = g.fg(ThemeColor::Accent);
+        let text = g.fg(ThemeColor::Text);
+        let outline = g.outline();
+        let (bg, ac, tx) = entry.preview.unwrap_or((g.bg_base(), accent, text));
+        let label = SharedString::from(entry.name.clone());
         let entry_for_click = entry.clone();
-        let is_custom = entry.info.id.starts_with("custom:");
+        let hover_bg = g.surface_2();
 
         div()
             .id(ElementId::Name(format!("settings-theme-{}", index).into()))
-            .px(px(12.0))
-            .py(px(10.0))
+            .w(px(168.0))
             .flex()
-            .items_center()
-            .gap(px(12.0))
+            .flex_col()
+            .gap(px(8.0))
+            .p(px(8.0))
+            .rounded_lg()
+            .bg(g.surface_1())
+            .border_2()
+            .border_color(if is_selected { accent } else { outline })
             .cursor_pointer()
-            .when(is_selected, |d| d.bg(rgb(t.bg_secondary)))
-            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .hover(move |s| s.bg(hover_bg))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |_this, _, _, cx| {
@@ -64,130 +79,36 @@ impl SettingsPanel {
                     cx.notify();
                 }),
             )
-            .child(Self::render_theme_preview(colors, cx))
             .child(
+                // Mini preview window.
                 div()
-                    .flex_1()
-                    .min_w_0()
+                    .h(px(72.0))
+                    .w_full()
+                    .rounded_md()
+                    .bg(bg)
+                    .p(px(8.0))
                     .flex()
                     .flex_col()
-                    .gap(px(3.0))
-                    .child(
-                        h_flex()
-                            .gap(px(8.0))
-                            .child(
-                                div()
-                                    .text_size(ui_text_xl(cx))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(rgb(t.text_primary))
-                                    .child(entry.info.name.clone()),
-                            )
-                            .when(is_custom, |d| {
-                                d.child(
-                                    div()
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .rounded(px(4.0))
-                                        .bg(rgb(t.bg_header))
-                                        .text_size(ui_text_ms(cx))
-                                        .text_color(rgb(t.text_secondary))
-                                        .child("Custom"),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(ui_text_md(cx))
-                            .text_color(rgb(t.text_muted))
-                            .child(entry.info.description.clone()),
-                    ),
-            )
-            .when(is_selected, |d| {
-                d.child(
-                    div()
-                        .text_size(ui_text_xl(cx))
-                        .text_color(rgb(t.border_active))
-                        .child("✓"),
-                )
-            })
-    }
-
-    fn render_theme_preview(colors: crate::theme::ThemeColors, cx: &App) -> impl IntoElement {
-        div()
-            .w(px(92.0))
-            .h(px(54.0))
-            .rounded(px(5.0))
-            .bg(rgb(colors.bg_primary))
-            .border_1()
-            .border_color(rgb(colors.border))
-            .p(px(5.0))
-            .flex()
-            .flex_col()
-            .gap(px(3.0))
-            .overflow_hidden()
-            .child(
-                div()
-                    .h(px(9.0))
-                    .rounded(px(2.0))
-                    .bg(rgb(colors.bg_header))
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
-                    .px(px(2.0))
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_red)),
-                    )
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_yellow)),
-                    )
-                    .child(
-                        div()
-                            .w(px(4.0))
-                            .h(px(4.0))
-                            .rounded_full()
-                            .bg(rgb(colors.term_green)),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap(px(3.0))
-                    .child(
-                        div()
-                            .text_size(ui_text(6.0, cx))
-                            .text_color(rgb(colors.term_green))
-                            .child("$"),
-                    )
-                    .child(
-                        div()
-                            .text_size(ui_text(6.0, cx))
-                            .text_color(rgb(colors.text_primary))
-                            .child("notmux"),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
                     .gap(px(5.0))
-                    .child(
-                        div()
-                            .text_size(ui_text(5.0, cx))
-                            .text_color(rgb(colors.term_blue))
-                            .child("src"),
-                    )
-                    .child(
-                        div()
-                            .text_size(ui_text(5.0, cx))
-                            .text_color(rgb(colors.text_secondary))
-                            .child("main.rs"),
-                    ),
+                    .child(div().w(px(60.0)).h(px(7.0)).rounded_full().bg(ac))
+                    .child(div().w(px(96.0)).h(px(7.0)).rounded_full().bg(tx))
+                    .child(div().w(px(78.0)).h(px(7.0)).rounded_full().bg(tx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_color(text).child(label))
+                    .when(is_selected, |d| {
+                        d.child(
+                            div()
+                                .text_xs()
+                                .text_color(accent)
+                                .child(SharedString::from("●")),
+                        )
+                    }),
             )
     }
 }

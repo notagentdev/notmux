@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "mobile/native", "crates/notmux-core", "crates/notmux-git", "crates/notmux-views-git", "crates/notmux-views-services", "crates/notmux-views-sidebar", "crates/notmux-views-terminal", "crates/notmux-terminal", "crates/notmux-layout", "crates/notmux-state", "crates/notmux-hooks", "crates/notmux-workspace", "crates/notmux-ui", "crates/notmux-files", "crates/notmux-markdown", "crates/notmux-extensions", "crates/notmux-ext-claude", "crates/notmux-ext-codex", "crates/notmux-ext-updater", "crates/notmux-services", "crates/notmux-remote-client", "crates/notmux-views-remote", "crates/notmux-theme"]
+members = [".", "mobile/native", "crates/notmux-core", "crates/notmux-git", "crates/notmux-views-git", "crates/notmux-views-services", "crates/notmux-views-sidebar", "crates/notmux-views-terminal", "crates/notmux-terminal", "crates/notmux-layout", "crates/notmux-state", "crates/notmux-hooks", "crates/notmux-workspace", "crates/notmux-ui", "crates/notmux-files", "crates/notmux-markdown", "crates/notmux-extensions", "crates/notmux-ext-claude", "crates/notmux-ext-codex", "crates/notmux-ext-updater", "crates/notmux-services", "crates/notmux-remote-client", "crates/notmux-views-remote", "crates/notmux-theme", "crates/notagent-theme"]
 resolver = "2"
 
 [package]

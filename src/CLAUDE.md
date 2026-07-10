@@ -34,7 +34,7 @@ Observable state with auto-notify:
 - `Workspace` — projects, layouts, focus (via FocusManager)
 - `RequestBroker` — decoupled transient UI request routing (overlay/sidebar requests)
 - `SettingsState` — user preferences with debounced auto-save
-- `AppTheme` — current theme mode and colors
+- `GpuiTheme` (GPUI global, not an entity) — the active notagent theme; views read `ThemeColors` through the bridge in `crates/notmux-theme/src/bridge.rs`
 - `RootView` — main view, owns SidebarController + OverlayManager
 - `OverlayManager` — centralized modal overlay lifecycle
 
@@ -51,8 +51,10 @@ Located in `~/.config/notmux/`:
 - `workspace.json` — projects, layouts, terminal state
 - `settings.json` — font, theme, shell, session backend
 - `keybindings.json` — custom keyboard shortcuts
-- `themes/*.json` — custom theme files
 - `remote.json` — remote server discovery (auto-generated)
+
+Custom themes (notagent JSON format) live in `~/.notagent/agent/themes/*.json`
+(shared with notagent; override the base dir with `NOTAGENT_CODING_AGENT_DIR`).
 
 ## Testing
 

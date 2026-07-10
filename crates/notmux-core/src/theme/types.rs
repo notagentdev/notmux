@@ -1,19 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Theme mode preference
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ThemeMode {
-    Light,
-    Dark,
-    PastelDark,
-    HighContrast,
-    #[default]
-    Auto,
-    /// Custom theme loaded from configuration
-    Custom,
-}
-
 /// Folder color options for projects
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -51,13 +37,4 @@ impl FolderColor {
             FolderColor::Pink,
         ]
     }
-}
-
-/// Available built-in themes
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ThemeInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub is_dark: bool,
 }
