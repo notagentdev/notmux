@@ -3,7 +3,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use notmux_ui::icon_button::icon_button;
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::ui_text_md;
 use notmux_workspace::state::HookTerminalStatus;
 

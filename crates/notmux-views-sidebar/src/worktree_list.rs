@@ -6,7 +6,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use notmux_ui::overlay::CloseEvent;
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::{ui_text_md, ui_text_ms};
 use notmux_workspace::settings::HooksConfig;
 use notmux_workspace::state::Workspace;

@@ -23,7 +23,7 @@ use notmux_terminal::TerminalsRegistry;
 use notmux_ui::click_detector::ClickDetector;
 use notmux_ui::menu::{context_menu_panel, menu_item};
 use notmux_ui::rename_state::{RenameState, cancel_rename, finish_rename, start_rename_with_blur};
-use notmux_ui::theme::{theme, with_alpha};
+use notmux_ui::theme::{sidebar_theme as theme, with_alpha};
 use notmux_ui::tokens::{ui_text_ms, ui_text_sm, ui_text_xl};
 use notmux_workspace::request_broker::RequestBroker;
 use notmux_workspace::requests::{OverlayRequest, SidebarRequest};
@@ -1755,7 +1755,9 @@ impl Sidebar {
             .flex()
             .items_center()
             .justify_between()
-            .bg(if transparent { with_alpha(t.bg_header, 0.3) } else { with_alpha(t.bg_header, 1.0) })
+            // In transparent mode the strip paints nothing extra: the panel
+            // shows the root chrome uniformly (like the notagent left panel).
+            .when(!transparent, |d| d.bg(with_alpha(t.bg_header, 1.0)))
             .border_b_1()
             .border_color(rgb(t.border))
             .child(

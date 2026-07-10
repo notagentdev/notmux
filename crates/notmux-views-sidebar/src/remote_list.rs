@@ -1,6 +1,6 @@
 use gpui::*;
 use notmux_core::client::{ConnectionStatus, RemoteConnectionConfig};
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 
 use crate::sidebar::Sidebar;

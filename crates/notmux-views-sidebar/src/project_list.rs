@@ -6,7 +6,7 @@ use gpui_component::tooltip::Tooltip;
 use notmux_core::api::ActionRequest;
 use notmux_ui::icon_button::icon_button;
 use notmux_ui::rename_state::is_renaming;
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::ui_text_sm;
 use notmux_views_terminal::actions::{MinimizeTerminal, ToggleFullscreen};
 use crate::drag::{FolderDrag, ProjectDrag, ProjectDragView, WorktreeDrag, WorktreeDragView};

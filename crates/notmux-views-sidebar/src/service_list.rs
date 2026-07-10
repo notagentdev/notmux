@@ -2,7 +2,7 @@
 
 use gpui::*;
 use notmux_core::api::ActionRequest;
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_views_services::types::ServiceSnapshot;
 
 use crate::item_widgets::sidebar_group_header;

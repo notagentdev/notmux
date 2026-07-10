@@ -9,7 +9,7 @@ use notmux_files::project_fs::ProjectFs;
 use notmux_ui::empty_state::empty_state;
 use notmux_ui::selectable_list::selectable_list_item;
 use notmux_ui::simple_input::{InputChangedEvent, SimpleInput, SimpleInputState};
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::{ui_text_ms, ui_text_sm};
 use notmux_ui::vscode_icon::vscode_file_icon_sized_with_options;
 use notmux_workspace::request_broker::RequestBroker;

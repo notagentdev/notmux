@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use notmux_files::clipboard::ExplorerClipboard;
 use notmux_files::dir_listing::{DirEntry, list_directory};
 use notmux_files::fs_ops;
-use notmux_files::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 use notmux_git::{FileStatus, WorkingFile, WorkingTreeStatus};
 use notmux_ui::simple_input::{SimpleInput, SimpleInputState};
 use notmux_ui::tokens::ui_text_md;

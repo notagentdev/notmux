@@ -5,7 +5,7 @@ use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use notmux_ui::color_dot::color_dot;
 use notmux_ui::rename_state::is_renaming;
-use notmux_ui::theme::theme;
+use notmux_ui::theme::sidebar_theme as theme;
 
 use crate::drag::{FolderDrag, FolderDragView, ProjectDrag, ProjectDragView};
 use crate::item_widgets::*;

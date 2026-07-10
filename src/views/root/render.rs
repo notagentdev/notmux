@@ -543,7 +543,17 @@ impl Render for RootView {
             .relative()
             .flex()
             .flex_col()
-.bg(if transparent { with_alpha(t.bg_header, 0.9) } else { with_alpha(t.bg_primary, 1.0) })
+            // Translucent chrome over the system blur (vibrancy): only the
+            // sidebar region actually shows it — the center and panels paint
+            // opaque backgrounds on top. Exactly the notagent root chrome:
+            // surface_2 at 90% alpha.
+            .bg(if transparent {
+                let mut chrome = cx.global::<crate::theme::GpuiTheme>().surface_2();
+                chrome.a = 0.9;
+                chrome
+            } else {
+                with_alpha(t.bg_primary, 1.0)
+            })
             .track_focus(&focus_handle)
             // Reset the title-bar window-move flag on any mouse-up.
             .on_mouse_up(
