@@ -199,6 +199,65 @@ impl Sidebar {
                     cx,
                 )
             })
+            // 3b. Metadata: git branch + listening ports of running services
+            // (muted, truncating — the name keeps layout priority).
+            .when(!is_renaming_now, |d| {
+                let mut ports: Vec<u16> = project
+                    .services
+                    .iter()
+                    .filter(|s| {
+                        matches!(s.status, notmux_services::manager::ServiceStatus::Running)
+                    })
+                    .flat_map(|s| s.ports.iter().copied())
+                    .collect();
+                ports.sort_unstable();
+                ports.dedup();
+                let port_label = match ports.len() {
+                    0 => None,
+                    1..=3 => Some(
+                        ports
+                            .iter()
+                            .map(|p| format!(":{p}"))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    ),
+                    n => Some(format!(":{} +{}", ports[0], n - 1)),
+                };
+                d.when_some(project.branch.clone(), |d, branch| {
+                    d.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(3.0))
+                            .max_w(px(110.0))
+                            .flex_shrink(1.0)
+                            .overflow_hidden()
+                            .child(
+                                svg()
+                                    .path("icons/git-branch.svg")
+                                    .size(px(10.0))
+                                    .flex_shrink_0()
+                                    .text_color(rgb(t.text_muted)),
+                            )
+                            .child(
+                                div()
+                                    .text_size(ui_text_sm(cx))
+                                    .text_color(rgb(t.text_muted))
+                                    .truncate()
+                                    .child(branch),
+                            ),
+                    )
+                })
+                .when_some(port_label, |d, label| {
+                    d.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(label),
+                    )
+                })
+            })
             // 4. Idle dot
             .when(idle_count > 0 && !is_busy, |d| {
                 d.child(sidebar_idle_dot(&t))

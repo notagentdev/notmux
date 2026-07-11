@@ -2024,6 +2024,9 @@ pub struct SidebarProjectInfo {
     pub worktree_count: usize,
     /// Parent project ID (for worktree children, used for drag-and-drop reordering)
     pub parent_project_id: Option<String>,
+    /// Current git branch (None for non-git projects and for worktree rows,
+    /// whose display name already is the branch).
+    pub branch: Option<String>,
     /// Services defined in notmux.yaml for this project
     pub services: Vec<SidebarServiceInfo>,
     /// Hook terminals currently running for this project
@@ -2039,13 +2042,15 @@ pub struct SidebarProjectInfo {
 impl SidebarProjectInfo {
     pub(crate) fn from_project(project: &ProjectData) -> Self {
         let layout = project.layout.as_ref();
+        // Non-blocking: reads the cached status populated by the background
+        // git watcher (None until the first poll completes).
+        let git_branch =
+            notmux_git::get_git_status(std::path::Path::new(&project.path)).and_then(|s| s.branch);
         // For worktree projects, show the git branch instead of the stored name.
-        let name = if project.worktree_info.is_some() {
-            notmux_git::get_git_status(std::path::Path::new(&project.path))
-                .and_then(|s| s.branch)
-                .unwrap_or_else(|| project.name.clone())
+        let (name, branch) = if project.worktree_info.is_some() {
+            (git_branch.unwrap_or_else(|| project.name.clone()), None)
         } else {
-            project.name.clone()
+            (project.name.clone(), git_branch)
         };
         Self {
             id: project.id.clone(),
@@ -2074,6 +2079,7 @@ impl SidebarProjectInfo {
                 .worktree_info
                 .as_ref()
                 .map(|w| w.parent_project_id.clone()),
+            branch,
             services: Vec::new(),
             hook_terminals: project
                 .hook_terminals
