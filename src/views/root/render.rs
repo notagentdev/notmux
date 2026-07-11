@@ -1278,42 +1278,41 @@ impl Render for RootView {
             // NOT a full-width bar. The middle over the tab bars is left
             // completely uncovered so tab drag-and-drop reaches the tabs instead
             // of the macOS window-move (a full-width overlay's transparent middle
-            // is draggable-by-default and would steal the gesture). Hidden on
-            // macOS fullscreen (traffic lights auto-hide).
-            .when(!cfg!(target_os = "macos") || !window.is_fullscreen(), |d| {
-                d.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .flex()
-                        .items_center()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, _| this.title_should_move = true),
-                        )
-                        .child(
-                            self.title_bar
-                                .update(cx, |tb, cx| tb.render_left_cluster(window, cx)),
-                        ),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .flex()
-                        .items_center()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, _| this.title_should_move = true),
-                        )
-                        .child(
-                            self.title_bar
-                                .update(cx, |tb, cx| tb.render_right_cluster(window, cx)),
-                        ),
-                )
-            })
+            // is draggable-by-default and would steal the gesture). Also shown
+            // in macOS fullscreen — the panel toggles must stay reachable; only
+            // the traffic-light padding collapses (lights auto-hide there).
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .flex()
+                    .items_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.title_should_move = true),
+                    )
+                    .child(
+                        self.title_bar
+                            .update(cx, |tb, cx| tb.render_left_cluster(window, cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .flex()
+                    .items_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.title_should_move = true),
+                    )
+                    .child(
+                        self.title_bar
+                            .update(cx, |tb, cx| tb.render_right_cluster(window, cx)),
+                    ),
+            )
             // Settings panel: a full-window overlay covering sidebar + main area +
             // git panel (not just the middle panel). Popovers opened from within it
             // (color picker, context menus) render above it as they come later.

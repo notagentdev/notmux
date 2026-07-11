@@ -321,11 +321,13 @@ impl TitleBar {
     /// overlay so nothing covers the tab region in the middle.
     pub fn render_left_cluster(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let t = theme(cx);
-        let traffic_light_padding = if cfg!(target_os = "macos") {
+        // In macOS fullscreen the traffic lights auto-hide — collapse their
+        // padding so the sidebar toggle doesn't float 80px from the edge.
+        let traffic_light_padding = if cfg!(target_os = "macos") && !window.is_fullscreen() {
             px(80.0)
         } else {
             px(8.0)
