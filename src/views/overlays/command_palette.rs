@@ -26,6 +26,21 @@ struct CommandPaletteMemory {
 
 impl Global for CommandPaletteMemory {}
 
+/// What executing a palette entry does.
+#[derive(Clone)]
+enum CommandKind {
+    /// Built-in action, dispatched through the keybinding system.
+    Action(fn() -> Box<dyn gpui::Action>),
+    /// Project-specific command from notmux.yaml `commands:` — runs in a new
+    /// terminal in the project.
+    Custom {
+        project_id: String,
+        name: String,
+        command: String,
+        cwd: String,
+    },
+}
+
 /// Command entry for the palette
 #[derive(Clone)]
 struct CommandEntry {
@@ -37,8 +52,47 @@ struct CommandEntry {
     category: String,
     /// Primary keybinding (formatted for display)
     keybinding: Option<String>,
-    /// Factory to create the action for dispatch
-    factory: fn() -> Box<dyn gpui::Action>,
+    /// What executing this entry does.
+    kind: CommandKind,
+}
+
+/// Palette entries for the custom commands (notmux.yaml `commands:`) of all
+/// visible local projects. Category is the project name; description shows
+/// the shell command.
+fn custom_command_entries(
+    workspace: &Entity<notmux_workspace::state::Workspace>,
+    cx: &App,
+) -> Vec<CommandEntry> {
+    let ws = workspace.read(cx);
+    let mut entries = Vec::new();
+    for project in ws.visible_projects() {
+        if project.is_remote {
+            continue;
+        }
+        let config = match notmux_services::config::load_project_config(&project.path) {
+            Ok(Some(config)) => config,
+            Ok(None) => continue,
+            Err(e) => {
+                log::warn!("Failed to load notmux.yaml for {}: {}", project.name, e);
+                continue;
+            }
+        };
+        for cmd in config.commands {
+            entries.push(CommandEntry {
+                name: cmd.name.clone(),
+                description: cmd.command.clone(),
+                category: project.name.clone(),
+                keybinding: None,
+                kind: CommandKind::Custom {
+                    project_id: project.id.clone(),
+                    name: cmd.name,
+                    command: cmd.command,
+                    cwd: cmd.cwd,
+                },
+            });
+        }
+    }
+    entries
 }
 
 /// Command palette for quick access to all commands
@@ -74,13 +128,20 @@ impl CommandPalette {
                     description: desc.description.to_string(),
                     category: desc.category.to_string(),
                     keybinding,
-                    factory: desc.factory,
+                    kind: CommandKind::Action(desc.factory),
                 }
             })
             .collect();
 
         // Sort by category then name
         commands.sort_by(|a, b| a.category.cmp(&b.category).then(a.name.cmp(&b.name)));
+
+        // Project-specific commands (notmux.yaml `commands:`) go on top, in
+        // config order, so a project's own actions are the quickest to reach.
+        let custom = custom_command_entries(&workspace, cx);
+        for entry in custom.into_iter().rev() {
+            commands.insert(0, entry);
+        }
 
         let config = ListOverlayConfig::new("Command Palette")
             .searchable("Type to search commands...")
@@ -128,7 +189,28 @@ impl CommandPalette {
     fn execute_command(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(filter_result) = self.state.filtered.get(index) {
             let command = &self.state.items[filter_result.index];
-            let action = (command.factory)();
+            let action = match &command.kind {
+                CommandKind::Action(factory) => factory(),
+                CommandKind::Custom {
+                    project_id,
+                    name,
+                    command,
+                    cwd,
+                } => {
+                    // Custom commands are executed by RootView (it owns the
+                    // terminal backend); hand them up as an event.
+                    let event = CommandPaletteEvent::RunProjectCommand {
+                        project_id: project_id.clone(),
+                        name: name.clone(),
+                        command: command.clone(),
+                        cwd: cwd.clone(),
+                    };
+                    self.save_memory(cx);
+                    cx.emit(event);
+                    cx.emit(CommandPaletteEvent::Close);
+                    return;
+                }
+            };
             self.save_memory(cx);
 
             // Restore focus to the terminal pane before dispatching so that
@@ -235,6 +317,13 @@ impl CommandPalette {
 
 pub enum CommandPaletteEvent {
     Close,
+    /// Run a project custom command (notmux.yaml `commands:`).
+    RunProjectCommand {
+        project_id: String,
+        name: String,
+        command: String,
+        cwd: String,
+    },
 }
 
 impl EventEmitter<CommandPaletteEvent> for CommandPalette {}

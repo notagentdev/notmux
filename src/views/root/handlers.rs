@@ -931,6 +931,14 @@ impl RootView {
                 } => {
                     self.handle_show_service_log(project_id, service_name, cx);
                 }
+                OverlayRequest::RunProjectCommand {
+                    project_id,
+                    name,
+                    command,
+                    cwd,
+                } => {
+                    self.run_project_command(&project_id, &name, &command, &cwd, cx);
+                }
                 OverlayRequest::ShowHookTerminal {
                     project_id,
                     terminal_id,
@@ -1185,6 +1193,85 @@ impl RootView {
 
         self.main_diff_viewer = None;
         self.main_file_viewer = Some(viewer);
+        cx.notify();
+    }
+
+    /// Runs a notmux.yaml custom command: creates a new terminal in the
+    /// project, names it after the command, runs the command, and focuses it.
+    fn run_project_command(
+        &mut self,
+        project_id: &str,
+        name: &str,
+        command: &str,
+        cwd: &str,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::workspace::actions::execute::{ActionResult, execute_action};
+        use notmux_core::api::ActionRequest;
+
+        let backend = self.backend.clone();
+        let terminals = self.terminals.clone();
+        let pid = project_id.to_string();
+
+        // A cwd other than the project root becomes a `cd` prefix — the new
+        // terminal always starts at the project's working directory.
+        let full_command = if cwd.is_empty() || cwd == "." {
+            command.to_string()
+        } else {
+            // Double quotes work across POSIX shells, cmd, and PowerShell.
+            format!("cd \"{}\" && {}", cwd.replace('"', "\\\""), command)
+        };
+
+        let new_terminal_id = self.workspace.update(cx, |ws, cx| {
+            let result = execute_action(
+                ActionRequest::CreateTerminal { project_id: pid.clone() },
+                ws,
+                &*backend,
+                &terminals,
+                cx,
+            );
+            match result {
+                ActionResult::Ok(Some(payload)) => payload
+                    .get("terminal_ids")
+                    .and_then(|ids| ids.as_array())
+                    .and_then(|ids| ids.first())
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string()),
+                ActionResult::Ok(None) => None,
+                ActionResult::Err(e) => {
+                    log::warn!("Custom command '{}' failed to create terminal: {}", name, e);
+                    None
+                }
+            }
+        });
+
+        let Some(terminal_id) = new_terminal_id else {
+            return;
+        };
+
+        self.workspace.update(cx, |ws, cx| {
+            for action in [
+                ActionRequest::RenameTerminal {
+                    project_id: pid.clone(),
+                    terminal_id: terminal_id.clone(),
+                    name: name.to_string(),
+                },
+                ActionRequest::RunCommand {
+                    terminal_id: terminal_id.clone(),
+                    command: full_command.clone(),
+                },
+                ActionRequest::FocusTerminal {
+                    project_id: pid.clone(),
+                    terminal_id: terminal_id.clone(),
+                },
+            ] {
+                if let ActionResult::Err(e) =
+                    execute_action(action, ws, &*backend, &terminals, cx)
+                {
+                    log::warn!("Custom command '{}' step failed: {}", name, e);
+                }
+            }
+        });
         cx.notify();
     }
 

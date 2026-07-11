@@ -528,6 +528,24 @@ impl OverlayManager {
                     CommandPaletteEvent::Close => {
                         this.close_modal(cx);
                     }
+                    CommandPaletteEvent::RunProjectCommand {
+                        project_id,
+                        name,
+                        command,
+                        cwd,
+                    } => {
+                        // RootView owns the terminal backend — route through
+                        // the request broker like other cross-view requests.
+                        let request = OverlayRequest::RunProjectCommand {
+                            project_id: project_id.clone(),
+                            name: name.clone(),
+                            command: command.clone(),
+                            cwd: cwd.clone(),
+                        };
+                        this.request_broker.update(cx, |broker, cx| {
+                            broker.push_overlay_request(request, cx);
+                        });
+                    }
                 }
             })
             .detach();

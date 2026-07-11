@@ -8,6 +8,22 @@ pub struct NotMuxProjectConfig {
     pub services: Vec<ServiceDefinition>,
     #[serde(default)]
     pub docker_compose: Option<DockerComposeConfig>,
+    /// Project-specific actions launched from the command palette.
+    #[serde(default)]
+    pub commands: Vec<CustomCommandDefinition>,
+}
+
+/// A project-specific command launched from the command palette. Runs in a
+/// new terminal in the project.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomCommandDefinition {
+    /// Display name in the command palette.
+    pub name: String,
+    /// Shell command to run.
+    pub command: String,
+    /// Working directory relative to the project root (default: project root).
+    #[serde(default = "default_cwd")]
+    pub cwd: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +81,25 @@ pub fn load_project_config(project_path: &str) -> Result<Option<NotMuxProjectCon
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_custom_commands() {
+        let yaml = r#"
+commands:
+  - name: Run tests
+    command: cargo test
+  - name: Dev server
+    command: npm run dev
+    cwd: ./web
+"#;
+        let config: NotMuxProjectConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.commands.len(), 2);
+        assert_eq!(config.commands[0].name, "Run tests");
+        assert_eq!(config.commands[0].command, "cargo test");
+        assert_eq!(config.commands[0].cwd, ".");
+        assert_eq!(config.commands[1].cwd, "./web");
+        assert!(config.services.is_empty());
+    }
 
     #[test]
     fn parse_minimal_config() {

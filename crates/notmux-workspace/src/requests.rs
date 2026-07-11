@@ -99,6 +99,15 @@ pub enum OverlayRequest {
         project_id: String,
         service_name: String,
     },
+    /// Run a project-specific custom command (from notmux.yaml `commands:`)
+    /// in a new terminal in the project.
+    RunProjectCommand {
+        project_id: String,
+        name: String,
+        command: String,
+        /// Working directory relative to the project root.
+        cwd: String,
+    },
     ShowHookTerminal {
         project_id: String,
         terminal_id: String,
