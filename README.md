@@ -43,6 +43,7 @@ The install script includes built-in auto-update support. On macOS and Linux, No
 ### Multi-Project Workspace
 - **Project columns** - Manage multiple projects side-by-side with resizable columns
 - **Sidebar** - Collapsible project list with tree view of terminals, drag-and-drop reordering, and auto-hide mode
+- **Project metadata** - Rows show the current git branch and the listening ports of running services
 - **Folder colors** - Color-code projects (red, orange, yellow, green, blue, purple, pink)
 - **Project switcher** - Quick searchable project navigation overlay
 - **Workspace persistence** - Auto-saves full layout, terminal state, and settings to disk
@@ -78,13 +79,14 @@ The install script includes built-in auto-update support. On macOS and Linux, No
 - **Diff stats** - Tracks lines added/removed with cached git status
 
 ### Themes & Appearance
-- **Built-in themes** - Dark, Light, Pastel Dark, and High Contrast
-- **Auto theme** - Follows system light/dark appearance
-- **Custom themes** - Load your own theme from a custom themes directory
+- **Built-in themes** - 11 themes from the notagent theme engine: dark, light, one-dark, one-light, tokyo-night, dracula, alucard, anysphere, nord-midnight, poimandres-dark, poimandres-light
+- **Custom themes** - Drop notagent-format JSON themes into the custom themes directory (shared with notagent)
+- **Live switching** - Theme changes apply instantly across all panes, no restart
 - **Configurable fonts** - Font family, size (8-48pt), line height (1.0-3.0), and separate UI font size
 
 ### Command Palette & Overlays
 - **Command palette** - Searchable list of all actions with keybinding hints
+- **Custom commands** - Project-specific actions from `notmux.yaml` (`commands:` with name, command, optional cwd) appear at the top of the palette and run in a new terminal in the project
 - **File search** - Fast file lookup within a project (respects .gitignore-style filtering)
 - **Settings panel** - GUI for all preferences (theme, font, terminal, hooks, per-project settings)
 - **Theme selector** - Live-preview theme picker
@@ -110,11 +112,43 @@ The install script includes built-in auto-update support. On macOS and Linux, No
 - **Auto-start & restart** - Services can auto-start on project open and auto-restart on crash
 - **Service panel** - Monitor service status (Stopped, Starting, Running, Crashed) and ports
 
+### Notifications
+- **Notification rings & labels** - Panes get a ring and the sidebar shows the latest message when an agent needs attention
+- **Terminal escape sequences** - Picks up OSC 9, OSC 99, and OSC 777 notifications from any program
+- **Native OS notifications** - Forwards agent/OSC notifications to macOS Notification Center, libnotify (Linux), or Windows toasts while NotMux is in the background; toggle under Settings → General
+- **Agent hooks** - `notmux hooks setup` wires Claude Code and Codex to notify on turn completion (`notmux notify` from any script works too)
+
 ### AI Tool Integration
 - **Claude Code status** - Real-time service status from status.claude.com
 - **Claude Code usage** - OAuth-based usage tracking (5-hour, 7-day rate limits, credits)
 - **Codex status & usage** - OpenAI Codex status monitoring with OAuth token refresh
 - Both integrations are opt-in via settings toggles
+
+### Command-Line Interface
+The `notmux` binary doubles as a CLI for scripting the running app (authentication is automatic on first use):
+
+```bash
+notmux projects                      # list projects (* = focused)
+notmux terminals                     # list terminals with names and projects
+notmux run "cargo test" -t <id>      # run a command in a terminal
+notmux send "hello" --enter          # type text (defaults to the current terminal)
+notmux key ctrl-c                    # send a special key
+notmux split down                    # split the current pane
+notmux focus <terminal-id>           # focus a terminal
+notmux new-terminal [project]        # create a terminal
+notmux read -t <id>                  # print a terminal's visible content
+notmux add-project <path>            # add a project to the workspace
+notmux notify --title "Done"         # send a notification (ring + badge + OS toast)
+notmux state                         # full workspace state as JSON
+notmux action '<json>'               # any raw ActionRequest
+notmux events --follow               # tail the event log
+```
+
+Every mutating action, notification, and terminal exit is appended to
+`~/.config/notmux/events.jsonl` (NDJSON, rotates at 10 MB) so external tools
+can observe app activity.
+
+Inside a NotMux terminal, commands target that terminal automatically (`NOTMUX_TERMINAL_ID`). Output is tab-separated for grep/awk; pass `--json` for structured output. The same API is reachable over HTTP/WebSocket for remote instances.
 
 ### Remote Control & Companion Apps
 - **Remote API** - Local HTTP/WebSocket server for remote terminal control (see `docs/remote.md`)
@@ -181,8 +215,9 @@ Settings are stored in `~/.config/notmux/`:
 | `settings.json` | Theme, font, shell, scrollback, hooks, and other preferences |
 | `workspace.json` | Projects, layouts, and terminal state |
 | `keybindings.json` | Custom keyboard shortcuts |
-| `themes/*.json` | Custom theme files |
 | `notmux.yaml` (project root) | Project services and Docker Compose configuration |
+
+Custom themes (notagent JSON format) live in `~/.notagent/agent/themes/*.json` and appear in the theme picker automatically.
 
 ## Documentation
 
