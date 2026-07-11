@@ -694,6 +694,44 @@ impl LayoutNode {
             }
         }
 
+        // Tabs must not nest: a Tabs child inside a Tabs renders as an opaque
+        // "Tab n" with a second tab bar. Inline the inner group's children
+        // (the recursion above already flattened deeper levels, so one pass
+        // suffices). This also repairs nested groups in persisted layouts —
+        // normalize runs on load.
+        if let LayoutNode::Tabs {
+            children,
+            active_tab,
+        } = self
+            && children.iter().any(|c| matches!(c, LayoutNode::Tabs { .. }))
+        {
+            let old_active = *active_tab;
+            let mut new_children = Vec::new();
+            let mut new_active = 0;
+            for (i, child) in children.drain(..).enumerate() {
+                match child {
+                    LayoutNode::Tabs {
+                        children: inner,
+                        active_tab: inner_active,
+                    } => {
+                        if i == old_active {
+                            new_active = new_children.len()
+                                + inner_active.min(inner.len().saturating_sub(1));
+                        }
+                        new_children.extend(inner);
+                    }
+                    other => {
+                        if i == old_active {
+                            new_active = new_children.len();
+                        }
+                        new_children.push(other);
+                    }
+                }
+            }
+            *children = new_children;
+            *active_tab = new_active;
+        }
+
         let should_unwrap = match self {
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.len() <= 1
@@ -1305,6 +1343,102 @@ mod tests {
     fn find_first_terminal_path_tabs() {
         let node = tabs(vec![terminal("t1"), terminal("t2")]);
         assert_eq!(node.find_first_terminal_path(), vec![0]);
+    }
+
+    #[test]
+    fn normalize_flattens_nested_tabs() {
+        // Tabs{ t1, Tabs{t2, t3}, t4 } with the inner group active (and t3
+        // active inside it) — the nested-group shape a center-drop used to
+        // create.
+        let mut node = LayoutNode::Tabs {
+            children: vec![
+                terminal("t1"),
+                LayoutNode::Tabs {
+                    children: vec![terminal("t2"), terminal("t3")],
+                    active_tab: 1,
+                },
+                terminal("t4"),
+            ],
+            active_tab: 1,
+        };
+        node.normalize();
+        assert_eq!(node.collect_terminal_ids(), vec!["t1", "t2", "t3", "t4"]);
+        match &node {
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
+                assert_eq!(children.len(), 4);
+                assert!(
+                    children
+                        .iter()
+                        .all(|c| matches!(c, LayoutNode::Terminal { .. }))
+                );
+                // Active pointed at the inner group → now its active leaf (t3).
+                assert_eq!(*active_tab, 2);
+            }
+            other => panic!("expected flat tabs, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn normalize_flattens_nested_tabs_active_after_group() {
+        // Active tab sits AFTER the inner group — its index must shift by the
+        // inner group's extra children.
+        let mut node = LayoutNode::Tabs {
+            children: vec![
+                LayoutNode::Tabs {
+                    children: vec![terminal("t1"), terminal("t2")],
+                    active_tab: 0,
+                },
+                terminal("t3"),
+            ],
+            active_tab: 1,
+        };
+        node.normalize();
+        match &node {
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
+                assert_eq!(children.len(), 3);
+                assert_eq!(*active_tab, 2, "active leaf t3 shifted right");
+            }
+            other => panic!("expected flat tabs, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn normalize_flattens_deeply_nested_tabs() {
+        // Two levels of nesting — recursion flattens bottom-up in one pass.
+        let mut node = LayoutNode::Tabs {
+            children: vec![
+                terminal("t1"),
+                LayoutNode::Tabs {
+                    children: vec![
+                        terminal("t2"),
+                        LayoutNode::Tabs {
+                            children: vec![terminal("t3"), terminal("t4")],
+                            active_tab: 0,
+                        },
+                    ],
+                    active_tab: 0,
+                },
+            ],
+            active_tab: 0,
+        };
+        node.normalize();
+        assert_eq!(node.collect_terminal_ids(), vec!["t1", "t2", "t3", "t4"]);
+        match &node {
+            LayoutNode::Tabs { children, .. } => {
+                assert!(
+                    children
+                        .iter()
+                        .all(|c| matches!(c, LayoutNode::Terminal { .. }))
+                );
+            }
+            other => panic!("expected flat tabs, got {:?}", other),
+        }
     }
 
     #[test]

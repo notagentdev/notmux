@@ -763,18 +763,7 @@ impl Workspace {
                 None => return,
             };
 
-            // Get target node and replace it with wrapper
-            let target_node = match layout.get_at_path(&target_path) {
-                Some(node) => node.clone(),
-                None => return,
-            };
-
-            let wrapper = Self::build_drop_zone_wrapper(source_node, target_node, zone);
-
-            // Replace target node with wrapper
-            if let Some(node) = layout.get_at_path_mut(&target_path) {
-                *node = wrapper;
-            }
+            Self::insert_node_at_drop_zone(layout, source_node, &target_path, zone);
 
             // Normalize to flatten nested same-direction splits
             layout.normalize();
@@ -906,16 +895,9 @@ impl Workspace {
                 Some(p) => p,
                 None => return,
             };
-            let target_node = match tgt_layout.get_at_path(&target_path) {
-                Some(node) => node.clone(),
-                None => return,
-            };
 
-            let wrapper = Self::build_drop_zone_wrapper(source_node, target_node, zone);
+            Self::insert_node_at_drop_zone(tgt_layout, source_node, &target_path, zone);
 
-            if let Some(node) = tgt_layout.get_at_path_mut(&target_path) {
-                *node = wrapper;
-            }
             tgt_layout.normalize();
             tgt_layout.find_pane_path(source_terminal_id)
         } else {
@@ -933,6 +915,40 @@ impl Workspace {
         // Focus the moved terminal in the target project
         if let Some(new_path) = new_focus_path {
             self.set_focused_terminal(target_project_id.to_string(), new_path, cx);
+        }
+    }
+
+    /// Place `source_node` relative to the pane at `target_path` for a drop
+    /// zone. A center-drop on a pane that is already a tab joins its Tabs
+    /// group as a sibling — wrapping would nest a Tabs inside a Tabs, which
+    /// renders as an opaque "Tab n" with a second tab bar. Every other case
+    /// wraps target + source via [`Self::build_drop_zone_wrapper`].
+    fn insert_node_at_drop_zone(
+        layout: &mut LayoutNode,
+        source_node: LayoutNode,
+        target_path: &[usize],
+        zone: DropZone,
+    ) {
+        if zone == DropZone::Center
+            && !target_path.is_empty()
+            && let Some(LayoutNode::Tabs {
+                children,
+                active_tab,
+            }) = layout.get_at_path_mut(&target_path[..target_path.len() - 1])
+        {
+            let insert_at = target_path[target_path.len() - 1] + 1;
+            children.insert(insert_at, source_node);
+            *active_tab = insert_at;
+            return;
+        }
+
+        let target_node = match layout.get_at_path(target_path) {
+            Some(node) => node.clone(),
+            None => return,
+        };
+        let wrapper = Self::build_drop_zone_wrapper(source_node, target_node, zone);
+        if let Some(node) = layout.get_at_path_mut(target_path) {
+            *node = wrapper;
         }
     }
 
@@ -2224,6 +2240,52 @@ mod gpui_tests {
                     assert_eq!(ids, vec!["t2", "t1"]);
                 }
                 _ => panic!("Expected tabs, got {:?}", layout),
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn test_move_pane_center_onto_tab_member_joins_group(cx: &mut gpui::TestAppContext) {
+        // Split{ t1, Tabs{t2, t3} }: center-drop t1 onto t2 (already a tab)
+        // must join the existing group — wrapping would nest Tabs in Tabs.
+        let layout = LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            sizes: vec![50.0, 50.0],
+            children: vec![
+                terminal_node_t("t1"),
+                LayoutNode::Tabs {
+                    children: vec![terminal_node_t("t2"), terminal_node_t("t3")],
+                    active_tab: 0,
+                },
+            ],
+        };
+        let project = make_project_with_layout("p1", layout);
+        let data = make_workspace_data(vec![project], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.move_pane("p1", "t1", "p1", "t2", DropZone::Center, cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Tabs {
+                    children,
+                    active_tab,
+                } => {
+                    assert_eq!(children.len(), 3, "one flat group of three tabs");
+                    assert!(
+                        children
+                            .iter()
+                            .all(|c| matches!(c, LayoutNode::Terminal { .. })),
+                        "no nested Tabs: {:?}",
+                        layout
+                    );
+                    // Inserted right after the drop target, and focused.
+                    assert_eq!(layout.collect_terminal_ids(), vec!["t2", "t1", "t3"]);
+                    assert_eq!(*active_tab, 1);
+                }
+                other => panic!("expected flat tab group, got {:?}", other),
             }
         });
     }
