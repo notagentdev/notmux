@@ -1,6 +1,7 @@
 mod commands;
 mod hooks;
 mod register;
+mod terminal_commands;
 
 use crate::workspace::persistence::config_dir;
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,16 @@ pub fn try_handle_cli() -> Option<i32> {
         }
         "services" => commands::cli_services(rest),
         "service" => commands::cli_service(rest),
+        "projects" => terminal_commands::cli_projects(rest),
+        "terminals" => terminal_commands::cli_terminals(rest),
+        "send" => terminal_commands::cli_send(rest),
+        "run" => terminal_commands::cli_run(rest),
+        "key" => terminal_commands::cli_key(rest),
+        "split" => terminal_commands::cli_split(rest),
+        "focus" => terminal_commands::cli_focus(rest),
+        "new-terminal" => terminal_commands::cli_new_terminal(rest),
+        "read" => terminal_commands::cli_read(rest),
+        "add-project" => terminal_commands::cli_add_project(rest),
         "notify" => commands::cli_notify(rest),
         "clear-notification" => commands::cli_clear_notification(rest),
         "agent-status" => commands::cli_agent_status(rest),
@@ -53,6 +64,16 @@ fn print_help() {
     eprintln!("Commands:");
     eprintln!("  state                              Print workspace state (JSON)");
     eprintln!("  action <json>                      Execute a raw action (JSON ActionRequest)");
+    eprintln!("  projects [--json]                  List projects (id, name, path; * = focused)");
+    eprintln!("  terminals [project] [--json]       List terminals (id, name, project)");
+    eprintln!("  send <text> [--terminal <id>] [--enter]  Type text into a terminal");
+    eprintln!("  run <command> [--terminal <id>]    Run a command in a terminal (text + Enter)");
+    eprintln!("  key <key> [--terminal <id>]        Send a special key (enter, ctrl-c, up, …)");
+    eprintln!("  split [right|down] [--terminal <id>]  Split the terminal's pane");
+    eprintln!("  focus <terminal-id>                Focus a terminal");
+    eprintln!("  new-terminal [project]             Create a terminal in a project");
+    eprintln!("  read [--terminal <id>] [--json]    Print a terminal's visible content");
+    eprintln!("  add-project <path> [--name <n>]    Add a project to the workspace");
     eprintln!("  services [project] [--json]        List services and their status");
     eprintln!("  service start <name> [project]     Start a service");
     eprintln!("  service stop <name> [project]      Stop a service");
