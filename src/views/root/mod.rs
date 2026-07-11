@@ -382,6 +382,9 @@ impl RootView {
                 for pid in sb.file_explorer_project_ids() {
                     sb.refresh_file_explorer(&pid, cx);
                 }
+                // Re-render the project list so branch labels pick up the
+                // freshly cached git status.
+                cx.notify();
             });
         })
         .detach();

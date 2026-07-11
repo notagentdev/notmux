@@ -236,31 +236,44 @@ impl GitStatusWatcher {
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let mut cycle: u64 = 0;
             loop {
-                let projects: Vec<(String, String)> = cx.update(|cx| {
-                    let ws = workspace.read(cx);
-                    let mut project_ids: HashSet<String> = ws
-                        .visible_projects()
-                        .iter()
-                        .filter(|p| !p.is_remote)
-                        .map(|p| p.id.clone())
-                        .collect();
-                    if let Ok(remote_terminals) = remote_subscribed_terminals.read() {
-                        for terminal_ids in remote_terminals.values() {
-                            for tid in terminal_ids {
-                                if let Some(p) = ws.find_project_for_terminal(tid)
-                                    && !p.is_remote
-                                {
-                                    project_ids.insert(p.id.clone());
+                // `projects` (visible + remote-subscribed) drives the network
+                // PR/CI polling; `all_local` drives the git-status refresh so
+                // the sidebar shows branches for every project, not just the
+                // ones visible in the overview.
+                let (projects, all_local): (Vec<(String, String)>, Vec<(String, String)>) = cx
+                    .update(|cx| {
+                        let ws = workspace.read(cx);
+                        let mut project_ids: HashSet<String> = ws
+                            .visible_projects()
+                            .iter()
+                            .filter(|p| !p.is_remote)
+                            .map(|p| p.id.clone())
+                            .collect();
+                        if let Ok(remote_terminals) = remote_subscribed_terminals.read() {
+                            for terminal_ids in remote_terminals.values() {
+                                for tid in terminal_ids {
+                                    if let Some(p) = ws.find_project_for_terminal(tid)
+                                        && !p.is_remote
+                                    {
+                                        project_ids.insert(p.id.clone());
+                                    }
                                 }
                             }
                         }
-                    }
-                    ws.projects()
-                        .iter()
-                        .filter(|p| project_ids.contains(&p.id))
-                        .map(|p| (p.id.clone(), p.path.clone()))
-                        .collect()
-                });
+                        let visible = ws
+                            .projects()
+                            .iter()
+                            .filter(|p| project_ids.contains(&p.id))
+                            .map(|p| (p.id.clone(), p.path.clone()))
+                            .collect();
+                        let all_local = ws
+                            .projects()
+                            .iter()
+                            .filter(|p| !p.is_remote)
+                            .map(|p| (p.id.clone(), p.path.clone()))
+                            .collect();
+                        (visible, all_local)
+                    });
 
                 let check_prs = cycle.is_multiple_of(PR_POLL_EVERY_N_CYCLES);
                 let ci_poll_interval = if this
@@ -273,8 +286,9 @@ impl GitStatusWatcher {
                 };
                 let check_ci = cycle.is_multiple_of(ci_poll_interval);
 
-                // Status refresh (covers remote-subscribed + fallback path).
-                let status_futures: Vec<_> = projects
+                // Status refresh (covers remote-subscribed + fallback path,
+                // and keeps the sidebar branch labels fresh for all projects).
+                let status_futures: Vec<_> = all_local
                     .iter()
                     .map(|(id, path)| {
                         let id = id.clone();
