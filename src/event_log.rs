@@ -1,0 +1,110 @@
+//! Append-only NDJSON event log (`~/.config/notmux/events.jsonl`).
+//!
+//! Every mutating action, notification, and terminal exit is appended as one
+//! JSON object per line so external tools can observe app activity (`tail -f`
+//! or `notmux events --follow`). Read-only query actions are not logged —
+//! polling clients (web/mobile) would flood the file.
+//!
+//! The log rotates at 10 MB: the current file is renamed to
+//! `events.jsonl.1` (replacing any previous generation) and a fresh file is
+//! started, so the log never grows unbounded.
+
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Rotate when the log exceeds this size.
+const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Path of the event log in the config dir.
+pub fn event_log_path() -> PathBuf {
+    crate::workspace::persistence::config_dir().join("events.jsonl")
+}
+
+/// Serializes writers within this process (PTY loop + GPUI thread).
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Append an event line: `{"ts_ms":…,"event":"<kind>", …payload}`.
+/// Fire-and-forget — failures are logged and never propagate.
+pub fn emit(kind: &str, payload: serde_json::Value) {
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut line = serde_json::json!({ "ts_ms": ts_ms, "event": kind });
+    if let (Some(obj), Some(extra)) = (line.as_object_mut(), payload.as_object()) {
+        for (k, v) in extra {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    let Ok(mut text) = serde_json::to_string(&line) else {
+        return;
+    };
+    text.push('\n');
+
+    let path = event_log_path();
+    let _guard = WRITE_LOCK.lock();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Rotate before appending so a single generation bounds disk use.
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_LOG_BYTES) {
+        let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
+    }
+    match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(text.as_bytes()) {
+                log::warn!("Failed to write event log: {}", e);
+            }
+        }
+        Err(e) => log::warn!("Failed to open event log: {}", e),
+    }
+}
+
+/// Whether an action is a read-only query that must not be logged.
+pub fn is_read_only_action(action: &notmux_core::api::ActionRequest) -> bool {
+    use notmux_core::api::ActionRequest as A;
+    matches!(
+        action,
+        A::ReadContent { .. }
+            | A::GitStatus { .. }
+            | A::GitDiffSummary { .. }
+            | A::GitDiff { .. }
+            | A::GitBranches { .. }
+            | A::GitFileContents { .. }
+            | A::GitCommitGraph { .. }
+            | A::GitListBranches { .. }
+            | A::GitWorkingTreeStatus { .. }
+            | A::ListFiles { .. }
+            | A::ReadFile { .. }
+            | A::FileSize { .. }
+            | A::SearchContent { .. }
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notmux_core::api::ActionRequest;
+
+    #[test]
+    fn read_only_actions_are_not_logged() {
+        assert!(is_read_only_action(&ActionRequest::ReadContent {
+            terminal_id: "t".into()
+        }));
+        assert!(is_read_only_action(&ActionRequest::ListFiles {
+            project_id: "p".into(),
+            show_ignored: false,
+            show_hidden: false,
+        }));
+        assert!(!is_read_only_action(&ActionRequest::SendText {
+            terminal_id: "t".into(),
+            text: "x".into()
+        }));
+        assert!(!is_read_only_action(&ActionRequest::CreateTerminal {
+            project_id: "p".into()
+        }));
+    }
+}

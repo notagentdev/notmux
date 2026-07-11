@@ -545,6 +545,75 @@ pub fn cli_add_project(args: &[String]) -> i32 {
     }
 }
 
+pub fn cli_events(args: &[String]) -> i32 {
+    let mut count: usize = 20;
+    let mut follow = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-n" | "--lines" => {
+                i += 1;
+                match args.get(i).map(|s| s.parse::<usize>()) {
+                    Some(Ok(n)) => count = n,
+                    _ => {
+                        eprintln!("Usage: notmux events [-n <count>] [--follow]");
+                        return 1;
+                    }
+                }
+            }
+            "--follow" | "-f" => follow = true,
+            _ => {
+                eprintln!("Usage: notmux events [-n <count>] [--follow]");
+                return 1;
+            }
+        }
+        i += 1;
+    }
+
+    let path = crate::event_log::event_log_path();
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    if content.is_empty() && !follow {
+        eprintln!("No events logged yet ({}).", path.display());
+        return 0;
+    }
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(count);
+    for line in &lines[start..] {
+        println!("{line}");
+    }
+
+    if follow {
+        // Poll for appended lines; a shrunk file means the log rotated —
+        // start over from the beginning of the fresh file.
+        let mut offset = content.len() as u64;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            if len < offset {
+                offset = 0;
+            }
+            if len > offset {
+                use std::io::{Read, Seek, SeekFrom};
+                let Ok(mut file) = std::fs::File::open(&path) else {
+                    continue;
+                };
+                if file.seek(SeekFrom::Start(offset)).is_err() {
+                    continue;
+                }
+                let mut buf = String::new();
+                if file.read_to_string(&mut buf).is_err() {
+                    continue;
+                }
+                offset = len;
+                print!("{buf}");
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+            }
+        }
+    }
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

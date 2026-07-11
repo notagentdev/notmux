@@ -47,6 +47,33 @@ pub fn execute_action(
     terminals: &TerminalsRegistry,
     cx: &mut Context<Workspace>,
 ) -> ActionResult {
+    // Mutating actions go to the event log (events.jsonl); read-only queries
+    // are skipped so polling clients don't flood it.
+    let logged_request = if crate::event_log::is_read_only_action(&action) {
+        None
+    } else {
+        serde_json::to_value(&action).ok()
+    };
+    let result = execute_action_inner(action, ws, backend, terminals, cx);
+    if let Some(request) = logged_request {
+        let mut payload = serde_json::json!({ "request": request });
+        if let ActionResult::Err(e) = &result
+            && let Some(obj) = payload.as_object_mut()
+        {
+            obj.insert("error".to_string(), serde_json::json!(e));
+        }
+        crate::event_log::emit("action", payload);
+    }
+    result
+}
+
+fn execute_action_inner(
+    action: ActionRequest,
+    ws: &mut Workspace,
+    backend: &dyn TerminalBackend,
+    terminals: &TerminalsRegistry,
+    cx: &mut Context<Workspace>,
+) -> ActionResult {
     match action {
         ActionRequest::CreateTerminal { project_id } => {
             ws.add_terminal(&project_id, cx);

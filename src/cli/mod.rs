@@ -43,6 +43,7 @@ pub fn try_handle_cli() -> Option<i32> {
         "new-terminal" => terminal_commands::cli_new_terminal(rest),
         "read" => terminal_commands::cli_read(rest),
         "add-project" => terminal_commands::cli_add_project(rest),
+        "events" => terminal_commands::cli_events(rest),
         "notify" => commands::cli_notify(rest),
         "clear-notification" => commands::cli_clear_notification(rest),
         "agent-status" => commands::cli_agent_status(rest),
@@ -74,6 +75,7 @@ fn print_help() {
     eprintln!("  new-terminal [project]             Create a terminal in a project");
     eprintln!("  read [--terminal <id>] [--json]    Print a terminal's visible content");
     eprintln!("  add-project <path> [--name <n>]    Add a project to the workspace");
+    eprintln!("  events [-n <count>] [--follow]     Print the event log (events.jsonl)");
     eprintln!("  services [project] [--json]        List services and their status");
     eprintln!("  service start <name> [project]     Start a service");
     eprintln!("  service stop <name> [project]      Stop a service");

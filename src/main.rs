@@ -7,6 +7,7 @@ mod app;
 mod assets;
 mod cli;
 mod elements;
+mod event_log;
 mod git;
 mod keybindings;
 mod native_notify;

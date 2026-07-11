@@ -606,6 +606,12 @@ impl NotMux {
                 }
 
                 // Notify main window after processing the batch
+                for (terminal_id, exit_code) in &exit_events {
+                    crate::event_log::emit(
+                        "terminal_exit",
+                        serde_json::json!({ "terminal_id": terminal_id, "exit_code": exit_code }),
+                    );
+                }
                 let _ = this.update(cx, |this, cx| {
                     if !exit_events.is_empty() {
                         // Two-phase hook exit handling:
@@ -780,10 +786,19 @@ impl NotMux {
                             if let Some(notif) = terminals_guard
                                 .get(tid)
                                 .and_then(|t| t.take_unposted_notification())
-                                && native_enabled
-                                && app_inactive
                             {
-                                crate::native_notify::post(&notif.title, &notif.body);
+                                crate::event_log::emit(
+                                    "notification",
+                                    serde_json::json!({
+                                        "source": "osc",
+                                        "terminal_id": tid,
+                                        "title": notif.title,
+                                        "body": notif.body,
+                                    }),
+                                );
+                                if native_enabled && app_inactive {
+                                    crate::native_notify::post(&notif.title, &notif.body);
+                                }
                             }
                         }
                     }
