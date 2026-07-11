@@ -2,7 +2,7 @@
 
 use std::path::Path;
 use notmux_git::{
-    DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, GraphRow, StashEntry,
+    CommitLogEntry, DiffMode, DiffResult, FileDiffSummary, FileStatusRefresh, StashEntry,
     WorkingTreeStatus,
 };
 
@@ -26,7 +26,14 @@ pub trait GitProvider: Send + Sync + 'static {
         mode: DiffMode,
     ) -> (Option<String>, Option<String>);
     fn get_diff_file_summary(&self) -> Vec<FileDiffSummary>;
-    fn get_commit_graph(&self, count: usize, branch: Option<&str>) -> Vec<GraphRow>;
+    /// One page of the commit log (`skip`/`count`), newest first. Pages are
+    /// appended by callers — a page fetch must never refetch the prefix.
+    fn get_commit_log(
+        &self,
+        skip: usize,
+        count: usize,
+        branch: Option<&str>,
+    ) -> Vec<CommitLogEntry>;
     fn list_branches(&self) -> Vec<String>;
 
     /// Local filesystem root of this repo, if the provider is local.
@@ -132,8 +139,13 @@ impl GitProvider for LocalGitProvider {
         notmux_git::get_diff_file_summary(std::path::Path::new(&self.path))
     }
 
-    fn get_commit_graph(&self, count: usize, branch: Option<&str>) -> Vec<GraphRow> {
-        notmux_git::get_commit_graph(std::path::Path::new(&self.path), count, branch)
+    fn get_commit_log(
+        &self,
+        skip: usize,
+        count: usize,
+        branch: Option<&str>,
+    ) -> Vec<CommitLogEntry> {
+        notmux_git::get_commit_log(std::path::Path::new(&self.path), skip, count, branch)
     }
 
     fn list_branches(&self) -> Vec<String> {
@@ -329,15 +341,21 @@ impl GitProvider for RemoteGitProvider {
         }
     }
 
-    fn get_commit_graph(&self, count: usize, branch: Option<&str>) -> Vec<GraphRow> {
-        let action = notmux_core::api::ActionRequest::GitCommitGraph {
+    fn get_commit_log(
+        &self,
+        skip: usize,
+        count: usize,
+        branch: Option<&str>,
+    ) -> Vec<CommitLogEntry> {
+        let action = notmux_core::api::ActionRequest::GitCommitLog {
             project_id: self.project_id.clone(),
+            skip,
             count,
             branch: branch.map(String::from),
         };
         match self.post_action(action) {
             Ok(Some(value)) => serde_json::from_value(value).unwrap_or_else(|e| {
-                log::warn!("Failed to deserialize commit graph: {}", e);
+                log::warn!("Failed to deserialize commit log: {}", e);
                 Vec::new()
             }),
             _ => Vec::new(),

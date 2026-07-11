@@ -81,7 +81,7 @@ pub fn is_unlogged_action(action: &notmux_core::api::ActionRequest) -> bool {
             | A::GitDiff { .. }
             | A::GitBranches { .. }
             | A::GitFileContents { .. }
-            | A::GitCommitGraph { .. }
+            | A::GitCommitLog { .. }
             | A::GitListBranches { .. }
             | A::GitWorkingTreeStatus { .. }
             | A::ListFiles { .. }

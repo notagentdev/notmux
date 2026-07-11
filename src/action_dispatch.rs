@@ -579,12 +579,14 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             branch,
             create_branch,
         },
-        ActionRequest::GitCommitGraph {
+        ActionRequest::GitCommitLog {
             project_id,
+            skip,
             count,
             branch,
-        } => ActionRequest::GitCommitGraph {
+        } => ActionRequest::GitCommitLog {
             project_id: s(&project_id),
+            skip,
             count,
             branch,
         },

@@ -1102,12 +1102,16 @@ pub fn compute_target_paths(
     (worktree_path, project_path)
 }
 
-/// Get commit graph with topology (railways) for a repository.
-///
-/// Uses `git log --graph` to get lane positions, producing both commit rows
-/// and connector rows (branch/merge lines between commits).
+/// Get a page of the commit log for a repository (plain `git log`, no
+/// topology). `skip`/`limit` page through history so callers append pages
+/// incrementally instead of refetching the whole prefix.
 /// If `branch` is Some, shows the log for that branch instead of HEAD.
-pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<super::GraphRow> {
+pub fn get_commit_log(
+    path: &Path,
+    skip: usize,
+    limit: usize,
+    branch: Option<&str>,
+) -> Vec<super::CommitLogEntry> {
     let path_str = match path.to_str() {
         Some(s) => s,
         None => return vec![],
@@ -1117,8 +1121,8 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
         "-C".to_string(),
         path_str.to_string(),
         "log".to_string(),
-        "--graph".to_string(),
-        format!("--format=%x00%h%x01%H%x01%s%x01%an%x01%at%x01%P%x01%D"),
+        format!("--format=%h%x01%H%x01%s%x01%an%x01%at%x01%P%x01%D"),
+        format!("--skip={}", skip),
         format!("-n{}", limit),
         "--no-color".to_string(),
     ];
@@ -1132,72 +1136,44 @@ pub fn get_commit_graph(path: &Path, limit: usize, branch: Option<&str>) -> Vec<
     match output {
         Some(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
-            parse_commit_graph_output(&stdout)
+            parse_commit_log_output(&stdout)
         }
         _ => vec![],
     }
 }
 
-/// Parse `git log --graph` output from `get_commit_graph`.
-///
-/// Lines containing `\x00` are commit lines — everything before is the graph prefix.
-/// Lines without `\x00` are graph connector lines (branch/merge topology).
-pub(crate) fn parse_commit_graph_output(stdout: &str) -> Vec<super::GraphRow> {
+/// Parse `git log` output from `get_commit_log` — one commit per line:
+/// hash \x01 full_hash \x01 message \x01 author \x01 timestamp \x01 parents \x01 decorations
+pub(crate) fn parse_commit_log_output(stdout: &str) -> Vec<super::CommitLogEntry> {
     let mut rows = Vec::new();
 
     for line in stdout.lines() {
-        if let Some(null_pos) = line.find('\x00') {
-            // Commit line: graph prefix + commit data
-            let graph = line[..null_pos].to_string();
-            let data = &line[null_pos + 1..];
-
-            // Fields, current format:
-            // hash \x01 full_hash \x01 message \x01 author \x01 timestamp \x01 parents \x01 decorations
-            // Older tests/clients omitted full_hash, so keep that layout readable.
-            let parts: Vec<&str> = data.split('\x01').collect();
-            if parts.len() < 4 {
-                continue;
-            }
-
-            let has_full_hash = parts.len() >= 7;
-            let hash = parts[0].to_string();
-            let full_hash = if has_full_hash {
-                parts[1].to_string()
-            } else {
-                hash.clone()
-            };
-            let message_idx = if has_full_hash { 2 } else { 1 };
-            let author_idx = if has_full_hash { 3 } else { 2 };
-            let timestamp_idx = if has_full_hash { 4 } else { 3 };
-            let parents_idx = if has_full_hash { 5 } else { 4 };
-            let refs_idx = if has_full_hash { 6 } else { 5 };
-            let message = parts[message_idx].to_string();
-            let author = parts[author_idx].to_string();
-            let timestamp = parts[timestamp_idx].parse::<i64>().unwrap_or(0);
-            let is_merge = parts.get(parents_idx).is_some_and(|p| p.contains(' '));
-            let refs: Vec<String> = parts
-                .get(refs_idx)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.split(", ").map(|r| r.to_string()).collect())
-                .unwrap_or_default();
-
-            rows.push(super::GraphRow::Commit(super::CommitLogEntry {
-                hash,
-                full_hash,
-                message,
-                author,
-                timestamp,
-                is_merge,
-                graph,
-                refs,
-            }));
-        } else {
-            // Connector line: just graph characters
-            let trimmed = line.trim_end();
-            if !trimmed.is_empty() {
-                rows.push(super::GraphRow::Connector(trimmed.to_string()));
-            }
+        let parts: Vec<&str> = line.split('\x01').collect();
+        if parts.len() < 5 {
+            continue;
         }
+
+        let hash = parts[0].to_string();
+        let full_hash = parts[1].to_string();
+        let message = parts[2].to_string();
+        let author = parts[3].to_string();
+        let timestamp = parts[4].parse::<i64>().unwrap_or(0);
+        let is_merge = parts.get(5).is_some_and(|p| p.contains(' '));
+        let refs: Vec<String> = parts
+            .get(6)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.split(", ").map(|r| r.to_string()).collect())
+            .unwrap_or_default();
+
+        rows.push(super::CommitLogEntry {
+            hash,
+            full_hash,
+            message,
+            author,
+            timestamp,
+            is_merge,
+            refs,
+        });
     }
 
     rows
@@ -1899,8 +1875,11 @@ mod tests {
     #[test]
     fn get_repo_root_resolves_worktree_root_not_subdir() {
         let (_tmp, repo) = init_temp_repo();
-        // Create a worktree on a new branch
-        let wt_path = repo.parent().unwrap().join("my-worktree");
+        // Create a worktree on a new branch, inside its own temp dir — a
+        // fixed path in the shared temp root would survive the run (TempDir
+        // only cleans the repo) and fail every later `git worktree add`.
+        let wt_tmp = tempfile::tempdir().expect("create worktree temp dir");
+        let wt_path = wt_tmp.path().join("my-worktree");
         let status = std::process::Command::new("git")
             .args([
                 "-C",
@@ -1991,101 +1970,52 @@ mod tests {
         assert!(super::parse_ci_checks(json).is_none());
     }
 
-    // ─── commit graph parsing tests ────────────────────────────────────
+    // ─── commit log parsing tests ────────────────────────────────────
 
     #[test]
-    fn parse_graph_linear_commits() {
-        let output = "* \x00abc1234\x01Fix bug\x01alice\x011700000000\x01aabbccdd\x01HEAD -> main, origin/main\n\
-                       * \x00def5678\x01Add test\x01bob\x011699999000\x01abc1234\x01\n";
-        let rows = super::parse_commit_graph_output(output);
+    fn parse_log_linear_commits() {
+        let output = "abc1234\x01abc1234full\x01Fix bug\x01alice\x011700000000\x01aabbccdd\x01HEAD -> main, origin/main\n\
+                      def5678\x01def5678full\x01Add test\x01bob\x011699999000\x01abc1234\x01\n";
+        let rows = super::parse_commit_log_output(output);
         assert_eq!(rows.len(), 2);
-        match &rows[0] {
-            super::super::GraphRow::Commit(e) => {
-                assert_eq!(e.hash, "abc1234");
-                assert_eq!(e.graph, "* ");
-                assert!(!e.is_merge);
-                assert_eq!(e.refs, vec!["HEAD -> main", "origin/main"]);
-            }
-            _ => panic!("expected commit row"),
-        }
-        match &rows[1] {
-            super::super::GraphRow::Commit(e) => {
-                assert!(e.refs.is_empty());
-            }
-            _ => panic!("expected commit row"),
-        }
+        assert_eq!(rows[0].hash, "abc1234");
+        assert_eq!(rows[0].full_hash, "abc1234full");
+        assert!(!rows[0].is_merge);
+        assert_eq!(rows[0].refs, vec!["HEAD -> main", "origin/main"]);
+        assert_eq!(rows[1].author, "bob");
+        assert!(rows[1].refs.is_empty());
     }
 
     #[test]
-    fn parse_graph_with_connectors() {
-        let output = "*   \x00aaa1111\x01Merge PR\x01carol\x011700000000\x01bbb2222 ccc3333\x01\n\
-                       |\\  \n\
-                       | * \x00ccc3333\x01Feature\x01dave\x011699999000\x01ddd4444\x01\n\
-                       |/  \n\
-                       * \x00ddd4444\x01Base\x01eve\x011699998000\x01eee5555\x01\n";
-        let rows = super::parse_commit_graph_output(output);
-        assert_eq!(rows.len(), 5);
-        // Row 0: merge commit
-        assert!(matches!(&rows[0], super::super::GraphRow::Commit(e) if e.is_merge));
-        // Row 1: connector "|\  "
-        assert!(matches!(&rows[1], super::super::GraphRow::Connector(g) if g.contains('\\')));
-        // Row 2: branch commit
-        assert!(matches!(&rows[2], super::super::GraphRow::Commit(e) if e.hash == "ccc3333"));
-        // Row 3: connector "|/  "
-        assert!(matches!(&rows[3], super::super::GraphRow::Connector(g) if g.contains('/')));
-        // Row 4: base commit
-        assert!(matches!(&rows[4], super::super::GraphRow::Commit(_)));
-    }
-
-    #[test]
-    fn parse_graph_empty() {
-        assert!(super::parse_commit_graph_output("").is_empty());
-        assert!(super::parse_commit_graph_output("\n").is_empty());
-    }
-
-    #[test]
-    fn parse_graph_preserves_graph_prefix() {
-        let output = "| | * \x00fff6666\x01Deep branch\x01frank\x011700000000\x01ggg7777\x01\n";
-        let rows = super::parse_commit_graph_output(output);
+    fn parse_log_merge_commit() {
+        let output = "aaa1111\x01aaa1111full\x01Merge PR\x01carol\x011700000000\x01bbb2222 ccc3333\x01\n";
+        let rows = super::parse_commit_log_output(output);
         assert_eq!(rows.len(), 1);
-        match &rows[0] {
-            super::super::GraphRow::Commit(e) => {
-                assert_eq!(e.graph, "| | * ");
-            }
-            _ => panic!("expected commit row"),
-        }
+        assert!(rows[0].is_merge);
+        assert_eq!(rows[0].message, "Merge PR");
     }
 
     #[test]
-    fn parse_graph_refs() {
+    fn parse_log_empty() {
+        assert!(super::parse_commit_log_output("").is_empty());
+        assert!(super::parse_commit_log_output("\n").is_empty());
+    }
+
+    #[test]
+    fn parse_log_refs() {
         // Single ref
-        let output = "* \x00aaa1111\x01Msg\x01alice\x011700000000\x01bbb2222\x01tag: v1.0\n";
-        let rows = super::parse_commit_graph_output(output);
-        match &rows[0] {
-            super::super::GraphRow::Commit(e) => {
-                assert_eq!(e.refs, vec!["tag: v1.0"]);
-            }
-            _ => panic!("expected commit row"),
-        }
+        let output = "aaa1111\x01aaa1111full\x01Msg\x01alice\x011700000000\x01bbb2222\x01tag: v1.0\n";
+        let rows = super::parse_commit_log_output(output);
+        assert_eq!(rows[0].refs, vec!["tag: v1.0"]);
 
         // Multiple refs
-        let output = "* \x00aaa1111\x01Msg\x01alice\x011700000000\x01bbb2222\x01HEAD -> main, origin/main, tag: v2.0\n";
-        let rows = super::parse_commit_graph_output(output);
-        match &rows[0] {
-            super::super::GraphRow::Commit(e) => {
-                assert_eq!(e.refs, vec!["HEAD -> main", "origin/main", "tag: v2.0"]);
-            }
-            _ => panic!("expected commit row"),
-        }
+        let output = "aaa1111\x01aaa1111full\x01Msg\x01alice\x011700000000\x01bbb2222\x01HEAD -> main, origin/main, tag: v2.0\n";
+        let rows = super::parse_commit_log_output(output);
+        assert_eq!(rows[0].refs, vec!["HEAD -> main", "origin/main", "tag: v2.0"]);
 
         // No refs (empty decoration field)
-        let output = "* \x00aaa1111\x01Msg\x01alice\x011700000000\x01bbb2222\x01\n";
-        let rows = super::parse_commit_graph_output(output);
-        match &rows[0] {
-            super::super::GraphRow::Commit(e) => {
-                assert!(e.refs.is_empty());
-            }
-            _ => panic!("expected commit row"),
-        }
+        let output = "aaa1111\x01aaa1111full\x01Msg\x01alice\x011700000000\x01bbb2222\x01\n";
+        let rows = super::parse_commit_log_output(output);
+        assert!(rows[0].refs.is_empty());
     }
 }

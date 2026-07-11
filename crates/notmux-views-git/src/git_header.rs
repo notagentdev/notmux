@@ -4,9 +4,11 @@
 //! Extracted from `ProjectColumn` to keep that view thin.
 
 use notmux_core::types::DiffMode;
+use notmux_files::code_view::{
+    ScrollbarDrag, get_scrollbar_geometry, start_scrollbar_drag, update_scrollbar_drag,
+};
 use notmux_git::{
-    self as git, CommitLogEntry, FileDiffSummary, FileStatus, GitStatus, GraphRow, WorkingFile,
-    WorkingTreeStatus,
+    CommitLogEntry, FileDiffSummary, FileStatus, GitStatus, WorkingFile, WorkingTreeStatus,
 };
 use notmux_workspace::request_broker::RequestBroker;
 use notmux_workspace::requests::OverlayRequest;
@@ -34,11 +36,9 @@ use notmux_ui::vscode_icon::vscode_file_icon_with_options;
 /// Delay before showing diff summary popover (ms)
 const HOVER_DELAY_MS: u64 = 400;
 
-type CommitClickHandler = Arc<dyn Fn(&str, &str, usize, &mut Window, &mut App)>;
-
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 enum BranchPickerTarget {
-    /// Picking branch to view graph for
+    /// Picking branch to show the commit log for
     #[default]
     Graph,
     /// Picking base branch for compare
@@ -181,12 +181,9 @@ pub struct GitHeader {
     /// The provider's path is not a git repository (drives the panel's
     /// "No repo found" state; kept current by loads and refreshes).
     repo_missing: bool,
-    commit_log_entries: Vec<GraphRow>,
+    commit_log_entries: Vec<CommitLogEntry>,
     commit_log_loading: bool,
-    commit_log_bounds: Bounds<Pixels>,
-    commit_log_count: usize,
     commit_log_has_more: bool,
-    commit_log_scroll: ScrollHandle,
     commit_log_branch: Option<String>,
     commit_log_branches: Vec<String>,
     commit_log_branch_picker: bool,
@@ -195,15 +192,12 @@ pub struct GitHeader {
     commit_log_compare_base: Option<String>,
     commit_log_compare_head: Option<String>,
     commit_log_picker_target: BranchPickerTarget,
-    /// Viewported list state for the History tab's commit graph. The log grows
-    /// unbounded via load-more, so rows must be virtualized like the commit tab.
-    history_list_state: ListState,
-    /// Render cache for the history rows, rebuilt whenever the entries change
-    /// (per-row recomputation would make each visible row O(entries)).
-    history_max_graph_len: usize,
-    history_first_commit_idx: Option<usize>,
-    history_last_commit_idx: Option<usize>,
-    history_all_commits: Arc<Vec<CommitLogEntry>>,
+    /// Scroll handle for the History tab's uniform commit list. Rows are all
+    /// `COMMIT_ROW_H` tall, so the list virtualizes without measuring —
+    /// only visible rows are ever built.
+    history_scroll: UniformListScrollHandle,
+    /// Active scrollbar-thumb drag on the history list.
+    history_scrollbar_drag: Option<ScrollbarDrag>,
 
     /// Active tab in the git panel (Commit / Changes / History)
     active_tab: GitPanelTab,
@@ -291,10 +285,7 @@ impl GitHeader {
             repo_missing: false,
             commit_log_entries: Vec::new(),
             commit_log_loading: false,
-            commit_log_bounds: Bounds::default(),
-            commit_log_count: 0,
             commit_log_has_more: false,
-            commit_log_scroll: ScrollHandle::new(),
             commit_log_branch: None,
             commit_log_branches: Vec::new(),
             commit_log_branch_picker: false,
@@ -326,11 +317,8 @@ impl GitHeader {
             // while scrolling — otherwise the thumb shrinks as rows are
             // discovered). Re-measure happens only on splice, not per frame.
             commit_list_state: ListState::new(0, ListAlignment::Top, px(400.0)).measure_all(),
-            history_list_state: ListState::new(0, ListAlignment::Top, px(400.0)).measure_all(),
-            history_max_graph_len: 0,
-            history_first_commit_idx: None,
-            history_last_commit_idx: None,
-            history_all_commits: Arc::new(Vec::new()),
+            history_scroll: UniformListScrollHandle::new(),
+            history_scrollbar_drag: None,
             commit_rows: Vec::new(),
             diff_viewport_width: 0.0,
             stash_files: None,
@@ -492,10 +480,7 @@ impl GitHeader {
     }
 
     fn latest_commit(&self) -> Option<&CommitLogEntry> {
-        self.commit_log_entries.iter().find_map(|row| match row {
-            git::GraphRow::Commit(entry) => Some(entry),
-            git::GraphRow::Connector(_) => None,
-        })
+        self.commit_log_entries.first()
     }
 
     // ── Commit log ──────────────────────────────────────────────────
@@ -512,7 +497,6 @@ impl GitHeader {
         self.commit_log_visible = true;
         self.commit_log_loading = true;
         self.commit_log_entries.clear();
-        self.commit_log_count = 0;
         self.commit_log_has_more = false;
         self.commit_log_branch = None;
         self.commit_log_branch_picker = false;
@@ -521,13 +505,14 @@ impl GitHeader {
         self.commit_log_compare_base = None;
         self.commit_log_compare_head = None;
         self.commit_log_picker_target = BranchPickerTarget::Graph;
+        self.reset_history_scroll();
         cx.notify();
 
         let page = COMMIT_PAGE_SIZE;
         let provider = self.git_provider.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let (entries, branches) = smol::unblock(move || {
-                let entries = provider.get_commit_graph(page, None);
+                let entries = provider.get_commit_log(0, page, None);
                 let branches = provider.list_branches();
                 (entries, branches)
             })
@@ -535,18 +520,19 @@ impl GitHeader {
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries
-                    .iter()
-                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
-                    .count();
-                this.commit_log_has_more = commit_count >= page;
-                this.commit_log_count = commit_count;
-                this.set_commit_log_entries(entries, false);
+                this.commit_log_has_more = entries.len() >= page;
+                this.commit_log_entries = entries;
                 this.commit_log_branches = branches;
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// Scroll the history list back to the top (fresh load, branch switch).
+    fn reset_history_scroll(&mut self) {
+        let state = self.history_scroll.0.borrow_mut();
+        state.base_handle.set_offset(point(px(0.0), px(0.0)));
     }
 
     fn switch_commit_log_branch(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
@@ -555,8 +541,8 @@ impl GitHeader {
         self.commit_log_branch_filter.clear();
         self.commit_log_loading = true;
         self.commit_log_entries.clear();
-        self.commit_log_count = 0;
         self.commit_log_has_more = false;
+        self.reset_history_scroll();
         cx.notify();
 
         let provider = self.git_provider.clone();
@@ -564,78 +550,20 @@ impl GitHeader {
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let entries =
-                smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
+                smol::unblock(move || provider.get_commit_log(0, page, branch.as_deref())).await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries
-                    .iter()
-                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
-                    .count();
-                this.commit_log_has_more = commit_count >= page;
-                this.commit_log_count = commit_count;
-                this.set_commit_log_entries(entries, false);
+                this.commit_log_has_more = entries.len() >= page;
+                this.commit_log_entries = entries;
                 cx.notify();
             });
         })
         .detach();
     }
 
-    /// Replaces the commit-log entries and syncs the virtualized history list:
-    /// `preserve_scroll` splices (append/refresh keeps the scroll position),
-    /// otherwise the list resets to the top (fresh load, branch switch). Also
-    /// rebuilds the per-render cache so visible rows stay O(1).
-    fn set_commit_log_entries(&mut self, entries: Vec<GraphRow>, preserve_scroll: bool) {
-        let old_len = self.commit_log_entries.len();
-        self.commit_log_entries = entries;
-        let new_len = self.commit_log_entries.len();
-        if preserve_scroll && old_len > 0 && new_len >= old_len {
-            // Append (load-more): splice only the tail so the scroll anchor
-            // stays in the untouched prefix — splicing the full range drops
-            // the anchor and the list jumps back to the top. A small overlap
-            // re-measures the old tail rows, whose rails change when they
-            // stop being the last commit row. With no new rows this is a
-            // no-op-sized splice: reaching the true end must simply stop.
-            let overlap_start = old_len.saturating_sub(4);
-            self.history_list_state.splice(overlap_start..old_len, new_len - overlap_start);
-            // Like the commit list: `splice` inserts unmeasured rows and does
-            // not clear the one-shot `measure_all` flag — re-arm it so the
-            // appended page is measured immediately and the scrollbar stays
-            // exact instead of shrinking while scrolling. (`reset` in the
-            // other branch re-arms on its own.)
-            self.history_list_state = self.history_list_state.clone().measure_all();
-        } else {
-            self.history_list_state.reset(new_len);
-        }
-
-        self.history_max_graph_len = self
-            .commit_log_entries
-            .iter()
-            .map(|row| match row {
-                GraphRow::Commit(e) => e.graph.len(),
-                GraphRow::Connector(g) => g.len(),
-            })
-            .max()
-            .unwrap_or(0);
-        self.history_first_commit_idx = self
-            .commit_log_entries
-            .iter()
-            .position(|r| matches!(r, GraphRow::Commit(_)));
-        self.history_last_commit_idx = self
-            .commit_log_entries
-            .iter()
-            .rposition(|r| matches!(r, GraphRow::Commit(_)));
-        self.history_all_commits = Arc::new(
-            self.commit_log_entries
-                .iter()
-                .filter_map(|r| match r {
-                    GraphRow::Commit(e) => Some(e.clone()),
-                    _ => None,
-                })
-                .collect(),
-        );
-    }
-
+    /// Fetch the next page (`--skip=<loaded>`) and append it — earlier pages
+    /// are never refetched, so cost stays constant as the log grows.
     fn load_more_commits(&mut self, cx: &mut Context<Self>) {
         if self.commit_log_loading || !self.commit_log_has_more {
             return;
@@ -646,24 +574,18 @@ impl GitHeader {
 
         let provider = self.git_provider.clone();
         let branch = self.commit_log_branch.clone();
-        let already_loaded = self.commit_log_count;
+        let skip = self.commit_log_entries.len();
         let page = COMMIT_PAGE_SIZE;
-        let new_total = already_loaded + page;
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let entries =
-                smol::unblock(move || provider.get_commit_graph(new_total, branch.as_deref()))
+                smol::unblock(move || provider.get_commit_log(skip, page, branch.as_deref()))
                     .await;
 
             let _ = this.update(cx, |this, cx| {
                 this.commit_log_loading = false;
-                let commit_count = entries
-                    .iter()
-                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
-                    .count();
-                this.commit_log_has_more = commit_count >= new_total;
-                this.commit_log_count = commit_count;
-                this.set_commit_log_entries(entries, true);
+                this.commit_log_has_more = entries.len() >= page;
+                this.commit_log_entries.extend(entries);
                 cx.notify();
             });
         })
@@ -698,7 +620,6 @@ impl GitHeader {
         self.commit_log_visible = true;
         self.commit_log_loading = true;
         self.commit_log_entries.clear();
-        self.commit_log_count = 0;
         self.commit_log_has_more = false;
         self.commit_log_branch = None;
         self.commit_log_branch_picker = false;
@@ -707,6 +628,7 @@ impl GitHeader {
         self.commit_log_compare_base = None;
         self.commit_log_compare_head = None;
         self.commit_log_picker_target = BranchPickerTarget::Graph;
+        self.reset_history_scroll();
         cx.notify();
 
         let page = COMMIT_PAGE_SIZE;
@@ -716,7 +638,7 @@ impl GitHeader {
             let (entries, branches, diff_summaries, wt_status, is_repo) =
                 smol::unblock(move || {
                     let is_repo = provider.is_git_repo();
-                    let entries = provider.get_commit_graph(page, None);
+                    let entries = provider.get_commit_log(0, page, None);
                     let branches = provider.list_branches();
                     let diff_summaries = provider.get_diff_file_summary();
                     let wt_status = provider.get_working_tree_status();
@@ -728,13 +650,8 @@ impl GitHeader {
                 this.commit_log_loading = false;
                 this.working_tree_loading = false;
                 this.repo_missing = !is_repo;
-                let commit_count = entries
-                    .iter()
-                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
-                    .count();
-                this.commit_log_has_more = commit_count >= page;
-                this.commit_log_count = commit_count;
-                this.set_commit_log_entries(entries, false);
+                this.commit_log_has_more = entries.len() >= page;
+                this.commit_log_entries = entries;
                 this.commit_log_branches = branches;
                 this.diff_file_summaries = diff_summaries;
                 this.working_tree_status = Some(wt_status);
@@ -2849,18 +2766,14 @@ impl GitHeader {
         let branch = self.commit_log_branch.clone();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let entries =
-                smol::unblock(move || provider.get_commit_graph(page, branch.as_deref())).await;
+                smol::unblock(move || provider.get_commit_log(0, page, branch.as_deref())).await;
             let _ = this.update(cx, |this, cx| {
-                let commit_count = entries
-                    .iter()
-                    .filter(|r| matches!(r, git::GraphRow::Commit(_)))
-                    .count();
-                this.commit_log_has_more = commit_count >= page;
-                this.commit_log_count = commit_count;
-                // The new commit PREPENDS — the tail-splice's stable-prefix
-                // assumption doesn't hold, so reset (the user just committed;
-                // jumping to the new commit at the top is the right outcome).
-                this.set_commit_log_entries(entries, false);
+                this.commit_log_has_more = entries.len() >= page;
+                // The new commit prepends — reload the first page and jump to
+                // the top (the user just committed; showing it is the right
+                // outcome).
+                this.commit_log_entries = entries;
+                this.reset_history_scroll();
                 cx.notify();
             });
         })
@@ -2870,20 +2783,6 @@ impl GitHeader {
     /// Render the History tab (commit log with graph).
     fn render_history_tab(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
         let branch_name = self.current_branch.clone();
-        // Placeholder for the empty/initial-loading states; `None` renders the
-        // virtualized row list instead.
-        let content: Option<AnyElement> =
-            if self.commit_log_entries.is_empty() {
-                Some(project_header::render_commit_log_content(
-                    &self.commit_log_entries,
-                    self.commit_log_loading,
-                    None,
-                    t,
-                    cx,
-                ))
-            } else {
-                None
-            };
 
         let compare_bar = if self.commit_log_compare_mode {
             self.render_compare_bar(t, cx).into_any_element()
@@ -2896,6 +2795,33 @@ impl GitHeader {
             div().size_0().into_any_element()
         };
 
+        // Placeholder for the empty/initial-loading states; `None` renders
+        // the virtualized commit list instead.
+        let placeholder: Option<AnyElement> = if self.commit_log_entries.is_empty() {
+            let text = if self.commit_log_loading {
+                "Loading\u{2026}"
+            } else {
+                "No commits"
+            };
+            Some(
+                div()
+                    .px(px(14.0))
+                    .py(px(16.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(ui_text_ms(cx))
+                            .text_color(rgb(t.text_muted))
+                            .child(text),
+                    )
+                    .into_any_element(),
+            )
+        } else {
+            None
+        };
+
         v_flex()
             .flex_1()
             .min_h_0()
@@ -2905,10 +2831,10 @@ impl GitHeader {
             .child(compare_bar)
             // Branch picker (conditional)
             .child(branch_picker)
-            // Virtualized commit list: the log grows unbounded via load-more,
-            // so only the visible rows are built (`content` covers the empty
-            // and initial-loading states).
-            .child(match content {
+            // Uniform virtualized commit list: rows are all COMMIT_ROW_H tall,
+            // so only the visible range is ever built and the scrollbar is
+            // exact from the row count — no measuring pass.
+            .child(match placeholder {
                 Some(placeholder) => div()
                     .flex_1()
                     .min_h_0()
@@ -2918,6 +2844,8 @@ impl GitHeader {
                 None => {
                     let entity = cx.entity().clone();
                     let row_theme = *t;
+                    let count = self.commit_log_entries.len();
+                    let scrollbar_geometry = get_scrollbar_geometry(&self.history_scroll);
                     div()
                         .id("git-panel-scroll")
                         .relative()
@@ -2925,170 +2853,174 @@ impl GitHeader {
                         .min_h_0()
                         .py(px(4.0))
                         .child(
-                            list(self.history_list_state.clone(), move |ix, window, cx| {
-                                Self::render_history_row(&entity, ix, &row_theme, window, cx)
+                            uniform_list("git-history-list", count, move |range, _window, cx| {
+                                // Approaching the tail: fetch the next page.
+                                // Deferred because the entity is mid-layout;
+                                // load_more_commits guards re-entry.
+                                let near_end = {
+                                    let this = entity.read(cx);
+                                    range.end + 20 >= this.commit_log_entries.len()
+                                        && this.commit_log_has_more
+                                        && !this.commit_log_loading
+                                };
+                                if near_end {
+                                    let entity = entity.clone();
+                                    cx.defer(move |cx| {
+                                        entity.update(cx, |this, cx| this.load_more_commits(cx));
+                                    });
+                                }
+                                entity.update(cx, |this, cx| {
+                                    range
+                                        .map(|ix| this.render_history_row(ix, &row_theme, cx))
+                                        .collect()
+                                })
                             })
-                            .size_full(),
+                            .size_full()
+                            .track_scroll(&self.history_scroll),
                         )
-                        .child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .bottom_0()
-                                .w(px(8.0))
-                                .py(px(4.0))
-                                .child(ListScrollbar::new(
-                                    self.history_list_state.clone(),
-                                    gpui::transparent_black(),
-                                    rgb(t.scrollbar).into(),
-                                    rgb(t.scrollbar_hover).into(),
-                                )),
-                        )
+                        .when(scrollbar_geometry.is_some(), |d| {
+                            let (_, _, thumb_y, thumb_height) =
+                                scrollbar_geometry.expect("guarded by is_some() in when()");
+                            d.child(self.render_history_scrollbar(thumb_y, thumb_height, t, cx))
+                        })
                         .into_any_element()
                 }
             })
             .into_any_element()
     }
 
-    /// Renders one virtualized row of the History tab's commit graph. Reads
-    /// the cached graph metrics from the entity, arms the load-more lookahead
-    /// near the end of the list, and builds the row via
-    /// `project_header::render_graph_row`.
-    fn render_history_row(
-        entity: &Entity<Self>,
-        ix: usize,
-        t: &ThemeColors,
-        _window: &mut Window,
-        cx: &mut App,
-    ) -> AnyElement {
-        // Approaching the tail: fetch the next page. Deferred because the
-        // entity is mid-render here; load_more_commits guards re-entry.
-        let near_end = {
-            let this = entity.read(cx);
-            ix + 20 >= this.commit_log_entries.len()
-                && this.commit_log_has_more
-                && !this.commit_log_loading
-        };
-        if near_end {
-            let entity = entity.clone();
-            cx.defer(move |cx| {
-                entity.update(cx, |this, cx| this.load_more_commits(cx));
-            });
-        }
-
-        let this = entity.read(cx);
-        let Some(row) = this.commit_log_entries.get(ix) else {
+    /// One uniform-height commit row of the History tab: message + ref
+    /// pills + author. Click opens the commit in the diff viewer with
+    /// prev/next navigation over the loaded log.
+    fn render_history_row(&self, ix: usize, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
+        let Some(entry) = self.commit_log_entries.get(ix) else {
             return div().into_any_element();
         };
-        let before_first = this.history_first_commit_idx.is_none_or(|f| ix < f);
-        let after_last = this.history_last_commit_idx.is_none_or(|l| ix > l);
-        let is_first = Some(ix) == this.history_first_commit_idx;
-        let is_last = Some(ix) == this.history_last_commit_idx;
-        let opts = project_header::GraphRowOpts {
-            skip_above_center: is_first || before_first,
-            skip_below_center: is_last || after_last,
-            is_head: is_first,
-        };
 
-        let on_commit_click: Option<CommitClickHandler> = {
-            let project_id = this.project_id.clone();
-            let request_broker = this.request_broker.clone();
-            let all_commits = this.history_all_commits.clone();
-            Some(Arc::new(
-                move |hash: &str, msg: &str, _idx: usize, _window: &mut Window, cx: &mut App| {
-                    let commit_hash = hash.to_string();
-                    let commit_msg = msg.to_string();
-                    let commit_idx = all_commits
-                        .iter()
-                        .position(|c| c.hash == commit_hash)
-                        .unwrap_or(0);
-                    let commits_vec: Vec<CommitLogEntry> = (*all_commits).clone();
-                    request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(
-                            OverlayRequest::DiffViewer {
-                                project_id: project_id.clone(),
-                                file: None,
-                                mode: Some(DiffMode::Commit(commit_hash)),
-                                commit_message: Some(commit_msg),
-                                commits: Some(commits_vec),
-                                commit_index: Some(commit_idx),
-                            },
-                            cx,
-                        );
-                    });
-                },
-            ))
-        };
-
-        project_header::render_graph_row(
-            row,
-            ix,
-            this.history_max_graph_len,
-            &this.history_all_commits,
-            on_commit_click,
-            opts,
-            t,
-            cx,
-        )
+        h_flex()
+            .id(ElementId::Name(format!("history-row-{}", ix).into()))
+            .pl(px(14.0))
+            .pr(px(12.0))
+            .h(px(project_header::COMMIT_ROW_H))
+            .items_center()
+            .gap(px(6.0))
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.open_commit_diff(ix, cx);
+            }))
+            .child(
+                div()
+                    .text_size(ui_text_md(cx))
+                    .text_color(rgb(t.text_primary))
+                    .text_ellipsis()
+                    .overflow_hidden()
+                    .flex_shrink_1()
+                    .min_w_0()
+                    .child(entry.message.clone()),
+            )
+            .children(
+                entry
+                    .refs
+                    .iter()
+                    .map(|r| project_header::render_ref_label(r, t, cx)),
+            )
+            .child(
+                div()
+                    .text_size(ui_text_ms(cx))
+                    .text_color(rgb(t.text_muted))
+                    .flex_shrink_0()
+                    .child(entry.author.clone()),
+            )
+            .into_any_element()
     }
 
-    /// Build the commit log content (commit list with graph).
-    fn build_commit_log_content(&self, t: &ThemeColors, cx: &mut Context<Self>) -> AnyElement {
-        let entity_handle = cx.entity().clone();
-        let project_id = self.project_id.clone();
-        let request_broker = self.request_broker.clone();
-        let on_commit_click: Option<CommitClickHandler> = if self.commit_log_entries.is_empty() {
-            None
-        } else {
-            let all_commits: Vec<CommitLogEntry> = self
-                .commit_log_entries
-                .iter()
-                .filter_map(|r| match r {
-                    GraphRow::Commit(e) => Some(e.clone()),
-                    _ => None,
-                })
-                .collect();
-            Some(Arc::new(
-                move |hash: &str,
-                      msg: &str,
-                      _commit_idx: usize,
-                      _window: &mut Window,
-                      cx: &mut App| {
-                    let commit_hash = hash.to_string();
-                    let commit_msg = msg.to_string();
-                    let commits_vec = all_commits.clone();
-                    let commit_idx = commits_vec
-                        .iter()
-                        .position(|c| c.hash == commit_hash)
-                        .unwrap_or(0);
-                    entity_handle.update(cx, |this: &mut GitHeader, _cx| {
-                        // Don't hide commit log in panel mode — keep it open
-                        let _ = this;
-                    });
-                    request_broker.update(cx, |broker, cx| {
-                        broker.push_overlay_request(
-                            OverlayRequest::DiffViewer {
-                                project_id: project_id.clone(),
-                                file: None,
-                                mode: Some(DiffMode::Commit(commit_hash)),
-                                commit_message: Some(commit_msg),
-                                commits: Some(commits_vec),
-                                commit_index: Some(commit_idx),
-                            },
-                            cx,
-                        );
-                    });
-                },
-            ))
+    /// Open the commit at `ix` in the diff viewer overlay, with the loaded
+    /// log as the prev/next navigation list.
+    fn open_commit_diff(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(entry) = self.commit_log_entries.get(ix) else {
+            return;
         };
-        project_header::render_commit_log_content(
-            &self.commit_log_entries,
-            self.commit_log_loading,
-            on_commit_click,
-            t,
-            cx,
-        )
+        let commit_hash = entry.hash.clone();
+        let commit_msg = entry.message.clone();
+        let commits_vec = self.commit_log_entries.clone();
+        let project_id = self.project_id.clone();
+        self.request_broker.update(cx, |broker, cx| {
+            broker.push_overlay_request(
+                OverlayRequest::DiffViewer {
+                    project_id,
+                    file: None,
+                    mode: Some(DiffMode::Commit(commit_hash)),
+                    commit_message: Some(commit_msg),
+                    commits: Some(commits_vec),
+                    commit_index: Some(ix),
+                },
+                cx,
+            );
+        });
+    }
+
+    /// Draggable scrollbar for the history list (uniform-list geometry).
+    fn render_history_scrollbar(
+        &self,
+        thumb_y: f32,
+        thumb_height: f32,
+        t: &ThemeColors,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let is_dragging = self.history_scrollbar_drag.is_some();
+        let t = *t;
+        div()
+            .id("git-history-scrollbar-track")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .w(px(12.0))
+            .cursor(CursorStyle::Arrow)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, _window, cx| {
+                    if get_scrollbar_geometry(&this.history_scroll).is_some() {
+                        let mut drag = start_scrollbar_drag(&this.history_scroll);
+                        drag.start_y = f32::from(event.position.y);
+                        this.history_scrollbar_drag = Some(drag);
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if let Some(drag) = this.history_scrollbar_drag {
+                    update_scrollbar_drag(
+                        &this.history_scroll,
+                        drag,
+                        f32::from(event.position.y),
+                    );
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    this.history_scrollbar_drag = None;
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(thumb_y))
+                    .right(px(3.0))
+                    .w(px(6.0))
+                    .h(px(thumb_height))
+                    .rounded(px(3.0))
+                    .bg(rgb(if is_dragging {
+                        t.scrollbar_hover
+                    } else {
+                        t.scrollbar
+                    }))
+                    .hover(move |s| s.bg(rgb(t.scrollbar_hover))),
+            )
     }
 
     /// Render the commit log header bar (GRAPH label, compare toggle, branch selector).
@@ -3117,7 +3049,7 @@ impl GitHeader {
                 div()
                     .text_size(ui_text_ms(cx))
                     .text_color(rgb(t.text_secondary))
-                    .child("GRAPH"),
+                    .child("COMMITS"),
             )
             // Right side: Compare toggle + branch selector
             .child({
@@ -3446,406 +3378,6 @@ impl GitHeader {
             )
     }
 
-    /// Render the commit log popover (anchored below the commit log button).
-    ///
-    /// `current_branch` is the branch name from the git status watcher.
-    #[allow(clippy::type_complexity)]
-    pub fn render_commit_log_popover(
-        &self,
-        current_branch: Option<String>,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        // Popover is no longer used — commit log is rendered in the right panel.
-        // Keep the method signature for backward compatibility but return empty.
-        let _ = (current_branch, t, cx);
-        div().size_0().into_any_element()
-    }
-
-    /// Legacy popover rendering — kept for reference but no longer called.
-    #[allow(dead_code, clippy::type_complexity)]
-    fn render_commit_log_popover_inner(
-        &self,
-        current_branch: Option<String>,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        if !self.commit_log_visible {
-            return div().size_0().into_any_element();
-        }
-
-        let bounds = self.commit_log_bounds;
-        let position = point(
-            bounds.origin.x - px(8.0),
-            bounds.origin.y + bounds.size.height + px(6.0),
-        );
-
-        let branch_name = current_branch;
-
-        let content = self.build_commit_log_content(t, cx);
-
-        div()
-            .size_full()
-            .absolute()
-            .inset_0()
-            .child(
-                div()
-                    .id("commit-log-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        this.hide_commit_log(cx);
-                    }))
-                    .on_scroll_wheel(|_, _, cx| {
-                        cx.stop_propagation();
-                    }),
-            )
-            .child(
-                deferred(
-                    anchored()
-                        .position(position)
-                        .snap_to_window()
-                        .child(
-                            v_flex()
-                                .id("commit-log-popover")
-                                .occlude()
-                                .w(px(520.0))
-                                .max_h(px(420.0))
-                                .bg(rgb(t.bg_primary))
-                                .border_1()
-                                .border_color(rgb(t.border))
-                                .rounded(px(8.0))
-                                .shadow_lg()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                    cx.stop_propagation();
-                                })
-                                .on_scroll_wheel(|_, _, cx| {
-                                    cx.stop_propagation();
-                                })
-                                // Header
-                                .child(
-                                    h_flex()
-                                        .px(px(10.0))
-                                        .py(px(6.0))
-                                        .gap(px(6.0))
-                                        .items_center()
-                                        .border_b_1()
-                                        .border_color(rgb(t.border))
-                                        .child(
-                                            svg()
-                                                .path("icons/git-commit.svg")
-                                                .size(px(11.0))
-                                                .text_color(rgb(t.text_muted)),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(ui_text_ms(cx))
-                                                .text_color(rgb(t.text_secondary))
-                                                .child("GRAPH"),
-                                        )
-                                        // Right side: Compare toggle + branch selector
-                                        .child({
-                                            let display_branch = self.commit_log_branch.clone()
-                                                .or(branch_name);
-                                            let is_compare = self.commit_log_compare_mode;
-                                            h_flex()
-                                                .flex_1()
-                                                .justify_end()
-                                                .gap(px(4.0))
-                                                .items_center()
-                                                // Compare toggle
-                                                .child(
-                                                    div()
-                                                        .id("commit-log-compare-toggle")
-                                                        .cursor_pointer()
-                                                        .px(px(6.0))
-                                                        .py(px(2.0))
-                                                        .rounded(px(4.0))
-                                                        .bg(rgb(if is_compare { t.bg_selection } else { t.bg_hover }))
-                                                        .hover(|s| s.bg(rgb(t.bg_selection)))
-                                                        .text_size(ui_text_sm(cx))
-                                                        .text_color(rgb(if is_compare { t.term_cyan } else { t.text_muted }))
-                                                        .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                                            this.commit_log_compare_mode = !this.commit_log_compare_mode;
-                                                            if this.commit_log_compare_mode {
-                                                                // Pre-fill base with current branch
-                                                                this.commit_log_compare_base = this.current_branch.clone();
-                                                                this.commit_log_compare_head = this.commit_log_branch.clone();
-                                                            }
-                                                            this.commit_log_branch_picker = false;
-                                                            cx.notify();
-                                                        }))
-                                                        .child("Compare"),
-                                                )
-                                                // Branch selector pill (only when not in compare mode)
-                                                .when(!is_compare, |d| {
-                                                    d.when_some(display_branch, |d, name| {
-                                                        d.child(
-                                                            h_flex()
-                                                                .id("commit-log-branch-btn")
-                                                                .gap(px(4.0))
-                                                                .items_center()
-                                                                .px(px(6.0))
-                                                                .py(px(2.0))
-                                                                .rounded(px(4.0))
-                                                                .bg(rgb(t.bg_hover))
-                                                                .cursor_pointer()
-                                                                .hover(|s| s.bg(rgb(t.bg_selection)))
-                                                                .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                                                .on_click(cx.listener(|this, _, _window, cx| {
-                                                                    this.commit_log_picker_target = BranchPickerTarget::Graph;
-                                                                    this.commit_log_branch_picker = !this.commit_log_branch_picker;
-                                                                    this.commit_log_branch_filter.clear();
-                                                                    cx.notify();
-                                                                }))
-                                                                .child(svg().path("icons/git-branch.svg").size(px(10.0)).text_color(rgb(t.term_green)))
-                                                                .child(
-                                                                    div().text_size(ui_text_sm(cx)).text_color(rgb(t.text_secondary))
-                                                                        .max_w(px(140.0)).text_ellipsis().overflow_hidden().child(name),
-                                                                ),
-                                                        )
-                                                    })
-                                                })
-                                        }),
-                                )
-                                // Compare bar — two branch selectors + view diff button
-                                .when(self.commit_log_compare_mode, |d| {
-                                    let base = self.commit_log_compare_base.clone();
-                                    let head = self.commit_log_compare_head.clone();
-                                    let pid = self.project_id.clone();
-                                    let broker = self.request_broker.clone();
-                                    let both_selected = base.is_some() && head.is_some();
-                                    d.child(
-                                        h_flex()
-                                            .px(px(10.0))
-                                            .py(px(6.0))
-                                            .gap(px(6.0))
-                                            .items_center()
-                                            .border_b_1()
-                                            .border_color(rgb(t.border))
-                                            // Base branch pill
-                                            .child(
-                                                div()
-                                                    .id("compare-base-btn")
-                                                    .cursor_pointer()
-                                                    .px(px(6.0))
-                                                    .py(px(2.0))
-                                                    .rounded(px(4.0))
-                                                    .bg(rgb(t.bg_hover))
-                                                    .hover(|s| s.bg(rgb(t.bg_selection)))
-                                                    .text_size(ui_text_sm(cx))
-                                                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.commit_log_picker_target = BranchPickerTarget::CompareBase;
-                                                        this.commit_log_branch_picker = !this.commit_log_branch_picker;
-                                                        this.commit_log_branch_filter.clear();
-                                                        cx.notify();
-                                                    }))
-                                                    .child(
-                                                        h_flex().gap(px(3.0)).items_center()
-                                                            .child(svg().path("icons/git-branch.svg").size(px(9.0)).text_color(rgb(t.term_green)))
-                                                            .child(
-                                                                div().text_color(rgb(t.text_secondary))
-                                                                    .max_w(px(120.0)).text_ellipsis().overflow_hidden()
-                                                                    .child(base.clone().unwrap_or_else(|| "base...".to_string())),
-                                                            ),
-                                                    ),
-                                            )
-                                            // Arrow
-                                            .child(div().text_size(ui_text_sm(cx)).text_color(rgb(t.text_muted)).child("\u{2192}"))
-                                            // Head branch pill
-                                            .child(
-                                                div()
-                                                    .id("compare-head-btn")
-                                                    .cursor_pointer()
-                                                    .px(px(6.0))
-                                                    .py(px(2.0))
-                                                    .rounded(px(4.0))
-                                                    .bg(rgb(t.bg_hover))
-                                                    .hover(|s| s.bg(rgb(t.bg_selection)))
-                                                    .text_size(ui_text_sm(cx))
-                                                    .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                                    .on_click(cx.listener(|this, _, _window, cx| {
-                                                        this.commit_log_picker_target = BranchPickerTarget::CompareHead;
-                                                        this.commit_log_branch_picker = !this.commit_log_branch_picker;
-                                                        this.commit_log_branch_filter.clear();
-                                                        cx.notify();
-                                                    }))
-                                                    .child(
-                                                        h_flex().gap(px(3.0)).items_center()
-                                                            .child(svg().path("icons/git-branch.svg").size(px(9.0)).text_color(rgb(t.term_cyan)))
-                                                            .child(
-                                                                div().text_color(rgb(t.text_secondary))
-                                                                    .max_w(px(120.0)).text_ellipsis().overflow_hidden()
-                                                                    .child(head.clone().unwrap_or_else(|| "head...".to_string())),
-                                                            ),
-                                                    ),
-                                            )
-                                            // View Diff button
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .flex()
-                                                    .justify_end()
-                                                    .child(
-                                                        div()
-                                                            .id("compare-view-diff")
-                                                            .cursor_pointer()
-                                                            .px(px(8.0))
-                                                            .py(px(3.0))
-                                                            .rounded(px(4.0))
-                                                            .when(both_selected, |d| {
-                                                                d.bg(rgb(t.term_cyan))
-                                                                    .text_color(rgb(t.bg_primary))
-                                                                    .hover(|s| s.opacity(0.9))
-                                                            })
-                                                            .when(!both_selected, |d| {
-                                                                d.bg(rgb(t.bg_hover))
-                                                                    .text_color(rgb(t.text_muted))
-                                                            })
-                                                            .text_size(ui_text_sm(cx))
-                                                            .font_weight(FontWeight::MEDIUM)
-                                                            .on_mouse_down(MouseButton::Left, |_, _, cx| { cx.stop_propagation(); })
-                                                            .when(both_selected, |d| {
-                                                                d.on_click(cx.listener(move |this, _, _window, cx| {
-                                                                    let base = this.commit_log_compare_base.clone().expect("both_selected implies compare_base is Some");
-                                                                    let head = this.commit_log_compare_head.clone().expect("both_selected implies compare_head is Some");
-                                                                    this.hide_commit_log(cx);
-                                                                    broker.update(cx, |broker, cx| {
-                                                                        broker.push_overlay_request(OverlayRequest::DiffViewer {
-                                                                            project_id: pid.clone(),
-                                                                            file: None,
-                                                                            mode: Some(DiffMode::BranchCompare {
-                                                                                base,
-                                                                                head,
-                                                                            }),
-                                                                            commit_message: None,
-                                                                            commits: None,
-                                                                            commit_index: None,
-                                                                        }, cx);
-                                                                    });
-                                                                }))
-                                                            })
-                                                            .child("View Diff"),
-                                                    ),
-                                            ),
-                                    )
-                                })
-                                // Branch picker (inline, between header and commit list)
-                                .when(self.commit_log_branch_picker, |d| {
-                                    let filter = self.commit_log_branch_filter.to_lowercase();
-                                    let filtered: Vec<&String> = self.commit_log_branches.iter()
-                                        .filter(|b| filter.is_empty() || b.to_lowercase().contains(&filter))
-                                        .collect();
-                                    d.child(
-                                        v_flex()
-                                            .border_b_1()
-                                            .border_color(rgb(t.border))
-                                            .max_h(px(200.0))
-                                            // Filter input
-                                            .child(
-                                                div()
-                                                    .px(px(10.0))
-                                                    .py(px(6.0))
-                                                    .child(
-                                                        div()
-                                                            .px(px(8.0))
-                                                            .py(px(4.0))
-                                                            .rounded(px(4.0))
-                                                            .bg(rgb(t.bg_secondary))
-                                                            .text_size(ui_text_ms(cx))
-                                                            .text_color(rgb(t.text_primary))
-                                                            .child(
-                                                                if filter.is_empty() {
-                                                                    format!("{} branches", self.commit_log_branches.len())
-                                                                } else {
-                                                                    format!("\"{}\" \u{2014} {} matches", self.commit_log_branch_filter, filtered.len())
-                                                                }
-                                                            ),
-                                                    ),
-                                            )
-                                            // Branch list
-                                            .child(
-                                                div()
-                                                    .id("branch-picker-scroll")
-                                                    .flex_1()
-                                                    .min_h_0()
-                                                    .overflow_y_scroll()
-                                                    .children(
-                                                        filtered.iter().enumerate().map(|(i, branch)| {
-                                                            let b = (*branch).clone();
-                                                            let target = self.commit_log_picker_target;
-                                                            let is_selected = match target {
-                                                                BranchPickerTarget::Graph => self.commit_log_branch.as_ref() == Some(*branch),
-                                                                BranchPickerTarget::CompareBase => self.commit_log_compare_base.as_ref() == Some(*branch),
-                                                                BranchPickerTarget::CompareHead => self.commit_log_compare_head.as_ref() == Some(*branch),
-                                                            };
-                                                            div()
-                                                                .id(ElementId::Name(format!("branch-{}-{}", i, branch).into()))
-                                                                .px(px(10.0))
-                                                                .py(px(3.0))
-                                                                .cursor_pointer()
-                                                                .text_size(ui_text_ms(cx))
-                                                                .text_color(rgb(if is_selected { t.text_primary } else { t.text_secondary }))
-                                                                .when(is_selected, |d| d.font_weight(FontWeight::SEMIBOLD))
-                                                                .hover(|s| s.bg(rgb(t.bg_hover)))
-                                                                .on_click(cx.listener(move |this, _, _window, cx| {
-                                                                    match target {
-                                                                        BranchPickerTarget::Graph => {
-                                                                            this.switch_commit_log_branch(Some(b.clone()), cx);
-                                                                        }
-                                                                        BranchPickerTarget::CompareBase => {
-                                                                            this.commit_log_compare_base = Some(b.clone());
-                                                                            this.commit_log_branch_picker = false;
-                                                                            cx.notify();
-                                                                        }
-                                                                        BranchPickerTarget::CompareHead => {
-                                                                            this.commit_log_compare_head = Some(b.clone());
-                                                                            this.commit_log_branch_picker = false;
-                                                                            cx.notify();
-                                                                        }
-                                                                    }
-                                                                }))
-                                                                .child((*branch).clone())
-                                                                .into_any_element()
-                                                        }),
-                                                    ),
-                                            ),
-                                    )
-                                })
-                                // Scrollable commit list
-                                .child(
-                                    div()
-                                        .id("commit-log-scroll")
-                                        .flex_1()
-                                        .min_h_0()
-                                        .overflow_y_scroll()
-                                        .track_scroll(&self.commit_log_scroll)
-                                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _window, cx| {
-                                            let delta_y = f32::from(event.delta.pixel_delta(px(1.0)).y);
-                                            if delta_y >= 0.0 {
-                                                return;
-                                            }
-                                            if !this.commit_log_has_more || this.commit_log_loading {
-                                                return;
-                                            }
-                                            let row_count = this.commit_log_entries.len();
-                                            let est_content_h = row_count as f32 * 20.0;
-                                            let scroll_y = -f32::from(this.commit_log_scroll.offset().y);
-                                            let viewport_h = 380.0;
-                                            if scroll_y + viewport_h > est_content_h - 200.0 {
-                                                this.load_more_commits(cx);
-                                            }
-                                        }))
-                                        .py(px(4.0))
-                                        .child(content),
-                                ),
-                        ),
-                ),
-            )
-            .into_any_element()
-    }
 }
 
 /// Button label for the commit footer.

@@ -234,8 +234,10 @@ pub enum ActionRequest {
         #[serde(default)]
         mode: DiffMode,
     },
-    GitCommitGraph {
+    GitCommitLog {
         project_id: String,
+        #[serde(default)]
+        skip: usize,
         count: usize,
         #[serde(default)]
         branch: Option<String>,

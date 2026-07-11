@@ -9,7 +9,7 @@ pub use diff::{
 pub use repository::{
     FileSection, FileStatusRefresh, commit, compute_target_paths, count_unpushed_commits,
     create_worktree, delete_local_branch, delete_remote_branch, discard_all_tracked, discard_file,
-    fetch_all, get_available_branches_for_worktree, get_commit_graph, get_current_branch,
+    fetch_all, get_available_branches_for_worktree, get_commit_log, get_current_branch,
     get_default_branch, get_file_statuses, get_repo_root, get_working_tree_status,
     has_uncommitted_changes, list_branches, merge_branch, project_path_in_worktree, pull,
     push_branch, rebase_onto, remove_worktree, remove_worktree_fast, resolve_git_root_and_subdir,
@@ -283,18 +283,8 @@ pub struct CommitLogEntry {
     /// Whether this is a merge commit (2+ parents)
     #[allow(dead_code)] // used in tests
     pub is_merge: bool,
-    /// Graph prefix characters (e.g. "| * |")
-    pub graph: String,
     /// Ref decorations (e.g. "HEAD -> main", "origin/main", "tag: v1.0")
     pub refs: Vec<String>,
-}
-
-/// A row in the commit graph — either a commit or a graph connector line.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum GraphRow {
-    Commit(CommitLogEntry),
-    /// Graph-only connector line (e.g. "|\ ", "|/ ")
-    Connector(String),
 }
 
 /// Format a Unix timestamp as compact relative time.
