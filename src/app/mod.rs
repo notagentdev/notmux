@@ -763,6 +763,31 @@ impl NotMux {
                             }
                         }
                     }
+                    // Forward OSC-announced notifications (OSC 9/99/777) to the
+                    // OS notification system. Always drain the once-only flag so
+                    // a notification seen while the app is active (in-app ring
+                    // covers it) is not re-posted later.
+                    if !dirty_terminal_ids.is_empty() {
+                        let native_enabled =
+                            crate::settings::settings(cx).native_notifications;
+                        let app_inactive = cx.active_window().is_none();
+                        let mut seen = std::collections::HashSet::new();
+                        let terminals_guard = this.terminals.lock();
+                        for tid in &dirty_terminal_ids {
+                            if !seen.insert(tid.clone()) {
+                                continue;
+                            }
+                            if let Some(notif) = terminals_guard
+                                .get(tid)
+                                .and_then(|t| t.take_unposted_notification())
+                                && native_enabled
+                                && app_inactive
+                            {
+                                crate::native_notify::post(&notif.title, &notif.body);
+                            }
+                        }
+                    }
+
                     // Notify dirty terminal content panes directly (batched in one update).
                     // All notifications happen in the same GPUI update → single layout pass.
                     if !dirty_terminal_ids.is_empty() {

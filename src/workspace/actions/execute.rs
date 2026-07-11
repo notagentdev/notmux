@@ -871,6 +871,11 @@ pub fn execute_action(
             // until the next PTY output. `refresh_windows` marks all views dirty.
             cx.notify();
             cx.refresh_windows();
+            // Forward to the OS notification system while the user is not
+            // looking at the app (the in-app ring/badge covers the active case).
+            if settings(cx).native_notifications && cx.active_window().is_none() {
+                crate::native_notify::post(&title, &body);
+            }
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
                     // A turn-complete notification means the agent is no longer working.

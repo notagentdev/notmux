@@ -9,6 +9,7 @@ mod cli;
 mod elements;
 mod git;
 mod keybindings;
+mod native_notify;
 mod process;
 mod remote;
 mod remote_client;

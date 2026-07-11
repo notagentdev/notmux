@@ -25,6 +25,15 @@ impl SettingsPanel {
                 |state, val, cx| state.set_show_notification_label(val, cx),
                 cx,
             ))
+            .child(self.render_toggle_with_desc(
+                "native-notifications",
+                "System Notifications",
+                "Post native OS notifications when an agent needs attention while NotMux is in the background",
+                s.native_notifications,
+                true,
+                |state, val, cx| state.set_native_notifications(val, cx),
+                cx,
+            ))
             .child(self.render_toggle(
                 "color-tinted-bg", "Color Tinted Background", s.color_tinted_background, true,
                 |state, val, cx| state.set_color_tinted_background(val, cx), cx,

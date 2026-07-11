@@ -404,6 +404,9 @@ pub struct Terminal {
     title: Arc<Mutex<Option<String>>>,
     has_bell: Arc<Mutex<bool>>,
     last_notification: Arc<Mutex<Option<TerminalNotification>>>,
+    /// True when an OSC-announced notification has not yet been forwarded to
+    /// the OS notification system (drained via `take_unposted_notification`).
+    notification_unposted: AtomicBool,
     /// True while an agent (claude/codex/…) is actively working a turn, driven
     /// by its hooks. Surfaces as a spinner in the sidebar list.
     agent_working: Arc<Mutex<bool>>,
@@ -501,6 +504,7 @@ impl Terminal {
             title,
             has_bell,
             last_notification,
+            notification_unposted: AtomicBool::new(false),
             agent_working,
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
@@ -753,6 +757,7 @@ impl Terminal {
         if record_replay && !suppress_replies && let Some(notif) = extract_osc_notifications(&data).into_iter().last() {
              *self.last_notification.lock() = Some(notif);
              *self.has_bell.lock() = true;
+             self.notification_unposted.store(true, Ordering::Relaxed);
             }
         if suppress_replies {
             self.suppress_pty_responses.store(true, Ordering::Relaxed);
@@ -1272,6 +1277,20 @@ impl Terminal {
     }
     pub fn last_notification(&self) -> Option<TerminalNotification> {
         self.last_notification.lock().clone()
+    }
+    /// Take the latest OSC-announced notification exactly once, for native OS
+    /// notification posting. Returns `None` until PTY output carries a new
+    /// OSC 9/99/777 notification. Notifications set via [`set_notification`]
+    /// (the remote `Notify` action) are deliberately not returned here — that
+    /// path posts natively at the action site.
+    ///
+    /// [`set_notification`]: Self::set_notification
+    pub fn take_unposted_notification(&self) -> Option<TerminalNotification> {
+        if self.notification_unposted.swap(false, Ordering::Relaxed) {
+            self.last_notification.lock().clone()
+        } else {
+            None
+        }
     }
     pub fn clear_notification(&self) {
         *self.last_notification.lock() = None;
@@ -2521,6 +2540,52 @@ mod tests {
             text.push(grid[Point::new(Line(row), Column(col))].c);
         }
         text
+    }
+
+    #[test]
+    fn take_unposted_notification_returns_osc_notification_exactly_once() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "test-id".to_string(),
+            TerminalSize::default(),
+            transport,
+            "/tmp".to_string(),
+        );
+
+        // Nothing pending before any output.
+        assert!(terminal.take_unposted_notification().is_none());
+
+        // OSC 777 notify: ESC ] 777 ; notify ; title ; body BEL
+        terminal.process_output(b"\x1b]777;notify;Claude Code;Turn complete\x07");
+
+        let notif = terminal
+            .take_unposted_notification()
+            .expect("notification should be pending after OSC 777");
+        assert_eq!(notif.title, "Claude Code");
+        assert_eq!(notif.body, "Turn complete");
+        // Drained: a second take returns nothing.
+        assert!(terminal.take_unposted_notification().is_none());
+
+        // OSC 9 marks a new pending notification again.
+        terminal.process_output(b"\x1b]9;Build finished\x07");
+        let notif = terminal.take_unposted_notification().expect("new OSC 9");
+        assert_eq!(notif.body, "Build finished");
+    }
+
+    #[test]
+    fn set_notification_does_not_mark_unposted() {
+        let transport = Arc::new(NullTransport);
+        let terminal = Terminal::new(
+            "test-id".to_string(),
+            TerminalSize::default(),
+            transport,
+            "/tmp".to_string(),
+        );
+
+        // The remote Notify action posts natively at the action site, so the
+        // PTY drain must not report it again.
+        terminal.set_notification("Codex".to_string(), "Turn complete".to_string());
+        assert!(terminal.take_unposted_notification().is_none());
     }
 
     #[test]
