@@ -4409,6 +4409,7 @@ dependencies = [
  "notmux-views-sidebar",
  "notmux-views-terminal",
  "notmux-workspace",
+ "objc2 0.6.4",
  "parking_lot",
  "portable-pty",
  "pulldown-cmark",

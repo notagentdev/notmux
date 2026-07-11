@@ -68,6 +68,44 @@ use crate::views::panels::toast::{Toast, ToastManager};
 use crate::workspace::persistence;
 use crate::workspace::state::GlobalWorkspace;
 
+/// Sets the macOS Dock icon at runtime (same approach as the notagent
+/// reference).
+///
+/// The dev build runs as a bare binary (no `.app` bundle), so the Dock would
+/// otherwise show a generic executable icon. The icon is embedded in the
+/// binary so it never depends on the working directory or an installed bundle.
+#[cfg(target_os = "macos")]
+fn set_dock_icon() {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+
+    const ICON: &[u8] = include_bytes!("../assets/notagent_dark_anthracite.icns");
+
+    // SAFETY: Standard AppKit messaging on the main thread. AppKit retains the
+    // image in `setApplicationIconImage:`; the one-time +1 on the NSImage at
+    // startup is intentional and harmless.
+    unsafe {
+        let data: *mut AnyObject = msg_send![
+            class!(NSData),
+            dataWithBytes: ICON.as_ptr() as *const core::ffi::c_void,
+            length: ICON.len()
+        ];
+        if data.is_null() {
+            return;
+        }
+        let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
+        let image: *mut AnyObject = msg_send![image, initWithData: data];
+        if image.is_null() {
+            return;
+        }
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, setApplicationIconImage: image];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_dock_icon() {}
+
 /// Quit action handler - flushes pending saves before exiting
 fn quit(_: &Quit, cx: &mut App) {
     // Flush pending settings save
@@ -414,6 +452,10 @@ fn main() {
         // Register action handlers for menu items
         cx.on_action(quit);
         cx.on_action(about);
+
+        // Set the Dock icon (a bare debug/dev binary has no .app bundle, so
+        // the Dock would show the generic executable icon otherwise).
+        set_dock_icon();
 
         // Set up macOS application menu
         set_app_menus(cx);
