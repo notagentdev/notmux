@@ -15,7 +15,6 @@ use gpui_component::{h_flex, v_flex};
 use std::path::PathBuf;
 use std::sync::Arc;
 use notmux_core::theme::ThemeColors;
-use notmux_ui::header_buttons::HeaderAction;
 use notmux_markdown::RenderedNode;
 use notmux_ui::code_block::code_block_container;
 use notmux_ui::vscode_icon::vscode_file_icon_sized_with_options;
@@ -79,20 +78,6 @@ fn source_cursor_canvas(
 }
 
 impl FileViewer {
-    fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
-        let a = alpha as u32;
-        let inv = 255 - a;
-        let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
-        let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
-        let b = (fg & 0xff) * a + (bg & 0xff) * inv;
-        (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
-    }
-
-    fn embedded_header_bg(t: &ThemeColors) -> u32 {
-        Self::blend_u32(t.text_primary, 0x14, t.term_background)
-    }
-
-    /// Render a single highlighted line with selection support.
     pub(super) fn render_line(
         &self,
         line_number: usize,
@@ -678,223 +663,6 @@ impl FileViewer {
             .border_color(rgb(t.border))
             .children(tab_elements)
     }
-
-    fn render_embedded_header(
-        &self,
-        filename: &str,
-        relative_path: &str,
-        is_markdown: bool,
-        is_preview_mode: bool,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let dir = relative_path
-            .rfind('/')
-            .map(|i| &relative_path[..=i])
-            .unwrap_or("");
-
-        div()
-            .group("main-file-header")
-            .flex_shrink_0()
-            .h(px(34.0))
-            .px(px(8.0))
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .border_t_1()
-            .border_b_1()
-            .border_color(rgb(t.border))
-            .bg(rgb(Self::embedded_header_bg(t)))
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap(px(6.0))
-                    .child(vscode_file_icon_sized_with_options(
-                        filename,
-                        px(18.0),
-                        t,
-                        self.monochrome_icons,
-                        cx,
-                    ))
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .items_baseline()
-                            .gap(px(6.0))
-                            .text_size(ui_text_md(cx))
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .text_color(rgb(t.text_primary))
-                                    .text_ellipsis()
-                                    .overflow_hidden()
-                                    .flex_shrink_0()
-                                    .child(if self.active_tab().buffer.is_dirty() {
-                                        format!("{} *", filename)
-                                    } else {
-                                        filename.to_string()
-                                    }),
-                            )
-                            .when(!dir.is_empty(), |d| {
-                                d.child(
-                                    div()
-                                        .text_color(rgb(t.text_muted))
-                                        .text_ellipsis()
-                                        .overflow_hidden()
-                                        .min_w_0()
-                                        .child(dir.to_string()),
-                                )
-                            }),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap(px(2.0))
-                    .opacity(0.0)
-                    .group_hover("main-file-header", |s| s.opacity(1.0))
-                    .when(is_markdown, |d| {
-                        d.child(self.render_embedded_mode_button(
-                            "raw",
-                            "Raw",
-                            DisplayMode::Source,
-                            !is_preview_mode,
-                            t,
-                            cx,
-                        ))
-                        .child(self.render_embedded_mode_button(
-                            "source",
-                            "Source",
-                            DisplayMode::Preview,
-                            is_preview_mode,
-                            t,
-                            cx,
-                        ))
-                    })
-                    .child(
-                        self.render_embedded_icon_button(
-                            "close",
-                            HeaderAction::Close.icon(),
-                            "Close File",
-                            false,
-                            t,
-                            cx,
-                        )
-                        .on_click(cx.listener(|this, _, _window, cx| this.close(cx))),
-                    ),
-            )
-    }
-
-    fn render_embedded_icon_button(
-        &self,
-        id: &'static str,
-        icon_path: &'static str,
-        tooltip_text: &'static str,
-        active: bool,
-        t: &ThemeColors,
-        _cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        use gpui_component::tooltip::Tooltip;
-
-        div()
-            .id(format!("main-file-{}", id))
-            .w(px(24.0))
-            .h(px(24.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.0))
-            .cursor_pointer()
-            .hover(|s| s.bg(rgb(t.bg_hover)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(px(14.0))
-                    .text_color(rgb(if active {
-                        t.text_primary
-                    } else {
-                        t.text_muted
-                    })),
-            )
-    }
-
-    fn render_embedded_mode_button(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        mode: DisplayMode,
-        active: bool,
-        t: &ThemeColors,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        use gpui_component::tooltip::Tooltip;
-
-        div()
-            .id(format!("main-file-{}", id))
-            .h(px(24.0))
-            .px(px(8.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(4.0))
-            .cursor_pointer()
-            .bg(rgb(if active {
-                t.bg_hover
-            } else {
-                Self::embedded_header_bg(t)
-            }))
-            .hover(|s| s.bg(rgb(t.bg_hover)))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .on_click(cx.listener(move |this, _, _window, cx| {
-                let tab = this.active_tab_mut();
-                if tab.is_markdown {
-                    tab.display_mode = mode;
-                    cx.notify();
-                }
-            }))
-            .tooltip(move |_window, cx| Tooltip::new(label).build(_window, cx))
-            .child(
-                div()
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(if active {
-                        t.text_primary
-                    } else {
-                        t.text_secondary
-                    }))
-                    .child(label),
-            )
-    }
-
-    fn render_hint(&self, key: &str, action: &str, t: &ThemeColors, cx: &App) -> impl IntoElement {
-        h_flex()
-            .gap(px(4.0))
-            .child(
-                div()
-                    .px(px(4.0))
-                    .py(px(1.0))
-                    .rounded(px(3.0))
-                    .bg(rgb(t.bg_secondary))
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child(key.to_string()),
-            )
-            .child(
-                div()
-                    .text_size(ui_text_sm(cx))
-                    .text_color(rgb(t.text_muted))
-                    .child(action.to_string()),
-            )
-    }
 }
 
 impl Render for FileViewer {
@@ -1224,17 +992,10 @@ impl Render for FileViewer {
                     }
                 }),
             )
-            // Header
+            // Header — only in the fullscreen overlay. The embedded editor
+            // pane already shows the file name in its layout tab bar.
             .child(if embedded {
-                self.render_embedded_header(
-                    &filename,
-                    &relative_path,
-                    is_markdown,
-                    is_preview_mode,
-                    &t,
-                    cx,
-                )
-                .into_any_element()
+                div().into_any_element()
             } else {
                 div()
                     .px(px(16.0))
@@ -1737,82 +1498,7 @@ impl Render for FileViewer {
                                         )
                                         .child(content_div),
                                 )
-                            })
-                            // Footer
-                            .child(
-                                div()
-                                    .px(px(12.0))
-                                    .py(px(8.0))
-                                    .border_t_1()
-                                    .border_color(rgb(t.border))
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        h_flex()
-                                            .gap(px(16.0))
-                                            .child(self.render_hint("B", "files", &t, cx))
-                                            .when(is_markdown, |d| {
-                                                d.child(self.render_hint(
-                                                    "Tab",
-                                                    "toggle preview",
-                                                    &t,
-                                                    cx,
-                                                ))
-                                            })
-                                            .child(self.render_hint(
-                                                if cfg!(target_os = "macos") {
-                                                    "Cmd+C"
-                                                } else {
-                                                    "Ctrl+C"
-                                                },
-                                                "copy",
-                                                &t,
-                                                cx,
-                                            ))
-                                            .child(self.render_hint(
-                                                if cfg!(target_os = "macos") {
-                                                    "Cmd+A"
-                                                } else {
-                                                    "Ctrl+A"
-                                                },
-                                                "select all",
-                                                &t,
-                                                cx,
-                                            ))
-                                            .child(self.render_hint(
-                                                if cfg!(target_os = "macos") {
-                                                    "Cmd+W"
-                                                } else {
-                                                    "Ctrl+W"
-                                                },
-                                                "close tab",
-                                                &t,
-                                                cx,
-                                            ))
-                                            .child(self.render_hint(
-                                                "Alt+\u{2190}/\u{2192}",
-                                                "back/fwd",
-                                                &t,
-                                                cx,
-                                            ))
-                                            .child(self.render_hint("Esc", "close", &t, cx)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(ui_text_sm(cx))
-                                            .text_color(rgb(t.text_muted))
-                                            .when(!is_preview_mode, |d| {
-                                                d.child(format!(
-                                                    "{} lines",
-                                                    self.active_tab().line_count
-                                                ))
-                                            })
-                                            .when(is_preview_mode, |d| {
-                                                d.child("Preview mode")
-                                            }),
-                                    ),
-                            ),
+                            }),
                     ),
             )
             // Filter popover backdrop + overlay (at fullscreen overlay level)
