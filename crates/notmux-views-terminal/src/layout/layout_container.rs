@@ -120,23 +120,54 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
     /// viewer body, mirroring `render_terminal` so it drags/splits identically.
     fn render_editor(
         &mut self,
-        _slot_id: String,
+        slot_id: String,
         file_path: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static N: AtomicU64 = AtomicU64::new(0);
+            let n = N.fetch_add(1, Ordering::Relaxed);
+            if n % 60 == 0 {
+                eprintln!("[perf] render_editor x{}", n);
+            }
+        }
         self.ensure_file_viewer(&file_path, cx);
         let in_tab_group = self.is_in_tab_group(cx);
 
-        let mut container = div().size_full().min_h_0().flex().flex_col().relative();
+        // `min_w_0` + `overflow_hidden` let the split shrink the pane below the
+        // viewer's intrinsic content width (long code lines), exactly like a
+        // terminal pane.
+        let mut container = div()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .relative();
         if !in_tab_group {
             container = container.child(self.render_standalone_tab_bar(window, cx));
         }
         container.child(
-            div().flex_1().min_h_0().relative().child(
-                AnyView::from(self.file_viewer.clone().expect("ensure_file_viewer sets Some"))
+            div()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .relative()
+                .overflow_hidden()
+                .child(
+                    AnyView::from(
+                        self.file_viewer
+                            .clone()
+                            .expect("ensure_file_viewer sets Some"),
+                    )
                     .cached(StyleRefinement::default().size_full()),
-            ),
+                )
+                // Same drop zones as a terminal pane — the editor is a drop
+                // target addressed by its slot id.
+                .child(self.render_drop_zones(Some(slot_id), cx, &self.active_drag.clone())),
         )
     }
 

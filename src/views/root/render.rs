@@ -60,6 +60,75 @@ fn top_right_terminal_path(node: &crate::workspace::state::LayoutNode, path: &mu
 }
 
 impl RootView {
+    /// Applies the active resize drag for a mouse position. Returns true when
+    /// the caller must refresh the window (split/column resizes bypass cached
+    /// views). Driven from a window-level mouse listener so drags keep working
+    /// while the cursor is over occluding hitboxes (e.g. the embedded editor).
+    pub(super) fn handle_active_drag_move(
+        &mut self,
+        position: Point<Pixels>,
+        window_width: f32,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(state) = self.active_drag.borrow().clone() else {
+            return false;
+        };
+        match state {
+            DragState::Sidebar => {
+                let new_width = f32::from(position.x);
+                self.sidebar_ctrl.set_width(new_width);
+                // Persist through global SettingsState (debounced)
+                let width = self.sidebar_ctrl.width();
+                settings_entity(cx).update(cx, |s, cx| s.set_sidebar_width(width, cx));
+                cx.notify();
+                false
+            }
+            DragState::ServicePanel {
+                project_id,
+                initial_mouse_y,
+                initial_height,
+            } => {
+                // Dragging up increases height, dragging down decreases
+                let delta = initial_mouse_y - f32::from(position.y);
+                let new_height = initial_height + delta;
+                if let Some(col) = self.project_columns.get(&project_id).cloned() {
+                    col.update(cx, |col, cx| {
+                        col.set_service_panel_height(new_height, cx);
+                    });
+                }
+                false
+            }
+            DragState::HookPanel {
+                project_id,
+                initial_mouse_y,
+                initial_height,
+            } => {
+                let delta = initial_mouse_y - f32::from(position.y);
+                let new_height = initial_height + delta;
+                if let Some(col) = self.project_columns.get(&project_id).cloned() {
+                    col.update(cx, |col, cx| {
+                        col.set_hook_panel_height(new_height, cx);
+                    });
+                }
+                false
+            }
+            DragState::GitPanel => {
+                // Git panel sits on the far right.
+                let new_width = window_width - f32::from(position.x);
+                self.git_panel_ctrl.set_width(new_width);
+                let width = self.git_panel_ctrl.width();
+                settings_entity(cx).update(cx, |s, cx| s.set_git_panel_width(width, cx));
+                cx.notify();
+                false
+            }
+            state => {
+                // Split and project column resize
+                compute_resize(position, &state, &self.workspace, cx);
+                true
+            }
+        }
+    }
+
     /// Normalize raw project widths to percentages summing to 100%.
     fn normalize_widths(raw_widths: &[f32]) -> Vec<f32> {
         let total: f32 = raw_widths.iter().sum();
@@ -560,10 +629,12 @@ impl Render for RootView {
                 MouseButton::Left,
                 cx.listener(|this, _, _, _| this.title_should_move = false),
             )
-            // Global mouse move handler for resize and auto-hide
+            // Global mouse move handler for window-move latch and sidebar
+            // auto-hide. Resize drags are handled by a window-level listener
+            // (registered in the canvas below): element listeners stop firing
+            // when the cursor crosses an occluding hitbox (e.g. the embedded
+            // file viewer), which froze split resizes toward the editor.
             .on_mouse_move(cx.listener({
-                let active_drag = active_drag.clone();
-                let workspace = workspace.clone();
                 move |this, event: &MouseMoveEvent, window, cx| {
                     // Deferred window move: a title-bar mouse-down armed the flag;
                     // start the native drag on the first move (matches zed).
@@ -571,68 +642,6 @@ impl Render for RootView {
                         this.title_should_move = false;
                         window.start_window_move();
                     }
-                    // Handle resize drag
-                    if let Some(ref state) = *active_drag.borrow() {
-                        match state {
-                            DragState::Sidebar => {
-                                // Handle sidebar resize
-                                let new_width = f32::from(event.position.x);
-                                this.sidebar_ctrl.set_width(new_width);
-                                // Persist through global SettingsState (debounced)
-                                let width = this.sidebar_ctrl.width();
-                                settings_entity(cx)
-                                    .update(cx, |s, cx| s.set_sidebar_width(width, cx));
-                                cx.notify();
-                            }
-                            DragState::ServicePanel {
-                                project_id,
-                                initial_mouse_y,
-                                initial_height,
-                            } => {
-                                // Dragging up increases height, dragging down decreases
-                                let delta = initial_mouse_y - f32::from(event.position.y);
-                                let new_height = initial_height + delta;
-                                let project_id = project_id.clone();
-                                if let Some(col) = this.project_columns.get(&project_id).cloned() {
-                                    col.update(cx, |col, cx| {
-                                        col.set_service_panel_height(new_height, cx);
-                                    });
-                                }
-                            }
-                            DragState::HookPanel {
-                                project_id,
-                                initial_mouse_y,
-                                initial_height,
-                            } => {
-                                let delta = initial_mouse_y - f32::from(event.position.y);
-                                let new_height = initial_height + delta;
-                                let project_id = project_id.clone();
-                                if let Some(col) = this.project_columns.get(&project_id).cloned() {
-                                    col.update(cx, |col, cx| {
-                                        col.set_hook_panel_height(new_height, cx);
-                                    });
-                                }
-                            }
-                            DragState::GitPanel => {
-                                // Git panel sits on the far right.
-                                let window_width = f32::from(window.bounds().size.width);
-                                let new_width = window_width - f32::from(event.position.x);
-                                this.git_panel_ctrl.set_width(new_width);
-                                let width = this.git_panel_ctrl.width();
-                                settings_entity(cx)
-                                    .update(cx, |s, cx| s.set_git_panel_width(width, cx));
-                                cx.notify();
-                            }
-                            _ => {
-                                // Handle split and project column resize
-                                compute_resize(event.position, state, &workspace, cx);
-                                // Bypass all .cached() views so terminal elements
-                                // repaint with new bounds during drag.
-                                window.refresh();
-                            }
-                        }
-                    }
-
                     // Handle auto-hide: check if mouse left the sidebar area
                     if sidebar_auto_hide && sidebar_hover_shown {
                         // Add small margin for smoother interaction
@@ -650,10 +659,38 @@ impl Render for RootView {
                     let active_drag = active_drag.clone();
                     let terminals = self.terminals.clone();
                     let workspace = workspace.clone();
+                    let this_weak = cx.entity().downgrade();
                     move |_bounds, _prepaint, window, _cx| {
                         let active_drag = active_drag.clone();
                         let terminals = terminals.clone();
                         let workspace = workspace.clone();
+                        // Window-level move handler drives all resize drags:
+                        // unlike an element listener it keeps firing when the
+                        // cursor is over occluding hitboxes (file viewer,
+                        // scrollables), so splits shrink as well as grow.
+                        {
+                            let active_drag = active_drag.clone();
+                            let this_weak = this_weak.clone();
+                            window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
+                                if phase != DispatchPhase::Bubble {
+                                    return;
+                                }
+                                if active_drag.borrow().is_none() {
+                                    return;
+                                }
+                                let window_width = f32::from(window.bounds().size.width);
+                                let needs_refresh = this_weak
+                                    .update(cx, |this, cx| {
+                                        this.handle_active_drag_move(e.position, window_width, cx)
+                                    })
+                                    .unwrap_or(false);
+                                if needs_refresh {
+                                    // Bypass all .cached() views so terminal elements
+                                    // repaint with new bounds during drag.
+                                    window.refresh();
+                                }
+                            });
+                        }
                         window.on_mouse_event(move |e: &MouseUpEvent, phase, _window, cx| {
                             if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
                                 let was_split_drag =
@@ -1184,6 +1221,15 @@ impl Render for RootView {
                                                 .cached(StyleRefinement::default().size_full()),
                                         ),
                                     )
+                                    // System stats at the sidebar's bottom (the
+                                    // panel runs to the window edge; the right
+                                    // segment lives in the right panel).
+                                    .child(
+                                        div()
+                                            .w(px(configured_width))
+                                            .flex_shrink_0()
+                                            .child(self.status_bar.clone()),
+                                    )
                                 })
                         },
                     )
@@ -1228,8 +1274,6 @@ impl Render for RootView {
                     // Git panel (right side)
                     .child(self.render_git_panel(cx)),
             )
-            // Status bar at the bottom
-            .child(self.status_bar.clone())
             // Title-bar controls as two *corner* overlays (top-left + top-right),
             // NOT a full-width bar. The middle over the tab bars is left
             // completely uncovered so tab drag-and-drop reaches the tabs instead

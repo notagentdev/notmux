@@ -173,6 +173,57 @@ impl Workspace {
     }
 
     /// Open a file as a new editor tab next to the node at `path` (mirrors
+    /// Open a file in the project's editor area: a split docked at the right
+    /// edge of the project layout. The first file creates the split; further
+    /// files join the editor group as tabs. A file that is already open in an
+    /// editor is focused instead of opened twice.
+    pub fn add_editor_right(&mut self, project_id: &str, file_path: &str, cx: &mut Context<Self>) {
+        let Some(layout) = self.project(project_id).and_then(|p| p.layout.clone()) else {
+            return;
+        };
+
+        // Already open → focus its pane.
+        if let Some(path) = layout.find_editor_path_by_file(file_path) {
+            self.set_focused_terminal(project_id.to_string(), path, cx);
+            return;
+        }
+
+        // Existing editor area at the right edge of the root split → join it.
+        if let LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            children,
+            ..
+        } = &layout
+        {
+            let last = children.len() - 1;
+            if let Some(area) = children.last()
+                && area.is_editor_area()
+            {
+                match area {
+                    LayoutNode::Tabs { .. } => {
+                        self.add_editor_to_group(project_id, &[last], file_path, cx);
+                    }
+                    // Single editor leaf → add_editor wraps it into a Tabs group.
+                    _ => self.add_editor(project_id, &[last], file_path, cx),
+                }
+                return;
+            }
+        }
+
+        // No editor area yet → dock one at the right edge of the whole layout.
+        let file_path_owned = file_path.to_string();
+        self.with_layout_node(project_id, &[], cx, |node| {
+            let old_node = node.clone();
+            *node = LayoutNode::Split {
+                direction: SplitDirection::Horizontal,
+                sizes: vec![62.0, 38.0],
+                children: vec![old_node, LayoutNode::new_editor(file_path_owned.clone())],
+            };
+            true
+        });
+        self.set_focused_terminal(project_id.to_string(), vec![1], cx);
+    }
+
     /// `add_tab`, but inserts an `Editor` leaf instead of a terminal).
     pub fn add_editor(
         &mut self,
@@ -675,7 +726,7 @@ impl Workspace {
         }
 
         // Find source path
-        let source_path = match layout.find_terminal_path(source_terminal_id) {
+        let source_path = match layout.find_pane_path(source_terminal_id) {
             Some(p) => p,
             None => return,
         };
@@ -707,7 +758,7 @@ impl Workspace {
             }
 
             // Re-find target path after removal (indices may have shifted)
-            let target_path = match layout.find_terminal_path(target_terminal_id) {
+            let target_path = match layout.find_pane_path(target_terminal_id) {
                 Some(p) => p,
                 None => return,
             };
@@ -729,7 +780,7 @@ impl Workspace {
             layout.normalize();
 
             // Find the new path for focus before releasing borrow
-            layout.find_terminal_path(source_terminal_id)
+            layout.find_pane_path(source_terminal_id)
         };
 
         self.notify_data(cx);
@@ -775,7 +826,7 @@ impl Workspace {
             Some(l) => l,
             None => return,
         };
-        let source_path = match src_layout.find_terminal_path(source_terminal_id) {
+        let source_path = match src_layout.find_pane_path(source_terminal_id) {
             Some(p) => p,
             None => return,
         };
@@ -798,7 +849,7 @@ impl Workspace {
             Some(l) => l,
             None => return,
         };
-        if tgt_layout.find_terminal_path(target_terminal_id).is_none() {
+        if tgt_layout.find_pane_path(target_terminal_id).is_none() {
             return;
         }
 
@@ -851,7 +902,7 @@ impl Workspace {
 
         let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
             // Re-find target path in target layout
-            let target_path = match tgt_layout.find_terminal_path(target_terminal_id) {
+            let target_path = match tgt_layout.find_pane_path(target_terminal_id) {
                 Some(p) => p,
                 None => return,
             };
@@ -866,7 +917,7 @@ impl Workspace {
                 *node = wrapper;
             }
             tgt_layout.normalize();
-            tgt_layout.find_terminal_path(source_terminal_id)
+            tgt_layout.find_pane_path(source_terminal_id)
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
@@ -874,7 +925,7 @@ impl Workspace {
                 .layout
                 .as_ref()
                 .expect("set to Some one line above")
-                .find_terminal_path(source_terminal_id)
+                .find_pane_path(source_terminal_id)
         };
 
         self.notify_data(cx);
@@ -979,8 +1030,8 @@ impl Workspace {
             None => return,
         };
 
-        // Find source path
-        let source_path = match layout.find_terminal_path(terminal_id) {
+        // Find source path (terminal by id, editor by slot id)
+        let source_path = match layout.find_pane_path(terminal_id) {
             Some(p) => p,
             None => return,
         };
@@ -1014,15 +1065,15 @@ impl Workspace {
         // re-locate the group after removal may have shifted paths.
         let reference_tid = match layout.get_at_path(tabs_path) {
             Some(node) => {
-                let ids = node.collect_terminal_ids();
-                // Pick a terminal that isn't the one we're moving
+                let ids = node.collect_pane_ids();
+                // Pick a pane that isn't the one we're moving
                 ids.into_iter().find(|id| id != terminal_id)
             }
             None => return,
         };
         let reference_tid = match reference_tid {
             Some(id) => id,
-            None => return, // Tab group has no other terminals
+            None => return, // Tab group has no other panes
         };
 
         // Perform mutation
@@ -1040,8 +1091,8 @@ impl Workspace {
                 return;
             }
 
-            // Re-find the tabs container via the reference terminal
-            let ref_path = match layout.find_terminal_path(&reference_tid) {
+            // Re-find the tabs container via the reference pane
+            let ref_path = match layout.find_pane_path(&reference_tid) {
                 Some(p) => p,
                 None => return,
             };
@@ -1073,7 +1124,7 @@ impl Workspace {
             }
 
             layout.normalize();
-            layout.find_terminal_path(terminal_id)
+            layout.find_pane_path(terminal_id)
         };
 
         self.notify_data(cx);
@@ -1117,7 +1168,7 @@ impl Workspace {
             Some(l) => l,
             None => return,
         };
-        let source_path = match src_layout.find_terminal_path(terminal_id) {
+        let source_path = match src_layout.find_pane_path(terminal_id) {
             Some(p) => p,
             None => return,
         };
@@ -1144,7 +1195,7 @@ impl Workspace {
         // Find a reference terminal in the target tab group
         let reference_tid = match tgt_layout.get_at_path(tabs_path) {
             Some(node) => {
-                let ids = node.collect_terminal_ids();
+                let ids = node.collect_pane_ids();
                 ids.into_iter().find(|id| id != terminal_id)
             }
             None => return,
@@ -1202,7 +1253,7 @@ impl Workspace {
 
         let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
             // Re-find the tabs container via the reference terminal
-            let ref_path = match tgt_layout.find_terminal_path(&reference_tid) {
+            let ref_path = match tgt_layout.find_pane_path(&reference_tid) {
                 Some(p) => p,
                 None => return,
             };
@@ -1231,7 +1282,7 @@ impl Workspace {
             }
 
             tgt_layout.normalize();
-            tgt_layout.find_terminal_path(terminal_id)
+            tgt_layout.find_pane_path(terminal_id)
         } else {
             // Target has no layout — set source node as root
             tgt_project.layout = Some(source_node);
@@ -1239,7 +1290,7 @@ impl Workspace {
                 .layout
                 .as_ref()
                 .expect("set to Some one line above")
-                .find_terminal_path(terminal_id)
+                .find_pane_path(terminal_id)
         };
 
         self.notify_data(cx);
@@ -1714,6 +1765,76 @@ mod gpui_tests {
             focus_project_individual: false,
             focused_terminal: None,
         }
+    }
+
+    #[gpui::test]
+    fn test_add_editor_right_docks_split_then_groups_tabs(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        // First file docks an editor split at the right edge.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Split {
+                    direction,
+                    children,
+                    ..
+                } => {
+                    assert_eq!(*direction, SplitDirection::Horizontal);
+                    assert_eq!(children.len(), 2);
+                    assert!(matches!(&children[0], LayoutNode::Terminal { .. }));
+                    assert!(
+                        matches!(&children[1], LayoutNode::Editor { file_path, .. } if file_path == "/tmp/a.rs")
+                    );
+                }
+                _ => panic!("expected horizontal split with editor at the right"),
+            }
+            // The new editor pane is focused.
+            let focused = ws.focus_manager.focused_terminal_state().unwrap();
+            assert_eq!(focused.layout_path, vec![1]);
+        });
+
+        // Second file joins the editor area as a tab.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "/tmp/b.rs", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            let editors = layout.collect_editors();
+            assert_eq!(
+                editors.iter().map(|(_, f)| f.as_str()).collect::<Vec<_>>(),
+                vec!["/tmp/a.rs", "/tmp/b.rs"]
+            );
+            match layout {
+                LayoutNode::Split { children, .. } => match &children[1] {
+                    LayoutNode::Tabs {
+                        children: tabs,
+                        active_tab,
+                    } => {
+                        assert_eq!(tabs.len(), 2);
+                        assert_eq!(*active_tab, 1);
+                        assert!(tabs.iter().all(|t| matches!(t, LayoutNode::Editor { .. })));
+                    }
+                    other => panic!("expected editor tabs group, got {:?}", other),
+                },
+                _ => panic!("expected split"),
+            }
+        });
+
+        // Re-opening an already-open file focuses it instead of duplicating.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            assert_eq!(layout.collect_editors().len(), 2, "no duplicate editor");
+            let focused = ws.focus_manager.focused_terminal_state().unwrap();
+            assert_eq!(focused.layout_path, vec![1, 0], "existing editor focused");
+        });
     }
 
     #[gpui::test]

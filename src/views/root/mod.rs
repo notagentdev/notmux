@@ -16,7 +16,7 @@ use crate::views::layout::split_pane::{ActiveDrag, new_active_drag};
 use crate::views::overlay_manager::OverlayManager;
 use crate::views::panels::project_column::ProjectColumn;
 use crate::views::panels::sidebar::Sidebar;
-use crate::views::panels::status_bar::StatusBar;
+use crate::views::panels::status_bar::{StatusBar, StatusBarRight};
 use crate::views::panels::toast::ToastOverlay;
 use crate::views::sidebar_controller::SidebarController;
 use crate::workspace::request_broker::RequestBroker;
@@ -66,6 +66,7 @@ pub struct RootView {
     title_bar: Entity<TitleBar>,
     /// Status bar entity
     status_bar: Entity<StatusBar>,
+    status_bar_right: Entity<StatusBarRight>,
     /// Centralized overlay manager
     overlay_manager: Entity<OverlayManager>,
     /// Toast notification overlay
@@ -176,6 +177,7 @@ impl RootView {
             sb.set_sidebar_open(sidebar_initially_open, cx);
             sb
         });
+        let status_bar_right = cx.new(|cx| StatusBarRight::new(status_bar.clone(), cx));
 
         // Create overlay manager
         let overlay_manager =
@@ -258,6 +260,7 @@ impl RootView {
             project_columns: HashMap::new(),
             title_bar,
             status_bar,
+            status_bar_right,
             overlay_manager,
             toast_overlay,
             active_drag: new_active_drag(),

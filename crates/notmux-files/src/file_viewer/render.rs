@@ -230,12 +230,22 @@ impl FileViewer {
     }
 
     /// Render visible lines for the virtualized list.
+    pub(super) fn render_visible_lines_counter() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        if n % 60 == 0 {
+            eprintln!("[perf] file_viewer render_visible_lines x{}", n);
+        }
+    }
+
     pub(super) fn render_visible_lines(
         &self,
         range: std::ops::Range<usize>,
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
+        Self::render_visible_lines_counter();
         let tab = self.active_tab();
         range
             .filter_map(|i| {
@@ -1000,6 +1010,41 @@ impl Render for FileViewer {
             .track_focus(&focus_handle)
             .key_context("FileViewer")
             .when(!is_preview_mode, |d| d.cursor(CursorStyle::IBeam))
+            // Selections must finish on ANY left mouse-up. The per-line and
+            // per-markdown-node up handlers miss releases over gaps or other
+            // elements, leaving `is_selecting` stuck — after which every mouse
+            // move notifies and the whole (markdown) document re-renders per
+            // frame, making the app laggy while an editor is open.
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    let tab = this.active_tab_mut();
+                    if tab.selection.is_selecting {
+                        tab.selection.finish();
+                        tab.selection_autoscroll = None;
+                        cx.notify();
+                    }
+                    if tab.markdown_selection.is_selecting {
+                        tab.markdown_selection.finish();
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _window, cx| {
+                    let tab = this.active_tab_mut();
+                    if tab.selection.is_selecting {
+                        tab.selection.finish();
+                        tab.selection_autoscroll = None;
+                        cx.notify();
+                    }
+                    if tab.markdown_selection.is_selecting {
+                        tab.markdown_selection.finish();
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _event: &MouseDownEvent, window, cx| {

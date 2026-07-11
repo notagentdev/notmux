@@ -3,7 +3,9 @@
 //! Every mutating action, notification, and terminal exit is appended as one
 //! JSON object per line so external tools can observe app activity (`tail -f`
 //! or `notmux events --follow`). Read-only query actions are not logged —
-//! polling clients (web/mobile) would flood the file.
+//! polling clients (web/mobile) would flood the file — and neither is
+//! transient per-mouse-move UI state like split resizes (see
+//! [`is_unlogged_action`]).
 //!
 //! The log rotates at 10 MB: the current file is renamed to
 //! `events.jsonl.1` (replacing any previous generation) and a fresh file is
@@ -63,12 +65,17 @@ pub fn emit(kind: &str, payload: serde_json::Value) {
     }
 }
 
-/// Whether an action is a read-only query that must not be logged.
-pub fn is_read_only_action(action: &notmux_core::api::ActionRequest) -> bool {
+/// Whether an action must not be logged: read-only queries (polling clients
+/// would flood the file) and transient high-frequency UI state (split-resize
+/// and terminal-resize fire per mouse-move during drags — logging them costs
+/// one file write per event and makes dragging laggy).
+pub fn is_unlogged_action(action: &notmux_core::api::ActionRequest) -> bool {
     use notmux_core::api::ActionRequest as A;
     matches!(
         action,
-        A::ReadContent { .. }
+        A::UpdateSplitSizes { .. }
+            | A::Resize { .. }
+            | A::ReadContent { .. }
             | A::GitStatus { .. }
             | A::GitDiffSummary { .. }
             | A::GitDiff { .. }
@@ -90,20 +97,26 @@ mod tests {
     use notmux_core::api::ActionRequest;
 
     #[test]
-    fn read_only_actions_are_not_logged() {
-        assert!(is_read_only_action(&ActionRequest::ReadContent {
+    fn read_only_and_transient_actions_are_not_logged() {
+        assert!(is_unlogged_action(&ActionRequest::ReadContent {
             terminal_id: "t".into()
         }));
-        assert!(is_read_only_action(&ActionRequest::ListFiles {
+        assert!(is_unlogged_action(&ActionRequest::ListFiles {
             project_id: "p".into(),
             show_ignored: false,
             show_hidden: false,
         }));
-        assert!(!is_read_only_action(&ActionRequest::SendText {
+        // Per-mouse-move drag traffic stays out of the log.
+        assert!(is_unlogged_action(&ActionRequest::UpdateSplitSizes {
+            project_id: "p".into(),
+            path: vec![],
+            sizes: vec![50.0, 50.0],
+        }));
+        assert!(!is_unlogged_action(&ActionRequest::SendText {
             terminal_id: "t".into(),
             text: "x".into()
         }));
-        assert!(!is_read_only_action(&ActionRequest::CreateTerminal {
+        assert!(!is_unlogged_action(&ActionRequest::CreateTerminal {
             project_id: "p".into()
         }));
     }

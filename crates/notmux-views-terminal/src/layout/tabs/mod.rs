@@ -384,7 +384,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         };
 
         let children: &[LayoutNode] = match node {
-            Some(ref n @ LayoutNode::Terminal { .. }) => std::slice::from_ref(n),
+            Some(ref n @ (LayoutNode::Terminal { .. } | LayoutNode::Editor { .. })) => {
+                std::slice::from_ref(n)
+            }
             _ => &[],
         };
 
@@ -443,6 +445,12 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 let editor_file = match child {
                     LayoutNode::Editor { file_path, .. } => Some(file_path.clone()),
                     _ => None,
+                };
+                // The shared pane id: terminals are addressed by terminal id,
+                // editors by slot id — drag/close dispatch the same actions.
+                let pane_id = match child {
+                    LayoutNode::Editor { slot_id, .. } => Some(slot_id.clone()),
+                    _ => terminal_id.clone(),
                 };
 
                 let (is_waiting, idle_label) = terminal_id.as_ref().map_or((false, None), |tid| {
@@ -577,15 +585,20 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             let close_id = ElementId::Name(
                                 format!("tab-close-{}-{:?}", i, layout_path).into(),
                             );
-                            let close_terminal_id = terminal_id.clone();
+                            // Editors close by slot id through the same action.
+                            let close_terminal_id = pane_id.clone();
                             let close_project_id = project_id.clone();
                             let close_dispatcher = self.action_dispatcher.clone();
 
-                            // Start slot: terminal icon
+                            // Start slot: terminal or file icon
                             let start_slot =
                                 h_flex().w(px(12.0)).h(px(12.0)).justify_center().child(
                                     svg()
-                                        .path("icons/terminal.svg")
+                                        .path(if editor_file.is_some() {
+                                            "icons/file.svg"
+                                        } else {
+                                            "icons/terminal.svg"
+                                        })
                                         .size(px(12.0))
                                         .text_color(icon_color),
                                 );
@@ -703,7 +716,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     })
                     .on_mouse_down(MouseButton::Middle, {
                         let project_id = project_id.clone();
-                        let terminal_id = terminal_id.clone();
+                        let terminal_id = pane_id.clone();
                         let action_dispatcher = self.action_dispatcher.clone();
                         cx.listener(move |_this, _event: &MouseDownEvent, _window, cx| {
                             if let Some(ref tid) = terminal_id
@@ -734,7 +747,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             PaneDrag {
                                 project_id: project_id_for_drag.clone(),
                                 layout_path: terminal_path,
-                                terminal_id: terminal_id.clone().unwrap_or_default(),
+                                terminal_id: pane_id.clone().unwrap_or_default(),
                                 terminal_name: tab_label.clone(),
                             },
                             move |drag, _position, _window, cx| {

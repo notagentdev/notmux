@@ -212,14 +212,25 @@ impl StatusBar {
         }
     }
 
-    fn format_time() -> String {
-        match OffsetDateTime::now_local() {
-            Ok(now) => format!("{:02}:{:02}", now.hour(), now.minute()),
-            Err(_) => {
-                // Fallback to UTC if local time is unavailable
-                let now = OffsetDateTime::now_utc();
-                format!("{:02}:{:02}", now.hour(), now.minute())
-            }
+    /// Right-side extension widgets in stable registry order (rendered by
+    /// [`StatusBarRight`] at the bottom of the right panel).
+    pub fn right_widgets(&self) -> Vec<AnyView> {
+        self.activate_fns
+            .iter()
+            .filter_map(|(id, _)| self.active_extensions.get(id))
+            .flat_map(|inst| inst.status_bar_right_widgets.iter().cloned())
+            .collect()
+    }
+
+}
+
+fn format_time() -> String {
+    match OffsetDateTime::now_local() {
+        Ok(now) => format!("{:02}:{:02}", now.hour(), now.minute()),
+        Err(_) => {
+            // Fallback to UTC if local time is unavailable
+            let now = OffsetDateTime::now_utc();
+            format!("{:02}:{:02}", now.hour(), now.minute())
         }
     }
 }
@@ -228,9 +239,6 @@ impl Render for StatusBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let stats = self.cache.lock().stats();
-
-        // Get current time using chrono-free approach
-        let time_str = Self::format_time();
 
         // Format memory
         let memory_str = format!(
@@ -282,22 +290,19 @@ impl Render for StatusBar {
             .map(|inst| &inst.status_bar_widgets)
             .filter(|w| !w.is_empty())
             .collect();
-        let right_widgets: Vec<&Vec<AnyView>> = self
-            .activate_fns
-            .iter()
-            .filter_map(|(id, _)| self.active_extensions.get(id))
-            .map(|inst| &inst.status_bar_right_widgets)
-            .filter(|w| !w.is_empty())
-            .collect();
 
+        // Left segment only (system stats + extension widgets) — rendered at
+        // the bottom of the sidebar. The right segment lives in
+        // `StatusBarRight` at the bottom of the right panel. No background of
+        // its own so the host panel's surface shows through.
         div()
             .id("status-bar")
             .h(px(42.0))
             .px(px(12.0))
             .flex()
+            .flex_shrink_0()
             .items_center()
-            .justify_between()
-            .bg(rgb(t.bg_header))
+            .overflow_hidden()
             .border_t_1()
             .border_color(rgb(t.border))
             .text_size(ui_text_ms(cx))
@@ -340,15 +345,48 @@ impl Render for StatusBar {
 
                 left
             })
-            // Right side - remote info + version + time
+    }
+}
+
+/// Right status segment (remote status, zoom controls, version, clock) —
+/// rendered at the bottom of the right panel. The left segment lives in
+/// [`StatusBar`] at the bottom of the sidebar.
+pub struct StatusBarRight {
+    status_bar: Entity<StatusBar>,
+}
+
+impl StatusBarRight {
+    pub fn new(status_bar: Entity<StatusBar>, cx: &mut Context<Self>) -> Self {
+        // Re-render on the StatusBar's periodic refresh so the clock ticks
+        // and extension widgets stay in sync.
+        cx.observe(&status_bar, |_, _, cx| cx.notify()).detach();
+        Self { status_bar }
+    }
+}
+
+impl Render for StatusBarRight {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        let time_str = format_time();
+
+        div()
+            .id("status-bar-right")
+            .h(px(42.0))
+            .px(px(12.0))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_end()
+            .overflow_hidden()
+            .border_t_1()
+            .border_color(rgb(t.border))
+            .text_size(ui_text_ms(cx))
             .child({
                 let mut right = h_flex().gap(px(8.0));
 
                 // Right-side extension widgets
-                for widgets in &right_widgets {
-                    for widget in *widgets {
-                        right = right.child(widget.clone());
-                    }
+                for widget in self.status_bar.read(cx).right_widgets() {
+                    right = right.child(widget);
                 }
 
                 // Show remote server status if active

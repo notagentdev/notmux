@@ -90,6 +90,7 @@ pub type BuildProjectFsFn = Box<dyn Fn(&str, &App) -> Option<Arc<dyn ProjectFs>>
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GroupKind {
     Terminals,
+    Editors,
     Services,
     Hooks,
 }
@@ -98,6 +99,7 @@ impl GroupKind {
     pub fn label(&self) -> &'static str {
         match self {
             GroupKind::Terminals => "Terminals",
+            GroupKind::Editors => "Editors",
             GroupKind::Services => "Services",
             GroupKind::Hooks => "Hooks",
         }
@@ -123,6 +125,10 @@ pub enum SidebarCursorItem {
     Terminal {
         project_id: String,
         terminal_id: String,
+    },
+    Editor {
+        project_id: String,
+        slot_id: String,
     },
     Service {
         project_id: String,
@@ -763,6 +769,50 @@ impl Sidebar {
             }
         }
 
+        // Editors group (only visible while editor panes are open)
+        if !project.editors.is_empty() {
+            let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Editors);
+            let is_cursor = cursor_index == Some(*flat_idx);
+            let project_id = project.id.clone();
+            flat_elements.push(
+                crate::item_widgets::sidebar_group_header(
+                    ElementId::Name(format!("{}editor-group-{}", id_prefix, project.id).into()),
+                    GroupKind::Editors.label(),
+                    project.editors.len(),
+                    is_collapsed,
+                    is_cursor,
+                    group_header_padding,
+                    &t,
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, _window, cx| {
+                    this.toggle_group(&project_id, GroupKind::Editors);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            );
+            *flat_idx += 1;
+
+            if !is_collapsed {
+                for (slot_id, file_path) in &project.editors {
+                    let is_cursor = cursor_index == Some(*flat_idx);
+                    flat_elements.push(
+                        self.render_editor_item(
+                            &project.id,
+                            slot_id,
+                            file_path,
+                            group_items_padding,
+                            id_prefix,
+                            is_cursor,
+                            cx,
+                        )
+                        .into_any_element(),
+                    );
+                    *flat_idx += 1;
+                }
+            }
+        }
+
         // Services group
         if !project.services.is_empty() {
             let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Services);
@@ -1306,6 +1356,26 @@ impl Sidebar {
             }
         }
 
+        // Editors group
+        if let Some(layout) = layout {
+            let editors = layout.collect_editors();
+            if !editors.is_empty() {
+                cursor_items.push(SidebarCursorItem::GroupHeader {
+                    project_id: project_id.to_string(),
+                    group: GroupKind::Editors,
+                });
+
+                if !self.is_group_collapsed(project_id, &GroupKind::Editors) {
+                    for (slot_id, _) in editors {
+                        cursor_items.push(SidebarCursorItem::Editor {
+                            project_id: project_id.to_string(),
+                            slot_id,
+                        });
+                    }
+                }
+            }
+        }
+
         // Services group
         if let Some(names) = service_names.get(project_id)
             && !names.is_empty()
@@ -1473,6 +1543,25 @@ impl Sidebar {
                 }
                 self.saved_focus = None;
             }
+            SidebarCursorItem::Editor {
+                project_id,
+                slot_id,
+            } => {
+                self.workspace.update(cx, |ws, cx| {
+                    let path = ws
+                        .project(&project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .and_then(|l| l.find_editor_path_by_slot(&slot_id));
+                    if let Some(path) = path {
+                        ws.set_focused_terminal(project_id.clone(), path, cx);
+                    }
+                });
+                self.cursor_index = None;
+                if let Some(ref saved) = self.saved_focus {
+                    window.focus(saved, cx);
+                }
+                self.saved_focus = None;
+            }
             SidebarCursorItem::Folder { folder_id } => {
                 self.workspace.update(cx, |ws, cx| {
                     ws.toggle_folder_collapsed(&folder_id, cx);
@@ -1582,6 +1671,7 @@ impl Sidebar {
                 self.toggle_group(&project_id, group);
             }
             SidebarCursorItem::Terminal { .. }
+            | SidebarCursorItem::Editor { .. }
             | SidebarCursorItem::Service { .. }
             | SidebarCursorItem::Hook { .. } => {}
             SidebarCursorItem::RemoteConnection { connection_id } => {
@@ -2027,6 +2117,8 @@ pub struct SidebarProjectInfo {
     /// Current git branch (None for non-git projects and for worktree rows,
     /// whose display name already is the branch).
     pub branch: Option<String>,
+    /// Open editor panes: (slot_id, file_path), in layout order.
+    pub editors: Vec<(String, String)>,
     /// Services defined in notmux.yaml for this project
     pub services: Vec<SidebarServiceInfo>,
     /// Hook terminals currently running for this project
@@ -2080,6 +2172,7 @@ impl SidebarProjectInfo {
                 .as_ref()
                 .map(|w| w.parent_project_id.clone()),
             branch,
+            editors: layout.map(|l| l.collect_editors()).unwrap_or_default(),
             services: Vec::new(),
             hook_terminals: project
                 .hook_terminals

@@ -282,7 +282,16 @@ impl RootView {
             .flex()
             .flex_col()
             .child(tab_bar)
-            .child(div().w(px(configured_width)).flex_1().min_h_0().child(body));
+            .child(div().w(px(configured_width)).flex_1().min_h_0().child(body))
+            // Right status segment (remote/zoom/clock) at the panel's bottom —
+            // the panel runs to the window edge; the system stats live at the
+            // sidebar's bottom.
+            .child(
+                div()
+                    .w(px(configured_width))
+                    .flex_shrink_0()
+                    .child(self.status_bar_right.clone()),
+            );
 
         div()
             .id("git-panel-wrapper")

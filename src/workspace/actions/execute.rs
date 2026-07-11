@@ -49,7 +49,7 @@ pub fn execute_action(
 ) -> ActionResult {
     // Mutating actions go to the event log (events.jsonl); read-only queries
     // are skipped so polling clients don't flood it.
-    let logged_request = if crate::event_log::is_read_only_action(&action) {
+    let logged_request = if crate::event_log::is_unlogged_action(&action) {
         None
     } else {
         serde_json::to_value(&action).ok()
@@ -104,7 +104,21 @@ fn execute_action_inner(
                     ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
                     ActionResult::Ok(None)
                 }
-                None => ActionResult::Err(format!("terminal not found: {}", terminal_id)),
+                None => {
+                    // Editor panes close through the same action, addressed by
+                    // their slot id — no PTY/snapshot to clean up.
+                    let editor_path = ws
+                        .project(&project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .and_then(|l| l.find_editor_path_by_slot(&terminal_id));
+                    match editor_path {
+                        Some(path) => {
+                            ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
+                            ActionResult::Ok(None)
+                        }
+                        None => ActionResult::Err(format!("terminal not found: {}", terminal_id)),
+                    }
+                }
             }
         }
         ActionRequest::CloseTerminals {

@@ -267,6 +267,66 @@ impl LayoutNode {
         }
     }
 
+    /// Layout path of the editor leaf with this slot id.
+    pub fn find_editor_path_by_slot(&self, slot: &str) -> Option<Vec<usize>> {
+        self.find_editor_path(&|slot_id, _| slot_id == slot, vec![])
+    }
+
+    /// Layout path of the first editor leaf showing this file.
+    pub fn find_editor_path_by_file(&self, file: &str) -> Option<Vec<usize>> {
+        self.find_editor_path(&|_, file_path| file_path == file, vec![])
+    }
+
+    fn find_editor_path(
+        &self,
+        matches: &dyn Fn(&str, &str) -> bool,
+        current_path: Vec<usize>,
+    ) -> Option<Vec<usize>> {
+        match self {
+            LayoutNode::Editor {
+                slot_id, file_path, ..
+            } => matches(slot_id, file_path).then_some(current_path),
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for (i, child) in children.iter().enumerate() {
+                    let mut child_path = current_path.clone();
+                    child_path.push(i);
+                    if let Some(found) = child.find_editor_path(matches, child_path) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            LayoutNode::Terminal { .. } => None,
+        }
+    }
+
+    /// Layout path of a pane by its shared pane id: terminals are addressed by
+    /// terminal id, editors by slot id. This is the addressing used by tab
+    /// drag/close so editor panes move through the same pipeline as terminals.
+    pub fn find_pane_path(&self, pane_id: &str) -> Option<Vec<usize>> {
+        self.find_terminal_path(pane_id)
+            .or_else(|| self.find_editor_path_by_slot(pane_id))
+    }
+
+    /// All pane ids in this subtree: terminal ids plus editor slot ids.
+    pub fn collect_pane_ids(&self) -> Vec<String> {
+        let mut ids = self.collect_terminal_ids();
+        ids.extend(self.collect_editors().into_iter().map(|(slot, _)| slot));
+        ids
+    }
+
+    /// True if this subtree contains only editor leaves (an editor leaf or a
+    /// Tabs group of editors) — the shape of the project's editor area.
+    pub fn is_editor_area(&self) -> bool {
+        match self {
+            LayoutNode::Editor { .. } => true,
+            LayoutNode::Tabs { children, .. } => {
+                !children.is_empty() && children.iter().all(|c| c.is_editor_area())
+            }
+            LayoutNode::Split { .. } | LayoutNode::Terminal { .. } => false,
+        }
+    }
+
     fn find_terminal_path_recursive(
         &self,
         target_id: &str,
