@@ -529,11 +529,12 @@ impl TitleBar {
             .justify_center()
             .rounded(px(4.0))
             .hover(|s| s.opacity(0.85))
+            // The icon stays muted — only the badge carries the accent color.
             .child(
                 svg()
                     .path("icons/bell.svg")
                     .size(px(16.0))
-                    .text_color(rgb(if count > 0 { t.border_bell } else { t.text_muted })),
+                    .text_color(rgb(t.text_muted)),
             )
             .when(count > 0, |d| {
                 d.child(
