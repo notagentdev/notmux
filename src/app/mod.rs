@@ -405,7 +405,7 @@ impl NotMux {
             // Re-install the agent hook configs on every launch so the hook
             // commands stay current (the notmux binary path and hook bodies can
             // change between versions) instead of only updating on a settings
-            // toggle. Only claude + codex here — the shell integration writes to
+            // toggle. All agents except the shell integration — that writes to
             // the user's rc and must not churn it on every launch.
             if hooks_enabled {
                 if let Err(e) = notmux_hooks::agent_hooks::install_claude() {
@@ -416,6 +416,15 @@ impl NotMux {
                 }
                 if let Err(e) = notmux_hooks::agent_hooks::install_notagent() {
                     log::warn!("notagent hook install on startup: {e}");
+                }
+                if let Err(e) = notmux_hooks::agent_hooks::install_opencode() {
+                    log::warn!("OpenCode hook install on startup: {e}");
+                }
+                if let Err(e) = notmux_hooks::agent_hooks::install_pi() {
+                    log::warn!("Pi hook install on startup: {e}");
+                }
+                if let Err(e) = notmux_hooks::agent_hooks::install_antigravity() {
+                    log::warn!("Antigravity hook install on startup: {e}");
                 }
             }
         }
