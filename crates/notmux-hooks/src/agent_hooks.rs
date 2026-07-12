@@ -605,6 +605,108 @@ pub fn uninstall_notagent() -> Result<(), String> {
     Ok(())
 }
 
+/// Marker identifying our OpenCode plugin file (never edit foreign files).
+const OPENCODE_PLUGIN_MARKER: &str = "notmux-opencode-plugin-marker";
+
+/// Resolve the OpenCode config dir: `$OPENCODE_CONFIG_DIR` or `~/.config/opencode`.
+fn opencode_config_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("OPENCODE_CONFIG_DIR")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
+    }
+    home_dir().map(|h| h.join(".config/opencode"))
+}
+
+/// Install the OpenCode integration: a small JS plugin (OpenCode has no
+/// hooks.json — plugins subscribe to the event bus). Turn completion comes
+/// from `session.idle`, "working" from a user `message.updated`, approvals
+/// from the permission events. Only runs if OpenCode is already set up.
+pub fn install_opencode() -> Result<(), String> {
+    let config_dir = opencode_config_dir().ok_or("HOME not set")?;
+    if !config_dir.exists() {
+        log::info!(
+            "OpenCode not set up ({} missing); skipping",
+            config_dir.display()
+        );
+        return Ok(());
+    }
+    let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
+    let plugin = format!(
+        r#"// {OPENCODE_PLUGIN_MARKER} v1
+// Bridges OpenCode lifecycle events to notmux (bell + agent status).
+// Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
+import {{ spawnSync }} from "node:child_process";
+
+const NOTMUX = {exe};
+
+function send(args) {{
+  // Only inside a notmux terminal — plain opencode elsewhere stays quiet.
+  if (!process.env.NOTMUX_SURFACE_ID) return;
+  try {{
+    spawnSync(NOTMUX, args, {{ stdio: ["ignore", "ignore", "ignore"], timeout: 5000 }});
+  }} catch (_) {{}}
+}}
+
+export const NotmuxBridge = async () => ({{
+  event: async ({{ event }}) => {{
+    const type = event && event.type;
+    const props = (event && event.properties) || {{}};
+    if (type === "message.updated") {{
+      const info = props.info || props.message || {{}};
+      if ((info.role || props.role) === "user") send(["agent-status", "working"]);
+      return;
+    }}
+    if (
+      type === "session.idle" ||
+      (type === "session.status" && props.status && props.status.type === "idle")
+    ) {{
+      send(["notify", "--title", "OpenCode", "--body", "Turn complete"]);
+      return;
+    }}
+    if (type === "permission.updated" || type === "permission.asked") {{
+      send(["notify", "--title", "OpenCode", "--body", "Approval needed"]);
+    }}
+  }},
+}});
+export default NotmuxBridge;
+"#
+    );
+
+    let plugins_dir = config_dir.join("plugins");
+    std::fs::create_dir_all(&plugins_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", plugins_dir.display()))?;
+    let plugin_path = plugins_dir.join("notmux-session.js");
+    // Never overwrite a foreign file at our path.
+    if let Ok(existing) = std::fs::read_to_string(&plugin_path)
+        && !existing.contains(OPENCODE_PLUGIN_MARKER)
+    {
+        return Err(format!(
+            "{} exists but was not written by notmux; not overwriting",
+            plugin_path.display()
+        ));
+    }
+    std::fs::write(&plugin_path, plugin)
+        .map_err(|e| format!("Failed to write {}: {e}", plugin_path.display()))?;
+    log::info!("Installed OpenCode plugin -> {}", plugin_path.display());
+    Ok(())
+}
+
+/// Remove the OpenCode plugin written by [`install_opencode`].
+pub fn uninstall_opencode() -> Result<(), String> {
+    let Some(config_dir) = opencode_config_dir() else {
+        return Ok(());
+    };
+    let plugin_path = config_dir.join("plugins/notmux-session.js");
+    if let Ok(existing) = std::fs::read_to_string(&plugin_path)
+        && existing.contains(OPENCODE_PLUGIN_MARKER)
+    {
+        let _ = std::fs::remove_file(&plugin_path);
+        log::info!("Removed OpenCode plugin <- {}", plugin_path.display());
+    }
+    Ok(())
+}
+
 /// Install all agent hooks. Returns a list of errors (empty on full success).
 pub fn install_all() -> Vec<String> {
     let mut errors = Vec::new();
@@ -615,6 +717,9 @@ pub fn install_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = install_notagent() {
+        errors.push(e);
+    }
+    if let Err(e) = install_opencode() {
         errors.push(e);
     }
     if let Err(e) = install_shell() {
@@ -633,6 +738,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_notagent() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_opencode() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {
