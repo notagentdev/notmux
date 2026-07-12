@@ -909,6 +909,7 @@ fn execute_action_inner(
             terminal_id,
             title,
             body,
+            keep_working,
         } => {
             let title = if title.is_empty() { "Notification".to_string() } else { title };
             // Repaint every window so the pane ring + tab/sidebar badges update
@@ -924,15 +925,20 @@ fn execute_action_inner(
             }
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
-                    // A turn-complete notification means the agent is no longer working.
-                    term.set_agent_working(false);
+                    // A turn-complete notification means the agent is no longer
+                    // working; mid-turn attention pings keep the spinner.
+                    if !keep_working {
+                        term.set_agent_working(false);
+                    }
                     term.set_notification(title.clone(), body.clone());
                     return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
             }
             for (_, term) in terminals.lock().iter() {
-                term.set_agent_working(false);
+                if !keep_working {
+                    term.set_agent_working(false);
+                }
                 term.set_notification(title.clone(), body.clone());
             }
             ActionResult::Ok(Some(serde_json::json!({ "notified": "all", "title": title })))

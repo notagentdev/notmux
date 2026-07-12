@@ -722,8 +722,10 @@ fn pi_agent_dir() -> Option<PathBuf> {
 
 /// Install the Pi integration: a TypeScript extension (Pi has no hooks.json —
 /// extensions subscribe to lifecycle events). `before_agent_start` marks the
-/// agent working, `agent_end` rings "Turn complete". Only runs if Pi is
-/// already set up.
+/// agent working, `agent_end` rings "Turn complete". Pi has no approval
+/// system, so — like the reference implementation's `toolStartMaybeApproval` — a *side-effecting*
+/// tool starting (bash/edit/write) rings an attention bell; read-only tools
+/// stay quiet. Only runs if Pi is already set up.
 pub fn install_pi() -> Result<(), String> {
     let agent_dir = pi_agent_dir().ok_or("HOME not set")?;
     if !agent_dir.exists() {
@@ -749,9 +751,25 @@ function send(args: string[]) {{
   }} catch (_) {{}}
 }}
 
+// Pi has no approval system; ring the bell when a side-effecting tool
+// starts (the reference implementation's toolStartMaybeApproval semantics) — read-only tools
+// (read/grep/find/ls) stay quiet.
+const SIDE_EFFECTING = new Set([
+  "bash", "write", "edit", "multiedit", "notebookedit", "apply_patch", "shell",
+]);
+
 export default function notmuxPiBridge(pi: any) {{
   pi.on("before_agent_start", async () => {{
     send(["agent-status", "working"]);
+  }});
+  pi.on("tool_execution_start", async (event: any) => {{
+    const tool = String(
+      (event && (event.toolName || event.tool_name || event.name)) || ""
+    ).toLowerCase();
+    if (SIDE_EFFECTING.has(tool)) {{
+      // Mid-turn attention ping — keep the working spinner running.
+      send(["notify", "--title", "Pi", "--body", "Running " + tool, "--keep-working"]);
+    }}
   }});
   pi.on("agent_end", async () => {{
     send(["notify", "--title", "Pi", "--body", "Turn complete"]);

@@ -403,6 +403,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
     let mut title = String::new();
     let mut body = String::new();
     let mut terminal_id: Option<String> = None;
+    let mut keep_working = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -418,6 +419,9 @@ pub fn cli_notify(args: &[String]) -> i32 {
                 i += 1;
                 if i < args.len() { terminal_id = Some(args[i].clone()); }
             }
+            "--keep-working" => {
+                keep_working = true;
+            }
             _ if !args[i].starts_with("--") => {
                 if title.is_empty() { title = args[i].clone(); }
                 else if body.is_empty() { body = args[i].clone(); }
@@ -431,6 +435,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
         eprintln!("  --title, -t     Notification title (or first positional arg)");
         eprintln!("  --body, -b      Notification body (or second positional arg)");
         eprintln!("  --terminal-id   Target specific terminal (default: current terminal from NOTMUX_TERMINAL_ID)");
+        eprintln!("  --keep-working  Don't clear the agent-working spinner (mid-turn attention ping)");
         return 1;
     }
     if terminal_id.as_ref().is_some_and(|s| s.is_empty()) {
@@ -451,6 +456,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
         "terminal_id": terminal_id,
         "title": title,
         "body": body,
+        "keep_working": keep_working,
     });
     match api_post("/v1/actions", &token, &payload.to_string()) {
         Ok(resp) => {

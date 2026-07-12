@@ -424,6 +424,10 @@ pub enum ActionRequest {
         title: String,
         #[serde(default)]
         body: String,
+        /// Don't clear the agent-working spinner: a mid-turn attention ping
+        /// (e.g. a side-effecting tool starting) rather than turn completion.
+        #[serde(default)]
+        keep_working: bool,
     },
     ClearNotification {
         #[serde(default)]
@@ -781,6 +785,7 @@ mod tests {
                 terminal_id: Some("t1".into()),
                 title: "Test".into(),
                 body: "Done".into(),
+                keep_working: false,
             },
             ];
         for action in actions {
