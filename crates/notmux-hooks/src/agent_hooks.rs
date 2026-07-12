@@ -794,6 +794,77 @@ pub fn uninstall_pi() -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve the Antigravity (agy) config dir: `~/.gemini/config`.
+fn antigravity_config_dir() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".gemini/config"))
+}
+
+/// Install Antigravity (agy) hooks. Its `hooks.json` holds *named* hook
+/// groups at the top level — we own the `"notmux"` key and leave everything
+/// else (other tools' groups, user entries) untouched. `PreInvocation` marks
+/// the agent working, `Stop`/`turn-completion` ring "Turn complete", and
+/// `Notification` rings "Attention needed" (fires when agy blocks on the
+/// user, e.g. tool approvals). Only runs if `~/.gemini` is already set up.
+pub fn install_antigravity() -> Result<(), String> {
+    let home = home_dir().ok_or("HOME not set")?;
+    if !home.join(".gemini").exists() {
+        log::info!("Antigravity not set up (~/.gemini missing); skipping");
+        return Ok(());
+    }
+    let config_dir = antigravity_config_dir().ok_or("HOME not set")?;
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", config_dir.display()))?;
+
+    let exe = notmux_binary();
+    let working_cmd =
+        format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working || true");
+    let stop_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Turn complete\" || true"
+    );
+    let attention_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" || true"
+    );
+    let entry = |cmd: &str| {
+        serde_json::json!([{ "type": "command", "command": cmd, "timeout": 10 }])
+    };
+    let group = serde_json::json!({
+        "PreInvocation": entry(&working_cmd),
+        "Stop": entry(&stop_cmd),
+        "turn-completion": entry(&stop_cmd),
+        "Notification": entry(&attention_cmd),
+    });
+
+    let hooks_path = config_dir.join("hooks.json");
+    let mut doc: serde_json::Value = std::fs::read_to_string(&hooks_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    doc.as_object_mut()
+        .ok_or("hooks.json is not an object")?
+        .insert("notmux".to_string(), group);
+    std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
+        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+    log::info!("Installed Antigravity hooks -> {}", hooks_path.display());
+    Ok(())
+}
+
+/// Remove the Antigravity hook group written by [`install_antigravity`].
+pub fn uninstall_antigravity() -> Result<(), String> {
+    let Some(config_dir) = antigravity_config_dir() else {
+        return Ok(());
+    };
+    let hooks_path = config_dir.join("hooks.json");
+    if let Ok(content) = std::fs::read_to_string(&hooks_path)
+        && let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Some(obj) = doc.as_object_mut()
+        && obj.remove("notmux").is_some()
+    {
+        let _ = std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap());
+        log::info!("Removed Antigravity hooks <- {}", hooks_path.display());
+    }
+    Ok(())
+}
+
 /// Install all agent hooks. Returns a list of errors (empty on full success).
 pub fn install_all() -> Vec<String> {
     let mut errors = Vec::new();
@@ -810,6 +881,9 @@ pub fn install_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = install_pi() {
+        errors.push(e);
+    }
+    if let Err(e) = install_antigravity() {
         errors.push(e);
     }
     if let Err(e) = install_shell() {
@@ -834,6 +908,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_pi() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_antigravity() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {
