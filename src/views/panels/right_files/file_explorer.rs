@@ -3,7 +3,7 @@
 //! menu (files/folders get full CRUD actions; empty area gets new-file/
 //! new-folder/paste/reveal).
 
-use crate::theme::theme as git_theme;
+use crate::theme::right_panel_theme as git_theme;
 use gpui::prelude::*;
 use gpui::*;
 use notmux_files::clipboard::ExplorerClipboard;
@@ -731,12 +731,14 @@ impl FileExplorer {
             .flex()
             .flex_row()
             .items_center()
-            .w_full()
+            // Inset rounded hover pill — matches the sidebar's rows.
+            .mx(px(6.0))
             .h(px(32.0))
             .pl(px(indent_px))
             .pr(px(8.0))
             .gap(px(8.0))
             .cursor_pointer()
+            .rounded_lg()
             .when(is_context_target, |d| d.bg(rgb(t.bg_hover)))
             .when(!is_context_target, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
             // Drag source: entries can be dropped into the chat composer to

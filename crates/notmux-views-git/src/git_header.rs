@@ -1677,13 +1677,15 @@ impl GitHeader {
         let path_owned = path.to_string();
         h_flex()
             .id(ElementId::Name(format!("stash-{path}").into()))
-            .w_full()
+            // Inset rounded hover pill — matches the sidebar's rows.
+            .mx(px(6.0))
             .pl(px(8.0))
             .pr(px(8.0))
             .h(px(32.0))
             .gap(px(6.0))
             .items_center()
             .cursor_pointer()
+            .rounded_lg()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.toggle_inline_diff(path_owned.clone(), false, cx);
@@ -1899,12 +1901,14 @@ impl GitHeader {
 
         h_flex()
             .id(ElementId::Name(format!("file-{}", file.path).into()))
-            .w_full()
+            // Inset rounded hover pill — matches the sidebar's rows.
+            .mx(px(6.0))
             .pl(px(8.0))
             .pr(px(8.0))
             .h(px(32.0))
             .gap(px(6.0))
             .items_center()
+            .rounded_lg()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             // Right-click context menu
             .on_mouse_down(MouseButton::Right, {
@@ -2899,12 +2903,15 @@ impl GitHeader {
 
         h_flex()
             .id(ElementId::Name(format!("history-row-{}", ix).into()))
-            .pl(px(14.0))
+            // Inset rounded hover pill — matches the sidebar's rows.
+            .mx(px(6.0))
+            .pl(px(8.0))
             .pr(px(12.0))
             .h(px(project_header::COMMIT_ROW_H))
             .items_center()
             .gap(px(6.0))
             .cursor_pointer()
+            .rounded_lg()
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.open_commit_diff(ix, cx);

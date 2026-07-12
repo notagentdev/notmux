@@ -33,6 +33,15 @@ pub fn theme(cx: &App) -> ThemeColors {
     notmux_theme::terminal_theme(cx)
 }
 
+/// Theme for the right panel (Git/Files tabs): the terminal bridge with the
+/// sidebar's hover surface, so row hover marking looks identical to the left
+/// panel (`surface_3` instead of the terminal chrome's `surface_2`).
+pub fn right_panel_theme(cx: &App) -> ThemeColors {
+    let mut t = notmux_theme::terminal_theme(cx);
+    t.bg_hover = notmux_theme::sidebar_theme(cx).bg_hover;
+    t
+}
+
 /// Swaps the `GpuiTheme` global and repaints everything (all windows plus the
 /// cached terminal content panes, which a window redraw alone does not reach).
 /// Does not persist — used for live preview; `set_theme` persists.

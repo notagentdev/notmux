@@ -1,5 +1,5 @@
 use crate::settings::settings_entity;
-use crate::theme::theme;
+use crate::theme::right_panel_theme as theme;
 use crate::ui::tokens::ui_text_md;
 use crate::views::layout::split_pane::render_git_panel_divider;
 use crate::views::sidebar_controller::{AnimationTarget, FRAME_TIME_MS, SidebarController};
