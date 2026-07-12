@@ -252,16 +252,17 @@ pub fn install_claude() -> Result<(), String> {
         "UserPromptSubmit".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": working_cmd }] }]),
     );
-    // We only surface turn completion. Claude's `Notification` event also covers
-    // the 60s idle "waiting for input" ping, which we deliberately ignore — so
-    // drop any Notification hook a previous notmux version installed.
-    if hooks_obj
-        .get("Notification")
-        .map(|v| v.to_string().contains(&exe))
-        .unwrap_or(false)
-    {
-        hooks_obj.remove("Notification");
-    }
+    // Approval prompts: Claude's `Notification` event fires for both permission
+    // requests and the ~60s idle ping. Filter on the hook's stdin JSON (the
+    // `notification_type` field, with a message-text fallback for older
+    // versions) so only approvals ring the bell — the idle ping stays ignored.
+    let approval_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission' && \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\" || true"
+    );
+    hooks_obj.insert(
+        "Notification".to_string(),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": approval_cmd }] }]),
+    );
 
     std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", settings_path.display()))?;
@@ -346,12 +347,18 @@ pub fn install_codex() -> Result<(), String> {
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" agent-status working >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
+    // Fires right before codex shows an interactive approval prompt. The
+    // trailing `echo {}` returns "no decision" so the prompt still appears.
+    let approval_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Approval needed\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+    );
 
     let hooks_path = codex_dir.join("hooks.json");
     let doc = serde_json::json!({
         "hooks": {
             "Stop": [{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
             "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
+            "PermissionRequest": [{ "hooks": [{ "type": "command", "command": approval_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
         }
     });
     let hooks_content =
@@ -371,6 +378,10 @@ pub fn install_codex() -> Result<(), String> {
         (
             format!("{key_path}:user_prompt_submit:0:0"),
             codex_hook_trust_hash("user_prompt_submit", &working_cmd, CODEX_HOOK_TIMEOUT_MS),
+        ),
+        (
+            format!("{key_path}:permission_request:0:0"),
+            codex_hook_trust_hash("permission_request", &approval_cmd, CODEX_HOOK_TIMEOUT_MS),
         ),
     ];
 
@@ -543,6 +554,16 @@ pub fn install_notagent() -> Result<(), String> {
         "UserPromptSubmit".to_string(),
         serde_json::json!([{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": 10 }] }]),
     );
+    // Fires right before notagent shows an interactive approval prompt.
+    // Stdout is suppressed so nothing is mistaken for an allow/deny decision —
+    // the prompt still appears; we only ring the bell.
+    let approval_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Approval needed\" >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "PermissionRequest".to_string(),
+        serde_json::json!([{ "hooks": [{ "type": "command", "command": approval_cmd, "timeout": 10 }] }]),
+    );
     std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
 
@@ -568,7 +589,7 @@ pub fn uninstall_notagent() -> Result<(), String> {
     {
         let exe = notmux_binary();
         if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-            for key in ["Stop", "UserPromptSubmit"] {
+            for key in ["Stop", "UserPromptSubmit", "PermissionRequest"] {
                 if hooks_obj
                     .get(key)
                     .map(|v| v.to_string().contains(&exe))
