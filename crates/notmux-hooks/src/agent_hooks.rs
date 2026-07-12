@@ -620,8 +620,11 @@ fn opencode_config_dir() -> Option<PathBuf> {
 
 /// Install the OpenCode integration: a small JS plugin (OpenCode has no
 /// hooks.json — plugins subscribe to the event bus). Turn completion comes
-/// from `session.idle`, "working" from a user `message.updated`, approvals
-/// from the permission events. Only runs if OpenCode is already set up.
+/// from `session.idle`, approvals from the permission events. No "working"
+/// signal: like the the reference implementation reference, `message.updated` is NOT a reliable
+/// prompt-submit — OpenCode re-emits it for the *user* message at turn end,
+/// which would clear the fresh turn-complete bell and restart the spinner.
+/// Only runs if OpenCode is already set up.
 pub fn install_opencode() -> Result<(), String> {
     let config_dir = opencode_config_dir().ok_or("HOME not set")?;
     if !config_dir.exists() {
@@ -652,11 +655,8 @@ export const NotmuxBridge = async () => ({{
   event: async ({{ event }}) => {{
     const type = event && event.type;
     const props = (event && event.properties) || {{}};
-    if (type === "message.updated") {{
-      const info = props.info || props.message || {{}};
-      if ((info.role || props.role) === "user") send(["agent-status", "working"]);
-      return;
-    }}
+    // No prompt-submit/"working" mapping: message.updated re-fires for the
+    // user message at turn end and would undo the turn-complete bell.
     if (
       type === "session.idle" ||
       (type === "session.status" && props.status && props.status.type === "idle")
