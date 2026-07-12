@@ -9,6 +9,42 @@ use crate::workspace::state::Workspace;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::h_flex;
+use notmux_terminal::TerminalsRegistry;
+use std::collections::HashMap;
+use std::time::Duration;
+
+/// Maintain the sticky waiting-for-input entries from a poll snapshot of
+/// `(terminal_id, is_waiting, has_bell, input_generation)` tuples.
+///
+/// A terminal is added when it is seen waiting and only removed when it
+/// actually receives input (its generation changes) or it disappears from the
+/// snapshot — the live waiting flag dropping (e.g. because the pane was merely
+/// focused) does NOT remove it.
+fn update_waiting_entries(
+    snapshot: &[(String, bool, bool, u64)],
+    entries: &mut HashMap<String, u64>,
+) {
+    for (tid, waiting, _, generation) in snapshot {
+        if *waiting {
+            entries.entry(tid.clone()).or_insert(*generation);
+        }
+    }
+    let live: HashMap<&str, u64> = snapshot
+        .iter()
+        .map(|(tid, _, _, generation)| (tid.as_str(), *generation))
+        .collect();
+    entries.retain(|tid, generation| live.get(tid.as_str()) == Some(generation));
+}
+
+/// Char-safe truncation with an ellipsis for dropdown detail lines.
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{}…", cut)
+    }
+}
 
 /// Window control button types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +155,17 @@ fn window_control_button(control_type: WindowControlType, cx: &App) -> impl Into
         })
 }
 
+/// One entry in the attention (bell) dropdown: a terminal that rang a bell
+/// or is waiting for user input.
+struct AttentionItem {
+    project_id: String,
+    terminal_id: String,
+    name: String,
+    project_name: String,
+    detail: String,
+    has_bell: bool,
+}
+
 /// Title bar with window controls and sidebar toggle
 pub struct TitleBar {
     title: SharedString,
@@ -126,6 +173,20 @@ pub struct TitleBar {
     sidebar_open: bool,
     git_panel_open: bool,
     action_focus_handle: Option<FocusHandle>,
+    workspace: Entity<Workspace>,
+    terminals: TerminalsRegistry,
+    /// Whether the bell dropdown is currently shown (hover-driven).
+    bell_menu_open: bool,
+    bell_button_hovered: bool,
+    bell_menu_hovered: bool,
+    /// Terminals that were seen waiting for input, keyed by terminal id, with
+    /// the input-generation snapshot taken when first seen. An entry stays in
+    /// the attention list until the terminal actually receives input (the
+    /// generation changes) or the terminal disappears — merely focusing it is
+    /// not enough.
+    waiting_entries: HashMap<String, u64>,
+    /// Change-detection key of the attention list, refreshed by the poll loop.
+    attention_key: Vec<(String, bool)>,
     _workspace_subscription: Subscription,
     /// Flag for Linux compositor-driven window move (set on mouse-down, consumed on mouse-move)
     #[cfg(target_os = "linux")]
@@ -136,15 +197,37 @@ impl TitleBar {
     pub fn new(
         title: impl Into<SharedString>,
         workspace: Entity<Workspace>,
+        terminals: TerminalsRegistry,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscription = cx.observe(&workspace, |_, _, cx| cx.notify());
+        // Bell state changes on PTY threads without notifying this entity —
+        // poll once a second and re-render only when the list changes.
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            loop {
+                smol::Timer::after(Duration::from_secs(1)).await;
+                if this
+                    .update(cx, |tb, cx| tb.refresh_attention(cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         Self {
             title: title.into(),
             menu_open: false,
             sidebar_open: true,
             git_panel_open: false,
             action_focus_handle: None,
+            workspace,
+            terminals,
+            bell_menu_open: false,
+            bell_button_hovered: false,
+            bell_menu_hovered: false,
+            waiting_entries: HashMap::new(),
+            attention_key: Vec::new(),
             _workspace_subscription: subscription,
             #[cfg(target_os = "linux")]
             should_move: false,
@@ -171,6 +254,105 @@ impl TitleBar {
 
     pub fn is_menu_open(&self) -> bool {
         self.menu_open
+    }
+
+    /// Poll tick: maintain the sticky waiting entries and re-render when the
+    /// attention list changed (or while the dropdown is open, so idle
+    /// durations stay fresh).
+    fn refresh_attention(&mut self, cx: &mut Context<Self>) {
+        // (terminal_id, waiting, bell, input_generation) for every terminal
+        // currently present in any project layout.
+        let snapshot: Vec<(String, bool, bool, u64)> = {
+            let ws = self.workspace.read(cx);
+            let terminals = self.terminals.lock();
+            ws.data
+                .projects
+                .iter()
+                .filter_map(|p| p.layout.as_ref())
+                .flat_map(|l| l.collect_terminal_ids())
+                .filter_map(|tid| {
+                    terminals.get(&tid).map(|t| {
+                        (
+                            tid.clone(),
+                            t.is_waiting_for_input(),
+                            t.has_bell(),
+                            t.input_generation(),
+                        )
+                    })
+                })
+                .collect()
+        };
+
+        update_waiting_entries(&snapshot, &mut self.waiting_entries);
+
+        let key: Vec<(String, bool)> = snapshot
+            .iter()
+            .filter(|(tid, _, bell, _)| *bell || self.waiting_entries.contains_key(tid))
+            .map(|(tid, _, bell, _)| (tid.clone(), *bell))
+            .collect();
+        if key != self.attention_key {
+            self.attention_key = key;
+            cx.notify();
+        } else if self.bell_menu_open {
+            cx.notify();
+        }
+    }
+
+    /// Build the current attention list in project order.
+    fn attention_items(&self, cx: &App) -> Vec<AttentionItem> {
+        let ws = self.workspace.read(cx);
+        let terminals = self.terminals.lock();
+        let mut items = Vec::new();
+        for p in &ws.data.projects {
+            let Some(ref layout) = p.layout else { continue };
+            for tid in layout.collect_terminal_ids() {
+                let Some(t) = terminals.get(&tid) else { continue };
+                let has_bell = t.has_bell();
+                if !has_bell && !self.waiting_entries.contains_key(&tid) {
+                    continue;
+                }
+                let name = if let Some(custom) = p.terminal_names.get(&tid) {
+                    custom.clone()
+                } else {
+                    p.terminal_display_name(&tid, t.title())
+                };
+                let detail = if has_bell {
+                    let body = t
+                        .last_notification()
+                        .map(|n| n.body.trim().to_string())
+                        .unwrap_or_default();
+                    if body.is_empty() {
+                        "bell".to_string()
+                    } else {
+                        truncate_chars(&body, 48)
+                    }
+                } else {
+                    format!("needs input · {}", t.idle_duration_display())
+                };
+                items.push(AttentionItem {
+                    project_id: p.id.clone(),
+                    terminal_id: tid,
+                    name,
+                    project_name: p.name.clone(),
+                    detail,
+                    has_bell,
+                });
+            }
+        }
+        items
+    }
+
+    fn schedule_bell_menu_close(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            smol::Timer::after(Duration::from_millis(250)).await;
+            let _ = this.update(cx, |tb, cx| {
+                if tb.bell_menu_open && !tb.bell_button_hovered && !tb.bell_menu_hovered {
+                    tb.bell_menu_open = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn toggle_menu(&mut self, cx: &mut Context<Self>) {
@@ -325,6 +507,177 @@ impl TitleBar {
             })
     }
 
+    /// Bell button with a badge showing how many terminals need attention.
+    /// Hovering opens the dropdown listing them.
+    fn render_bell_button(&self, count: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        div()
+            .id("tb-bell")
+            .relative()
+            .cursor_pointer()
+            .w(px(28.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(4.0))
+            .hover(|s| s.opacity(0.85))
+            .child(
+                svg()
+                    .path("icons/bell.svg")
+                    .size(px(16.0))
+                    .text_color(rgb(if count > 0 { t.border_bell } else { t.text_muted })),
+            )
+            .when(count > 0, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .top(px(-1.0))
+                        .right(px(-3.0))
+                        .min_w(px(14.0))
+                        .h(px(14.0))
+                        .px(px(3.0))
+                        .rounded_full()
+                        .bg(rgb(t.border_bell))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(ui_text(9.0, cx))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(rgb(t.bg_primary))
+                        .child(count.to_string()),
+                )
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                this.bell_button_hovered = *hovered;
+                if *hovered {
+                    if !this.bell_menu_open {
+                        this.bell_menu_open = true;
+                        cx.notify();
+                    }
+                } else {
+                    this.schedule_bell_menu_close(cx);
+                }
+            }))
+    }
+
+    /// The dropdown under the bell: one row per terminal needing attention.
+    fn render_bell_menu(
+        &self,
+        items: Vec<AttentionItem>,
+        left_offset: Pixels,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme(cx);
+        div()
+            .id("tb-bell-menu")
+            .absolute()
+            .top(px(notmux_ui::tokens::TITLE_BAR_STRIP_H - 4.0))
+            .left(left_offset)
+            .occlude()
+            .bg(rgb(t.bg_primary))
+            .border_1()
+            .border_color(rgb(t.border))
+            .rounded(px(4.0))
+            .shadow_xl()
+            .min_w(px(260.0))
+            .max_w(px(380.0))
+            .py(px(4.0))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_hover(cx.listener(|this, hovered: &bool, _window, cx| {
+                this.bell_menu_hovered = *hovered;
+                if !*hovered {
+                    this.schedule_bell_menu_close(cx);
+                }
+            }))
+            .children(items.into_iter().map(|item| {
+                let AttentionItem {
+                    project_id,
+                    terminal_id,
+                    name,
+                    project_name,
+                    detail,
+                    has_bell,
+                } = item;
+                let dot_color = if has_bell { t.border_bell } else { t.border_focused };
+                div()
+                    .id(ElementId::Name(
+                        format!("tb-bell-item-{}", terminal_id).into(),
+                    ))
+                    .cursor_pointer()
+                    .mx(px(4.0))
+                    .px(px(8.0))
+                    .py(px(5.0))
+                    .rounded(px(4.0))
+                    .hover(|s| s.bg(rgb(t.bg_hover)))
+                    .flex()
+                    .flex_col()
+                    .gap(px(1.0))
+                    .child(
+                        h_flex()
+                            .gap(px(6.0))
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .w(px(6.0))
+                                    .h(px(6.0))
+                                    .rounded_full()
+                                    .bg(rgb(dot_color)),
+                            )
+                            .child(
+                                div()
+                                    .flex_grow(1.0)
+                                    .overflow_hidden()
+                                    .text_size(ui_text_sm(cx))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(rgb(t.text_primary))
+                                    .whitespace_nowrap()
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(ui_text(10.0, cx))
+                                    .text_color(rgb(t.text_muted))
+                                    .whitespace_nowrap()
+                                    .child(project_name),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .pl(px(12.0))
+                            .text_size(ui_text(10.0, cx))
+                            .text_color(rgb(t.text_muted))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(detail),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        cx.stop_propagation();
+                        // A bell is acknowledged by the click itself; a
+                        // waiting-for-input entry stays listed until the
+                        // terminal actually receives input (see
+                        // `waiting_entries`).
+                        if let Some(t) = this.terminals.lock().get(&terminal_id)
+                            && t.has_bell()
+                        {
+                            t.clear_notification();
+                        }
+                        this.bell_menu_open = false;
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
+                        });
+                        cx.notify();
+                    }))
+            }))
+    }
+
     /// Render a side-panel toggle with separate VS Code-style glyph states.
     fn render_panel_toggle_button(
         &self,
@@ -361,7 +714,9 @@ impl TitleBar {
         } else {
             px(8.0)
         };
-        h_flex()
+        let attention_items = self.attention_items(cx);
+        let attention_count = attention_items.len();
+        let cluster = h_flex()
             .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
             .items_center()
             .gap(px(4.0))
@@ -375,6 +730,7 @@ impl TitleBar {
                 Box::new(ToggleSidebar),
                 cx,
             ))
+            .child(self.render_bell_button(attention_count, cx))
             .when(!cfg!(target_os = "macos"), |d| {
                 d.child({
                     let menu_open = self.menu_open;
@@ -410,6 +766,19 @@ impl TitleBar {
                             this.toggle_menu(cx);
                         }))
                 })
+            });
+        // Wrapper so the bell dropdown can hang below the strip without
+        // being part of the drag area.
+        div()
+            .relative()
+            .child(cluster)
+            .when(self.bell_menu_open && attention_count > 0, |d| {
+                // Align the dropdown with the bell button (toggle 28px + gap 4px).
+                d.child(self.render_bell_menu(
+                    attention_items,
+                    traffic_light_padding + px(32.0),
+                    cx,
+                ))
             })
     }
 
@@ -445,5 +814,62 @@ impl Render for TitleBar {
     #[allow(unused_variables)]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::update_waiting_entries;
+    use std::collections::HashMap;
+
+    fn snap(rows: &[(&str, bool, bool, u64)]) -> Vec<(String, bool, bool, u64)> {
+        rows.iter()
+            .map(|(tid, w, b, g)| (tid.to_string(), *w, *b, *g))
+            .collect()
+    }
+
+    #[test]
+    fn waiting_terminal_is_added() {
+        let mut entries = HashMap::new();
+        update_waiting_entries(&snap(&[("t1", true, false, 3)]), &mut entries);
+        assert_eq!(entries.get("t1"), Some(&3));
+    }
+
+    #[test]
+    fn entry_survives_focus_without_input() {
+        // Focusing the pane clears the live waiting flag but does not bump
+        // the input generation — the entry must stay.
+        let mut entries = HashMap::new();
+        update_waiting_entries(&snap(&[("t1", true, false, 3)]), &mut entries);
+        update_waiting_entries(&snap(&[("t1", false, false, 3)]), &mut entries);
+        assert!(entries.contains_key("t1"));
+    }
+
+    #[test]
+    fn entry_removed_after_input() {
+        let mut entries = HashMap::new();
+        update_waiting_entries(&snap(&[("t1", true, false, 3)]), &mut entries);
+        update_waiting_entries(&snap(&[("t1", false, false, 4)]), &mut entries);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn entry_removed_when_terminal_disappears() {
+        let mut entries = HashMap::new();
+        update_waiting_entries(&snap(&[("t1", true, false, 3)]), &mut entries);
+        update_waiting_entries(&snap(&[]), &mut entries);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn generation_snapshot_taken_on_first_sighting() {
+        // If input happens and the terminal waits again later, the entry is
+        // re-added with the new generation.
+        let mut entries = HashMap::new();
+        update_waiting_entries(&snap(&[("t1", true, false, 3)]), &mut entries);
+        update_waiting_entries(&snap(&[("t1", false, false, 4)]), &mut entries);
+        assert!(entries.is_empty());
+        update_waiting_entries(&snap(&[("t1", true, false, 4)]), &mut entries);
+        assert_eq!(entries.get("t1"), Some(&4));
     }
 }

@@ -458,6 +458,8 @@ pub struct Terminal {
     waiting_for_input: AtomicBool,
     /// Whether the user has ever sent input to this terminal (prevents flagging fresh terminals)
     had_user_input: AtomicBool,
+    /// Bumped on every user input; lets observers detect "input since snapshot"
+    input_generation: AtomicU64,
     /// Best-effort tracking of the current shell input line.
     current_input_line: Mutex<String>,
     /// Last submitted shell command, used to persist alt-screen sessions without
@@ -529,6 +531,7 @@ impl Terminal {
             shell_pid: Mutex::new(None),
             waiting_for_input: AtomicBool::new(false),
             had_user_input: AtomicBool::new(false),
+            input_generation: AtomicU64::new(0),
             current_input_line: Mutex::new(String::new()),
             last_submitted_command: Mutex::new(None),
             pending_cursor_below_guard: AtomicBool::new(false),
@@ -804,6 +807,7 @@ impl Terminal {
 
     fn mark_session_interaction(&self) {
         self.had_user_input.store(true, Ordering::Relaxed);
+        self.input_generation.fetch_add(1, Ordering::Relaxed);
         self.restored_from_snapshot.store(false, Ordering::Relaxed);
         self.restored_replay_buffer.lock().clear();
     }
@@ -1369,6 +1373,12 @@ impl Terminal {
     /// Whether the user has ever sent input to this terminal
     pub fn had_user_input(&self) -> bool {
         self.had_user_input.load(Ordering::Relaxed)
+    }
+
+    /// Monotonic counter bumped on every user input. Compare snapshots to
+    /// detect whether input happened since a point in time.
+    pub fn input_generation(&self) -> u64 {
+        self.input_generation.load(Ordering::Relaxed)
     }
 
     /// Update the cached waiting state (called from background thread only)

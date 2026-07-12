@@ -162,8 +162,9 @@ impl RootView {
         let sidebar_initially_open = sidebar_ctrl.is_open();
         let git_panel_initially_open = git_panel_ctrl.is_open();
         let workspace_for_title = workspace.clone();
+        let terminals_for_title = terminals.clone();
         let title_bar = cx.new(|cx| {
-            let mut tb = TitleBar::new("NotMux", workspace_for_title, cx);
+            let mut tb = TitleBar::new("NotMux", workspace_for_title, terminals_for_title, cx);
             tb.set_sidebar_open(sidebar_initially_open, cx);
             tb.set_git_panel_open(git_panel_initially_open, cx);
             tb.set_action_focus_handle(focus_handle.clone());
