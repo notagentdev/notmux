@@ -707,6 +707,93 @@ pub fn uninstall_opencode() -> Result<(), String> {
     Ok(())
 }
 
+/// Marker identifying our Pi extension file (never edit foreign files).
+const PI_EXTENSION_MARKER: &str = "notmux-pi-extension-marker";
+
+/// Resolve the Pi agent dir: `$PI_CODING_AGENT_DIR` or `~/.pi/agent`.
+fn pi_agent_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("PI_CODING_AGENT_DIR")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
+    }
+    home_dir().map(|h| h.join(".pi/agent"))
+}
+
+/// Install the Pi integration: a TypeScript extension (Pi has no hooks.json —
+/// extensions subscribe to lifecycle events). `before_agent_start` marks the
+/// agent working, `agent_end` rings "Turn complete". Only runs if Pi is
+/// already set up.
+pub fn install_pi() -> Result<(), String> {
+    let agent_dir = pi_agent_dir().ok_or("HOME not set")?;
+    if !agent_dir.exists() {
+        log::info!("Pi not set up ({} missing); skipping", agent_dir.display());
+        return Ok(());
+    }
+    let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
+    let extension = format!(
+        r#"// {PI_EXTENSION_MARKER} v1
+// Bridges Pi lifecycle events to notmux (bell + agent status).
+// Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
+import {{ spawn }} from "node:child_process";
+
+const NOTMUX = {exe};
+
+function send(args: string[]) {{
+  // Only inside a notmux terminal — plain pi elsewhere stays quiet.
+  if (!process.env.NOTMUX_SURFACE_ID) return;
+  try {{
+    const child = spawn(NOTMUX, args, {{ stdio: "ignore", detached: true }});
+    child.on("error", () => {{}});
+    child.unref();
+  }} catch (_) {{}}
+}}
+
+export default function notmuxPiBridge(pi: any) {{
+  pi.on("before_agent_start", async () => {{
+    send(["agent-status", "working"]);
+  }});
+  pi.on("agent_end", async () => {{
+    send(["notify", "--title", "Pi", "--body", "Turn complete"]);
+  }});
+}}
+"#
+    );
+
+    let extensions_dir = agent_dir.join("extensions");
+    std::fs::create_dir_all(&extensions_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", extensions_dir.display()))?;
+    let extension_path = extensions_dir.join("notmux-session.ts");
+    // Never overwrite a foreign file at our path.
+    if let Ok(existing) = std::fs::read_to_string(&extension_path)
+        && !existing.contains(PI_EXTENSION_MARKER)
+    {
+        return Err(format!(
+            "{} exists but was not written by notmux; not overwriting",
+            extension_path.display()
+        ));
+    }
+    std::fs::write(&extension_path, extension)
+        .map_err(|e| format!("Failed to write {}: {e}", extension_path.display()))?;
+    log::info!("Installed Pi extension -> {}", extension_path.display());
+    Ok(())
+}
+
+/// Remove the Pi extension written by [`install_pi`].
+pub fn uninstall_pi() -> Result<(), String> {
+    let Some(agent_dir) = pi_agent_dir() else {
+        return Ok(());
+    };
+    let extension_path = agent_dir.join("extensions/notmux-session.ts");
+    if let Ok(existing) = std::fs::read_to_string(&extension_path)
+        && existing.contains(PI_EXTENSION_MARKER)
+    {
+        let _ = std::fs::remove_file(&extension_path);
+        log::info!("Removed Pi extension <- {}", extension_path.display());
+    }
+    Ok(())
+}
+
 /// Install all agent hooks. Returns a list of errors (empty on full success).
 pub fn install_all() -> Vec<String> {
     let mut errors = Vec::new();
@@ -720,6 +807,9 @@ pub fn install_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = install_opencode() {
+        errors.push(e);
+    }
+    if let Err(e) = install_pi() {
         errors.push(e);
     }
     if let Err(e) = install_shell() {
@@ -741,6 +831,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_opencode() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_pi() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {
