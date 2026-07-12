@@ -1247,7 +1247,7 @@ impl Render for SettingsPanel {
                     this.close(cx);
                 }
             }))
-            .child(self.render_header(cx))
+            .child(self.render_header(window, cx))
             .child(
                 div()
                     .flex()

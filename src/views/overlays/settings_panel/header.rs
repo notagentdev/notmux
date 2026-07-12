@@ -1,16 +1,35 @@
 use crate::settings::open_settings_file;
 use crate::theme::theme;
 use crate::ui::tokens::ui_text_ms;
+use crate::views::chrome::title_bar::{needs_client_window_controls, window_controls_cluster};
 use crate::views::components::{dropdown_button, dropdown_option, dropdown_overlay};
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::h_flex;
 use super::SettingsPanel;
 impl SettingsPanel {
-    pub(super) fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_header(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let t = theme(cx);
+        // The panel covers the whole window including the title bar, so its
+        // header must respect the window controls: keep clear of the native
+        // macOS traffic lights on the left, and re-render the caption buttons
+        // on Windows / Linux CSD on the right (ours are covered underneath).
+        let traffic_light_padding =
+            if cfg!(target_os = "macos") && !window.is_fullscreen() {
+                px(80.0)
+            } else {
+                px(16.0)
+            };
+        let needs_controls = needs_client_window_controls(window);
         h_flex()
-            .px(px(16.0))
-            .py(px(10.0))
+            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+            .flex_shrink_0()
+            .pl(traffic_light_padding)
+            .pr(if needs_controls { px(0.0) } else { px(16.0) })
             .border_b_1()
             .border_color(rgb(t.border))
             .items_center()
@@ -38,7 +57,10 @@ impl SettingsPanel {
                                     this.close(cx);
                                 }),
                             ),
-                    ),
+                    )
+                    .when(needs_controls, |d| {
+                        d.child(div().ml(px(4.0)).child(window_controls_cluster(window, cx)))
+                    }),
             )
     }
     pub(super) fn render_project_selector(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

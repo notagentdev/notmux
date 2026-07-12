@@ -119,17 +119,6 @@ impl RootView {
         }
     }
 
-    /// Toggle the git panel without binding it to a project.
-    /// Used when no project is available — the panel shows a placeholder.
-    pub(super) fn toggle_git_panel_empty(&mut self, cx: &mut Context<Self>) {
-        let target = self.git_panel_ctrl.toggle();
-        let is_open = self.git_panel_ctrl.is_open();
-        settings_entity(cx).update(cx, |s, cx| s.set_git_panel_open(is_open, cx));
-        self.title_bar
-            .update(cx, |tb, cx| tb.set_git_panel_open(is_open, cx));
-        self.animate_git_panel_to(target, cx);
-    }
-
     /// Render the git panel content.
     pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let show_panel = self.git_panel_ctrl.should_render();
@@ -282,16 +271,17 @@ impl RootView {
             .flex()
             .flex_col()
             .child(tab_bar)
-            .child(div().w(px(configured_width)).flex_1().min_h_0().child(body))
-            // Right status segment (remote/zoom/clock) at the panel's bottom —
-            // the panel runs to the window edge; the system stats live at the
-            // sidebar's bottom.
-            .child(
-                div()
-                    .w(px(configured_width))
-                    .flex_shrink_0()
-                    .child(self.status_bar_right.clone()),
-            );
+            .child(div().w(px(configured_width)).flex_1().min_h_0().child(body));
+        // Right status segment (remote/zoom/clock) at the panel's bottom —
+        // disabled for now, kept for easy restore (the Pair button moved to
+        // the sidebar's top strip):
+        // .child(
+        //     div()
+        //         .w(px(configured_width))
+        //         .flex_shrink_0()
+        //         .child(self.status_bar_right.clone()),
+        // );
+        let _ = &self.status_bar_right;
 
         div()
             .id("git-panel-wrapper")

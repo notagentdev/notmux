@@ -8,7 +8,7 @@ use crate::keybindings::{
 };
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::{theme, with_alpha};
-use crate::ui::tokens::{ui_text_md, ui_text_xl};
+use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
 use crate::views::layout::split_pane::{
     DragState, compute_resize, render_project_divider, render_sidebar_divider,
@@ -581,8 +581,9 @@ impl Render for RootView {
         };
         notmux_views_terminal::set_tab_action_left_reserve(left_reserve, cx);
         // Match the title-bar overlay height so the tab strip centers with the
-        // traffic lights / controls floating over it.
-        notmux_views_terminal::set_tab_bar_height(42.0, cx);
+        // traffic lights / controls floating over it. Same constant positions
+        // the fullscreen overlays (file/diff viewer) below the strip.
+        notmux_views_terminal::set_tab_bar_height(notmux_ui::tokens::TITLE_BAR_STRIP_H, cx);
 
         let git_open = self.git_panel_ctrl.should_render();
         let mut right_reserve = 0.0_f32;
@@ -1198,19 +1199,62 @@ impl Render for RootView {
                                 .flex_col()
                                 // Reserve the title-bar overlay height so sidebar
                                 // content clears the traffic lights + left toggle.
-                                // This empty strip is also a window-drag handle
+                                // This strip is also a window-drag handle
                                 // (full sidebar width, like Zed's full title bar)
                                 // so the window can be moved from the top-left.
+                                // Right end: the Pair button (shown while the
+                                // remote server is running).
                                 .child(
                                     div()
-                                        .h(px(42.0))
+                                        .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
                                         .w_full()
                                         .flex_shrink_0()
+                                        .flex()
+                                        .items_center()
+                                        .justify_end()
+                                        .px(px(10.0))
                                         .on_mouse_down(
                                             MouseButton::Left,
                                             cx.listener(|this, _, _, _| {
                                                 this.title_should_move = true
                                             }),
+                                        )
+                                        .when(
+                                            cx.try_global::<crate::remote::GlobalRemoteInfo>()
+                                                .is_some_and(|ri| ri.0.port().is_some()),
+                                            |d| {
+                                                d.child(
+                                                    div()
+                                                        .id("sidebar-pair-btn")
+                                                        .cursor_pointer()
+                                                        .px(px(8.0))
+                                                        .py(px(3.0))
+                                                        .rounded(px(4.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .gap(px(5.0))
+                                                        .text_color(rgb(t.term_yellow))
+                                                        .text_size(ui_text_sm(cx))
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .hover(|s| s.bg(rgb(t.bg_hover)))
+                                                        .child(
+                                                            svg()
+                                                                .path("icons/link.svg")
+                                                                .size(px(14.0))
+                                                                .text_color(rgb(t.term_yellow)),
+                                                        )
+                                                        .on_mouse_down(
+                                                            MouseButton::Left,
+                                                            |_, _, cx| cx.stop_propagation(),
+                                                        )
+                                                        .on_click(|_, window, cx| {
+                                                            window.dispatch_action(
+                                                                Box::new(ShowPairingDialog),
+                                                                cx,
+                                                            );
+                                                        }),
+                                                )
+                                            },
                                         ),
                                 )
                                 .when(show_sidebar, |d| {
@@ -1221,15 +1265,60 @@ impl Render for RootView {
                                                 .cached(StyleRefinement::default().size_full()),
                                         ),
                                     )
-                                    // System stats at the sidebar's bottom (the
-                                    // panel runs to the window edge; the right
-                                    // segment lives in the right panel).
-                                    .child(
+                                    // Status bar (system stats) at the sidebar's
+                                    // bottom — disabled for now, kept for easy
+                                    // restore:
+                                    // .child(
+                                    //     div()
+                                    //         .w(px(configured_width))
+                                    //         .flex_shrink_0()
+                                    //         .child(self.status_bar.clone()),
+                                    // )
+                                    // Settings at the sidebar's bottom (moved
+                                    // here from the title-bar right cluster).
+                                    // Styled exactly like the sidebar's SEARCH
+                                    // entry: same row metrics, hover surface,
+                                    // and type.
+                                    .child({
+                                        let st = notmux_ui::theme::sidebar_theme(cx);
                                         div()
                                             .w(px(configured_width))
                                             .flex_shrink_0()
-                                            .child(self.status_bar.clone()),
-                                    )
+                                            .child(
+                                                div()
+                                                    .id("sidebar-settings-btn")
+                                                    .mx(px(6.0))
+                                                    .my(px(6.0))
+                                                    .h(px(30.0))
+                                                    .px(px(8.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(8.0))
+                                                    .cursor_pointer()
+                                                    .rounded(px(6.0))
+                                                    .hover(move |s| s.bg(rgb(st.bg_hover)))
+                                                    .child(
+                                                        svg()
+                                                            .path("icons/settings-gear.svg")
+                                                            .size(px(14.0))
+                                                            .text_color(rgb(st.text_secondary))
+                                                            .flex_shrink_0(),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(ui_text_ms(cx))
+                                                            .font_weight(FontWeight::SEMIBOLD)
+                                                            .text_color(rgb(st.text_secondary))
+                                                            .child("SETTINGS"),
+                                                    )
+                                                    .on_click(|_, window, cx| {
+                                                        window.dispatch_action(
+                                                            Box::new(ShowSettings),
+                                                            cx,
+                                                        );
+                                                    }),
+                                            )
+                                    })
                                 })
                         },
                     )

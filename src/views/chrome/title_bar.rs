@@ -19,6 +19,106 @@ pub enum WindowControlType {
     Close,
 }
 
+/// Whether the app must draw its own window controls: frameless Windows
+/// always; Linux only with client-side decorations. macOS traffic lights are
+/// native and float above the content on their own.
+pub fn needs_client_window_controls(window: &Window) -> bool {
+    if cfg!(target_os = "windows") {
+        true
+    } else if cfg!(target_os = "macos") {
+        false
+    } else {
+        matches!(window.window_decorations(), Decorations::Client { .. })
+    }
+}
+
+/// The minimize / maximize-or-restore / close cluster. Shared by the title
+/// bar and by full-window overlays (settings) that visually replace it —
+/// anything covering the title bar must re-render these or the window
+/// buttons become unreachable on Windows/Linux.
+pub fn window_controls_cluster(window: &Window, cx: &App) -> impl IntoElement {
+    let is_maximized = window.is_maximized();
+    h_flex()
+        .gap(px(2.0))
+        .child(window_control_button(WindowControlType::Minimize, cx))
+        .child(window_control_button(
+            if is_maximized {
+                WindowControlType::Restore
+            } else {
+                WindowControlType::Maximize
+            },
+            cx,
+        ))
+        .child(window_control_button(WindowControlType::Close, cx))
+}
+
+/// One window-control caption button.
+fn window_control_button(control_type: WindowControlType, cx: &App) -> impl IntoElement {
+    let t = theme(cx);
+    let icon = match control_type {
+        WindowControlType::Minimize => "─",
+        WindowControlType::Maximize => "□",
+        WindowControlType::Restore => "❐",
+        WindowControlType::Close => "✕",
+    };
+
+    let is_close = control_type == WindowControlType::Close;
+
+    // On Windows, use WindowControlArea to let the OS handle button clicks natively.
+    // This ensures proper maximize/restore toggle via WM_NCHITTEST.
+    // On other platforms, use on_click handlers.
+    let control_area = if cfg!(target_os = "windows") {
+        Some(match control_type {
+            WindowControlType::Minimize => WindowControlArea::Min,
+            WindowControlType::Maximize | WindowControlType::Restore => WindowControlArea::Max,
+            WindowControlType::Close => WindowControlArea::Close,
+        })
+    } else {
+        None
+    };
+
+    div()
+        .id(ElementId::Name(
+            format!("window-control-{:?}", control_type).into(),
+        ))
+        .cursor_pointer()
+        .w(px(46.0)) // Windows standard caption button width
+        .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H)) // Match titlebar height
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(ui_text_sm(cx))
+        .text_color(rgb(t.text_secondary))
+        .when(is_close, |d| {
+            d.hover(|s| s.bg(rgb(0xE81123)).text_color(rgb(0xffffff)))
+        })
+        .when(!is_close, |d| d.hover(|s| s.opacity(0.85)))
+        .child(icon)
+        .when_some(control_area, |d, area| {
+            // occlude() prevents parent Drag hitbox from shadowing button hit tests
+            d.occlude().window_control_area(area)
+        })
+        .when(control_area.is_none(), |d| {
+            d.on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click({
+                move |_, window, cx| {
+                    cx.stop_propagation();
+                    match control_type {
+                        WindowControlType::Minimize => window.minimize_window(),
+                        WindowControlType::Maximize | WindowControlType::Restore => {
+                            window.zoom_window();
+                        }
+                        WindowControlType::Close => {
+                            cx.quit();
+                        }
+                    }
+                }
+            })
+        })
+}
+
 /// Title bar with window controls and sidebar toggle
 pub struct TitleBar {
     title: SharedString,
@@ -181,77 +281,6 @@ impl TitleBar {
             )
     }
 
-    fn render_window_control(
-        &self,
-        control_type: WindowControlType,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let t = theme(cx);
-        let icon = match control_type {
-            WindowControlType::Minimize => "─",
-            WindowControlType::Maximize => "□",
-            WindowControlType::Restore => "❐",
-            WindowControlType::Close => "✕",
-        };
-
-        let is_close = control_type == WindowControlType::Close;
-
-        // On Windows, use WindowControlArea to let the OS handle button clicks natively.
-        // This ensures proper maximize/restore toggle via WM_NCHITTEST.
-        // On other platforms, use on_click handlers.
-        let control_area = if cfg!(target_os = "windows") {
-            Some(match control_type {
-                WindowControlType::Minimize => WindowControlArea::Min,
-                WindowControlType::Maximize | WindowControlType::Restore => WindowControlArea::Max,
-                WindowControlType::Close => WindowControlArea::Close,
-            })
-        } else {
-            None
-        };
-
-        div()
-            .id(ElementId::Name(
-                format!("window-control-{:?}", control_type).into(),
-            ))
-            .cursor_pointer()
-            .w(px(46.0)) // Windows standard caption button width
-            .h(px(42.0)) // Match titlebar height
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(ui_text_sm(cx))
-            .text_color(rgb(t.text_secondary))
-            .when(is_close, |d| {
-                d.hover(|s| s.bg(rgb(0xE81123)).text_color(rgb(0xffffff)))
-            })
-            .when(!is_close, |d| d.hover(|s| s.opacity(0.85)))
-            .child(icon)
-            .when_some(control_area, |d, area| {
-                // occlude() prevents parent Drag hitbox from shadowing button hit tests
-                d.occlude().window_control_area(area)
-            })
-            .when(control_area.is_none(), |d| {
-                d.on_mouse_down(MouseButton::Left, |_, _, cx| {
-                    cx.stop_propagation();
-                })
-                .on_click({
-                    move |_, window, cx| {
-                        cx.stop_propagation();
-                        match control_type {
-                            WindowControlType::Minimize => window.minimize_window(),
-                            WindowControlType::Maximize | WindowControlType::Restore => {
-                                window.zoom_window();
-                            }
-                            WindowControlType::Close => {
-                                cx.quit();
-                            }
-                        }
-                    }
-                })
-            })
-    }
-
     /// Render a titlebar icon button that dispatches an action on click.
     fn render_action_button(
         &self,
@@ -333,7 +362,7 @@ impl TitleBar {
             px(8.0)
         };
         h_flex()
-            .h(px(42.0))
+            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
             .items_center()
             .gap(px(4.0))
             .pl(traffic_light_padding)
@@ -391,16 +420,9 @@ impl TitleBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let is_maximized = window.is_maximized();
-        let needs_controls = if cfg!(target_os = "windows") {
-            true
-        } else if cfg!(target_os = "macos") {
-            false
-        } else {
-            matches!(window.window_decorations(), Decorations::Client { .. })
-        };
+        let needs_controls = needs_client_window_controls(window);
         h_flex()
-            .h(px(42.0))
+            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
             .gap(px(4.0))
             .pr(px(4.0))
             .items_center()
@@ -413,28 +435,8 @@ impl TitleBar {
                 Box::new(ToggleGitPanel),
                 cx,
             ))
-            .child(self.render_action_button(
-                "tb-settings",
-                "icons/settings-gear.svg",
-                false,
-                Box::new(ShowSettings),
-                cx,
-            ))
             .when(needs_controls, |d| {
-                d.child(
-                    h_flex()
-                        .ml(px(4.0))
-                        .gap(px(2.0))
-                        .child(self.render_window_control(WindowControlType::Minimize, window, cx))
-                        .child(if is_maximized {
-                            self.render_window_control(WindowControlType::Restore, window, cx)
-                                .into_any_element()
-                        } else {
-                            self.render_window_control(WindowControlType::Maximize, window, cx)
-                                .into_any_element()
-                        })
-                        .child(self.render_window_control(WindowControlType::Close, window, cx)),
-                )
+                d.child(div().ml(px(4.0)).child(window_controls_cluster(window, cx)))
             })
     }
 }
