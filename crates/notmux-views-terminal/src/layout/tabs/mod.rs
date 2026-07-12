@@ -747,9 +747,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             cx.stop_propagation();
                         })
                     })
-                    // Draggable for terminals *and* editors — the reorder drop
-                    // keys off `layout_path`, so editor tabs move the same way.
-                    .when(terminal_id.is_some() || editor_file.is_some(), |el| {
+                    // Draggable for terminals, editors, *and* browsers — the
+                    // reorder drop keys off `layout_path`, and moves resolve
+                    // through the shared pane id (`find_pane_path`), so all
+                    // three pane kinds move the same way.
+                    .when(pane_id.is_some(), |el| {
                         let terminal_path = if standalone {
                             layout_path_for_drag.clone()
                         } else {

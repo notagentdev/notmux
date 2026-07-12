@@ -831,8 +831,10 @@ impl Workspace {
             None => return,
         };
 
-        // Only-terminal check: don't move if it's the only terminal
-        if layout.collect_terminal_ids().len() <= 1 {
+        // Only-pane check: a move is only meaningful with 2+ panes. Count all
+        // pane kinds (terminals, editors, browsers), not just terminals —
+        // otherwise moving a browser/editor next to a single terminal no-ops.
+        if layout.collect_pane_ids().len() <= 1 {
             return;
         }
 
@@ -2467,6 +2469,63 @@ mod gpui_tests {
                     assert_eq!(ids, vec!["t2", "t1"]);
                 }
                 _ => panic!("Expected tabs, got {:?}", layout),
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn test_move_browser_pane_by_slot_id(cx: &mut gpui::TestAppContext) {
+        // Browsers move through the same pane pipeline as terminals/editors,
+        // addressed by their slot id: center-drop onto a terminal groups them.
+        let browser = LayoutNode::new_browser("https://example.com");
+        let slot = match &browser {
+            LayoutNode::Browser { slot_id, .. } => slot_id.clone(),
+            _ => unreachable!(),
+        };
+        let layout = LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            sizes: vec![50.0, 50.0],
+            children: vec![terminal_node_t("t1"), browser],
+        };
+        let project = make_project_with_layout("p1", layout);
+        let data = make_workspace_data(vec![project], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.move_pane("p1", &slot, "p1", "t1", DropZone::Center, cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Tabs { children, .. } => {
+                    assert_eq!(children.len(), 2);
+                    assert!(matches!(&children[0], LayoutNode::Terminal { .. }));
+                    assert!(
+                        matches!(&children[1], LayoutNode::Browser { url, .. } if url == "https://example.com")
+                    );
+                }
+                other => panic!("expected tab group with browser, got {:?}", other),
+            }
+        });
+
+        // And back out: left-drop the browser onto t1 splits them again.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.move_pane("p1", &slot, "p1", "t1", DropZone::Left, cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Split {
+                    direction,
+                    children,
+                    ..
+                } => {
+                    // Left/right drops produce a Vertical split (side-by-side).
+                    assert_eq!(*direction, SplitDirection::Vertical);
+                    assert!(matches!(&children[0], LayoutNode::Browser { .. }));
+                    assert!(matches!(&children[1], LayoutNode::Terminal { .. }));
+                }
+                other => panic!("expected split with browser left, got {:?}", other),
             }
         });
     }
