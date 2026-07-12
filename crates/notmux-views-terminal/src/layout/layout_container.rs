@@ -127,14 +127,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        {
-            use std::sync::atomic::{AtomicU64, Ordering};
-            static N: AtomicU64 = AtomicU64::new(0);
-            let n = N.fetch_add(1, Ordering::Relaxed);
-            if n.is_multiple_of(60) {
-                eprintln!("[perf] render_editor x{}", n);
-            }
-        }
         self.ensure_file_viewer(&file_path, cx);
         let in_tab_group = self.is_in_tab_group(cx);
 

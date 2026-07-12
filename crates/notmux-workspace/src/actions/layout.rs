@@ -194,6 +194,7 @@ impl Workspace {
             children,
             ..
         } = &layout
+            && !children.is_empty()
         {
             let last = children.len() - 1;
             if let Some(area) = children.last()

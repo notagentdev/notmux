@@ -905,13 +905,25 @@ impl RootView {
 
     /// Ensure project columns exist for all visible projects
     pub(super) fn sync_project_columns(&mut self, cx: &mut Context<Self>) {
-        let visible_projects: Vec<(String, bool, Option<String>)> = {
+        type VisibleProject = (String, bool, Option<String>);
+        let (visible_projects, all_project_ids): (
+            Vec<VisibleProject>,
+            std::collections::HashSet<String>,
+        ) = {
             let ws = self.workspace.read(cx);
-            ws.visible_projects()
-                .iter()
-                .map(|p| (p.id.clone(), p.is_remote, p.connection_id.clone()))
-                .collect()
+            (
+                ws.visible_projects()
+                    .iter()
+                    .map(|p| (p.id.clone(), p.is_remote, p.connection_id.clone()))
+                    .collect(),
+                ws.projects().iter().map(|p| p.id.clone()).collect(),
+            )
         };
+
+        // Drop Files-tab explorers for projects that no longer exist —
+        // they are recreated lazily on next use.
+        self.right_explorers
+            .retain(|id, _| all_project_ids.contains(id));
 
         // Clean up columns for projects that no longer exist
         let visible_ids: std::collections::HashSet<&str> = visible_projects

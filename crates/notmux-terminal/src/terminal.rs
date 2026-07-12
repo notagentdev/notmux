@@ -14,6 +14,19 @@ use std::time::Instant;
 
 const REPLAY_BUFFER_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+/// Trim a replay buffer with hysteresis: when it exceeds the cap, cut it back
+/// to HALF the cap in one drain. Trimming to exactly the cap would memmove
+/// ~4MB on EVERY subsequent PTY chunk once full (`drain(..overflow)` shifts
+/// the whole tail) — with a chatty terminal that is hundreds of MB/s of
+/// copying on the event loop. Hysteresis amortizes it to one drain per 2MB
+/// of new output; snapshots only use the newest `max_lines` anyway.
+fn trim_replay_buffer(buffer: &mut Vec<u8>) {
+    if buffer.len() > REPLAY_BUFFER_MAX_BYTES {
+        let overflow = buffer.len() - REPLAY_BUFFER_MAX_BYTES / 2;
+        buffer.drain(..overflow);
+    }
+}
+
 /// Transport trait for terminal I/O operations.
 /// Implemented by PtyManager (local) and RemoteTransport (remote).
 pub trait TerminalTransport: Send + Sync {
@@ -664,10 +677,7 @@ impl Terminal {
             let mut replay = self.replay_buffer.lock();
             replay.extend_from_slice(raw);
             replay.extend_from_slice(&initial_text);
-            if replay.len() > REPLAY_BUFFER_MAX_BYTES {
-                let overflow = replay.len() - REPLAY_BUFFER_MAX_BYTES;
-                replay.drain(..overflow);
-            }
+            trim_replay_buffer(&mut replay);
         }
 
         self.process_output_inner(&initial_text, false, true);
@@ -789,10 +799,7 @@ impl Terminal {
         }
         let mut buffer = self.replay_buffer.lock();
         buffer.extend_from_slice(data);
-        if buffer.len() > REPLAY_BUFFER_MAX_BYTES {
-            let overflow = buffer.len() - REPLAY_BUFFER_MAX_BYTES;
-            buffer.drain(..overflow);
-        }
+        trim_replay_buffer(&mut buffer);
     }
 
     fn mark_session_interaction(&self) {

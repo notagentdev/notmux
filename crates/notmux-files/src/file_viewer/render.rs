@@ -218,22 +218,12 @@ impl FileViewer {
     }
 
     /// Render visible lines for the virtualized list.
-    pub(super) fn render_visible_lines_counter() {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        if n.is_multiple_of(60) {
-            eprintln!("[perf] file_viewer render_visible_lines x{}", n);
-        }
-    }
-
     pub(super) fn render_visible_lines(
         &self,
         range: std::ops::Range<usize>,
         t: &ThemeColors,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        Self::render_visible_lines_counter();
         let tab = self.active_tab();
         range
             .filter_map(|i| {

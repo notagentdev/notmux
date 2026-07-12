@@ -13,7 +13,9 @@ use sysinfo::{Disks, System};
 use time::OffsetDateTime;
 use notmux_extensions::{ExtensionInstance, ExtensionRegistry};
 
-/// Refresh interval for system stats
+/// Refresh interval for system stats (used by the disabled refresh loop in
+/// `StatusBar::new` — re-enable together).
+#[allow(dead_code)]
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Cached system stats
@@ -114,26 +116,29 @@ impl StatusBar {
         // Initial refresh
         cache.lock().refresh();
 
-        // Start periodic refresh
-        let cache_for_task = cache.clone();
-        cx.spawn(async move |this: WeakEntity<StatusBar>, cx| {
-            loop {
-                smol::Timer::after(REFRESH_INTERVAL).await;
-
-                // Refresh system info
-                cache_for_task.lock().refresh();
-
-                // Notify to re-render
-                let result = this.update(cx, |_this, cx| {
-                    cx.notify();
-                });
-
-                if result.is_err() {
-                    break; // View was dropped
-                }
-            }
-        })
-        .detach();
+        // Periodic refresh — disabled along with the status bar's rendering
+        // (root/render.rs + git_panel.rs): polling sysinfo (CPU/memory/disks)
+        // every 2s for a bar nobody sees is wasted work. Re-enable together
+        // with the render sites.
+        // let cache_for_task = cache.clone();
+        // cx.spawn(async move |this: WeakEntity<StatusBar>, cx| {
+        //     loop {
+        //         smol::Timer::after(REFRESH_INTERVAL).await;
+        //
+        //         // Refresh system info
+        //         cache_for_task.lock().refresh();
+        //
+        //         // Notify to re-render
+        //         let result = this.update(cx, |_this, cx| {
+        //             cx.notify();
+        //         });
+        //
+        //         if result.is_err() {
+        //             break; // View was dropped
+        //         }
+        //     }
+        // })
+        // .detach();
 
         // Clone activate functions from the global registry.
         let activate_fns: Vec<_> = cx
