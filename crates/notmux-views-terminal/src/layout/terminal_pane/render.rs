@@ -14,10 +14,33 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use notmux_core::api::ActionRequest;
 use notmux_files::theme::theme;
+use notmux_ui::theme::with_alpha;
 use notmux_ui::tokens::ui_text_sm;
 use notmux_workspace::state::SplitDirection;
 
 use super::TerminalPane;
+
+/// Duration of the bell double-blink ring, in seconds (two pulses, then off).
+const BELL_FLASH_DURATION: f32 = 0.9;
+
+/// Opacity of the bell ring `elapsed` seconds into the flash: keyframes
+/// [0, 1, 0, 1, 0] at quarter intervals with alternating ease-out/ease-in
+/// segments (ported from the reference implementation's FocusFlashPattern). 0 outside the window,
+/// so the ring ends invisible and stays gone.
+fn bell_flash_opacity(elapsed: f32) -> f32 {
+    if !(0.0..BELL_FLASH_DURATION).contains(&elapsed) {
+        return 0.0;
+    }
+    let phase = elapsed / BELL_FLASH_DURATION * 4.0;
+    let segment = (phase as usize).min(3);
+    let p = phase - segment as f32;
+    match segment {
+        // 0 → 1, ease-out
+        0 | 2 => 1.0 - (1.0 - p) * (1.0 - p),
+        // 1 → 0, ease-in
+        _ => 1.0 - p * p,
+    }
+}
 
 impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -94,6 +117,37 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         }
         self.was_focused = is_focused;
 
+        // The bell ring is a transient double-blink (the reference implementation FocusFlashPattern)
+        // instead of a permanent border — the notification label below carries
+        // the persistent state. Start the flash on the has_bell rising edge and
+        // drive ~30fps repaints until it finishes.
+        if has_bell && !self.had_bell {
+            self.bell_flash_start = Some(std::time::Instant::now());
+            cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                loop {
+                    smol::Timer::after(std::time::Duration::from_millis(33)).await;
+                    let done = this.update(cx, |pane, cx| {
+                        cx.notify();
+                        pane.bell_flash_start
+                            .is_none_or(|s| s.elapsed().as_secs_f32() >= BELL_FLASH_DURATION)
+                    });
+                    match done {
+                        Ok(false) => {}
+                        _ => break,
+                    }
+                }
+            })
+            .detach();
+        }
+        if !has_bell {
+            self.bell_flash_start = None;
+        }
+        self.had_bell = has_bell;
+        let bell_flash_alpha = self
+            .bell_flash_start
+            .map(|s| bell_flash_opacity(s.elapsed().as_secs_f32()))
+            .filter(|a| *a > 0.001);
+
         let view_settings = terminal_view_settings(cx);
         let show_focused_border = view_settings.show_focused_border;
         let show_notification_label = view_settings.show_notification_label;
@@ -102,15 +156,16 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                 .terminal
                 .as_ref()
                 .is_some_and(|t| t.is_waiting_for_input());
-        let show_border = (is_focused && show_focused_border) || has_bell || is_waiting;
-        // A pending notification (bell) wins over the focused-border color so the
-        // ring is actually visible on the focused pane where the agent finished.
-        let border_color = if has_bell {
-            rgb(t.border_bell)
+        let show_border =
+            (is_focused && show_focused_border) || bell_flash_alpha.is_some() || is_waiting;
+        // The blinking bell ring wins over the focused-border color so it is
+        // visible on the focused pane where the agent finished.
+        let border_color = if let Some(alpha) = bell_flash_alpha {
+            with_alpha(t.border_bell, alpha)
         } else if is_focused && show_focused_border {
-            rgb(t.border_focused)
+            with_alpha(t.border_focused, 1.0)
         } else {
-            rgb(t.border_idle)
+            with_alpha(t.border_idle, 1.0)
         };
 
         let is_zoomed = self.is_zoomed(cx);
@@ -353,5 +408,30 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             .when(search_active, |el: Stateful<Div>| {
                 el.child(self.search_bar.clone())
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BELL_FLASH_DURATION, bell_flash_opacity};
+
+    #[test]
+    fn bell_flash_double_blinks_and_ends_dark() {
+        // Starts and ends at 0 — the ring never sticks around.
+        assert_eq!(bell_flash_opacity(0.0), 0.0);
+        assert_eq!(bell_flash_opacity(BELL_FLASH_DURATION), 0.0);
+        assert_eq!(bell_flash_opacity(10.0), 0.0);
+        assert_eq!(bell_flash_opacity(-1.0), 0.0);
+
+        // Peaks at the quarter marks (two pulses).
+        let q = BELL_FLASH_DURATION / 4.0;
+        assert!(bell_flash_opacity(q - 0.001) > 0.99);
+        assert!(bell_flash_opacity(3.0 * q - 0.001) > 0.99);
+        // Dark in the middle between the pulses.
+        assert!(bell_flash_opacity(2.0 * q) < 0.01);
+
+        // Monotone rise within the first segment.
+        assert!(bell_flash_opacity(0.05) < bell_flash_opacity(0.1));
+        assert!(bell_flash_opacity(0.1) < bell_flash_opacity(0.2));
     }
 }

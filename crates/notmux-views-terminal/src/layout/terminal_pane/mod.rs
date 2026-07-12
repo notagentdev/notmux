@@ -57,6 +57,10 @@ pub struct TerminalPane<D: ActionDispatch> {
     cursor_visible: bool,
     shell_type: ShellType,
     was_focused: bool,
+    /// Start of the bell double-blink ring (set on the has_bell rising edge).
+    pub(super) bell_flash_start: Option<std::time::Instant>,
+    /// Previous has_bell, to detect the rising edge in render.
+    pub(super) had_bell: bool,
 
     // Action dispatcher (local or remote)
     pub(super) action_dispatcher: Option<D>,
@@ -122,6 +126,8 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             cursor_visible: true,
             shell_type,
             was_focused: false,
+            bell_flash_start: None,
+            had_bell: false,
             action_dispatcher,
         };
 
