@@ -374,9 +374,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         };
 
         let children: &[LayoutNode] = match node {
-            Some(ref n @ (LayoutNode::Terminal { .. } | LayoutNode::Editor { .. })) => {
-                std::slice::from_ref(n)
-            }
+            Some(
+                ref n @ (LayoutNode::Terminal { .. }
+                | LayoutNode::Editor { .. }
+                | LayoutNode::Browser { .. }),
+            ) => std::slice::from_ref(n),
             _ => &[],
         };
 
@@ -436,10 +438,16 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     LayoutNode::Editor { file_path, .. } => Some(file_path.clone()),
                     _ => None,
                 };
+                let browser_url = match child {
+                    LayoutNode::Browser { url, .. } => Some(url.clone()),
+                    _ => None,
+                };
                 // The shared pane id: terminals are addressed by terminal id,
-                // editors by slot id — drag/close dispatch the same actions.
+                // editors/browsers by slot id — drag/close dispatch the same
+                // actions.
                 let pane_id = match child {
-                    LayoutNode::Editor { slot_id, .. } => Some(slot_id.clone()),
+                    LayoutNode::Editor { slot_id, .. }
+                    | LayoutNode::Browser { slot_id, .. } => Some(slot_id.clone()),
                     _ => terminal_id.clone(),
                 };
 
@@ -464,10 +472,24 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 });
 
                 let tab_label = if let Some(ref fp) = editor_file {
-                    std::path::Path::new(fp)
+                    let name = std::path::Path::new(fp)
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or(fp)
+                        .unwrap_or(fp);
+                    if name.is_empty() {
+                        "Untitled".to_string()
+                    } else {
+                        name.to_string()
+                    }
+                } else if let Some(ref url) = browser_url {
+                    // Label a browser tab by its host.
+                    url.split("://")
+                        .nth(1)
+                        .unwrap_or(url)
+                        .split('/')
+                        .next()
+                        .filter(|h| !h.is_empty())
+                        .unwrap_or("Browser")
                         .to_string()
                 } else if let Some(ref tid) = terminal_id {
                     if let Some(ref p) = project_for_names {
@@ -586,6 +608,8 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                     svg()
                                         .path(if editor_file.is_some() {
                                             "icons/file.svg"
+                                        } else if browser_url.is_some() {
+                                            "icons/globe.svg"
                                         } else {
                                             "icons/terminal.svg"
                                         })

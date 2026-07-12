@@ -182,8 +182,11 @@ impl Workspace {
             return;
         };
 
-        // Already open → focus its pane.
-        if let Some(path) = layout.find_editor_path_by_file(file_path) {
+        // Already open → focus its pane. Empty paths are untitled scratch
+        // buffers; each request opens a fresh one.
+        if !file_path.is_empty()
+            && let Some(path) = layout.find_editor_path_by_file(file_path)
+        {
             self.set_focused_terminal(project_id.to_string(), path, cx);
             return;
         }
@@ -223,6 +226,113 @@ impl Workspace {
             true
         });
         self.set_focused_terminal(project_id.to_string(), vec![1], cx);
+    }
+
+    /// Open the embedded browser in the project's editor area: focuses an
+    /// existing browser pane, joins the right-docked editor/browser tab group,
+    /// or docks a new pane at the right edge — mirroring `add_editor_right`.
+    pub fn add_browser_right(&mut self, project_id: &str, url: &str, cx: &mut Context<Self>) {
+        let Some(layout) = self.project(project_id).and_then(|p| p.layout.clone()) else {
+            return;
+        };
+
+        // Every call opens a fresh browser pane (multiple browsers per
+        // project are expected).
+        // Existing editor/browser area at the right edge → join it as a tab.
+        if let LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            children,
+            ..
+        } = &layout
+            && !children.is_empty()
+        {
+            let last = children.len() - 1;
+            if let Some(area) = children.last()
+                && area.is_editor_area()
+            {
+                let url_owned = url.to_string();
+                let mut new_path = vec![last];
+                match area {
+                    LayoutNode::Tabs { .. } => {
+                        let mut new_tab_index = 0;
+                        self.with_layout_node(project_id, &[last], cx, |node| {
+                            if let LayoutNode::Tabs {
+                                children,
+                                active_tab,
+                            } = node
+                            {
+                                children.push(LayoutNode::new_browser(url_owned.clone()));
+                                *active_tab = children.len() - 1;
+                                new_tab_index = *active_tab;
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        new_path.push(new_tab_index);
+                    }
+                    // Single editor/browser leaf → wrap it into a Tabs group.
+                    _ => {
+                        self.with_layout_node(project_id, &[last], cx, |node| {
+                            let old_node = node.clone();
+                            *node = LayoutNode::Tabs {
+                                children: vec![
+                                    old_node,
+                                    LayoutNode::new_browser(url_owned.clone()),
+                                ],
+                                active_tab: 1,
+                            };
+                            true
+                        });
+                        new_path.push(1);
+                    }
+                }
+                self.set_focused_terminal(project_id.to_string(), new_path, cx);
+                return;
+            }
+        }
+
+        // No editor area yet → dock the browser at the right edge.
+        let url_owned = url.to_string();
+        self.with_layout_node(project_id, &[], cx, |node| {
+            let old_node = node.clone();
+            *node = LayoutNode::Split {
+                direction: SplitDirection::Horizontal,
+                sizes: vec![62.0, 38.0],
+                children: vec![old_node, LayoutNode::new_browser(url_owned.clone())],
+            };
+            true
+        });
+        self.set_focused_terminal(project_id.to_string(), vec![1], cx);
+    }
+
+    /// Persist a browser pane's current URL into its layout node so it
+    /// survives restarts (called on every navigation).
+    pub fn set_browser_url(
+        &mut self,
+        project_id: &str,
+        slot_id: &str,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = self
+            .project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .and_then(|l| l.find_browser_path_by_slot(slot_id))
+        else {
+            return;
+        };
+        let url_owned = url.to_string();
+        self.with_layout_node(project_id, &path, cx, |node| {
+            if let LayoutNode::Browser { url, .. } = node
+                && *url != url_owned
+            {
+                *url = url_owned;
+                true
+            } else {
+                false
+            }
+        });
     }
 
     /// `add_tab`, but inserts an `Editor` leaf instead of a terminal).
@@ -1851,6 +1961,122 @@ mod gpui_tests {
             assert_eq!(layout.collect_editors().len(), 2, "no duplicate editor");
             let focused = ws.focus_manager.focused_terminal_state().unwrap();
             assert_eq!(focused.layout_path, vec![1, 0], "existing editor focused");
+        });
+    }
+
+    #[gpui::test]
+    fn test_add_browser_right_docks_joins_and_focuses(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        // An editor first, so the browser joins the existing right dock area.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+        });
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right("p1", "https://example.com", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Split { children, .. } => match &children[1] {
+                    LayoutNode::Tabs {
+                        children: tabs,
+                        active_tab,
+                    } => {
+                        assert_eq!(tabs.len(), 2);
+                        assert_eq!(*active_tab, 1);
+                        assert!(matches!(&tabs[0], LayoutNode::Editor { .. }));
+                        assert!(matches!(
+                            &tabs[1],
+                            LayoutNode::Browser { url, .. } if url == "https://example.com"
+                        ));
+                    }
+                    other => panic!("expected tabs group, got {:?}", other),
+                },
+                _ => panic!("expected split"),
+            }
+            let focused = ws.focus_manager.focused_terminal_state().unwrap();
+            assert_eq!(focused.layout_path, vec![1, 1]);
+        });
+
+        // A second call opens another browser tab (multiple browsers per
+        // project are expected).
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right("p1", "https://other.example", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            assert_eq!(layout.collect_browsers().len(), 2, "second browser added");
+            let focused = ws.focus_manager.focused_terminal_state().unwrap();
+            assert_eq!(focused.layout_path, vec![1, 2], "new browser focused");
+        });
+    }
+
+    #[gpui::test]
+    fn test_add_editor_right_empty_path_opens_fresh_untitled(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        // Untitled buffers never dedupe — each request opens a new one.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "", cx);
+        });
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_editor_right("p1", "", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            assert_eq!(layout.collect_editors().len(), 2, "two untitled editors");
+        });
+    }
+
+    #[gpui::test]
+    fn test_add_browser_right_docks_split_without_editor_area(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right("p1", "https://example.com", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            match layout {
+                LayoutNode::Split {
+                    direction,
+                    children,
+                    ..
+                } => {
+                    assert_eq!(*direction, SplitDirection::Horizontal);
+                    assert!(matches!(&children[0], LayoutNode::Terminal { .. }));
+                    assert!(matches!(&children[1], LayoutNode::Browser { .. }));
+                }
+                _ => panic!("expected horizontal split with browser at the right"),
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn test_set_browser_url_updates_layout_node(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right("p1", "https://example.com", cx);
+        });
+        let slot = workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            layout.collect_browsers()[0].0.clone()
+        });
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.set_browser_url("p1", &slot, "https://example.com/page", cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
+            assert_eq!(
+                layout.collect_browsers()[0].1,
+                "https://example.com/page".to_string()
+            );
         });
     }
 

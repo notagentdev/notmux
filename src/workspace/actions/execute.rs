@@ -105,13 +105,16 @@ fn execute_action_inner(
                     ActionResult::Ok(None)
                 }
                 None => {
-                    // Editor panes close through the same action, addressed by
-                    // their slot id — no PTY/snapshot to clean up.
-                    let editor_path = ws
+                    // Editor/browser panes close through the same action,
+                    // addressed by their slot id — no PTY/snapshot to clean up.
+                    let pane_path = ws
                         .project(&project_id)
                         .and_then(|p| p.layout.as_ref())
-                        .and_then(|l| l.find_editor_path_by_slot(&terminal_id));
-                    match editor_path {
+                        .and_then(|l| {
+                            l.find_editor_path_by_slot(&terminal_id)
+                                .or_else(|| l.find_browser_path_by_slot(&terminal_id))
+                        });
+                    match pane_path {
                         Some(path) => {
                             ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
                             ActionResult::Ok(None)
@@ -974,6 +977,14 @@ fn execute_action_inner(
             }
             ActionResult::Ok(Some(serde_json::json!({ "agent_working": working, "terminal": "all" })))
             }
+        ActionRequest::OpenBrowser { project_id, url } => {
+            if ws.project(&project_id).is_none() {
+                return ActionResult::Err(format!("project not found: {}", project_id));
+            }
+            let url = url.unwrap_or_default();
+            ws.add_browser_right(&project_id, &url, cx);
+            ActionResult::Ok(Some(serde_json::json!({ "opened": url })))
+        }
         ActionRequest::CreateWorktree {
             project_id,
             branch,
@@ -1183,7 +1194,7 @@ pub fn spawn_uninitialized_terminals(
 fn find_first_terminal_id(node: &LayoutNode) -> Option<String> {
     match node {
         LayoutNode::Terminal { terminal_id, .. } => terminal_id.clone(),
-        LayoutNode::Editor { .. } => None,
+        LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
         LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
             children.iter().find_map(find_first_terminal_id)
         }
@@ -1290,7 +1301,7 @@ fn collect_uninitialized_terminals_with_shell(
         } => {
             result.push((current_path, shell_type.clone()));
         }
-        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
+        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
             for (i, child) in children.iter().enumerate() {
                 let mut child_path = current_path.clone();

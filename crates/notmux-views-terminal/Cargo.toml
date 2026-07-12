@@ -14,6 +14,11 @@ notmux-files = { path = "../notmux-files" }
 
 gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
+# Embedded browser pane: gpui-wry hosts a Wry webview as a GPUI element. Both
+# come from the gpui-component workspace so the gpui/wry types unify.
+gpui-wry = { git = "https://github.com/longbridge/gpui-component", package = "gpui-wry", rev = "dbf57ad99453cfe50f78ba4ed9ccd98f70cd79ac" }
+wry = { version = "0.53.3", package = "lb-wry" }
+futures = "0.3"
 
 alacritty_terminal = "0.25"
 parking_lot = "0.12"
@@ -21,3 +26,8 @@ log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 smol = "2.0"
+
+# Page snapshots for browser annotations (WKWebView takeSnapshot, macOS only).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"

@@ -1,6 +1,6 @@
 use crate::keybindings::{
     CheckForUpdates, ClearFocus, CreateWorktree, EqualizeLayout, FocusActiveProject,
-    FocusNextNotification, FocusSidebar, InstallUpdate, NewProject, OpenSettingsFile,
+    FocusNextNotification, FocusSidebar, InstallUpdate, NewProject, OpenBrowser, OpenSettingsFile,
     ShowCommandPalette, ShowContentSearch, ShowDiffViewer, ShowFileSearch, ShowHookLog,
     ShowKeybindings, ShowPairingDialog, ShowProjectSwitcher, ShowSessionManager, ShowSettings,
     ShowThemeSelector, StartAllServices, StopAllServices, ToggleFileExplorer, ToggleGitPanel,
@@ -8,7 +8,7 @@ use crate::keybindings::{
 };
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::{theme, with_alpha};
-use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
+use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_xl};
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
 use crate::views::layout::split_pane::{
     DragState, compute_resize, render_project_divider, render_sidebar_divider,
@@ -25,7 +25,7 @@ use super::{RightView, RootView};
 fn top_right_terminal_path(node: &crate::workspace::state::LayoutNode, path: &mut Vec<usize>) {
     use crate::workspace::state::{LayoutNode, SplitDirection};
     match node {
-        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
+        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         LayoutNode::Split {
             direction,
             children,
@@ -550,6 +550,14 @@ impl Render for RootView {
         let main_diff_viewer = self.main_diff_viewer.clone();
         let main_file_viewer = self.main_file_viewer.clone();
 
+        // Native webviews float above all GPUI content; suspend them while a
+        // full-window viewer covers the middle panel. (Modal overlays and the
+        // settings panel are handled via focus_manager.is_modal() in the
+        // browser pane itself.)
+        notmux_ui::webview_gate::set_webviews_suspended(
+            main_diff_viewer.is_some() || main_file_viewer.is_some(),
+        );
+
         // Get active drag for global mouse handling
         let active_drag = self.active_drag.clone();
         let workspace = self.workspace.clone();
@@ -577,7 +585,14 @@ impl Render for RootView {
         let left_reserve = if self.sidebar_ctrl.should_render() {
             0.0
         } else {
-            114.0 // 80 traffic-light pad + 24 toggle + 10 gap
+            // 80 traffic-light pad + 28 toggle + 4 gap + 28 bell + 10 gap,
+            // plus the Pair button while the remote server is running.
+            let pair = if crate::views::chrome::title_bar::pair_button_active(cx) {
+                32.0
+            } else {
+                0.0
+            };
+            150.0 + pair
         };
         notmux_views_terminal::set_tab_action_left_reserve(left_reserve, cx);
         // Match the title-bar overlay height so the tab strip centers with the
@@ -764,6 +779,21 @@ impl Render for RootView {
                             ws.set_focused_project(Some(project_id), cx);
                         });
                     }
+                }
+            }))
+            // Open the embedded browser pane in the active project.
+            .on_action(cx.listener(|this, _: &OpenBrowser, _window, cx| {
+                let ws = this.workspace.read(cx);
+                let project_id = ws
+                    .focus_manager
+                    .focused_terminal_state()
+                    .map(|state| state.project_id)
+                    .or_else(|| ws.focus_manager.focused_project_id().cloned())
+                    .or_else(|| ws.data.projects.first().map(|p| p.id.clone()));
+                if let Some(project_id) = project_id {
+                    this.workspace.update(cx, |ws, cx| {
+                        ws.add_browser_right(&project_id, "", cx);
+                    });
                 }
             }))
             // Handle equalize layout action
@@ -1202,59 +1232,18 @@ impl Render for RootView {
                                 // This strip is also a window-drag handle
                                 // (full sidebar width, like Zed's full title bar)
                                 // so the window can be moved from the top-left.
-                                // Right end: the Pair button (shown while the
-                                // remote server is running).
+                                // (The Pair button moved into the title-bar
+                                // left cluster, next to the bell.)
                                 .child(
                                     div()
                                         .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
                                         .w_full()
                                         .flex_shrink_0()
-                                        .flex()
-                                        .items_center()
-                                        .justify_end()
-                                        .px(px(10.0))
                                         .on_mouse_down(
                                             MouseButton::Left,
                                             cx.listener(|this, _, _, _| {
                                                 this.title_should_move = true
                                             }),
-                                        )
-                                        .when(
-                                            cx.try_global::<crate::remote::GlobalRemoteInfo>()
-                                                .is_some_and(|ri| ri.0.port().is_some()),
-                                            |d| {
-                                                d.child(
-                                                    div()
-                                                        .id("sidebar-pair-btn")
-                                                        .cursor_pointer()
-                                                        .px(px(8.0))
-                                                        .py(px(3.0))
-                                                        .rounded(px(4.0))
-                                                        .flex()
-                                                        .items_center()
-                                                        .gap(px(5.0))
-                                                        .text_color(rgb(t.term_yellow))
-                                                        .text_size(ui_text_sm(cx))
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                                                        .child(
-                                                            svg()
-                                                                .path("icons/link.svg")
-                                                                .size(px(14.0))
-                                                                .text_color(rgb(t.term_yellow)),
-                                                        )
-                                                        .on_mouse_down(
-                                                            MouseButton::Left,
-                                                            |_, _, cx| cx.stop_propagation(),
-                                                        )
-                                                        .on_click(|_, window, cx| {
-                                                            window.dispatch_action(
-                                                                Box::new(ShowPairingDialog),
-                                                                cx,
-                                                            );
-                                                        }),
-                                                )
-                                            },
                                         ),
                                 )
                                 .when(show_sidebar, |d| {

@@ -35,3 +35,4 @@ pub mod title_subtitle;
 pub mod toggle;
 pub mod tokens;
 pub mod vscode_icon;
+pub mod webview_gate;

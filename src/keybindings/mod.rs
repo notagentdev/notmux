@@ -45,6 +45,7 @@ actions!(
         EqualizeLayout,
         ToggleGitPanel,
         ToggleFileExplorer,
+        OpenBrowser,
     ]
 );
 
@@ -374,6 +375,7 @@ fn create_keybinding(action: &str, keystroke: &str, context: Option<&str>) -> Op
         "ToggleSidebarAutoHide" => Some(KeyBinding::new(keystroke, ToggleSidebarAutoHide, context)),
         "ToggleGitPanel" => Some(KeyBinding::new(keystroke, ToggleGitPanel, context)),
         "ToggleFileExplorer" => Some(KeyBinding::new(keystroke, ToggleFileExplorer, context)),
+        "OpenBrowser" => Some(KeyBinding::new(keystroke, OpenBrowser, context)),
         "ToggleFullscreen" => Some(KeyBinding::new(keystroke, ToggleFullscreen, context)),
         "FullscreenNextTerminal" => {
             Some(KeyBinding::new(keystroke, FullscreenNextTerminal, context))

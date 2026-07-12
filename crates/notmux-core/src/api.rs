@@ -434,6 +434,11 @@ pub enum ActionRequest {
         terminal_id: Option<String>,
         working: bool,
     },
+    OpenBrowser {
+        project_id: String,
+        #[serde(default)]
+        url: Option<String>,
+    },
     }
 
 fn default_search_mode() -> String {

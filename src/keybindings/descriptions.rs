@@ -5,7 +5,8 @@ use super::{
     AddTab, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy, CreateWorktree,
     EqualizeLayout, FocusActiveProject, FocusDown, FocusLeft, FocusNextNotification,
     FocusNextTerminal, FocusPrevTerminal, FocusRight, FocusSidebar, FocusUp, FullscreenNextTerminal,
-    FullscreenPrevTerminal, InstallUpdate, MinimizeTerminal, NewProject, OpenSettingsFile, Paste,
+    FullscreenPrevTerminal, InstallUpdate, MinimizeTerminal, NewProject, OpenBrowser,
+    OpenSettingsFile, Paste,
     ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette,
     ShowContentSearch, ShowDiffViewer, ShowFileSearch, ShowHookLog, ShowKeybindings,
     ShowProjectSwitcher, ShowSessionManager, ShowSettings, ShowThemeSelector, SplitHorizontal,
@@ -65,6 +66,15 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
             description: "Show or hide the workspace file explorer",
             category: "Global",
             factory: || Box::new(ToggleFileExplorer),
+        },
+    );
+    map.insert(
+        "OpenBrowser",
+        ActionDescription {
+            name: "Open Browser",
+            description: "Open the embedded browser pane in the active project",
+            category: "Global",
+            factory: || Box::new(OpenBrowser),
         },
     );
     map.insert(

@@ -840,7 +840,14 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
         let file_name = std::path::Path::new(file_path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file_path.to_string());
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| {
+                if file_path.is_empty() {
+                    "Untitled".to_string()
+                } else {
+                    file_path.to_string()
+                }
+            });
 
         let is_focused = {
             let ws = self.workspace.read(cx);
@@ -909,6 +916,103 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     .text_color(rgb(t.text_primary))
                     .truncate()
                     .child(file_name),
+            )
+    }
+
+    /// A row in the "Browsers" group: globe icon + host, click focuses the
+    /// browser pane (mirrors the editor rows).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_browser_item(
+        &self,
+        project_id: &str,
+        slot_id: &str,
+        url: &str,
+        left_padding: f32,
+        id_prefix: &str,
+        is_cursor: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let t = theme(cx);
+        let project_id = project_id.to_string();
+        let slot_id = slot_id.to_string();
+        // Label the row by its host, like the browser tab.
+        let label = url
+            .split("://")
+            .nth(1)
+            .unwrap_or(url)
+            .split('/')
+            .next()
+            .filter(|h| !h.is_empty())
+            .unwrap_or("Browser")
+            .to_string();
+
+        let is_focused = {
+            let ws = self.workspace.read(cx);
+            ws.focus_manager.focused_terminal_state().is_some_and(|ft| {
+                ft.project_id == project_id
+                    && ws
+                        .project(&project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .and_then(|l| l.find_browser_path_by_slot(&slot_id))
+                        .is_some_and(|path| ft.layout_path == path)
+            })
+        };
+
+        div()
+            .id(ElementId::Name(
+                format!("{}browser-item-{}", id_prefix, slot_id).into(),
+            ))
+            .mx(px(6.0))
+            .pl(px(left_padding))
+            .pr(px(14.0))
+            .py(px(5.0))
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .rounded_lg()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(t.bg_hover)))
+            .when(is_focused || is_cursor, |d| d.bg(rgb(t.bg_hover)))
+            // Click to focus this browser pane
+            .on_click(cx.listener({
+                let project_id = project_id.clone();
+                let slot_id = slot_id.clone();
+                move |this, _, _window, cx| {
+                    this.cursor_index = None;
+                    this.workspace.update(cx, |ws, cx| {
+                        let path = ws
+                            .project(&project_id)
+                            .and_then(|p| p.layout.as_ref())
+                            .and_then(|l| l.find_browser_path_by_slot(&slot_id));
+                        if let Some(path) = path {
+                            ws.set_focused_terminal(project_id.clone(), path, cx);
+                        }
+                    });
+                }
+            }))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(14.0))
+                    .h(px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path("icons/globe.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.text_secondary)),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(ui_text_md(cx))
+                    .text_color(rgb(t.text_primary))
+                    .truncate()
+                    .child(label),
             )
     }
 

@@ -784,5 +784,9 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             terminal_id: terminal_id.as_ref().map(|t| s(t)),
             working,
         },
+        ActionRequest::OpenBrowser { project_id, url } => ActionRequest::OpenBrowser {
+            project_id: s(&project_id),
+            url,
+        },
         }
         }

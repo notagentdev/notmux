@@ -8,7 +8,61 @@ use gpui::*;
 
 use super::RootView;
 
+/// A right-panel header action, styled exactly like the Git/Files tabs
+/// (icon + label pill) but dispatching an action instead of switching views.
+fn render_action_pill(
+    id: &'static str,
+    icon: &'static str,
+    label: &'static str,
+    t: &notmux_ui::theme::ThemeColors,
+    cx: &mut Context<RootView>,
+    on_click: impl Fn(&mut RootView, &mut Context<RootView>) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .px(px(10.0))
+        .h(px(26.0))
+        .rounded_md()
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(t.bg_hover)))
+        .child(
+            svg()
+                .path(icon)
+                .size(px(13.0))
+                .text_color(rgb(t.text_muted)),
+        )
+        .child(
+            div()
+                .text_size(ui_text_md(cx))
+                .text_color(rgb(t.text_muted))
+                .child(label),
+        )
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(move |this, _, _window, cx| {
+            cx.stop_propagation();
+            on_click(this, cx);
+        }))
+}
+
 impl RootView {
+    /// Project targeted by the right-panel header buttons: the project the
+    /// panel is open for, else the focused one, else the first project.
+    fn active_project_id(&self, cx: &App) -> Option<String> {
+        if let Some(ref pid) = self.git_panel_project_id {
+            return Some(pid.clone());
+        }
+        let ws = self.workspace.read(cx);
+        ws.focus_manager
+            .focused_terminal_state()
+            .map(|state| state.project_id)
+            .or_else(|| ws.focus_manager.focused_project_id().cloned())
+            .or_else(|| ws.data.projects.first().map(|p| p.id.clone()))
+    }
+
     /// Toggle the git panel for the given project.
     ///
     /// - If the panel is open for this project, close it.
@@ -258,7 +312,48 @@ impl RootView {
                 "icons/folder.svg",
                 "Files",
                 cx,
-            ));
+            ))
+            // Right-aligned, styled exactly like the Git/Files tabs: open a
+            // fresh editor / browser pane in the active project.
+            .child(
+                div()
+                    .ml_auto()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(4.0))
+                    .child(render_action_pill(
+                        "right-panel-open-editor",
+                        "icons/file.svg",
+                        "Editor",
+                        &t,
+                        cx,
+                        |this: &mut Self, cx| {
+                            if let Some(project_id) = this.active_project_id(cx) {
+                                this.workspace.update(cx, |ws, cx| {
+                                    // Empty path = fresh untitled buffer.
+                                    ws.add_editor_right(&project_id, "", cx);
+                                });
+                            }
+                        },
+                    ))
+                    .child(render_action_pill(
+                        "right-panel-open-browser",
+                        "icons/globe.svg",
+                        "Browser",
+                        &t,
+                        cx,
+                        |this: &mut Self, cx| {
+                            if let Some(project_id) = this.active_project_id(cx) {
+                                this.workspace.update(cx, |ws, cx| {
+                                    // Empty URL = blank browser with the URL
+                                    // bar ready for input.
+                                    ws.add_browser_right(&project_id, "", cx);
+                                });
+                            }
+                        },
+                    )),
+            );
 
         let panel_container = div()
             .id("git-panel-container")

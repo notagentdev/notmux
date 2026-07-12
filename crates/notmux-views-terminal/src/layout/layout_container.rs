@@ -48,6 +48,8 @@ pub struct LayoutContainer<D: ActionDispatch> {
     pub(super) title_should_move: bool,
     /// File viewer entity for an `Editor` leaf (lazily created on first render).
     file_viewer: Option<Entity<notmux_files::file_viewer::FileViewer>>,
+    /// Browser pane entity for a `Browser` leaf (lazily created on first render).
+    browser_pane: Option<Entity<crate::layout::browser_pane::BrowserPane>>,
 }
 
 impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
@@ -90,6 +92,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             last_scrolled_to_tab: None,
             title_should_move: false,
             file_viewer: None,
+            browser_pane: None,
         }
     }
 
@@ -160,6 +163,71 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     .cached(StyleRefinement::default().size_full()),
                 )
                 // Same drop zones as a terminal pane — the editor is a drop
+                // target addressed by its slot id.
+                .child(self.render_drop_zones(Some(slot_id), cx, &self.active_drag.clone())),
+        )
+    }
+
+    /// Lazily build (or rebuild after a slot change) the browser pane for a
+    /// `Browser` leaf.
+    fn ensure_browser_pane(&mut self, slot_id: &str, url: &str, cx: &mut Context<Self>) {
+        let needs_new = match &self.browser_pane {
+            None => true,
+            Some(pane) => pane.read(cx).slot_id() != slot_id,
+        };
+        if needs_new {
+            let workspace = self.workspace.clone();
+            let terminals = self.terminals.clone();
+            let project_id = self.project_id.clone();
+            let slot_id = slot_id.to_string();
+            let url = url.to_string();
+            self.browser_pane = Some(cx.new(move |cx| {
+                crate::layout::browser_pane::BrowserPane::new(
+                    workspace, terminals, project_id, slot_id, url, cx,
+                )
+            }));
+        }
+    }
+
+    /// Render a `Browser` leaf: its tab bar (when standalone) plus the
+    /// browser pane, mirroring `render_editor` so it drags/splits identically.
+    fn render_browser(
+        &mut self,
+        slot_id: String,
+        url: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        self.ensure_browser_pane(&slot_id, &url, cx);
+        let in_tab_group = self.is_in_tab_group(cx);
+
+        let mut container = div()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .relative();
+        if !in_tab_group {
+            container = container.child(self.render_standalone_tab_bar(window, cx));
+        }
+        container.child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .relative()
+                .overflow_hidden()
+                .child(
+                    AnyView::from(
+                        self.browser_pane
+                            .clone()
+                            .expect("ensure_browser_pane sets Some"),
+                    )
+                    .cached(StyleRefinement::default().size_full()),
+                )
+                // Same drop zones as a terminal pane — the browser is a drop
                 // target addressed by its slot id.
                 .child(self.render_drop_zones(Some(slot_id), cx, &self.active_drag.clone())),
         )
@@ -622,12 +690,21 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
 
         match &layout {
             Some(LayoutNode::Terminal { .. }) => {
+                self.browser_pane = None;
                 if !self.child_containers.is_empty() {
                     self.child_containers.clear();
                 }
             }
             Some(LayoutNode::Editor { .. }) => {
                 self.terminal_pane = None;
+                self.browser_pane = None;
+                if !self.child_containers.is_empty() {
+                    self.child_containers.clear();
+                }
+            }
+            Some(LayoutNode::Browser { .. }) => {
+                self.terminal_pane = None;
+                self.file_viewer = None;
                 if !self.child_containers.is_empty() {
                     self.child_containers.clear();
                 }
@@ -636,9 +713,11 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
                 if self.terminal_pane.is_some() {
                     self.terminal_pane = None;
                 }
+                self.browser_pane = None;
             }
             None => {
                 self.terminal_pane = None;
+                self.browser_pane = None;
                 self.child_containers.clear();
             }
         }
@@ -673,6 +752,10 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
                 slot_id, file_path, ..
             }) => self
                 .render_editor(slot_id, file_path, window, cx)
+                .into_any_element(),
+
+            Some(LayoutNode::Browser { slot_id, url, .. }) => self
+                .render_browser(slot_id, url, window, cx)
                 .into_any_element(),
 
             None => div()

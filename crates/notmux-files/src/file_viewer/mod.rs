@@ -345,19 +345,24 @@ impl FileViewer {
             let rel = relative_hint;
             let target = file_path;
             cx.spawn(async move |entity: WeakEntity<Self>, cx| {
-                let result: Result<String, String> = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let size = fs.file_size(&rel)?;
-                        if size > MAX_FILE_SIZE {
-                            return Err(format!(
-                                "File too large ({:.1} MB). Maximum size is 5 MB.",
-                                size as f64 / 1024.0 / 1024.0
-                            ));
-                        }
-                        fs.read_file(&rel)
-                    })
-                    .await;
+                // An empty path is an untitled scratch buffer — start empty
+                // instead of failing to read a nonexistent file.
+                let result: Result<String, String> = if rel.is_empty() {
+                    Ok(String::new())
+                } else {
+                    cx.background_executor()
+                        .spawn(async move {
+                            let size = fs.file_size(&rel)?;
+                            if size > MAX_FILE_SIZE {
+                                return Err(format!(
+                                    "File too large ({:.1} MB). Maximum size is 5 MB.",
+                                    size as f64 / 1024.0 / 1024.0
+                                ));
+                            }
+                            fs.read_file(&rel)
+                        })
+                        .await
+                };
                 let _ = entity.update(cx, |this, cx| {
                     if let Some(tab) = this.tabs.iter_mut().find(|t| t.file_path == target) {
                         tab.apply_loaded_content(result, &this.syntax_set, &this.theme_colors);

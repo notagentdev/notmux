@@ -91,6 +91,7 @@ pub type BuildProjectFsFn = Box<dyn Fn(&str, &App) -> Option<Arc<dyn ProjectFs>>
 pub enum GroupKind {
     Terminals,
     Editors,
+    Browsers,
     Services,
     Hooks,
 }
@@ -100,6 +101,7 @@ impl GroupKind {
         match self {
             GroupKind::Terminals => "Terminals",
             GroupKind::Editors => "Editors",
+            GroupKind::Browsers => "Browsers",
             GroupKind::Services => "Services",
             GroupKind::Hooks => "Hooks",
         }
@@ -127,6 +129,10 @@ pub enum SidebarCursorItem {
         terminal_id: String,
     },
     Editor {
+        project_id: String,
+        slot_id: String,
+    },
+    Browser {
         project_id: String,
         slot_id: String,
     },
@@ -813,6 +819,50 @@ impl Sidebar {
             }
         }
 
+        // Browsers group (only visible while browser panes are open)
+        if !project.browsers.is_empty() {
+            let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Browsers);
+            let is_cursor = cursor_index == Some(*flat_idx);
+            let project_id = project.id.clone();
+            flat_elements.push(
+                crate::item_widgets::sidebar_group_header(
+                    ElementId::Name(format!("{}browser-group-{}", id_prefix, project.id).into()),
+                    GroupKind::Browsers.label(),
+                    project.browsers.len(),
+                    is_collapsed,
+                    is_cursor,
+                    group_header_padding,
+                    &t,
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, _window, cx| {
+                    this.toggle_group(&project_id, GroupKind::Browsers);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            );
+            *flat_idx += 1;
+
+            if !is_collapsed {
+                for (slot_id, url) in &project.browsers {
+                    let is_cursor = cursor_index == Some(*flat_idx);
+                    flat_elements.push(
+                        self.render_browser_item(
+                            &project.id,
+                            slot_id,
+                            url,
+                            group_items_padding,
+                            id_prefix,
+                            is_cursor,
+                            cx,
+                        )
+                        .into_any_element(),
+                    );
+                    *flat_idx += 1;
+                }
+            }
+        }
+
         // Services group
         if !project.services.is_empty() {
             let is_collapsed = self.is_group_collapsed(&project.id, &GroupKind::Services);
@@ -1376,6 +1426,26 @@ impl Sidebar {
             }
         }
 
+        // Browsers group
+        if let Some(layout) = layout {
+            let browsers = layout.collect_browsers();
+            if !browsers.is_empty() {
+                cursor_items.push(SidebarCursorItem::GroupHeader {
+                    project_id: project_id.to_string(),
+                    group: GroupKind::Browsers,
+                });
+
+                if !self.is_group_collapsed(project_id, &GroupKind::Browsers) {
+                    for (slot_id, _) in browsers {
+                        cursor_items.push(SidebarCursorItem::Browser {
+                            project_id: project_id.to_string(),
+                            slot_id,
+                        });
+                    }
+                }
+            }
+        }
+
         // Services group
         if let Some(names) = service_names.get(project_id)
             && !names.is_empty()
@@ -1562,6 +1632,25 @@ impl Sidebar {
                 }
                 self.saved_focus = None;
             }
+            SidebarCursorItem::Browser {
+                project_id,
+                slot_id,
+            } => {
+                self.workspace.update(cx, |ws, cx| {
+                    let path = ws
+                        .project(&project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .and_then(|l| l.find_browser_path_by_slot(&slot_id));
+                    if let Some(path) = path {
+                        ws.set_focused_terminal(project_id.clone(), path, cx);
+                    }
+                });
+                self.cursor_index = None;
+                if let Some(ref saved) = self.saved_focus {
+                    window.focus(saved, cx);
+                }
+                self.saved_focus = None;
+            }
             SidebarCursorItem::Folder { folder_id } => {
                 self.workspace.update(cx, |ws, cx| {
                     ws.toggle_folder_collapsed(&folder_id, cx);
@@ -1672,6 +1761,7 @@ impl Sidebar {
             }
             SidebarCursorItem::Terminal { .. }
             | SidebarCursorItem::Editor { .. }
+            | SidebarCursorItem::Browser { .. }
             | SidebarCursorItem::Service { .. }
             | SidebarCursorItem::Hook { .. } => {}
             SidebarCursorItem::RemoteConnection { connection_id } => {
@@ -2119,6 +2209,8 @@ pub struct SidebarProjectInfo {
     pub branch: Option<String>,
     /// Open editor panes: (slot_id, file_path), in layout order.
     pub editors: Vec<(String, String)>,
+    /// Open browser panes: (slot_id, url), in layout order.
+    pub browsers: Vec<(String, String)>,
     /// Services defined in notmux.yaml for this project
     pub services: Vec<SidebarServiceInfo>,
     /// Hook terminals currently running for this project
@@ -2173,6 +2265,7 @@ impl SidebarProjectInfo {
                 .map(|w| w.parent_project_id.clone()),
             branch,
             editors: layout.map(|l| l.collect_editors()).unwrap_or_default(),
+            browsers: layout.map(|l| l.collect_browsers()).unwrap_or_default(),
             services: Vec::new(),
             hook_terminals: project
                 .hook_terminals

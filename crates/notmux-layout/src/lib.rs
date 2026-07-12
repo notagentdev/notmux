@@ -54,6 +54,14 @@ pub enum LayoutNode {
         #[serde(default)]
         file_path: String,
     },
+    /// An embedded web-browser leaf — a draggable tab/pane like `Editor`,
+    /// persisting its last URL.
+    Browser {
+        #[serde(default = "default_slot_id")]
+        slot_id: String,
+        #[serde(default)]
+        url: String,
+    },
 }
 
 impl LayoutNode {
@@ -65,7 +73,7 @@ impl LayoutNode {
                 detached,
                 ..
             } => *minimized || *detached,
-            LayoutNode::Editor { .. } => false,
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => false,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.iter().all(|c| c.is_all_hidden())
             }
@@ -85,7 +93,7 @@ impl LayoutNode {
                     child.replace_terminal_id(old_id, new_id);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -109,6 +117,35 @@ impl LayoutNode {
         }
     }
 
+    /// Create a new browser node for a URL.
+    pub fn new_browser(url: impl Into<String>) -> Self {
+        LayoutNode::Browser {
+            slot_id: default_slot_id(),
+            url: url.into(),
+        }
+    }
+
+    /// Collect (slot_id, url) for every browser leaf in this tree.
+    pub fn collect_browsers(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        self.collect_browsers_recursive(&mut out);
+        out
+    }
+
+    fn collect_browsers_recursive(&self, out: &mut Vec<(String, String)>) {
+        match self {
+            LayoutNode::Browser { slot_id, url, .. } => {
+                out.push((slot_id.clone(), url.clone()))
+            }
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for c in children {
+                    c.collect_browsers_recursive(out);
+                }
+            }
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
+        }
+    }
+
     /// Collect (slot_id, file_path) for every editor leaf in this tree.
     pub fn collect_editors(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
@@ -126,7 +163,7 @@ impl LayoutNode {
                     c.collect_editors_recursive(out);
                 }
             }
-            LayoutNode::Terminal { .. } => {}
+            LayoutNode::Terminal { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -163,7 +200,7 @@ impl LayoutNode {
         }
 
         match self {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.get(path[0])?.get_at_path(&path[1..])
             }
@@ -177,7 +214,7 @@ impl LayoutNode {
         }
 
         match self {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 children.get_mut(path[0])?.get_at_path_mut(&path[1..])
             }
@@ -203,7 +240,7 @@ impl LayoutNode {
                     child.collect_terminal_ids_recursive(ids);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -229,7 +266,7 @@ impl LayoutNode {
                     child.clear_terminal_ids_except(keep);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -263,7 +300,7 @@ impl LayoutNode {
                     .iter()
                     .find_map(|child| child.find_terminal_slot_id(target_id))
             }
-            LayoutNode::Editor { .. } => None,
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
         }
     }
 
@@ -296,30 +333,66 @@ impl LayoutNode {
                 }
                 None
             }
-            LayoutNode::Terminal { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Browser { .. } => None,
+        }
+    }
+
+    /// Layout path of the browser leaf with this slot id.
+    pub fn find_browser_path_by_slot(&self, slot: &str) -> Option<Vec<usize>> {
+        self.find_browser_path_recursive(slot, vec![])
+    }
+
+    /// Layout path of the first browser leaf in this tree.
+    pub fn find_first_browser_path(&self) -> Option<Vec<usize>> {
+        self.collect_browsers()
+            .first()
+            .and_then(|(slot, _)| self.find_browser_path_by_slot(slot))
+    }
+
+    fn find_browser_path_recursive(
+        &self,
+        slot: &str,
+        current_path: Vec<usize>,
+    ) -> Option<Vec<usize>> {
+        match self {
+            LayoutNode::Browser { slot_id, .. } => (slot_id == slot).then_some(current_path),
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for (i, child) in children.iter().enumerate() {
+                    let mut child_path = current_path.clone();
+                    child_path.push(i);
+                    if let Some(found) = child.find_browser_path_recursive(slot, child_path) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
         }
     }
 
     /// Layout path of a pane by its shared pane id: terminals are addressed by
-    /// terminal id, editors by slot id. This is the addressing used by tab
-    /// drag/close so editor panes move through the same pipeline as terminals.
+    /// terminal id, editors and browsers by slot id. This is the addressing
+    /// used by tab drag/close so editor/browser panes move through the same
+    /// pipeline as terminals.
     pub fn find_pane_path(&self, pane_id: &str) -> Option<Vec<usize>> {
         self.find_terminal_path(pane_id)
             .or_else(|| self.find_editor_path_by_slot(pane_id))
+            .or_else(|| self.find_browser_path_by_slot(pane_id))
     }
 
-    /// All pane ids in this subtree: terminal ids plus editor slot ids.
+    /// All pane ids in this subtree: terminal ids plus editor/browser slot ids.
     pub fn collect_pane_ids(&self) -> Vec<String> {
         let mut ids = self.collect_terminal_ids();
         ids.extend(self.collect_editors().into_iter().map(|(slot, _)| slot));
+        ids.extend(self.collect_browsers().into_iter().map(|(slot, _)| slot));
         ids
     }
 
-    /// True if this subtree contains only editor leaves (an editor leaf or a
-    /// Tabs group of editors) — the shape of the project's editor area.
+    /// True if this subtree contains only editor/browser leaves (a single leaf
+    /// or a Tabs group of them) — the shape of the project's editor area.
     pub fn is_editor_area(&self) -> bool {
         match self {
-            LayoutNode::Editor { .. } => true,
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => true,
             LayoutNode::Tabs { children, .. } => {
                 !children.is_empty() && children.iter().all(|c| c.is_editor_area())
             }
@@ -352,7 +425,32 @@ impl LayoutNode {
                 }
                 None
             }
-            LayoutNode::Editor { .. } => None,
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
+        }
+    }
+
+    /// True when the node at `path` is not hidden behind an inactive tab:
+    /// every `Tabs` ancestor along the way has its `active_tab` pointing into
+    /// the path. Used by panes hosting native overlays (webviews) that must
+    /// hide themselves when their tab is not the active one.
+    pub fn is_path_visible(&self, path: &[usize]) -> bool {
+        if path.is_empty() {
+            return true;
+        }
+        match self {
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
+                *active_tab == path[0]
+                    && children
+                        .get(path[0])
+                        .is_some_and(|c| c.is_path_visible(&path[1..]))
+            }
+            LayoutNode::Split { children, .. } => children
+                .get(path[0])
+                .is_some_and(|c| c.is_path_visible(&path[1..])),
+            _ => false,
         }
     }
 
@@ -389,7 +487,7 @@ impl LayoutNode {
                     child.collect_inactive_tabs_recursive(result, inactive);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -419,7 +517,7 @@ impl LayoutNode {
                     child.collect_tab_group_recursive(result, is_group || inside_tab_group);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -431,7 +529,7 @@ impl LayoutNode {
             return;
         }
         match self {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => {}
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
             LayoutNode::Split { children, .. } => {
                 if let Some(child) = children.get_mut(path[0]) {
                     child.activate_tabs_along_path(&path[1..]);
@@ -478,7 +576,7 @@ impl LayoutNode {
                     child.collect_minimized_recursive(result, child_path);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -511,7 +609,7 @@ impl LayoutNode {
                     child.collect_detached_recursive(result, child_path);
                 }
             }
-            LayoutNode::Editor { .. } => {}
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
         }
     }
 
@@ -528,7 +626,7 @@ impl LayoutNode {
             LayoutNode::Terminal {
                 terminal_id: None, ..
             } => Some(current_path),
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 for (i, child) in children.iter().enumerate() {
                     let mut child_path = current_path.clone();
@@ -565,7 +663,7 @@ impl LayoutNode {
         follow_active_tab: bool,
     ) -> Vec<usize> {
         match self {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => current_path,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => current_path,
             LayoutNode::Split { children, .. } => {
                 if let Some(first_child) = children.first() {
                     let mut child_path = current_path;
@@ -610,7 +708,7 @@ impl LayoutNode {
         let parent = self.get_at_path_mut(parent_path)?;
 
         match parent {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => None,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => None,
             LayoutNode::Split {
                 children, sizes, ..
             } => {
@@ -653,7 +751,7 @@ impl LayoutNode {
     /// - Remove empty containers
     pub fn normalize(&mut self) {
         match self {
-            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } => return,
+            LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => return,
             LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
                 for child in children.iter_mut() {
                     child.normalize();
@@ -812,6 +910,10 @@ impl LayoutNode {
             LayoutNode::Editor { file_path, .. } => LayoutNode::Editor {
                 slot_id: default_slot_id(),
                 file_path: file_path.clone(),
+            },
+            LayoutNode::Browser { url, .. } => LayoutNode::Browser {
+                slot_id: default_slot_id(),
+                url: url.clone(),
             },
             LayoutNode::Split {
                 direction,
@@ -1051,12 +1153,14 @@ impl LayoutNode {
                 minimized: *minimized,
                 detached: *detached,
             },
-            // Editors are local-only; remote clients see an empty placeholder.
-            LayoutNode::Editor { .. } => notmux_core::api::ApiLayoutNode::Terminal {
-                terminal_id: None,
-                minimized: false,
-                detached: false,
-            },
+            // Editors/browsers are local-only; remote clients see an empty placeholder.
+            LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {
+                notmux_core::api::ApiLayoutNode::Terminal {
+                    terminal_id: None,
+                    minimized: false,
+                    detached: false,
+                }
+            }
             LayoutNode::Split {
                 direction,
                 sizes,
@@ -2015,6 +2119,67 @@ mod tests {
                 }
             }
             _ => panic!("Expected split"),
+        }
+    }
+
+    #[test]
+    fn browser_pane_addressing_and_area() {
+        let browser = LayoutNode::new_browser("https://example.com");
+        let slot = match &browser {
+            LayoutNode::Browser { slot_id, .. } => slot_id.clone(),
+            _ => unreachable!(),
+        };
+        let layout = LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            sizes: vec![50.0, 50.0],
+            children: vec![terminal("t1"), browser],
+        };
+
+        // Browsers are addressed by slot id through the shared pane pipeline.
+        assert_eq!(layout.find_pane_path(&slot), Some(vec![1]));
+        assert_eq!(layout.find_browser_path_by_slot(&slot), Some(vec![1]));
+        assert_eq!(layout.find_first_browser_path(), Some(vec![1]));
+        assert!(layout.collect_pane_ids().contains(&slot));
+        assert_eq!(
+            layout.collect_browsers(),
+            vec![(slot, "https://example.com".to_string())]
+        );
+        // A browser leaf counts as editor area so it joins the right dock.
+        assert!(LayoutNode::new_browser("x").is_editor_area());
+        // Terminal collection ignores browsers.
+        assert!(layout.collect_terminal_ids() == vec!["t1".to_string()]);
+    }
+
+    #[test]
+    fn is_path_visible_respects_active_tabs() {
+        let layout = LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            sizes: vec![50.0, 50.0],
+            children: vec![
+                terminal("t1"),
+                LayoutNode::Tabs {
+                    children: vec![terminal("t2"), LayoutNode::new_browser("u")],
+                    active_tab: 0,
+                },
+            ],
+        };
+        // Split children are always visible; tab children only when active.
+        assert!(layout.is_path_visible(&[0]));
+        assert!(layout.is_path_visible(&[1, 0]));
+        assert!(!layout.is_path_visible(&[1, 1]));
+        // Out-of-bounds paths are not visible.
+        assert!(!layout.is_path_visible(&[2]));
+    }
+
+    #[test]
+    fn browser_serde_round_trip() {
+        let node = LayoutNode::new_browser("https://example.com/x?q=1");
+        let json = serde_json::to_string(&node).unwrap();
+        assert!(json.contains(r#""type":"browser""#));
+        let back: LayoutNode = serde_json::from_str(&json).unwrap();
+        match back {
+            LayoutNode::Browser { url, .. } => assert_eq!(url, "https://example.com/x?q=1"),
+            other => panic!("expected browser, got {:?}", other),
         }
     }
 }
