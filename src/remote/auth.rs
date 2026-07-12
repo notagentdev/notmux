@@ -255,7 +255,13 @@ impl AuthStore {
             let _ = std::fs::remove_file(&self.pair_code_path);
         }
 
-        save_tokens_to(&self.tokens_path, &inner.tokens);
+        // Serialize under the lock (cheap), write after releasing it — the
+        // file write must not block concurrent validations/pairings.
+        let json = serialize_tokens(&inner.tokens);
+        drop(inner);
+        if let Some(json) = json {
+            write_tokens_file(&self.tokens_path, &json);
+        }
 
         Ok(token)
     }
@@ -325,8 +331,14 @@ impl AuthStore {
         let before = inner.tokens.len();
         inner.tokens.retain(|r| r.id != id);
         let removed = inner.tokens.len() < before;
-        if removed {
-            save_tokens_to(&self.tokens_path, &inner.tokens);
+        let json = if removed {
+            serialize_tokens(&inner.tokens)
+        } else {
+            None
+        };
+        drop(inner);
+        if let Some(json) = json {
+            write_tokens_file(&self.tokens_path, &json);
         }
         removed
     }
@@ -383,7 +395,11 @@ impl AuthStore {
             inner.tokens.drain(0..count - MAX_TOKENS);
         }
 
-        save_tokens_to(&self.tokens_path, &inner.tokens);
+        let json = serialize_tokens(&inner.tokens);
+        drop(inner);
+        if let Some(json) = json {
+            write_tokens_file(&self.tokens_path, &json);
+        }
 
         Ok(new_token)
     }
@@ -528,8 +544,20 @@ pub fn tokens_path() -> PathBuf {
     crate::workspace::persistence::config_dir().join("remote_tokens.json")
 }
 
-/// Save token records to disk, filtering out expired tokens.
+/// Save token records to disk, filtering out expired tokens — serialize +
+/// write in one call. Production code uses `serialize_tokens` +
+/// `write_tokens_file` instead: only the (cheap) serialization belongs under
+/// the auth mutex, the file write must happen after releasing it or slow
+/// disk I/O blocks every concurrent token validation and pairing request.
+#[cfg(test)]
 fn save_tokens_to(path: &std::path::Path, tokens: &[TokenRecord]) {
+    if let Some(json) = serialize_tokens(tokens) {
+        write_tokens_file(path, &json);
+    }
+}
+
+/// Serialize the non-expired tokens to pretty JSON (no filesystem access).
+fn serialize_tokens(tokens: &[TokenRecord]) -> Option<String> {
     let now = SystemTime::now();
     let persisted: Vec<PersistedToken> = tokens
         .iter()
@@ -551,14 +579,18 @@ fn save_tokens_to(path: &std::path::Path, tokens: &[TokenRecord]) {
         })
         .collect();
 
-    let json = match serde_json::to_string_pretty(&persisted) {
-        Ok(j) => j,
+    match serde_json::to_string_pretty(&persisted) {
+        Ok(j) => Some(j),
         Err(e) => {
             log::error!("Failed to serialize tokens: {}", e);
-            return;
+            None
         }
-    };
+    }
+}
 
+/// Write the serialized token file (filesystem I/O — call without holding
+/// the auth mutex).
+fn write_tokens_file(path: &std::path::Path, json: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

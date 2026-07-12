@@ -539,7 +539,12 @@ fn run_hook_sync(
         let exit_code = rx.recv_timeout(std::time::Duration::from_secs(300))
             .map_err(|e| match e {
                 std::sync::mpsc::RecvTimeoutError::Timeout => {
-                    format!("Hook '{}' timed out after 5 minutes — dismiss it from the sidebar to unblock", hook_type)
+                    // Kill the hook's PTY process — leaving it running would
+                    // leak the process and its terminal. The resulting exit
+                    // event drives the normal cleanup path
+                    // (finish_by_terminal_id via handle_hook_terminal_exits).
+                    runner.backend.kill(&terminal_id);
+                    format!("Hook '{}' timed out after 5 minutes and was killed", hook_type)
                 }
                 std::sync::mpsc::RecvTimeoutError::Disconnected => {
                     "Hook terminal exit channel closed unexpectedly".to_string()

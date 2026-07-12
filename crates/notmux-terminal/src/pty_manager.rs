@@ -116,7 +116,9 @@ fn agent_hook_zsh_dir(shim_dir: &std::path::Path) -> Option<std::path::PathBuf> 
 /// Trait for broadcasting PTY output to external consumers (e.g. remote WebSocket clients).
 /// Implementations must be thread-safe as this is called from PTY reader threads.
 pub trait PtyOutputSink: Send + Sync {
-    fn publish(&self, terminal_id: String, data: Vec<u8>);
+    /// Borrowed data: implementations copy only when someone is listening,
+    /// so the hot PTY reader path doesn't clone every chunk unconditionally.
+    fn publish(&self, terminal_id: &str, data: &[u8]);
     fn publish_resize(&self, _terminal_id: String, _cols: u16, _rows: u16) {}
 }
 
@@ -664,17 +666,19 @@ impl PtyManager {
                     if shutdown.is_broken() {
                         break;
                     }
-                    let data = buf[..n].to_vec();
                     log::debug!(
                         "PTY {} received {} bytes: {:?}",
                         terminal_id,
                         n,
-                        String::from_utf8_lossy(&data[..n.min(100)])
+                        String::from_utf8_lossy(&buf[..n.min(100)])
                     );
-                    // Broadcast to external consumers immediately (bypasses UI event loop)
+                    // Broadcast to external consumers immediately (bypasses UI
+                    // event loop). Borrowed — the sink copies only if there
+                    // are subscribers.
                     if let Some(ref sink) = output_sink {
-                        sink.publish(terminal_id.clone(), data.clone());
+                        sink.publish(&terminal_id, &buf[..n]);
                     }
+                    let data = buf[..n].to_vec();
                     // send_blocking will block when channel is full (backpressure)
                     if tx
                         .send_blocking(PtyEvent::Data {

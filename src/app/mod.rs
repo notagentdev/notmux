@@ -567,8 +567,11 @@ impl NotMux {
                 // Process first event (broadcasting handled by PtyOutputSink in reader threads)
                 match &event {
                     PtyEvent::Data { terminal_id, data } => {
-                        let terminals_guard = terminals.lock();
-                        if let Some(terminal) = terminals_guard.get(terminal_id) {
+                        // Clone the Arc under a short lock and process the
+                        // output OUTSIDE it — a slow terminal must not block
+                        // everyone else needing the registry.
+                        let terminal = terminals.lock().get(terminal_id).cloned();
+                        if let Some(terminal) = terminal {
                             terminal.process_output(data);
                         }
                         dirty_terminal_ids.push(terminal_id.clone());
@@ -589,8 +592,9 @@ impl NotMux {
                 while let Ok(event) = pty_events.try_recv() {
                     match &event {
                         PtyEvent::Data { terminal_id, data } => {
-                            let terminals_guard = terminals.lock();
-                            if let Some(terminal) = terminals_guard.get(terminal_id) {
+                            // Short lock, processing outside — see above.
+                            let terminal = terminals.lock().get(terminal_id).cloned();
+                            if let Some(terminal) = terminal {
                                 terminal.process_output(data);
                             }
                             dirty_terminal_ids.push(terminal_id.clone());

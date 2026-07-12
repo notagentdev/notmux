@@ -1,5 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use notmux_core::process::{command, safe_output};
+use notmux_core::process::{command, safe_output_with_timeout};
+
+/// System scans (`ps`/`lsof`/`ss`/`wmic`/`netstat`) run with a hard timeout —
+/// a hanging system utility must not block the polling worker forever.
+const SCAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Ports to exclude from detection results.
 /// 9229 = Node.js inspector/debugger
@@ -109,7 +113,7 @@ fn build_process_tree_macos() -> HashMap<u32, Vec<u32>> {
     // Single `ps` call instead of recursive `pgrep -P` per PID.
     let mut cmd = command("ps");
     cmd.args(["-eo", "pid,ppid"]);
-    let output = match safe_output(&mut cmd) {
+    let output = match safe_output_with_timeout(&mut cmd, SCAN_TIMEOUT) {
         Ok(o) if o.status.success() => o,
         _ => return HashMap::new(),
     };
@@ -133,7 +137,7 @@ fn build_process_tree_windows() -> HashMap<u32, Vec<u32>> {
     // CSV output: Node,ParentProcessId,ProcessId (alphabetical column order).
     let mut cmd = command("wmic");
     cmd.args(["process", "get", "ProcessId,ParentProcessId", "/FORMAT:CSV"]);
-    let output = match safe_output(&mut cmd) {
+    let output = match safe_output_with_timeout(&mut cmd, SCAN_TIMEOUT) {
         Ok(o) if o.status.success() => o,
         _ => return HashMap::new(),
     };
@@ -209,7 +213,7 @@ pub fn ports_for_pids(pairs: &[(u32, u16)], pids: &HashSet<u32>) -> Vec<u16> {
 fn get_listening_port_pairs_linux() -> Vec<(u32, u16)> {
     let mut cmd = command("ss");
     cmd.args(["-tlnp"]);
-    let output = match safe_output(&mut cmd) {
+    let output = match safe_output_with_timeout(&mut cmd, SCAN_TIMEOUT) {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
@@ -221,7 +225,7 @@ fn get_listening_port_pairs_linux() -> Vec<(u32, u16)> {
 fn get_listening_port_pairs_macos() -> Vec<(u32, u16)> {
     let mut cmd = command("lsof");
     cmd.args(["-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
-    let output = match safe_output(&mut cmd) {
+    let output = match safe_output_with_timeout(&mut cmd, SCAN_TIMEOUT) {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
@@ -233,7 +237,7 @@ fn get_listening_port_pairs_macos() -> Vec<(u32, u16)> {
 fn get_listening_port_pairs_windows() -> Vec<(u32, u16)> {
     let mut cmd = command("netstat");
     cmd.args(["-ano"]);
-    let output = match safe_output(&mut cmd) {
+    let output = match safe_output_with_timeout(&mut cmd, SCAN_TIMEOUT) {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };

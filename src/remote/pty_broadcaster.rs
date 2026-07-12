@@ -29,11 +29,16 @@ impl PtyBroadcaster {
         Self { tx }
     }
 
-    /// Publish a PTY output event. Non-blocking; drops if no subscribers.
-    pub fn publish(&self, terminal_id: String, data: Vec<u8>) {
-        let _ = self
-            .tx
-            .send(PtyBroadcastEvent::Output { terminal_id, data });
+    /// Publish a PTY output event. Non-blocking; copies the chunk only when
+    /// at least one subscriber is connected.
+    pub fn publish(&self, terminal_id: &str, data: &[u8]) {
+        if self.tx.receiver_count() == 0 {
+            return;
+        }
+        let _ = self.tx.send(PtyBroadcastEvent::Output {
+            terminal_id: terminal_id.to_string(),
+            data: data.to_vec(),
+        });
     }
 
     /// Publish a terminal resize event. Non-blocking; drops if no subscribers.
@@ -52,7 +57,7 @@ impl PtyBroadcaster {
 }
 
 impl PtyOutputSink for PtyBroadcaster {
-    fn publish(&self, terminal_id: String, data: Vec<u8>) {
+    fn publish(&self, terminal_id: &str, data: &[u8]) {
         self.publish(terminal_id, data);
     }
 

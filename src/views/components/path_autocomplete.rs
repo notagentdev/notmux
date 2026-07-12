@@ -175,11 +175,22 @@ impl PathAutoCompleteState {
         }
 
         let (dir_path, prefix) = Self::parse_path_for_completion(&current_value);
+        // Normalize once instead of per entry.
+        let prefix_lower = prefix.to_lowercase();
+
+        // Hard cap on collected matches: this scan runs synchronously in the
+        // UI context on every keystroke, so huge directories must not freeze
+        // the interface. 200 candidates are plenty for a 10-item dropdown
+        // (sorted below, so early entries still surface directories first).
+        const MAX_CANDIDATES: usize = 200;
 
         let mut new_suggestions = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(&dir_path) {
             for entry in entries.filter_map(|e| e.ok()) {
+                if new_suggestions.len() >= MAX_CANDIDATES {
+                    break;
+                }
                 let file_name = entry.file_name();
                 let name = file_name.to_string_lossy().to_string();
 
@@ -189,7 +200,7 @@ impl PathAutoCompleteState {
                 }
 
                 // Filter by prefix (case-insensitive)
-                if !prefix.is_empty() && !name.to_lowercase().starts_with(&prefix.to_lowercase()) {
+                if !prefix_lower.is_empty() && !name.to_lowercase().starts_with(&prefix_lower) {
                     continue;
                 }
 

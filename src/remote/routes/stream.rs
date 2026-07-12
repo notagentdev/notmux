@@ -107,7 +107,9 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, query_token: Option<S
                                         subscribed_ids.get(id).map(|sid| (id.clone(), *sid))
                                     })
                                     .collect();
-                                // Query terminal sizes so client can pre-resize before snapshot
+                                // Query terminal sizes so client can pre-resize before snapshot.
+                                // Bounded wait: a stuck UI/bridge must not hang the whole
+                                // WebSocket reader loop (ping/input/disconnect starve).
                                 let sizes = {
                                     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                                     let ids = terminal_ids.clone();
@@ -115,8 +117,8 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, query_token: Option<S
                                         command: RemoteCommand::GetTerminalSizes { terminal_ids: ids },
                                         reply: Some(reply_tx),
                                     }).await.is_ok() {
-                                        match reply_rx.await {
-                                            Ok(CommandResult::Ok(Some(val))) => {
+                                        match tokio::time::timeout(BRIDGE_REPLY_TIMEOUT, reply_rx).await {
+                                            Ok(Ok(CommandResult::Ok(Some(val)))) => {
                                                 serde_json::from_value(val).unwrap_or_default()
                                             }
                                             _ => HashMap::new(),
@@ -383,8 +385,16 @@ async fn ws_writer(
     }
 }
 
+/// Maximum time to wait for a UI/bridge reply before giving up on that
+/// request. Keeps a stuck bridge from hanging the WebSocket connection.
+const BRIDGE_REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Send snapshot frames for the given terminal IDs via the mpsc channel.
 /// Returns Err if the channel send fails (caller should break).
+///
+/// Each snapshot request is bounded by [`BRIDGE_REPLY_TIMEOUT`] — one
+/// unanswered oneshot must not block the remaining terminals (or the whole
+/// connection) forever; a timed-out terminal is simply skipped.
 async fn send_snapshots(
     out_tx: &mpsc::Sender<Message>,
     state: &AppState,
@@ -404,7 +414,8 @@ async fn send_snapshots(
                 })
                 .await
                 .is_ok()
-                && let Ok(CommandResult::OkBytes(snapshot)) = reply_rx.await
+                && let Ok(Ok(CommandResult::OkBytes(snapshot))) =
+                    tokio::time::timeout(BRIDGE_REPLY_TIMEOUT, reply_rx).await
             {
                 let frame = build_binary_frame(FRAME_TYPE_SNAPSHOT, stream_id, &snapshot);
                 if out_tx.send(Message::Binary(frame.into())).await.is_err() {

@@ -14,7 +14,8 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::mpsc::{Sender, channel};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Rotate when the log exceeds this size.
@@ -25,8 +26,57 @@ pub fn event_log_path() -> PathBuf {
     crate::workspace::persistence::config_dir().join("events.jsonl")
 }
 
-/// Serializes writers within this process (PTY loop + GPUI thread).
-static WRITE_LOCK: Mutex<()> = Mutex::new(());
+/// Channel to the dedicated writer thread. Emitters only serialize + send;
+/// all filesystem work (open, size check, rotation, write) happens on the
+/// writer thread so UI and PTY paths never block on disk I/O.
+static WRITER_TX: OnceLock<Sender<String>> = OnceLock::new();
+
+fn writer_tx() -> &'static Sender<String> {
+    WRITER_TX.get_or_init(|| {
+        let (tx, rx) = channel::<String>();
+        std::thread::Builder::new()
+            .name("event-log-writer".into())
+            .spawn(move || {
+                let path = event_log_path();
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                // Keep the file open across writes; track its size ourselves
+                // so rotation needs no per-line metadata call.
+                let mut file: Option<std::fs::File> = None;
+                let mut written: u64 = 0;
+                while let Ok(line) = rx.recv() {
+                    if written >= MAX_LOG_BYTES {
+                        file = None;
+                        let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
+                        written = 0;
+                    }
+                    if file.is_none() {
+                        match OpenOptions::new().create(true).append(true).open(&path) {
+                            Ok(f) => {
+                                written = f.metadata().map(|m| m.len()).unwrap_or(0);
+                                file = Some(f);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to open event log: {}", e);
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(ref mut f) = file {
+                        if let Err(e) = f.write_all(line.as_bytes()) {
+                            log::warn!("Failed to write event log: {}", e);
+                            file = None;
+                        } else {
+                            written += line.len() as u64;
+                        }
+                    }
+                }
+            })
+            .expect("spawn event-log writer thread");
+        tx
+    })
+}
 
 /// Append an event line: `{"ts_ms":…,"event":"<kind>", …payload}`.
 /// Fire-and-forget — failures are logged and never propagate.
@@ -46,23 +96,8 @@ pub fn emit(kind: &str, payload: serde_json::Value) {
     };
     text.push('\n');
 
-    let path = event_log_path();
-    let _guard = WRITE_LOCK.lock();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    // Rotate before appending so a single generation bounds disk use.
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_LOG_BYTES) {
-        let _ = std::fs::rename(&path, path.with_extension("jsonl.1"));
-    }
-    match OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut file) => {
-            if let Err(e) = file.write_all(text.as_bytes()) {
-                log::warn!("Failed to write event log: {}", e);
-            }
-        }
-        Err(e) => log::warn!("Failed to open event log: {}", e),
-    }
+    // Hand off to the writer thread — never touch the filesystem here.
+    let _ = writer_tx().send(text);
 }
 
 /// Whether an action must not be logged: read-only queries (polling clients

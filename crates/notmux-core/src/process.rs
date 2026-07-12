@@ -50,30 +50,40 @@ pub fn safe_output_with_timeout(
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
+    // Drain both pipes on background threads WHILE the process runs. Reading
+    // only after exit deadlocks: a child that fills a pipe (e.g. a large
+    // `docker compose config`) blocks on write, never exits, and would run
+    // into the timeout even though it works fine.
+    let drain = |stream: Option<std::process::ChildStdout>| {
+        stream.map(|mut s| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut s, &mut buf).ok();
+                buf
+            })
+        })
+    };
+    let stdout_thread = drain(child.stdout.take());
+    let stderr_thread = child.stderr.take().map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            std::io::Read::read_to_end(&mut s, &mut buf).ok();
+            buf
+        })
+    });
+
     let deadline = std::time::Instant::now() + timeout;
     // Poll in short intervals instead of blocking the thread for the full
     // timeout duration.
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                // Process finished – collect output.
-                let stdout = child
-                    .stdout
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = Vec::new();
-                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                        buf
-                    })
+                // Process finished – the drain threads see EOF and return.
+                let stdout = stdout_thread
+                    .and_then(|t| t.join().ok())
                     .unwrap_or_default();
-                let stderr = child
-                    .stderr
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = Vec::new();
-                        std::io::Read::read_to_end(&mut s, &mut buf).ok();
-                        buf
-                    })
+                let stderr = stderr_thread
+                    .and_then(|t| t.join().ok())
                     .unwrap_or_default();
                 return Ok(std::process::Output {
                     status,
@@ -83,6 +93,8 @@ pub fn safe_output_with_timeout(
             }
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
+                    // Killing closes the pipes, so the drain threads
+                    // terminate on their own — no need to join them.
                     let _ = child.kill();
                     let _ = child.wait(); // reap
                     return Err(std::io::Error::new(
