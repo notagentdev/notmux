@@ -36,6 +36,13 @@ fn update_waiting_entries(
     entries.retain(|tid, generation| live.get(tid.as_str()) == Some(generation));
 }
 
+/// Whether the Pair button is shown in the left cluster (remote server
+/// running). Also drives the top-left tab reserve in RootView.
+pub fn pair_button_active(cx: &App) -> bool {
+    cx.try_global::<crate::remote::GlobalRemoteInfo>()
+        .is_some_and(|ri| ri.0.port().is_some())
+}
+
 /// Char-safe truncation with an ellipsis for dropdown detail lines.
 fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -716,6 +723,7 @@ impl TitleBar {
         };
         let attention_items = self.attention_items(cx);
         let attention_count = attention_items.len();
+        let pair_active = pair_button_active(cx);
         let cluster = h_flex()
             .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
             .items_center()
@@ -731,6 +739,38 @@ impl TitleBar {
                 cx,
             ))
             .child(self.render_bell_button(attention_count, cx))
+            // Pair button (shown while the remote server is running), next to
+            // the bell so the top-left tab reserve covers both.
+            .when(pair_active, |d| {
+                d.child(
+                    div()
+                        .id("tb-pair-btn")
+                        .cursor_pointer()
+                        .w(px(28.0))
+                        .h(px(28.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.0))
+                        .hover(|s| s.opacity(0.85))
+                        .child(
+                            svg()
+                                .path("icons/link.svg")
+                                .size(px(14.0))
+                                .text_color(rgb(t.term_yellow)),
+                        )
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(|_, window, cx| {
+                            cx.stop_propagation();
+                            window.dispatch_action(
+                                Box::new(crate::keybindings::ShowPairingDialog),
+                                cx,
+                            );
+                        }),
+                )
+            })
             .when(!cfg!(target_os = "macos"), |d| {
                 d.child({
                     let menu_open = self.menu_open;
