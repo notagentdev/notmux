@@ -246,7 +246,7 @@ impl FilesPanel {
                 cx.spawn(async move |_this, cx| {
                     let p = path.clone();
                     let result = smol::unblock(move || fs_ops::delete(&p, is_dir)).await;
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer delete failed: {msg}");
                         }
@@ -303,7 +303,7 @@ impl FilesPanel {
                         ClipboardOp::Copy => fs_ops::copy(&src_, &dst_),
                     })
                     .await;
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer paste failed: {msg}");
                         }
@@ -329,7 +329,7 @@ impl FilesPanel {
                 let explorer = self.explorer.clone();
                 cx.spawn(async move |_this, cx| {
                     let result = smol::unblock(move || append_to_gitignore(&gitignore, &rel)).await;
-                    let _ = cx.update(|cx| {
+                    cx.update(|cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer add-to-gitignore failed: {msg}");
                         }

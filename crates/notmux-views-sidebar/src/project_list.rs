@@ -821,11 +821,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             )
     }
 
-    /// Render project as a group header when it has worktrees.
-    /// Click = show parent + all worktrees (non-individual focus).
-    #[allow(clippy::too_many_arguments)]
     /// A row in the "Editors" group: file icon + basename, click focuses the
     /// editor pane (mirrors the terminal rows).
+    #[allow(clippy::too_many_arguments)]
     pub fn render_editor_item(
         &self,
         project_id: &str,
@@ -914,6 +912,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             )
     }
 
+    /// Render project as a group header when it has worktrees.
+    /// Click = show parent + all worktrees (non-individual focus).
+    #[allow(clippy::too_many_arguments)]
     pub fn render_project_group_header(
         &self,
         project: &SidebarProjectInfo,

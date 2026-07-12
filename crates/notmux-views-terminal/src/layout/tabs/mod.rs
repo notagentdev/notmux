@@ -18,16 +18,6 @@ use notmux_ui::theme::with_alpha;
 use notmux_ui::tokens::{ui_text_md, ui_text_sm};
 use notmux_workspace::state::{LayoutNode, SplitDirection};
 
-/// Alpha-blend `fg` over `bg` and return opaque RGB u32.
-fn blend_u32(fg: u32, alpha: u8, bg: u32) -> u32 {
-    let a = alpha as u32;
-    let inv = 255 - a;
-    let r = ((fg >> 16) & 0xff) * a + ((bg >> 16) & 0xff) * inv;
-    let g = ((fg >> 8) & 0xff) * a + ((bg >> 8) & 0xff) * inv;
-    let b = (fg & 0xff) * a + (bg & 0xff) * inv;
-    (((r + 127) / 255) << 16) | (((g + 127) / 255) << 8) | ((b + 127) / 255)
-}
-
 /// Derive a tab-bar bg that's always visibly distinct from the terminal
 /// content bg. Tints with text_primary at low alpha — lightens dark themes,
 /// darkens light ones.

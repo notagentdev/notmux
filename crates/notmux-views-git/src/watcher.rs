@@ -240,7 +240,8 @@ impl GitStatusWatcher {
                 // PR/CI polling; `all_local` drives the git-status refresh so
                 // the sidebar shows branches for every project, not just the
                 // ones visible in the overview.
-                let (projects, all_local): (Vec<(String, String)>, Vec<(String, String)>) = cx
+                type ProjectIdPaths = Vec<(String, String)>;
+                let (projects, all_local): (ProjectIdPaths, ProjectIdPaths) = cx
                     .update(|cx| {
                         let ws = workspace.read(cx);
                         let mut project_ids: HashSet<String> = ws

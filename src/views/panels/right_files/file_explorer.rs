@@ -24,6 +24,9 @@ gpui::actions!(file_explorer, [ExplorerInputConfirm, ExplorerInputCancel]);
 /// reference the file.
 #[derive(Clone)]
 pub struct FileDrag {
+    /// Read by external drop targets (e.g. a chat composer) — none are wired
+    /// in notmux yet.
+    #[allow(dead_code)]
     pub path: PathBuf,
     pub name: String,
 }
@@ -129,6 +132,8 @@ impl FileExplorer {
         this
     }
 
+    // Host API for the (unwired) standalone files panel.
+    #[allow(dead_code)]
     pub fn project_id(&self) -> &str {
         &self.project_id
     }
@@ -141,10 +146,14 @@ impl FileExplorer {
             .is_some_and(|a| a.input.read(cx).focus_handle(cx).is_focused(window))
     }
 
+    // Host API for the (unwired) standalone files panel.
+    #[allow(dead_code)]
     pub fn project_path(&self) -> &Path {
         &self.project_path
     }
 
+    // Host API for the (unwired) standalone files panel.
+    #[allow(dead_code)]
     pub fn set_monochrome_icons(&mut self, monochrome_icons: bool, cx: &mut Context<Self>) {
         if self.monochrome_icons == monochrome_icons {
             return;
@@ -155,6 +164,8 @@ impl FileExplorer {
 
     /// Toggle visibility of hidden (dotfile) entries. When the flag flips
     /// the root directory is re-listed so the change is visible immediately.
+    // Host API for the (unwired) standalone files panel.
+    #[allow(dead_code)]
     pub fn set_show_hidden(&mut self, show_hidden: bool, cx: &mut Context<Self>) {
         if self.show_hidden == show_hidden {
             return;
@@ -289,6 +300,8 @@ impl FileExplorer {
         self.dir_rollups.get(dir_rel).copied()
     }
 
+    // Host API for the (unwired) standalone files panel.
+    #[allow(dead_code)]
     pub fn set_context_menu_target(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
         if self.context_menu_target != path {
             self.context_menu_target = path;
@@ -850,16 +863,6 @@ impl FileExplorer {
                     }),
             )
             .into_any_element()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_loaded(&self, dir: &Path) -> bool {
-        self.loaded_children.contains_key(dir)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_expanded(&self, dir: &Path) -> bool {
-        self.expanded_paths.contains(dir)
     }
 
     fn render_ghost_row(

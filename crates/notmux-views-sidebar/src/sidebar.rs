@@ -2193,6 +2193,9 @@ impl SidebarProjectInfo {
 }
 
 /// An item in the sidebar's top-level ordering: either a project or a folder
+// Both variants are large and short-lived render models built per frame —
+// boxing them would just add indirection without saving real memory.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum SidebarItem {
     Project {
         project: SidebarProjectInfo,
