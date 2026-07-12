@@ -100,7 +100,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
     /// Lazily build the file viewer for an `Editor` leaf.
     fn ensure_file_viewer(&mut self, file_path: &str, cx: &mut Context<Self>) {
         if self.file_viewer.is_none() {
-            let t = theme(cx);
+            // Git bridge, not the terminal bridge: the embedded editor's
+            // syntax palette and surfaces must match the files/diff views.
+            let t = notmux_ui::theme::git_theme(cx);
             let is_dark = t.is_dark();
             let fs: Arc<dyn notmux_files::project_fs::ProjectFs> = Arc::new(
                 notmux_files::project_fs::LocalProjectFs::new(std::path::PathBuf::from(
@@ -129,7 +131,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             use std::sync::atomic::{AtomicU64, Ordering};
             static N: AtomicU64 = AtomicU64::new(0);
             let n = N.fetch_add(1, Ordering::Relaxed);
-            if n % 60 == 0 {
+            if n.is_multiple_of(60) {
                 eprintln!("[perf] render_editor x{}", n);
             }
         }

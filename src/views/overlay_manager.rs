@@ -1876,7 +1876,8 @@ impl OverlayManager {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
         let font_size = settings.file_font_size;
         let monochrome_icons = settings.monochrome_icons;
-        let theme_colors = crate::theme::theme(cx);
+        // Git bridge: editor surfaces + syntax palette follow the app theme.
+        let theme_colors = crate::theme::git_theme(cx);
         let is_dark = theme_colors.is_dark();
         let cache_key = fs.project_id();
 
@@ -1925,7 +1926,8 @@ impl OverlayManager {
         let settings = crate::settings::settings_entity(cx).read(cx).settings.clone();
         let font_size = settings.file_font_size;
         let monochrome_icons = settings.monochrome_icons;
-        let theme_colors = crate::theme::theme(cx);
+        // Git bridge: editor surfaces + syntax palette follow the app theme.
+        let theme_colors = crate::theme::git_theme(cx);
         let is_dark = theme_colors.is_dark();
         let cache_key = fs.project_id();
 

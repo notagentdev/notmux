@@ -8,7 +8,10 @@ use crate::file_search::Cancel;
 use crate::file_tree::{FileTreeNode, expandable_folder_row};
 use crate::selection::{Selection1DExtension, Selection2DNonEmpty};
 use crate::syntax::HighlightedLine;
-use crate::theme::theme;
+// The git bridge, NOT the app-wide terminal bridge: it maps selection,
+// syntax palette, and editor surfaces from the app theme, so the editor
+// matches the files/diff views instead of the terminal chrome.
+use notmux_ui::theme::git_theme as theme;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
@@ -219,7 +222,7 @@ impl FileViewer {
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
-        if n % 60 == 0 {
+        if n.is_multiple_of(60) {
             eprintln!("[perf] file_viewer render_visible_lines x{}", n);
         }
     }
@@ -768,9 +771,11 @@ impl Render for FileViewer {
                 .flex()
                 .flex_col()
         } else {
+            // Start below the title-bar strip so the overlay aligns with the
+            // app chrome instead of covering its bottom edge.
             fullscreen_overlay("file-viewer", &t).when(
                 cfg!(target_os = "macos") && !window.is_fullscreen(),
-                |d| d.top(px(28.0)),
+                |d| d.top(px(notmux_ui::tokens::TITLE_BAR_STRIP_H)),
             )
         };
 

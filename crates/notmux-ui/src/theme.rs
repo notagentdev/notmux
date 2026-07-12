@@ -7,6 +7,7 @@ pub use notmux_theme::{
     LIGHT_THEME,
     ThemeColors,
     ansi_to_hsla,
+    git_theme,
     sidebar_theme,
     theme,
     // GPUI helpers

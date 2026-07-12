@@ -23,7 +23,10 @@ use notmux_files::selection::{Selection2DNonEmpty, copy_to_clipboard};
 use notmux_files::syntax::{
     build_syntax_theme, default_text_color_for, get_syntax_for_path, load_syntax_set,
 };
-use notmux_files::theme::theme;
+// The git bridge, NOT the app-wide terminal bridge: it maps selection,
+// syntax palette, and status colors from the app theme, so the diff view
+// matches the git/files panels instead of the terminal chrome.
+use notmux_ui::theme::git_theme as theme;
 use notmux_git::{CommitLogEntry, DiffMode, DiffResult, FileDiff};
 use notmux_ui::modal::fullscreen_overlay;
 
@@ -1075,8 +1078,10 @@ impl DiffViewer {
         }
 
         fullscreen_overlay("diff-viewer", &t)
+            // Start below the title-bar strip so the overlay header aligns
+            // with the app chrome instead of covering its bottom edge.
             .when(cfg!(target_os = "macos") && !window.is_fullscreen(), |d| {
-                d.top(px(28.0))
+                d.top(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
             })
             .track_focus(&focus_handle)
             .key_context("DiffViewer")

@@ -5,6 +5,11 @@
 
 use gpui::{App, Global, px};
 
+/// Height of the app's top chrome strip (title-bar corner clusters + the tab
+/// bar living in the title-bar region). Fullscreen overlays start below it so
+/// they align with the title bar instead of covering its bottom edge.
+pub const TITLE_BAR_STRIP_H: f32 = 42.0;
+
 // =============================================================================
 // Global UI font size provider
 // =============================================================================
