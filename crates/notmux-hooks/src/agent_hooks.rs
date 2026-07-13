@@ -812,6 +812,87 @@ pub fn uninstall_pi() -> Result<(), String> {
     Ok(())
 }
 
+/// Install Cursor (cursor-agent) hooks into `~/.cursor/hooks.json` — flat
+/// format: `{"version": 1, "hooks": {"<event>": [{"command": …}]}}`.
+/// `beforeSubmitPrompt` marks the agent working, `stop` rings "Turn
+/// complete", and `beforeShellExecution` rings "Approval needed" (Cursor
+/// gates shell commands interactively; there is no dedicated approval
+/// event). Our commands print nothing, so Cursor's own permission flow is
+/// untouched. Only replaces our own event keys; other events are preserved.
+pub fn install_cursor() -> Result<(), String> {
+    let home = home_dir().ok_or("HOME not set")?;
+    let cursor_dir = home.join(".cursor");
+    if !cursor_dir.exists() {
+        log::info!(
+            "Cursor not set up ({} missing); skipping",
+            cursor_dir.display()
+        );
+        return Ok(());
+    }
+    let exe = notmux_binary();
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    let stop_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Turn complete\" >/dev/null 2>&1 || true"
+    );
+    let approval_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
+    );
+
+    let hooks_path = cursor_dir.join("hooks.json");
+    let mut doc: serde_json::Value = std::fs::read_to_string(&hooks_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let root = doc.as_object_mut().ok_or("hooks.json is not an object")?;
+    root.entry("version").or_insert(serde_json::json!(1));
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
+    let entry = |cmd: &str| serde_json::json!([{ "command": cmd }]);
+    hooks_obj.insert("beforeSubmitPrompt".to_string(), entry(&working_cmd));
+    hooks_obj.insert("stop".to_string(), entry(&stop_cmd));
+    hooks_obj.insert("beforeShellExecution".to_string(), entry(&approval_cmd));
+
+    std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
+        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+    log::info!("Installed Cursor hooks -> {}", hooks_path.display());
+    Ok(())
+}
+
+/// Remove the Cursor hooks written by [`install_cursor`].
+pub fn uninstall_cursor() -> Result<(), String> {
+    let Some(home) = home_dir() else {
+        return Ok(());
+    };
+    let hooks_path = home.join(".cursor/hooks.json");
+    if let Ok(content) = std::fs::read_to_string(&hooks_path)
+        && let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        let exe = notmux_binary();
+        let mut changed = false;
+        if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+            for key in ["beforeSubmitPrompt", "stop", "beforeShellExecution"] {
+                if hooks_obj
+                    .get(key)
+                    .map(|v| v.to_string().contains(&exe))
+                    .unwrap_or(false)
+                {
+                    hooks_obj.remove(key);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap());
+            log::info!("Removed Cursor hooks <- {}", hooks_path.display());
+        }
+    }
+    Ok(())
+}
+
 /// Resolve the Antigravity (agy) config dir: `~/.gemini/config`.
 fn antigravity_config_dir() -> Option<PathBuf> {
     home_dir().map(|h| h.join(".gemini/config"))
@@ -915,6 +996,9 @@ pub fn install_all() -> Vec<String> {
     if let Err(e) = install_antigravity() {
         errors.push(e);
     }
+    if let Err(e) = install_cursor() {
+        errors.push(e);
+    }
     if let Err(e) = install_shell() {
         errors.push(e);
     }
@@ -940,6 +1024,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_antigravity() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_cursor() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {

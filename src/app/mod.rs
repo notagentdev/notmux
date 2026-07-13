@@ -426,6 +426,9 @@ impl NotMux {
                 if let Err(e) = notmux_hooks::agent_hooks::install_antigravity() {
                     log::warn!("Antigravity hook install on startup: {e}");
                 }
+                if let Err(e) = notmux_hooks::agent_hooks::install_cursor() {
+                    log::warn!("Cursor hook install on startup: {e}");
+                }
             }
         }
 
