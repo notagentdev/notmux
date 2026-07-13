@@ -1475,7 +1475,15 @@ mod tests {
         let env = build_terminal_env("terminal-1", &user);
         let path = env.get("PATH").expect("PATH should be set");
 
-        assert!(path.starts_with("/custom/bin:"));
+        // The agent-hook shim dir is prepended ahead of the user's PATH when
+        // installable (it almost always is), so the user's entry follows it.
+        let expected_prefix = super::agent_hook_shim_dir()
+            .map(|d| format!("{}:/custom/bin:", d.display()))
+            .unwrap_or_else(|| "/custom/bin:".to_string());
+        assert!(
+            path.starts_with(&expected_prefix),
+            "PATH {path:?} should start with {expected_prefix:?}"
+        );
         assert!(!path.contains("$PATH"));
     }
 }
