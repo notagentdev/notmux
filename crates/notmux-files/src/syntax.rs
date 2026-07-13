@@ -466,5 +466,14 @@ pub fn highlight_content(
         line_count += 1;
     }
 
+    // An empty buffer is still one (empty) line — the editor shows line 1
+    // with its number instead of a blank pane.
+    if lines.is_empty() {
+        lines.push(HighlightedLine {
+            spans: Vec::new(),
+            plain_text: String::new(),
+        });
+    }
+
     lines
 }

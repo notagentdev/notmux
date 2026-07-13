@@ -313,11 +313,10 @@ impl RootView {
                 "Files",
                 cx,
             ))
-            // Right-aligned, styled exactly like the Git/Files tabs: open a
+            // Directly after the view tabs, styled exactly like them: open a
             // fresh editor / browser pane in the active project.
             .child(
                 div()
-                    .ml_auto()
                     .flex()
                     .flex_row()
                     .items_center()
