@@ -86,6 +86,15 @@ impl SettingsPanel {
                 |state, val, cx| state.set_agent_hooks_enabled(val, cx),
                 cx,
             ))
+            .child(self.render_toggle_with_desc(
+                "auto-resume-agent-sessions",
+                "Auto-Resume Agent Sessions",
+                "After a restart, resume the agent session (claude --resume, codex resume, …) that was running in each restored terminal. Requires Agent Notifications.",
+                s.auto_resume_agent_sessions,
+                true,
+                |state, val, cx| state.set_auto_resume_agent_sessions(val, cx),
+                cx,
+            ))
             .when(s.remote_server_enabled, |d| {
                 d.child(
                     div()

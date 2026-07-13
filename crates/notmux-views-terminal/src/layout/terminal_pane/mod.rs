@@ -369,7 +369,22 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             .backend
             .reconnect_terminal_with_env(&terminal_id, &cwd, Some(&shell), &settings.terminal_env)
         {
-            Ok(_) => {}
+            Ok(_) => {
+                // Auto-resume a recorded agent session (claude --resume, codex
+                // resume, …) in the freshly respawned shell. `take_resume_input`
+                // is one-shot per surface and skips sessions whose agent
+                // process is still alive (e.g. a dtach/tmux reattach), so a
+                // running agent never gets stray input typed into it.
+                if settings.auto_resume_agent_sessions
+                    && !self.backend.is_remote()
+                    && let Some(input) =
+                        notmux_terminal::agent_sessions::take_resume_input(&terminal_id)
+                {
+                    self.backend
+                        .transport()
+                        .send_input(&terminal_id, input.as_bytes());
+                }
+            }
             Err(e) => {
                 log::error!("Failed to reconnect terminal {}: {}", terminal_id, e);
             }

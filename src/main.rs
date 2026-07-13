@@ -514,6 +514,7 @@ fn main() {
                             terminal_env: s.settings.terminal_env.clone(),
                             terminal_working_directory: s.settings.terminal_working_directory.clone(),
                             option_as_meta: s.settings.option_as_meta,
+                            auto_resume_agent_sessions: s.settings.auto_resume_agent_sessions,
                         }).ok()
                     }
                     "git" => {
@@ -558,6 +559,8 @@ fn main() {
                                 state.settings.terminal_working_directory =
                                     tvs.terminal_working_directory;
                                 state.settings.option_as_meta = tvs.option_as_meta;
+                                state.settings.auto_resume_agent_sessions =
+                                    tvs.auto_resume_agent_sessions;
                                 state.save_and_notify(cx);
                             });
                         }

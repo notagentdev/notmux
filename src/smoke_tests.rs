@@ -62,6 +62,9 @@ mod tests {
                                     .terminal_working_directory
                                     .clone(),
                                 option_as_meta: s.settings.option_as_meta,
+                                auto_resume_agent_sessions: s
+                                    .settings
+                                    .auto_resume_agent_sessions,
                             })
                             .ok()
                         }

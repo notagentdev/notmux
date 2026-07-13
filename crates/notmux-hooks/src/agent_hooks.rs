@@ -236,6 +236,17 @@ pub fn install_claude() -> Result<(), String> {
     // and clears any stale turn-complete notification.
     let working_cmd =
         format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working || true");
+    // Session restore: SessionStart persists {session_id, transcript_path, cwd}
+    // from the hook's stdin payload keyed by this pane's surface id; `$PPID` is
+    // the claude process (hook shells are its direct children) and serves as
+    // liveness evidence on restore. SessionEnd marks a normal exit so the
+    // session is not auto-resumed after a relaunch.
+    let session_start_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session record --kind claude --pid \"$PPID\" >/dev/null 2>&1 || true"
+    );
+    let session_end_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session end --kind claude >/dev/null 2>&1 || true"
+    );
 
     let hooks = settings
         .as_object_mut()
@@ -251,6 +262,14 @@ pub fn install_claude() -> Result<(), String> {
     hooks_obj.insert(
         "UserPromptSubmit".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": working_cmd }] }]),
+    );
+    hooks_obj.insert(
+        "SessionStart".to_string(),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": session_start_cmd }] }]),
+    );
+    hooks_obj.insert(
+        "SessionEnd".to_string(),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": session_end_cmd }] }]),
     );
     // Approval prompts: Claude's `Notification` event fires for both permission
     // requests and the ~60s idle ping. Filter on the hook's stdin JSON (the
@@ -281,7 +300,7 @@ pub fn uninstall_claude() -> Result<(), String> {
 
     if let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         let exe = notmux_binary();
-        for key in ["Stop", "Notification"] {
+        for key in ["Stop", "Notification", "UserPromptSubmit", "SessionStart", "SessionEnd"] {
          if let Some(arr) = hooks.get_mut(key).and_then(|v| v.as_array_mut()) {
             for matcher_obj in arr.iter_mut() {
                 if let Some(inner) = matcher_obj.get_mut("hooks").and_then(|h| h.as_array_mut()) {
@@ -352,6 +371,12 @@ pub fn install_codex() -> Result<(), String> {
     let approval_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Approval needed\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
+    // Session restore: capture the stdin payload synchronously (codex may
+    // close the pipe before a backgrounded child reads it), then hand it to
+    // the slow binary in the background so codex is never blocked on us.
+    let session_start_cmd = format!(
+        "payload=$(cat); [ -n \"$NOTMUX_SURFACE_ID\" ] && ( printf %s \"$payload\" | nohup \"{exe}\" agent-session record --kind codex --pid \"$PPID\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+    );
 
     let hooks_path = codex_dir.join("hooks.json");
     let doc = serde_json::json!({
@@ -359,6 +384,7 @@ pub fn install_codex() -> Result<(), String> {
             "Stop": [{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
             "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
             "PermissionRequest": [{ "hooks": [{ "type": "command", "command": approval_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
+            "SessionStart": [{ "hooks": [{ "type": "command", "command": session_start_cmd, "timeout": CODEX_HOOK_TIMEOUT_MS }] }],
         }
     });
     let hooks_content =
@@ -382,6 +408,10 @@ pub fn install_codex() -> Result<(), String> {
         (
             format!("{key_path}:permission_request:0:0"),
             codex_hook_trust_hash("permission_request", &approval_cmd, CODEX_HOOK_TIMEOUT_MS),
+        ),
+        (
+            format!("{key_path}:session_start:0:0"),
+            codex_hook_trust_hash("session_start", &session_start_cmd, CODEX_HOOK_TIMEOUT_MS),
         ),
     ];
 
@@ -554,6 +584,15 @@ pub fn install_notagent() -> Result<(), String> {
         "UserPromptSubmit".to_string(),
         serde_json::json!([{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": 10 }] }]),
     );
+    // Session restore: notagent's SessionStart payload carries the
+    // conversation id as `session_id` (resumable via `notagent --cid <id>`).
+    let session_start_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session record --kind notagent --pid \"$PPID\" >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "SessionStart".to_string(),
+        serde_json::json!([{ "hooks": [{ "type": "command", "command": session_start_cmd, "timeout": 10 }] }]),
+    );
     // Fires right before notagent shows an interactive approval prompt.
     // Stdout is suppressed so nothing is mistaken for an allow/deny decision —
     // the prompt still appears; we only ring the bell.
@@ -589,7 +628,7 @@ pub fn uninstall_notagent() -> Result<(), String> {
     {
         let exe = notmux_binary();
         if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-            for key in ["Stop", "UserPromptSubmit", "PermissionRequest"] {
+            for key in ["Stop", "UserPromptSubmit", "PermissionRequest", "SessionStart"] {
                 if hooks_obj
                     .get(key)
                     .map(|v| v.to_string().contains(&exe))
@@ -636,7 +675,7 @@ pub fn install_opencode() -> Result<(), String> {
     }
     let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
     let plugin = format!(
-        r#"// {OPENCODE_PLUGIN_MARKER} v1
+        r#"// {OPENCODE_PLUGIN_MARKER} v2
 // Bridges OpenCode lifecycle events to notmux (bell + agent status).
 // Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
 import {{ spawnSync }} from "node:child_process";
@@ -651,16 +690,53 @@ function send(args) {{
   }} catch (_) {{}}
 }}
 
+// Session restore: same id candidates as the the reference implementation reference plugin
+// (resumable via `opencode --session <id>`).
+function sessionIdFor(event, props) {{
+  const candidates = [
+    props.info && props.info.id,
+    props.sessionID,
+    props.sessionId,
+    props.session_id,
+    props.session && props.session.id,
+    event && event.sessionID,
+  ];
+  for (const c of candidates) {{
+    if (typeof c === "string" && c.length > 0) return c;
+  }}
+  return null;
+}}
+
+function recordSession(event, props) {{
+  const id = sessionIdFor(event, props);
+  if (!id) return;
+  send([
+    "agent-session", "record", "--kind", "opencode",
+    "--session-id", id,
+    "--cwd", process.cwd(),
+    "--pid", String(process.pid),
+  ]);
+}}
+
 export const NotmuxBridge = async () => ({{
   event: async ({{ event }}) => {{
     const type = event && event.type;
     const props = (event && event.properties) || {{}};
     // No prompt-submit/"working" mapping: message.updated re-fires for the
     // user message at turn end and would undo the turn-complete bell.
+    if (type === "session.created") {{
+      recordSession(event, props);
+      return;
+    }}
+    if (type === "session.deleted") {{
+      send(["agent-session", "end", "--kind", "opencode"]);
+      return;
+    }}
     if (
       type === "session.idle" ||
       (type === "session.status" && props.status && props.status.type === "idle")
     ) {{
+      recordSession(event, props);
       send(["notify", "--title", "OpenCode", "--body", "Turn complete"]);
       return;
     }}
@@ -734,7 +810,7 @@ pub fn install_pi() -> Result<(), String> {
     }
     let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
     let extension = format!(
-        r#"// {PI_EXTENSION_MARKER} v1
+        r#"// {PI_EXTENSION_MARKER} v2
 // Bridges Pi lifecycle events to notmux (bell + agent status).
 // Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
 import {{ spawn }} from "node:child_process";
@@ -758,9 +834,29 @@ const SIDE_EFFECTING = new Set([
   "bash", "write", "edit", "multiedit", "notebookedit", "apply_patch", "shell",
 ]);
 
+// Session restore: persist the current session id (resumable via
+// `pi --session <id>`) keyed by this pane's surface id.
+function recordSession(pi: any) {{
+  try {{
+    const id =
+      pi && pi.sessionManager && typeof pi.sessionManager.getSessionId === "function"
+        ? pi.sessionManager.getSessionId()
+        : null;
+    if (typeof id === "string" && id.length > 0) {{
+      send([
+        "agent-session", "record", "--kind", "pi",
+        "--session-id", id,
+        "--cwd", process.cwd(),
+        "--pid", String(process.pid),
+      ]);
+    }}
+  }} catch (_) {{}}
+}}
+
 export default function notmuxPiBridge(pi: any) {{
   pi.on("before_agent_start", async () => {{
     send(["agent-status", "working"]);
+    recordSession(pi);
   }});
   pi.on("tool_execution_start", async (event: any) => {{
     const tool = String(
@@ -773,6 +869,7 @@ export default function notmuxPiBridge(pi: any) {{
   }});
   pi.on("agent_end", async () => {{
     send(["notify", "--title", "Pi", "--body", "Turn complete"]);
+    recordSession(pi);
   }});
 }}
 "#
@@ -830,11 +927,15 @@ pub fn install_cursor() -> Result<(), String> {
         return Ok(());
     }
     let exe = notmux_binary();
+    // Cursor has no session-start hook event; every hook payload carries the
+    // conversation id, so session recording rides along on prompt-submit and
+    // stop (`agent-session record` reads the payload from stdin; `$PPID` is
+    // the cursor-agent process).
     let working_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session record --kind cursor --pid \"$PPID\"; \"{exe}\" agent-status working; }} >/dev/null 2>&1 || true"
     );
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Turn complete\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session record --kind cursor --pid \"$PPID\"; \"{exe}\" notify --title Cursor --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let approval_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
@@ -929,6 +1030,14 @@ pub fn install_antigravity() -> Result<(), String> {
     let tool_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working || true"
     );
+    // Session restore: the hook payload carries the conversation id
+    // (resumable via `agy --conversation <id>`).
+    let session_start_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session record --kind antigravity --pid \"$PPID\" >/dev/null 2>&1 || true"
+    );
+    let session_end_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session end --kind antigravity >/dev/null 2>&1 || true"
+    );
     let entry = |cmd: &str| {
         serde_json::json!([{ "type": "command", "command": cmd, "timeout": 10 }])
     };
@@ -937,6 +1046,8 @@ pub fn install_antigravity() -> Result<(), String> {
         "Stop": entry(&stop_cmd),
         "turn-completion": entry(&stop_cmd),
         "Notification": entry(&attention_cmd),
+        "SessionStart": entry(&session_start_cmd),
+        "SessionEnd": entry(&session_end_cmd),
         // Tool events take the matcher-wrapped form.
         "PreToolUse": [{
             "matcher": "*",

@@ -74,6 +74,8 @@ pub struct TerminalViewSettings {
     pub terminal_working_directory: notmux_workspace::settings::TerminalWorkingDirectory,
     #[serde(default)]
     pub option_as_meta: bool,
+    #[serde(default = "default_auto_resume_agent_sessions")]
+    pub auto_resume_agent_sessions: bool,
 }
 
 fn default_show_notification_label() -> bool {
@@ -84,6 +86,9 @@ fn default_persist_scrollback() -> bool {
 }
 fn default_persist_scrollback_lines() -> u32 {
     100
+}
+fn default_auto_resume_agent_sessions() -> bool {
+    true
 }
 
 /// Read current terminal view settings from ExtensionSettingsStore.
@@ -112,6 +117,7 @@ pub fn terminal_view_settings(cx: &gpui::App) -> TerminalViewSettings {
             terminal_env: Default::default(),
             terminal_working_directory: Default::default(),
             option_as_meta: false,
+            auto_resume_agent_sessions: true,
         })
 }
 

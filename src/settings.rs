@@ -154,6 +154,12 @@ impl SettingsState {
         }
     }
 
+    setting_setter!(
+        set_auto_resume_agent_sessions,
+        auto_resume_agent_sessions,
+        bool
+    );
+
     /// Set the remote server listen address
     pub fn set_remote_listen_address(&mut self, value: String, cx: &mut Context<Self>) {
         self.settings.remote_listen_address = value;

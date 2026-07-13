@@ -478,6 +478,12 @@ pub struct AppSettings {
     #[serde(default)]
     pub agent_hooks_enabled: bool,
 
+    /// Auto-resume agent sessions (Claude Code, Codex, …) when a terminal is
+    /// restored after a restart. Requires agent hooks (`agent_hooks_enabled`)
+    /// to have recorded the session. Default: on.
+    #[serde(default = "default_true")]
+    pub auto_resume_agent_sessions: bool,
+
     /// Listen address for the remote server (default: "127.0.0.1")
     #[serde(default = "default_remote_listen_address")]
     pub remote_listen_address: String,
@@ -567,6 +573,7 @@ impl Default for AppSettings {
             diff_view_mode: DiffViewMode::default(),
             remote_server_enabled: false,
             agent_hooks_enabled: false,
+            auto_resume_agent_sessions: true,
             remote_listen_address: default_remote_listen_address(),
             min_column_width: default_min_column_width(),
             diff_ignore_whitespace: false,

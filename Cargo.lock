@@ -5224,6 +5224,7 @@ dependencies = [
  "portable-pty",
  "regex",
  "serde",
+ "serde_json",
  "uuid",
 ]
 

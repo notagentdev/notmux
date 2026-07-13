@@ -1,3 +1,4 @@
+mod agent_session;
 mod commands;
 mod hooks;
 mod register;
@@ -47,6 +48,7 @@ pub fn try_handle_cli() -> Option<i32> {
         "notify" => commands::cli_notify(rest),
         "clear-notification" => commands::cli_clear_notification(rest),
         "agent-status" => commands::cli_agent_status(rest),
+        "agent-session" => agent_session::cli_agent_session(rest),
         "hooks" => hooks::cli_hooks(rest),
         "whoami" => commands::cli_whoami(rest),
         "--help" | "-h" | "help" => {
@@ -81,6 +83,7 @@ fn print_help() {
     eprintln!("  service stop <name> [project]      Stop a service");
     eprintln!("  service restart <name> [project]   Restart a service");
     eprintln!("  notify [--title <t>] [--body <b>]  Send a notification to the current or specified terminal");
+    eprintln!("  agent-session <record|end> --kind <agent>  Persist a restorable agent session (called by hooks)");
     eprintln!("  hooks setup [claude|codex|shell]  Install agent notification hooks");
     eprintln!("  hooks uninstall [agent]           Remove agent notification hooks");
     eprintln!("  whoami [--json]                    Identify current terminal and project");
