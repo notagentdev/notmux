@@ -842,6 +842,12 @@ pub fn install_antigravity() -> Result<(), String> {
     let attention_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" || true"
     );
+    // Antigravity has no dedicated approval event — like the reference implementation's
+    // toolStartMaybeApproval, a side-effecting tool starting rings the bell
+    // (filtered on the hook's stdin payload); read-only tools stay quiet.
+    let tool_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working || true"
+    );
     let entry = |cmd: &str| {
         serde_json::json!([{ "type": "command", "command": cmd, "timeout": 10 }])
     };
@@ -850,6 +856,11 @@ pub fn install_antigravity() -> Result<(), String> {
         "Stop": entry(&stop_cmd),
         "turn-completion": entry(&stop_cmd),
         "Notification": entry(&attention_cmd),
+        // Tool events take the matcher-wrapped form.
+        "PreToolUse": [{
+            "matcher": "*",
+            "hooks": [{ "type": "command", "command": tool_cmd, "timeout": 10 }],
+        }],
     });
 
     let hooks_path = config_dir.join("hooks.json");
