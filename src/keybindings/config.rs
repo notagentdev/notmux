@@ -302,11 +302,14 @@ impl KeybindingConfig {
             ],
         );
 
+        // cmd-shift-e belongs to ToggleFileExplorer (VS Code convention);
+        // equalize uses the reference implementation's default (cmd-ctrl-=), with a ctrl-alt variant
+        // for Linux/Windows.
         bindings.insert(
             "EqualizeLayout".to_string(),
             vec![
-                KeybindingEntry::new("cmd-shift-e", None),
-                KeybindingEntry::new("ctrl-shift-e", None),
+                KeybindingEntry::new("cmd-ctrl-=", None),
+                KeybindingEntry::new("ctrl-alt-=", None),
             ],
         );
 
@@ -491,7 +494,7 @@ mod tests {
         let conflicts = config.detect_conflicts();
         assert!(
             conflicts.is_empty(),
-            "Default config should have no conflicts"
+            "Default config should have no conflicts, found: {conflicts:?}"
         );
     }
 
