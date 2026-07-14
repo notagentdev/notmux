@@ -303,7 +303,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         }
 
         for (i, child) in children.iter().enumerate() {
-            let ids = child.collect_terminal_ids();
+            // Match against all pane ids (terminal ids + editor/browser slot
+            // ids) so editor and browser panes zoom like terminals.
+            let ids = child.collect_pane_ids();
             if ids.iter().any(|id| id == fs_terminal_id) {
                 return Some(i);
             }

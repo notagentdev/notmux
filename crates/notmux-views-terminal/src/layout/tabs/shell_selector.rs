@@ -31,6 +31,27 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         None
     }
 
+    /// Shared pane id of the active tab: terminal id for terminals, slot id for
+    /// editors/browsers. Used by pane actions (e.g. fullscreen) that address any
+    /// pane kind, unlike `get_active_terminal_id` which is terminal-only.
+    pub(super) fn get_active_pane_id(&self, active_tab: usize, cx: &Context<Self>) -> Option<String> {
+        let ws = self.workspace.read(cx);
+        let node = match self.get_layout(ws) {
+            Some(LayoutNode::Tabs { children, .. }) => children.get(active_tab)?,
+            Some(node @ (LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. })) => {
+                node
+            }
+            _ => return None,
+        };
+        match node {
+            LayoutNode::Terminal { terminal_id, .. } => terminal_id.clone(),
+            LayoutNode::Editor { slot_id, .. } | LayoutNode::Browser { slot_id, .. } => {
+                Some(slot_id.clone())
+            }
+            _ => None,
+        }
+    }
+
     fn get_active_shell_type(&self, active_tab: usize, cx: &Context<Self>) -> ShellType {
         let ws = self.workspace.read(cx);
         match self.get_layout(ws) {

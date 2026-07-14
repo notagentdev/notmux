@@ -107,11 +107,13 @@ impl Workspace {
             terminal_id
         );
 
-        // Find the layout path for this terminal
+        // Find the layout path for this pane. `terminal_id` is a shared pane id:
+        // a terminal id for terminals, a slot id for editors/browsers — so
+        // resolve through `find_pane_path`, which handles all three.
         let layout_path = self
             .project(&project_id)
             .and_then(|p| p.layout.as_ref())
-            .and_then(|l| l.find_terminal_path(&terminal_id))
+            .and_then(|l| l.find_pane_path(&terminal_id))
             .unwrap_or_default();
 
         log::info!("layout_path for terminal: {:?}", layout_path);

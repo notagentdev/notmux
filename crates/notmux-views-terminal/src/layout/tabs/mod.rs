@@ -235,10 +235,16 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     if let Some(ref tid) = terminal_id_for_fullscreen
                         && let Some(ref dispatcher) = ctx_fullscreen.action_dispatcher
                     {
+                        // Toggle: if this pane is already fullscreened, exit;
+                        // otherwise maximize it. Lets editor/browser panes (whose
+                        // tab bar stays visible while maximized) un-maximize from
+                        // the same button.
+                        let already = ctx_fullscreen.workspace.read(cx).focus_manager
+                            .is_terminal_fullscreened(&ctx_fullscreen.project_id, tid);
                         dispatcher.dispatch(
                             notmux_core::api::ActionRequest::SetFullscreen {
                                 project_id: ctx_fullscreen.project_id.clone(),
-                                terminal_id: Some(tid.clone()),
+                                terminal_id: if already { None } else { Some(tid.clone()) },
                             },
                             cx,
                         );
@@ -995,13 +1001,19 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             action_dispatcher: self.action_dispatcher.clone(),
         };
 
+        // Shared pane id (terminal id, or editor/browser slot id) so pane
+        // actions like fullscreen work for every pane kind. Terminal-only
+        // actions (minimize/export) simply no-op on a slot id, which is the
+        // correct behavior for editor/browser panes anyway.
         let terminal_id_for_actions = if standalone {
             match children.first() {
                 Some(LayoutNode::Terminal { terminal_id, .. }) => terminal_id.clone(),
+                Some(LayoutNode::Editor { slot_id, .. })
+                | Some(LayoutNode::Browser { slot_id, .. }) => Some(slot_id.clone()),
                 _ => None,
             }
         } else {
-            self.get_active_terminal_id(active_tab, cx)
+            self.get_active_pane_id(active_tab, cx)
         };
 
         let action_buttons =

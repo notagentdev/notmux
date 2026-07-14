@@ -2058,10 +2058,12 @@ impl Sidebar {
             .mx(px(6.0))
             .mt(px(6.0))
             .h(px(30.0))
-            .px(px(8.0))
+            // px(6) + mx(6) puts the icon at x=12, matching the PROJECTS /
+            // REMOTE section-header icons; gap(6) aligns the label too.
+            .px(px(6.0))
             .flex()
             .items_center()
-            .gap(px(8.0))
+            .gap(px(6.0))
             .cursor_pointer()
             .rounded(px(6.0))
             .hover(|s| s.bg(rgb(t.bg_hover)))
@@ -2224,6 +2226,22 @@ pub struct SidebarProjectInfo {
 }
 
 impl SidebarProjectInfo {
+    /// Re-style an orphan worktree (its parent project is gone, so it renders
+    /// at top level among the projects) to read like a project row: the
+    /// worktree folder name as the label plus a git-branch badge — instead of
+    /// folding the branch into the name the way nested worktree rows do.
+    pub(crate) fn apply_orphan_project_style(&mut self, project: &ProjectData) {
+        self.branch =
+            notmux_git::get_git_status(std::path::Path::new(&project.path)).and_then(|s| s.branch);
+        if let Some(basename) = std::path::Path::new(&project.path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|n| !n.is_empty())
+        {
+            self.name = basename.to_string();
+        }
+    }
+
     pub(crate) fn from_project(project: &ProjectData) -> Self {
         let layout = project.layout.as_ref();
         // Non-blocking: reads the cached status populated by the background
@@ -2459,6 +2477,9 @@ impl Render for Sidebar {
                         info.is_orphan = p.worktree_info.as_ref().is_some_and(|wt| {
                             !all_project_ids.contains(wt.parent_project_id.as_str())
                         });
+                        if info.is_orphan {
+                            info.apply_orphan_project_style(p);
+                        }
                         info.is_closing = workspace.is_project_closing(&p.id);
                         info.is_creating = workspace.is_creating_project(&p.id);
                         info
@@ -2505,6 +2526,9 @@ impl Render for Sidebar {
                     .worktree_info
                     .as_ref()
                     .is_some_and(|wt| !all_project_ids.contains(wt.parent_project_id.as_str()));
+                if project_info.is_orphan {
+                    project_info.apply_orphan_project_style(project);
+                }
                 project_info.is_closing = workspace.is_project_closing(&project.id);
                 project_info.is_creating = workspace.is_creating_project(&project.id);
                 project_info.worktree_count = wt_children.len();
@@ -2691,9 +2715,12 @@ impl Render for Sidebar {
                         let is_focused_project = focused_project_id.as_ref() == Some(&project.id);
                         if project.is_orphan {
                             flat_elements.push(
+                                // Top-level orphan worktree (parent gone): use the
+                                // project indent (14) so it aligns on the projects'
+                                // vertical line instead of sitting 6px to the left.
                                 self.render_worktree_item(
                                     &project,
-                                    8.0,
+                                    14.0,
                                     0,
                                     is_cursor,
                                     is_focused_project,

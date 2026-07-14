@@ -1279,10 +1279,12 @@ impl Render for RootView {
                                                     .mx(px(6.0))
                                                     .my(px(6.0))
                                                     .h(px(30.0))
-                                                    .px(px(8.0))
+                                                    // px(6)+mx(6) → icon at x=12, aligned with the
+                                                    // SEARCH / PROJECTS / REMOTE header icons.
+                                                    .px(px(6.0))
                                                     .flex()
                                                     .items_center()
-                                                    .gap(px(8.0))
+                                                    .gap(px(6.0))
                                                     .cursor_pointer()
                                                     .rounded(px(6.0))
                                                     .hover(move |s| s.bg(rgb(st.bg_hover)))
