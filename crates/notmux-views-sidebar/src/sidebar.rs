@@ -2636,10 +2636,13 @@ impl Render for Sidebar {
                             flat_idx += 1;
 
                             if self.expanded_projects.contains(&project.id) {
+                                // Group child row: mx6+pl20 + arrow16+gap8+icon18+gap8
+                                // puts its name at x=76; items align with the name,
+                                // the group chevron sits one 14px step before it.
                                 self.render_expanded_children(
                                     &project,
-                                    34.0,
-                                    48.0,
+                                    62.0,
+                                    76.0,
                                     "gm-",
                                     cursor_index,
                                     &mut flat_idx,
@@ -2668,10 +2671,11 @@ impl Render for Sidebar {
                                 flat_idx += 1;
 
                                 if self.expanded_projects.contains(&child.id) {
+                                    // Worktree row (pl 20, gap 10): name at x=80.
                                     self.render_expanded_children(
                                         child,
-                                        34.0,
-                                        48.0,
+                                        66.0,
+                                        80.0,
                                         "wt-",
                                         cursor_index,
                                         &mut flat_idx,
@@ -2715,10 +2719,11 @@ impl Render for Sidebar {
 
                         let show_children = self.expanded_projects.contains(&project.id);
                         if show_children {
+                            // Project row (mx6+px14, gap 10): name at x=74.
                             self.render_expanded_children(
                                 &project,
-                                20.0,
-                                34.0,
+                                60.0,
+                                74.0,
                                 "",
                                 cursor_index,
                                 &mut flat_idx,
@@ -2825,10 +2830,11 @@ impl Render for Sidebar {
                                     flat_idx += 1;
 
                                     if self.expanded_projects.contains(&fp.id) {
+                                        // Folder group child (pl 36, gap 8): name at x=92.
                                         self.render_expanded_children(
                                             fp,
-                                            50.0,
-                                            64.0,
+                                            78.0,
+                                            92.0,
                                             "gm-",
                                             cursor_index,
                                             &mut flat_idx,
@@ -2858,10 +2864,11 @@ impl Render for Sidebar {
                                             flat_idx += 1;
 
                                             if self.expanded_projects.contains(&child.id) {
+                                                // Folder worktree row (pl 36, gap 10): name at x=96.
                                                 self.render_expanded_children(
                                                     child,
-                                                    50.0,
-                                                    64.0,
+                                                    82.0,
+                                                    96.0,
                                                     "wt-",
                                                     cursor_index,
                                                     &mut flat_idx,
@@ -2907,10 +2914,11 @@ impl Render for Sidebar {
 
                                 let show_children = self.expanded_projects.contains(&fp.id);
                                 if show_children {
+                                    // Folder project row (mx6+pl20, gap 8): name at x=76.
                                     self.render_expanded_children(
                                         fp,
-                                        36.0,
-                                        50.0,
+                                        62.0,
+                                        76.0,
                                         "",
                                         cursor_index,
                                         &mut flat_idx,

@@ -365,20 +365,24 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let cwd = settings
             .terminal_working_directory
             .resolve(&revived_cwd, first_project_path);
+        let spawn_env = env_with_slot_id(&settings.terminal_env, &self.slot_id);
         match self
             .backend
-            .reconnect_terminal_with_env(&terminal_id, &cwd, Some(&shell), &settings.terminal_env)
+            .reconnect_terminal_with_env(&terminal_id, &cwd, Some(&shell), &spawn_env)
         {
             Ok(_) => {
                 // Auto-resume a recorded agent session (claude --resume, codex
-                // resume, …) in the freshly respawned shell. `take_resume_input`
-                // is one-shot per surface and skips sessions whose agent
-                // process is still alive (e.g. a dtach/tmux reattach), so a
-                // running agent never gets stray input typed into it.
+                // resume, …) in the freshly respawned shell. Records key on the
+                // layout slot id — the terminal id is cleared on load and
+                // regenerated, so it never matches across restarts.
+                // `take_resume_input` is one-shot per slot and skips sessions
+                // whose agent process is still alive (e.g. a dtach/tmux
+                // reattach), so a running agent never gets stray input typed
+                // into it.
                 if settings.auto_resume_agent_sessions
                     && !self.backend.is_remote()
                     && let Some(input) =
-                        notmux_terminal::agent_sessions::take_resume_input(&terminal_id)
+                        notmux_terminal::agent_sessions::take_resume_input(&self.slot_id)
                 {
                     self.backend
                         .transport()
@@ -493,9 +497,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         let cwd = settings
             .terminal_working_directory
             .resolve(&revived_cwd, first_project_path.as_deref());
+        let spawn_env = env_with_slot_id(&settings.terminal_env, &self.slot_id);
         match self
             .backend
-            .create_terminal_with_env(&cwd, Some(&shell), &settings.terminal_env)
+            .create_terminal_with_env(&cwd, Some(&shell), &spawn_env)
         {
             Ok(terminal_id) => {
                 self.terminal_id = Some(terminal_id.clone());
@@ -525,6 +530,19 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
                         &self.slot_id,
                         &terminal,
                     );
+                }
+                // Restored panes take THIS path on backends without session
+                // persistence (terminal ids are cleared on load), so the
+                // agent auto-resume lives here too. A genuinely new split has
+                // a fresh slot id with no record and is a no-op.
+                if settings.auto_resume_agent_sessions
+                    && !self.backend.is_remote()
+                    && let Some(input) =
+                        notmux_terminal::agent_sessions::take_resume_input(&self.slot_id)
+                {
+                    self.backend
+                        .transport()
+                        .send_input(&terminal_id, input.as_bytes());
                 }
                 self.terminals
                     .lock()
@@ -603,6 +621,18 @@ impl<D: ActionDispatch + Send + Sync> gpui::Focusable for TerminalPane<D> {
     fn focus_handle(&self, _cx: &gpui::App) -> gpui::FocusHandle {
         self.focus_handle.clone()
     }
+}
+
+/// The user's terminal env plus this pane's layout slot id. The slot id is the
+/// restart-stable pane identity agent-session records key on (terminal ids are
+/// regenerated on every app start).
+fn env_with_slot_id(
+    terminal_env: &std::collections::HashMap<String, String>,
+    slot_id: &str,
+) -> std::collections::HashMap<String, String> {
+    let mut env = terminal_env.clone();
+    env.insert("NOTMUX_SLOT_ID".to_string(), slot_id.to_string());
+    env
 }
 
 /// Resolve the cwd to spawn the new PTY in. If a snapshot exists and

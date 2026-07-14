@@ -229,13 +229,19 @@ pub fn install_claude() -> Result<(), String> {
     // rather than the assistant's full message — the message could be long and,
     // when it contained quotes/newlines, broke the `--body "$(…)"` interpolation
     // and produced an empty label.
+    // All hook bodies stay silent (`>/dev/null 2>&1`) and exit 0 (`|| true`):
+    // Claude Code surfaces any hook stdout/stderr and non-zero exit in the
+    // conversation (e.g. `notmux notify` token errors under "Ran 2 stop
+    // hooks"), and silence + success is the supported way to keep hooks
+    // invisible there.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" >/dev/null 2>&1 || true"
     );
     // Submitting a prompt marks the agent as working (drives the sidebar spinner)
     // and clears any stale turn-complete notification.
-    let working_cmd =
-        format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working || true");
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
     // Session restore: SessionStart persists {session_id, transcript_path, cwd}
     // from the hook's stdin payload keyed by this pane's surface id; `$PPID` is
     // the claude process (hook shells are its direct children) and serves as
@@ -276,7 +282,7 @@ pub fn install_claude() -> Result<(), String> {
     // `notification_type` field, with a message-text fallback for older
     // versions) so only approvals ring the bell — the idle ping stays ignored.
     let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission' && \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\" || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission' && \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\" >/dev/null 2>&1 || true"
     );
     hooks_obj.insert(
         "Notification".to_string(),
@@ -1016,19 +1022,20 @@ pub fn install_antigravity() -> Result<(), String> {
         .map_err(|e| format!("Failed to create {}: {e}", config_dir.display()))?;
 
     let exe = notmux_binary();
-    let working_cmd =
-        format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working || true");
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Turn complete\" || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Turn complete\" >/dev/null 2>&1 || true"
     );
     let attention_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" >/dev/null 2>&1 || true"
     );
     // Antigravity has no dedicated approval event — like the reference implementation's
     // toolStartMaybeApproval, a side-effecting tool starting rings the bell
     // (filtered on the hook's stdin payload); read-only tools stay quiet.
     let tool_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
     );
     // Session restore: the hook payload carries the conversation id
     // (resumable via `agy --conversation <id>`).

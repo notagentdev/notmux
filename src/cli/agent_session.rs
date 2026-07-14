@@ -47,11 +47,15 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
     }
 
     // Only meaningful inside a notmux terminal; silent no-op elsewhere so
-    // agents run outside notmux never error in their hook chain.
-    let Some(surface_id) = std::env::var("NOTMUX_SURFACE_ID")
-        .ok()
-        .or_else(|| std::env::var("NOTMUX_TERMINAL_ID").ok())
-        .filter(|s| !s.is_empty())
+    // agents run outside notmux never error in their hook chain. Records key
+    // on the pane's layout slot id (`NOTMUX_SLOT_ID`): terminal ids are
+    // cleared on load and regenerated every app start, so only the slot id
+    // matches across restarts. The surface-id fallback covers terminals
+    // spawned outside a layout slot.
+    let non_empty = |var: &str| std::env::var(var).ok().filter(|s| !s.is_empty());
+    let Some(surface_id) = non_empty("NOTMUX_SLOT_ID")
+        .or_else(|| non_empty("NOTMUX_SURFACE_ID"))
+        .or_else(|| non_empty("NOTMUX_TERMINAL_ID"))
     else {
         return 0;
     };

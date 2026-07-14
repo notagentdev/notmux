@@ -131,16 +131,19 @@ pub fn sidebar_group_header(
     div()
         .id(id)
         .h(px(20.0))
-        .pl(px(left_padding))
+        // Same rounded inset pill as the project/terminal rows (they combine
+        // mx(6) with their padding, so subtract the margin here to keep the
+        // caller-provided absolute indent).
+        .mx(px(6.0))
+        .pl(px((left_padding - 6.0).max(0.0)))
         .pr(px(8.0))
         .flex()
         .items_center()
         .gap(px(4.0))
+        .rounded_lg()
         .cursor_pointer()
         .hover(|s| s.bg(rgb(t.bg_hover)))
-        .when(is_cursor, |d: Stateful<Div>| {
-            d.border_l_2().border_color(rgb(t.border_active))
-        })
+        .when(is_cursor, |d: Stateful<Div>| d.bg(rgb(t.bg_hover)))
         .child(
             // Expand/collapse chevron (smaller than project arrow)
             svg()

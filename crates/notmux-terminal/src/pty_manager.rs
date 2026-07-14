@@ -19,18 +19,22 @@ const CLAUDE_WRAPPER: &str = include_str!("../../../resources/bin/notmux-claude-
 // `__SHIM__` are replaced with the absolute notmux shell-init / shim dirs.
 #[cfg(not(windows))]
 const ZSHENV_TEMPLATE: &str = r#"# notmux: generated — do not edit.
-[ -f "$NOTMUX_REAL_ZDOTDIR/.zshenv" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshenv"
+# Guard against NOTMUX_REAL_ZDOTDIR pointing at this generated dir (nested
+# notmux / stale env) — sourcing ourselves would recurse forever.
+if [ "$NOTMUX_REAL_ZDOTDIR" = "__SHELL__" ]; then unset NOTMUX_REAL_ZDOTDIR; fi
+[ -n "$NOTMUX_REAL_ZDOTDIR" ] && [ -f "$NOTMUX_REAL_ZDOTDIR/.zshenv" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshenv"
 if [ -n "${ZDOTDIR:-}" ] && [ "$ZDOTDIR" != "__SHELL__" ]; then export NOTMUX_REAL_ZDOTDIR="$ZDOTDIR"; fi
+if [ -z "${NOTMUX_REAL_ZDOTDIR:-}" ]; then export NOTMUX_REAL_ZDOTDIR="$HOME"; fi
 if [ -z "${HISTFILE:-}" ]; then export HISTFILE="$NOTMUX_REAL_ZDOTDIR/.zsh_history"; fi
 export ZDOTDIR="__SHELL__"
 "#;
 #[cfg(not(windows))]
 const ZPROFILE_TEMPLATE: &str = r#"# notmux: generated — do not edit.
-[ -f "$NOTMUX_REAL_ZDOTDIR/.zprofile" ] && source "$NOTMUX_REAL_ZDOTDIR/.zprofile"
+[ "$NOTMUX_REAL_ZDOTDIR" != "__SHELL__" ] && [ -f "$NOTMUX_REAL_ZDOTDIR/.zprofile" ] && source "$NOTMUX_REAL_ZDOTDIR/.zprofile"
 "#;
 #[cfg(not(windows))]
 const ZSHRC_TEMPLATE: &str = r#"# notmux: generated — do not edit.
-[ -f "$NOTMUX_REAL_ZDOTDIR/.zshrc" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshrc"
+[ "$NOTMUX_REAL_ZDOTDIR" != "__SHELL__" ] && [ -f "$NOTMUX_REAL_ZDOTDIR/.zshrc" ] && source "$NOTMUX_REAL_ZDOTDIR/.zshrc"
 # Ensure the agent shim dir wins even after the user's rc reordered PATH.
 case "$PATH" in
   "__SHIM__:"*|"__SHIM__") ;;
@@ -40,7 +44,7 @@ rehash 2>/dev/null || hash -r 2>/dev/null || true
 "#;
 #[cfg(not(windows))]
 const ZLOGIN_TEMPLATE: &str = r#"# notmux: generated — do not edit.
-[ -f "$NOTMUX_REAL_ZDOTDIR/.zlogin" ] && source "$NOTMUX_REAL_ZDOTDIR/.zlogin"
+[ "$NOTMUX_REAL_ZDOTDIR" != "__SHELL__" ] && [ -f "$NOTMUX_REAL_ZDOTDIR/.zlogin" ] && source "$NOTMUX_REAL_ZDOTDIR/.zlogin"
 "#;
 
 /// Base config dir used for the agent hook shim + shell-init files.
@@ -588,6 +592,12 @@ pub fn build_terminal_env(
     // Allow processes inside the terminal to identify which NotMux terminal they run in.
     env.insert("NOTMUX_TERMINAL_ID".to_string(), terminal_id.to_string());
     env.insert("NOTMUX_SURFACE_ID".to_string(), terminal_id.to_string());
+    // NOTMUX_SLOT_ID is the pane's *layout slot* — unlike the terminal id it
+    // survives restarts, so agent-session records key on it. The pane spawn
+    // path provides it via `user_env`; mask it with an empty value otherwise
+    // so a nested notmux never leaks the outer instance's slot into panes
+    // that didn't set one.
+    env.entry("NOTMUX_SLOT_ID".to_string()).or_default();
     if let Ok(exe) = std::env::current_exe() {
         env.insert("NOTMUX_BINARY_PATH".to_string(), exe.to_string_lossy().to_string());
     }
@@ -608,7 +618,16 @@ pub fn build_terminal_env(
         // env for the user's real ZDOTDIR / HOME.
         #[cfg(not(windows))]
         if let Some(zsh_dir) = agent_hook_zsh_dir(&shim_dir) {
+            // Nested notmux (app launched from inside a notmux terminal)
+            // inherits ZDOTDIR pointing at OUR generated shell dir. Taking
+            // that as the "real" zdotdir makes .zshenv source itself forever
+            // ("job table full or recursion limit exceeded"), so prefer the
+            // propagated NOTMUX_REAL_ZDOTDIR and never accept the generated
+            // dir itself as a candidate.
+            let zsh_dir_str = zsh_dir.display().to_string();
             let real_zdotdir = [
+                user_env.get("NOTMUX_REAL_ZDOTDIR").cloned(),
+                std::env::var("NOTMUX_REAL_ZDOTDIR").ok(),
                 user_env.get("ZDOTDIR").cloned(),
                 std::env::var("ZDOTDIR").ok(),
                 user_env.get("HOME").cloned(),
@@ -616,7 +635,7 @@ pub fn build_terminal_env(
             ]
             .into_iter()
             .flatten()
-            .find(|s| !s.is_empty());
+            .find(|s| !s.is_empty() && *s != zsh_dir_str);
             if let Some(real_zdotdir) = real_zdotdir {
                 env.insert("NOTMUX_REAL_ZDOTDIR".to_string(), real_zdotdir);
                 env.insert("ZDOTDIR".to_string(), zsh_dir.display().to_string());
