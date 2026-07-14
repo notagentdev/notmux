@@ -72,6 +72,8 @@ pub enum OverlayRequest {
     MainFileViewer {
         project_id: String,
         file: String,
+        /// Open as an editable diff-vs-HEAD editor instead of a plain editor.
+        diff: bool,
     },
     RemoteConnect,
     RemoteConnectionContextMenu {

@@ -1279,15 +1279,14 @@ impl OverlayManager {
                     file_path,
                 } => {
                     this.hide_git_file_context_menu(cx);
+                    // Open an editable diff-vs-HEAD editor in the editor pane
+                    // (green additions / red deletions), not a modal overlay.
                     this.request_broker.update(cx, |broker, cx| {
                         broker.push_overlay_request(
-                            OverlayRequest::DiffViewer {
+                            OverlayRequest::MainFileViewer {
                                 project_id: project_id.clone(),
-                                file: Some(file_path.clone()),
-                                mode: None,
-                                commit_message: None,
-                                commits: None,
-                                commit_index: None,
+                                file: file_path.clone(),
+                                diff: true,
                             },
                             cx,
                         );
@@ -1295,14 +1294,16 @@ impl OverlayManager {
                 }
                 GitFileContextMenuEvent::OpenFile {
                     project_id,
-                    file_path: _,
+                    file_path,
                 } => {
                     this.hide_git_file_context_menu(cx);
-                    // Route to file browser/viewer — uses the FileBrowser overlay
+                    // Just open the file in the editor pane (no diff decorations).
                     this.request_broker.update(cx, |broker, cx| {
                         broker.push_overlay_request(
-                            OverlayRequest::FileBrowser {
+                            OverlayRequest::MainFileViewer {
                                 project_id: project_id.clone(),
+                                file: file_path.clone(),
+                                diff: false,
                             },
                             cx,
                         );
@@ -2003,6 +2004,9 @@ impl OverlayManager {
                     // when toggled — no manual sync needed on close.
                     this.close_modal(cx);
                 }
+                // The overlay diff viewer reloads itself after a hunk stage; the
+                // overlay has no file list of its own to refresh.
+                DiffViewerEvent::HunksChanged => {}
             }
         })
         .detach();

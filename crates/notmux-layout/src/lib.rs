@@ -53,6 +53,11 @@ pub enum LayoutNode {
         slot_id: String,
         #[serde(default)]
         file_path: String,
+        /// When true, the pane renders as an editable diff of `file_path`
+        /// against HEAD (green additions, red deletions) instead of a plain
+        /// editor. Persisted so a restored layout keeps the diff view.
+        #[serde(default)]
+        diff: bool,
     },
     /// An embedded web-browser leaf — a draggable tab/pane like `Editor`,
     /// persisting its last URL.
@@ -114,6 +119,16 @@ impl LayoutNode {
         LayoutNode::Editor {
             slot_id: default_slot_id(),
             file_path: file_path.into(),
+            diff: false,
+        }
+    }
+
+    /// Create a new editable diff-editor node for a file path (diff vs HEAD).
+    pub fn new_diff_editor(file_path: impl Into<String>) -> Self {
+        LayoutNode::Editor {
+            slot_id: default_slot_id(),
+            file_path: file_path.into(),
+            diff: true,
         }
     }
 
@@ -312,6 +327,35 @@ impl LayoutNode {
     /// Layout path of the first editor leaf showing this file.
     pub fn find_editor_path_by_file(&self, file: &str) -> Option<Vec<usize>> {
         self.find_editor_path(&|_, file_path| file_path == file, vec![])
+    }
+
+    /// Layout path of an editor leaf for `file` whose diff mode equals `diff`,
+    /// so a plain editor and a diff editor of the same file are distinct panes.
+    pub fn find_editor_path_by_file_diff(&self, file: &str, diff: bool) -> Option<Vec<usize>> {
+        self.find_editor_path_diff(file, diff, vec![])
+    }
+
+    fn find_editor_path_diff(
+        &self,
+        file: &str,
+        diff: bool,
+        current_path: Vec<usize>,
+    ) -> Option<Vec<usize>> {
+        match self {
+            LayoutNode::Editor {
+                file_path,
+                diff: d,
+                ..
+            } => (file_path == file && *d == diff).then_some(current_path),
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                children.iter().enumerate().find_map(|(i, child)| {
+                    let mut child_path = current_path.clone();
+                    child_path.push(i);
+                    child.find_editor_path_diff(file, diff, child_path)
+                })
+            }
+            LayoutNode::Terminal { .. } | LayoutNode::Browser { .. } => None,
+        }
     }
 
     fn find_editor_path(
@@ -907,9 +951,12 @@ impl LayoutNode {
                 shell_type: shell_type.clone(),
                 zoom_level: *zoom_level,
             },
-            LayoutNode::Editor { file_path, .. } => LayoutNode::Editor {
+            LayoutNode::Editor {
+                file_path, diff, ..
+            } => LayoutNode::Editor {
                 slot_id: default_slot_id(),
                 file_path: file_path.clone(),
+                diff: *diff,
             },
             LayoutNode::Browser { url, .. } => LayoutNode::Browser {
                 slot_id: default_slot_id(),

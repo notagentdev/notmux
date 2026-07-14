@@ -247,7 +247,9 @@ impl DiffViewer {
         }
 
         if line.is_header {
-            return self.render_hunk_header(&line.header_text, idx, "sbs-header", t);
+            let hunk_index = self.hunk_index_for_sbs(idx);
+            return self
+                .render_hunk_header(&line.header_text, idx, "sbs-header", t, hunk_index, cx);
         }
 
         // Two-column layout

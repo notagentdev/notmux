@@ -100,8 +100,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         self.project_path = path;
     }
 
-    /// Lazily build the file viewer for an `Editor` leaf.
-    fn ensure_file_viewer(&mut self, file_path: &str, cx: &mut Context<Self>) {
+    /// Lazily build the file viewer for an `Editor` leaf. `diff` puts it into
+    /// the editable diff-editor mode (green additions / red deletions vs HEAD).
+    fn ensure_file_viewer(&mut self, file_path: &str, diff: bool, cx: &mut Context<Self>) {
         if self.file_viewer.is_none() {
             // Git bridge, not the terminal bridge: the embedded editor's
             // syntax palette and surfaces must match the files/diff views.
@@ -119,6 +120,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 )
             }));
         }
+        if let Some(viewer) = &self.file_viewer {
+            viewer.update(cx, |v, cx| v.set_diff_mode(diff, cx));
+        }
     }
 
     /// Render an `Editor` leaf: its tab bar (when standalone) plus the file
@@ -127,10 +131,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         &mut self,
         slot_id: String,
         file_path: String,
+        diff: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.ensure_file_viewer(&file_path, cx);
+        self.ensure_file_viewer(&file_path, diff, cx);
         let in_tab_group = self.is_in_tab_group(cx);
 
         // `min_w_0` + `overflow_hidden` let the split shrink the pane below the
@@ -751,9 +756,11 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
                 .into_any_element(),
 
             Some(LayoutNode::Editor {
-                slot_id, file_path, ..
+                slot_id,
+                file_path,
+                diff,
             }) => self
-                .render_editor(slot_id, file_path, window, cx)
+                .render_editor(slot_id, file_path, diff, window, cx)
                 .into_any_element(),
 
             Some(LayoutNode::Browser { slot_id, url, .. }) => self

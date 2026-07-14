@@ -303,6 +303,7 @@ impl ContentSearchPanel {
                 OverlayRequest::MainFileViewer {
                     project_id: self.project_id.clone(),
                     file,
+                    diff: false,
                 },
                 cx,
             );

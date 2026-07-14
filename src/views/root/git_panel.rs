@@ -331,7 +331,7 @@ impl RootView {
                             if let Some(project_id) = this.active_project_id(cx) {
                                 this.workspace.update(cx, |ws, cx| {
                                     // Empty path = fresh untitled buffer.
-                                    ws.add_editor_right(&project_id, "", cx);
+                                    ws.add_editor_right(&project_id, "", false, cx);
                                 });
                             }
                         },

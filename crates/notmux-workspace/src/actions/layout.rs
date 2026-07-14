@@ -5,6 +5,15 @@
 use crate::state::{DropZone, LayoutNode, SplitDirection, Workspace};
 use gpui::*;
 
+/// Build an editor leaf: a plain editor, or an editable diff-vs-HEAD editor.
+fn editor_node(file_path: &str, diff: bool) -> LayoutNode {
+    if diff {
+        LayoutNode::new_diff_editor(file_path)
+    } else {
+        LayoutNode::new_editor(file_path)
+    }
+}
+
 impl Workspace {
     /// Remove terminal_names/hidden_terminals entries that are no longer in the layout.
     /// Returns the orphaned terminal IDs (for PTY cleanup by callers).
@@ -177,15 +186,21 @@ impl Workspace {
     /// edge of the project layout. The first file creates the split; further
     /// files join the editor group as tabs. A file that is already open in an
     /// editor is focused instead of opened twice.
-    pub fn add_editor_right(&mut self, project_id: &str, file_path: &str, cx: &mut Context<Self>) {
+    pub fn add_editor_right(
+        &mut self,
+        project_id: &str,
+        file_path: &str,
+        diff: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(layout) = self.project(project_id).and_then(|p| p.layout.clone()) else {
             return;
         };
 
-        // Already open → focus its pane. Empty paths are untitled scratch
-        // buffers; each request opens a fresh one.
+        // Already open → focus its pane. A plain editor and a diff editor of the
+        // same file are distinct. Empty paths are untitled scratch buffers.
         if !file_path.is_empty()
-            && let Some(path) = layout.find_editor_path_by_file(file_path)
+            && let Some(path) = layout.find_editor_path_by_file_diff(file_path, diff)
         {
             self.set_focused_terminal(project_id.to_string(), path, cx);
             return;
@@ -205,10 +220,10 @@ impl Workspace {
             {
                 match area {
                     LayoutNode::Tabs { .. } => {
-                        self.add_editor_to_group(project_id, &[last], file_path, cx);
+                        self.add_editor_to_group(project_id, &[last], file_path, diff, cx);
                     }
                     // Single editor leaf → add_editor wraps it into a Tabs group.
-                    _ => self.add_editor(project_id, &[last], file_path, cx),
+                    _ => self.add_editor(project_id, &[last], file_path, diff, cx),
                 }
                 return;
             }
@@ -221,7 +236,7 @@ impl Workspace {
             *node = LayoutNode::Split {
                 direction: SplitDirection::Horizontal,
                 sizes: vec![62.0, 38.0],
-                children: vec![old_node, LayoutNode::new_editor(file_path_owned.clone())],
+                children: vec![old_node, editor_node(&file_path_owned, diff)],
             };
             true
         });
@@ -341,6 +356,7 @@ impl Workspace {
         project_id: &str,
         path: &[usize],
         file_path: &str,
+        diff: bool,
         cx: &mut Context<Self>,
     ) {
         if !path.is_empty() {
@@ -349,7 +365,7 @@ impl Workspace {
                 && let Some(ref layout) = project.layout
                 && let Some(LayoutNode::Tabs { .. }) = layout.get_at_path(parent_path)
             {
-                self.add_editor_to_group(project_id, parent_path, file_path, cx);
+                self.add_editor_to_group(project_id, parent_path, file_path, diff, cx);
                 return;
             }
         }
@@ -358,7 +374,7 @@ impl Workspace {
         self.with_layout_node(project_id, path, cx, |node| {
             let old_node = node.clone();
             *node = LayoutNode::Tabs {
-                children: vec![old_node, LayoutNode::new_editor(file_path_owned.clone())],
+                children: vec![old_node, editor_node(&file_path_owned, diff)],
                 active_tab: 1,
             };
             true
@@ -375,6 +391,7 @@ impl Workspace {
         project_id: &str,
         tabs_path: &[usize],
         file_path: &str,
+        diff: bool,
         cx: &mut Context<Self>,
     ) {
         let file_path_owned = file_path.to_string();
@@ -385,7 +402,7 @@ impl Workspace {
                 active_tab,
             } = node
             {
-                children.push(LayoutNode::new_editor(file_path_owned.clone()));
+                children.push(editor_node(&file_path_owned, diff));
                 *active_tab = children.len() - 1;
                 new_tab_index = *active_tab;
                 true
@@ -1903,7 +1920,7 @@ mod gpui_tests {
 
         // First file docks an editor split at the right edge.
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+            ws.add_editor_right("p1", "/tmp/a.rs", false, cx);
         });
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
@@ -1929,7 +1946,7 @@ mod gpui_tests {
 
         // Second file joins the editor area as a tab.
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "/tmp/b.rs", cx);
+            ws.add_editor_right("p1", "/tmp/b.rs", false, cx);
         });
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
@@ -1956,7 +1973,7 @@ mod gpui_tests {
 
         // Re-opening an already-open file focuses it instead of duplicating.
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+            ws.add_editor_right("p1", "/tmp/a.rs", false, cx);
         });
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
@@ -1973,7 +1990,7 @@ mod gpui_tests {
 
         // An editor first, so the browser joins the existing right dock area.
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "/tmp/a.rs", cx);
+            ws.add_editor_right("p1", "/tmp/a.rs", false, cx);
         });
         workspace.update(cx, |ws: &mut Workspace, cx| {
             ws.add_browser_right("p1", "https://example.com", cx);
@@ -2022,10 +2039,10 @@ mod gpui_tests {
 
         // Untitled buffers never dedupe — each request opens a new one.
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "", cx);
+            ws.add_editor_right("p1", "", false, cx);
         });
         workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.add_editor_right("p1", "", cx);
+            ws.add_editor_right("p1", "", false, cx);
         });
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let layout = ws.project("p1").unwrap().layout.as_ref().unwrap();

@@ -100,16 +100,64 @@ impl DiffViewer {
     /// line list stays index-aligned.
     pub(super) fn render_hunk_header(
         &self,
-        _text: &str,
+        text: &str,
         idx: usize,
         prefix: &str,
-        _t: &ThemeColors,
+        t: &ThemeColors,
+        hunk_index: Option<usize>,
+        cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let line_height = self.line_height();
+        let font_size = self.file_font_size;
+        let show_button = self.hunk_staging_available() && hunk_index.is_some();
+        let label = self.hunk_stage_label();
+        // Context after the second `@@` (usually the enclosing fn/scope).
+        let context = extract_hunk_context(text).trim().to_string();
+
         div()
             .id(ElementId::Name(format!("{}-{}", prefix, idx).into()))
             .w_full()
             .h(px(line_height))
+            .flex()
+            .items_center()
+            .bg(rgba(t.diff_hunk_header_bg, 0.35))
+            .border_t_1()
+            .border_color(rgba(t.border, 0.4))
+            .font_family("monospace")
+            .text_size(px(font_size * 0.9))
+            // Context label (muted), aligned into the code column.
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .pl(px(CONTENT_PADDING))
+                    .text_color(rgba(t.text_muted, 0.85))
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .child(context),
+            )
+            // Stage / Unstage control — always visible, brightens on hover.
+            .when(show_button, |d| {
+                d.child(
+                    div()
+                        .id(ElementId::Name(format!("stage-hunk-{idx}").into()))
+                        .flex_shrink_0()
+                        .mr(px(8.0))
+                        .px(px(6.0))
+                        .rounded(px(4.0))
+                        .text_color(rgb(t.text_secondary))
+                        .bg(rgba(t.bg_hover, 0.8))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(t.border_active)).text_color(rgb(t.text_primary)))
+                        .child(label)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(move |this, _, _window, cx| {
+                            if let Some(hi) = hunk_index {
+                                this.toggle_hunk_stage(hi, cx);
+                            }
+                        })),
+                )
+            })
     }
 
     /// Render a context expander row (clickable to load all hidden lines).
@@ -137,7 +185,8 @@ impl DiffViewer {
         // columns and the label aligns with the code column.
         let char_width = self.char_width();
         let num_col_width = (self.line_num_width as f32) * char_width + 12.0;
-        let gutter_width = 2.0 * num_col_width + 1.0;
+        // Single number column + 1px separator (matches `render_line`).
+        let gutter_width = num_col_width + 1.0;
 
         div()
             .id(ElementId::Name(format!("expander-{}", idx).into()))
@@ -235,13 +284,13 @@ impl DiffViewer {
         let line_height = self.line_height();
 
         if line.line_type == DiffLineType::Header {
-            return self.render_hunk_header(&line.plain_text, line_index, "diff-header", t);
+            let hunk_index = self.hunk_index_for_item(line_index);
+            return self
+                .render_hunk_header(&line.plain_text, line_index, "diff-header", t, hunk_index, cx);
         }
 
-        let old_num = line
-            .old_line_num
-            .map(|n| format!("{:>width$}", n, width = self.line_num_width))
-            .unwrap_or_else(|| " ".repeat(self.line_num_width));
+        // Single gutter column: the new-file line number. Removed (red) lines
+        // have no new number, so they render without a number.
         let new_num = line
             .new_line_num
             .map(|n| format!("{:>width$}", n, width = self.line_num_width))
@@ -324,20 +373,12 @@ impl DiffViewer {
                     .flex_shrink_0()
                     .when_some(accent_color, |d, color| d.bg(color)),
             )
-            // Gutter with line numbers
+            // Gutter with the (single) new-file line number
             .child(
                 h_flex()
                     .flex_shrink_0()
                     .h_full()
                     .items_center()
-                    .child(
-                        div()
-                            .w(px(num_col_width))
-                            .pr(px(8.0))
-                            .text_color(rgba(t.text_muted, 0.6))
-                            .text_right()
-                            .child(old_num),
-                    )
                     .child(
                         div()
                             .w(px(num_col_width))

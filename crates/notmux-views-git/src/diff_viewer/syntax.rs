@@ -246,6 +246,17 @@ pub fn process_file(
             }
         }
 
+        // One synthetic hunk-header row per hunk — hosts the stage/unstage
+        // control. Kept out of `hunk_items` so the line-number math above is
+        // unaffected; `plain_text` carries the `@@ … @@` context for display.
+        items.push(DisplayItem::Line(DisplayLine {
+            line_type: DiffLineType::Header,
+            old_line_num: None,
+            new_line_num: None,
+            spans: Vec::new(),
+            plain_text: hunk.header.clone(),
+        }));
+
         // Add this hunk's items
         items.append(&mut hunk_items[hunk_idx]);
     }

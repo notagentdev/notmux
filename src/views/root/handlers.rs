@@ -858,8 +858,12 @@ impl RootView {
                         cx,
                     );
                 }
-                OverlayRequest::MainFileViewer { project_id, file } => {
-                    self.open_editor_tab(project_id, file, cx);
+                OverlayRequest::MainFileViewer {
+                    project_id,
+                    file,
+                    diff,
+                } => {
+                    self.open_editor_tab(project_id, file, diff, cx);
                 }
                 OverlayRequest::RemoteConnect => {
                     if let Some(ref rm) = self.remote_manager {
@@ -1134,10 +1138,11 @@ impl RootView {
         &mut self,
         project_id: String,
         file: String,
+        diff: bool,
         cx: &mut Context<Self>,
     ) {
         self.workspace.update(cx, |ws, cx| {
-            ws.add_editor_right(&project_id, &file, cx);
+            ws.add_editor_right(&project_id, &file, diff, cx);
         });
     }
 

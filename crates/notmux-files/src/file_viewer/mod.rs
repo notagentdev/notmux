@@ -5,6 +5,7 @@
 
 mod context_menu;
 mod buffer;
+mod diff;
 mod editing;
 mod loading;
 mod render;
@@ -84,6 +85,16 @@ pub(super) struct FileViewerTab {
     pub save_error: Option<String>,
     /// Whether the tab content is still being loaded asynchronously.
     pub loading: bool,
+    /// Baseline (file at `HEAD`) for the diff editor; `None` when untracked or
+    /// not yet fetched. `diff_baseline_loaded` guards the one-time git lookup.
+    pub diff_baseline: Option<String>,
+    pub diff_baseline_loaded: bool,
+    /// Live line-diff decorations (additions / deleted lines) vs the baseline;
+    /// `None` outside diff mode or before the first computation.
+    pub line_diff: Option<diff::LineDiff>,
+    /// Interleaved render plan (buffer + red deleted rows), rebuilt whenever
+    /// `line_diff` is recomputed.
+    pub diff_rows: Vec<diff::DiffRow>,
 }
 
 impl FileViewerTab {
@@ -110,6 +121,10 @@ impl FileViewerTab {
             modified_at: None,
             save_error: None,
             loading: false,
+            diff_baseline: None,
+            diff_baseline_loaded: false,
+            line_diff: None,
+            diff_rows: Vec::new(),
         }
     }
 
@@ -141,6 +156,10 @@ impl FileViewerTab {
             modified_at: None,
             save_error: None,
             loading: true,
+            diff_baseline: None,
+            diff_baseline_loaded: false,
+            line_diff: None,
+            diff_rows: Vec::new(),
         }
     }
 
@@ -280,6 +299,9 @@ pub struct FileViewer {
     pub(super) delete_confirm: Option<DeleteConfirmState>,
     /// In-file search state (Ctrl+F)
     pub(super) search_state: Option<search::FileSearchState>,
+    /// When true this pane is an editable diff editor: the active tab is
+    /// decorated with additions (green) / deletions (red) vs `HEAD`.
+    pub(super) diff_mode: bool,
 }
 
 impl FileViewer {
@@ -403,6 +425,7 @@ impl FileViewer {
             rename_state: None,
             delete_confirm: None,
             search_state: None,
+            diff_mode: false,
         }
     }
 
@@ -470,6 +493,7 @@ impl FileViewer {
             rename_state: None,
             delete_confirm: None,
             search_state: None,
+            diff_mode: false,
         }
     }
 

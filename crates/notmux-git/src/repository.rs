@@ -1511,6 +1511,100 @@ pub fn unstage_file(repo_path: &Path, file_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Slice the file header plus the `hunk_index`-th hunk out of a single-file
+/// unified diff. The header is every line before the first `@@` marker; each
+/// hunk runs from its `@@` line up to the next one (or EOF). We keep git's own
+/// bytes verbatim so the result feeds straight back into `git apply`.
+fn extract_hunk_patch(raw: &str, hunk_index: usize) -> Result<String, String> {
+    let mut header = String::new();
+    let mut hunks: Vec<String> = Vec::new();
+    let mut current: Option<String> = None;
+    for line in raw.split_inclusive('\n') {
+        if line.starts_with("@@ ") {
+            if let Some(h) = current.take() {
+                hunks.push(h);
+            }
+            current = Some(line.to_string());
+        } else if let Some(cur) = current.as_mut() {
+            cur.push_str(line);
+        } else {
+            header.push_str(line);
+        }
+    }
+    if let Some(h) = current.take() {
+        hunks.push(h);
+    }
+
+    let hunk = hunks
+        .get(hunk_index)
+        .ok_or_else(|| format!("hunk {hunk_index} out of range ({} total)", hunks.len()))?;
+    let mut patch = String::with_capacity(header.len() + hunk.len() + 1);
+    patch.push_str(&header);
+    patch.push_str(hunk);
+    if !patch.ends_with('\n') {
+        patch.push('\n');
+    }
+    Ok(patch)
+}
+
+/// Stage (`reverse == false`) or unstage (`reverse == true`) a single hunk of
+/// `file_path`. Reads git's own diff — the working tree for staging, the index
+/// (`--cached`) for unstaging — slices out the requested hunk, and pipes it to
+/// `git apply --cached [--reverse]`, so only that hunk moves in or out of the
+/// index. `hunk_index` matches the order of `FileDiff::hunks` for the same file.
+pub fn apply_hunk(
+    repo_path: &Path,
+    file_path: &str,
+    hunk_index: usize,
+    reverse: bool,
+) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
+
+    let mut diff_args = vec!["-C", repo_str, "diff", "--no-color"];
+    if reverse {
+        diff_args.push("--cached");
+    }
+    diff_args.extend(["--", file_path]);
+    let diff = safe_output(command("git").args(&diff_args))
+        .map_err(|e| format!("Failed to read diff: {e}"))?;
+    if !diff.status.success() {
+        return Err(String::from_utf8_lossy(&diff.stderr).trim().to_string());
+    }
+    let raw = String::from_utf8_lossy(&diff.stdout);
+    let patch = extract_hunk_patch(&raw, hunk_index)?;
+
+    let mut apply_args = vec!["-C", repo_str, "apply", "--cached", "--whitespace=nowarn"];
+    if reverse {
+        apply_args.push("--reverse");
+    }
+    apply_args.push("-");
+
+    let mut child = command("git")
+        .args(&apply_args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run git apply: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("git apply: no stdin")?
+        .write_all(patch.as_bytes())
+        .map_err(|e| format!("Failed to write patch: {e}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("git apply failed: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 /// Unstage all files (`git reset`).
 pub fn unstage_all(repo_path: &Path) -> Result<(), String> {
     let repo_str = repo_path.to_str().ok_or("Invalid repo path")?;
@@ -1601,6 +1695,42 @@ pub fn pull(repo_path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    const TWO_HUNK_DIFF: &str = "diff --git a/f.rs b/f.rs\n\
+index 111..222 100644\n\
+--- a/f.rs\n\
++++ b/f.rs\n\
+@@ -1,3 +1,4 @@\n\
+ a\n\
++added-1\n\
+ b\n\
+ c\n\
+@@ -10,2 +11,3 @@\n\
+ x\n\
++added-2\n\
+ y\n";
+
+    #[test]
+    fn extract_hunk_patch_keeps_header_and_selected_hunk() {
+        let h0 = extract_hunk_patch(TWO_HUNK_DIFF, 0).unwrap();
+        assert!(h0.starts_with("diff --git a/f.rs b/f.rs\n"));
+        assert!(h0.contains("@@ -1,3 +1,4 @@"));
+        assert!(h0.contains("+added-1"));
+        assert!(!h0.contains("+added-2"), "must not include the second hunk");
+
+        let h1 = extract_hunk_patch(TWO_HUNK_DIFF, 1).unwrap();
+        assert!(h1.starts_with("diff --git a/f.rs b/f.rs\n"));
+        assert!(h1.contains("@@ -10,2 +11,3 @@"));
+        assert!(h1.contains("+added-2"));
+        assert!(!h1.contains("+added-1"), "must not include the first hunk");
+        assert!(h1.ends_with('\n'));
+    }
+
+    #[test]
+    fn extract_hunk_patch_out_of_range_errs() {
+        assert!(extract_hunk_patch(TWO_HUNK_DIFF, 2).is_err());
+        assert!(extract_hunk_patch("no hunks here\n", 0).is_err());
+    }
 
     #[test]
     fn get_repo_root_returns_none_for_invalid_path() {

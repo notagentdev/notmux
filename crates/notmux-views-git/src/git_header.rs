@@ -381,6 +381,14 @@ impl GitHeader {
             // The viewer loads/expands async and mutates its line count; rebuild
             // the row model (and resize the list) whenever it notifies.
             cx.observe(&viewer, |this, _, cx| this.rebuild_commit_rows(cx)).detach();
+            // A hunk staged/unstaged from within the inline diff changes the
+            // working-tree/index split — refresh the file list stats & state.
+            cx.subscribe(&viewer, |this, _, event, cx| {
+                if matches!(event, crate::diff_viewer::DiffViewerEvent::HunksChanged) {
+                    this.refresh_working_tree_status(cx);
+                }
+            })
+            .detach();
             self.inline_viewers.insert(path, viewer);
         }
         self.rebuild_commit_rows(cx);

@@ -81,6 +81,15 @@ fn source_cursor_canvas(
 }
 
 impl FileViewer {
+    /// Whether buffer `line` is an addition vs the baseline (diff editor).
+    fn line_is_added(&self, line: usize) -> bool {
+        self.active_tab()
+            .line_diff
+            .as_ref()
+            .and_then(|ld| ld.added.get(line).copied())
+            .unwrap_or(false)
+    }
+
     pub(super) fn render_line(
         &self,
         line_number: usize,
@@ -112,13 +121,30 @@ impl FileViewer {
         let text_layout = styled_text.layout().clone();
         let cursor_byte = byte_index_for_char_column(&plain_text, cursor.column);
 
+        // Diff-editor decorations: green background + accent bar for additions.
+        // Deletions render as their own red rows (see `render_deleted_row`).
+        let diff_mode = self.diff_mode;
+        let added = diff_mode && self.line_is_added(line_number);
+        let added_bg = rgba(t.success, 0.14);
+        let accent_green = rgb(t.success);
+
         div()
             .id(ElementId::Name(format!("line-{}", line_number).into()))
             .w_full()
             .flex()
             .h(px(line_height))
+            .when(added, |d| d.bg(added_bg))
             .text_size(ui_text(font_size, cx))
             .font_family("monospace")
+            .when(diff_mode, |d| {
+                d.child(
+                    div()
+                        .w(px(3.0))
+                        .h_full()
+                        .flex_shrink_0()
+                        .when(added, |b| b.bg(accent_green)),
+                )
+            })
             .on_mouse_down(MouseButton::Left, {
                 let text_layout = text_layout.clone();
                 let plain_text = plain_text.clone();
@@ -217,7 +243,56 @@ impl FileViewer {
             )
     }
 
-    /// Render visible lines for the virtualized list.
+    /// Render a read-only deleted (baseline) row in red for the diff editor.
+    /// Deleted rows carry no line number — they no longer exist in the file.
+    fn render_deleted_row(&self, _old_line: usize, text: &str, t: &ThemeColors, cx: &App) -> Div {
+        let tab = self.active_tab();
+        let font_size = self.file_font_size;
+        let line_height = font_size * 1.8;
+        let char_width = self.measured_char_width;
+        let gutter_width = (tab.line_num_width as f32) * char_width + 16.0;
+        div()
+            .w_full()
+            .flex()
+            .h(px(line_height))
+            .bg(rgba(t.error, 0.14))
+            .text_size(ui_text(font_size, cx))
+            .font_family("monospace")
+            // Red accent bar (matches the green additions bar).
+            .child(div().w(px(3.0)).h_full().flex_shrink_0().bg(rgb(t.error)))
+            // Empty gutter (no number) — keeps the separator column aligned.
+            .child(
+                div()
+                    .w(px(gutter_width))
+                    .pr(px(10.0))
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .ml(px(10.0))
+                            .w(px(1.0))
+                            .h(px(line_height * 0.6))
+                            .bg(rgba(t.border, 0.3))
+                            .flex_shrink_0(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .pl(px(SOURCE_TEXT_PADDING_LEFT))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .line_height(px(line_height))
+                    .text_color(rgba(t.error, 0.85))
+                    .child(text.replace('\t', "    ")),
+            )
+    }
+
+    /// Render visible lines for the virtualized list. In diff mode the list is
+    /// the interleaved plan (buffer lines + red deleted rows); otherwise it is
+    /// one row per buffer line.
     pub(super) fn render_visible_lines(
         &self,
         range: std::ops::Range<usize>,
@@ -225,6 +300,19 @@ impl FileViewer {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let tab = self.active_tab();
+        if self.diff_mode && tab.line_diff.is_some() {
+            return range
+                .filter_map(|i| match tab.diff_rows.get(i)? {
+                    super::diff::DiffRow::Buffer(bi) => tab
+                        .highlighted_lines
+                        .get(*bi)
+                        .map(|line| self.render_line(*bi, line, t, cx).into_any_element()),
+                    super::diff::DiffRow::Deleted { old_line, text } => {
+                        Some(self.render_deleted_row(*old_line, text, t, cx).into_any_element())
+                    }
+                })
+                .collect();
+        }
         range
             .filter_map(|i| {
                 tab.highlighted_lines
@@ -663,6 +751,12 @@ impl Render for FileViewer {
         // Check for externally modified files (throttled to 1/sec)
         self.check_active_tab_freshness();
 
+        // First render after a diff-mode load: compute decorations once (edits
+        // keep them fresh thereafter). Cheap — guarded to run only when missing.
+        if self.diff_mode && self.active_tab().line_diff.is_none() && !self.active_tab().loading {
+            self.recompute_active_diff();
+        }
+
         let t = theme(cx);
         let focus_handle = self.focus_handle.clone();
         let tab = self.active_tab();
@@ -709,7 +803,13 @@ impl Render for FileViewer {
 
         // Virtualization setup
         let tab = self.active_tab();
-        let line_count = tab.line_count;
+        // In diff mode the virtualized list includes the interleaved red
+        // deleted rows, so size it to the render plan.
+        let line_count = if self.diff_mode && tab.line_diff.is_some() {
+            tab.diff_rows.len()
+        } else {
+            tab.line_count
+        };
         let theme_colors = Arc::new(t);
         let view = cx.entity().clone();
         let scrollbar_geometry = get_scrollbar_geometry(&tab.source_scroll_handle);

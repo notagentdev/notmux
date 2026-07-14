@@ -7,7 +7,8 @@ pub use diff::{
     get_diff_with_options, get_file_contents_for_diff, is_git_repo,
 };
 pub use repository::{
-    FileSection, FileStatusRefresh, commit, compute_target_paths, count_unpushed_commits,
+    FileSection, FileStatusRefresh, apply_hunk, commit, compute_target_paths,
+    count_unpushed_commits,
     create_worktree, delete_local_branch, delete_remote_branch, discard_all_tracked, discard_file,
     fetch_all, get_available_branches_for_worktree, get_commit_log, get_current_branch,
     get_default_branch, get_file_statuses, get_repo_root, get_working_tree_status,

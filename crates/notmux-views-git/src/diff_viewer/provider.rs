@@ -58,6 +58,15 @@ pub trait GitProvider: Send + Sync + 'static {
     fn stage_file(&self, file_path: &str) -> Result<(), String>;
     /// Unstage a single file.
     fn unstage_file(&self, file_path: &str) -> Result<(), String>;
+    /// Stage a single hunk (working-tree hunk → index). `hunk_index` matches
+    /// the order of the file's parsed diff hunks. Default: unsupported.
+    fn stage_hunk(&self, _file_path: &str, _hunk_index: usize) -> Result<(), String> {
+        Err("hunk staging not supported here".to_string())
+    }
+    /// Unstage a single hunk (index hunk → working tree). Default: unsupported.
+    fn unstage_hunk(&self, _file_path: &str, _hunk_index: usize) -> Result<(), String> {
+        Err("hunk staging not supported here".to_string())
+    }
     /// Stage all changes.
     fn stage_all(&self) -> Result<(), String>;
     /// Unstage all changes.
@@ -170,6 +179,14 @@ impl GitProvider for LocalGitProvider {
 
     fn unstage_file(&self, file_path: &str) -> Result<(), String> {
         notmux_git::unstage_file(std::path::Path::new(&self.path), file_path)
+    }
+
+    fn stage_hunk(&self, file_path: &str, hunk_index: usize) -> Result<(), String> {
+        notmux_git::apply_hunk(std::path::Path::new(&self.path), file_path, hunk_index, false)
+    }
+
+    fn unstage_hunk(&self, file_path: &str, hunk_index: usize) -> Result<(), String> {
+        notmux_git::apply_hunk(std::path::Path::new(&self.path), file_path, hunk_index, true)
     }
 
     fn stage_all(&self) -> Result<(), String> {

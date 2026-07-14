@@ -33,6 +33,13 @@ pub trait ProjectFs: Send + Sync + 'static {
 
     /// Unique project identifier (used for caching).
     fn project_id(&self) -> String;
+
+    /// File content at git `HEAD`, used as the baseline for the diff editor.
+    /// Returns `None` when the file is untracked, the project is not a git
+    /// repo, or the backend does not support it. Default: unsupported.
+    fn file_at_head(&self, _relative_path: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Local file system provider — delegates to existing functions.
@@ -66,6 +73,22 @@ impl ProjectFs for LocalProjectFs {
         std::fs::metadata(&full)
             .map(|m| m.len())
             .map_err(|e| format!("Cannot read file: {}", e))
+    }
+
+    fn file_at_head(&self, relative_path: &str) -> Option<String> {
+        // `HEAD:./<path>` resolves relative to the -C directory (the project
+        // path), so this works even when the repo root differs from cwd.
+        let output = notmux_core::process::command("git")
+            .arg("-C")
+            .arg(&self.path)
+            .arg("show")
+            .arg(format!("HEAD:./{relative_path}"))
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     fn search_content(

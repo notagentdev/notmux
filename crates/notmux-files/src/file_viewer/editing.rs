@@ -21,6 +21,50 @@ impl FileViewer {
         file_path.to_string_lossy().replace('\\', "/")
     }
 
+    /// Enable/disable diff-editor mode for this pane. Clears decorations when
+    /// disabling and recomputes them when enabling.
+    pub fn set_diff_mode(&mut self, diff: bool, cx: &mut Context<Self>) {
+        if self.diff_mode == diff {
+            return;
+        }
+        self.diff_mode = diff;
+        if !diff {
+            for tab in &mut self.tabs {
+                tab.line_diff = None;
+                tab.diff_rows = Vec::new();
+                tab.diff_baseline = None;
+                tab.diff_baseline_loaded = false;
+            }
+        }
+        self.recompute_active_diff();
+        cx.notify();
+    }
+
+    /// Fetch the `HEAD` baseline once (cached per tab), then recompute the
+    /// active tab's line-diff decorations against the current buffer. Cheap
+    /// enough to run after every edit; the git lookup runs only once per file.
+    pub(super) fn recompute_active_diff(&mut self) {
+        if !self.diff_mode {
+            return;
+        }
+        let idx = self.active_tab;
+        match self.tabs.get(idx) {
+            Some(tab) if !tab.loading && !tab.is_empty() => {}
+            _ => return,
+        }
+        let rel = self.active_relative_path();
+        let fs = self.project_fs.clone();
+        let tab = &mut self.tabs[idx];
+        if !tab.diff_baseline_loaded {
+            tab.diff_baseline = fs.file_at_head(&rel);
+            tab.diff_baseline_loaded = true;
+        }
+        let baseline = tab.diff_baseline.as_deref().unwrap_or("");
+        let ld = super::diff::compute_line_diff(baseline, tab.buffer.text());
+        tab.diff_rows = ld.rows();
+        tab.line_diff = Some(ld);
+    }
+
     pub(super) fn insert_text_at_cursor(&mut self, text: &str, cx: &mut Context<Self>) {
         if text.is_empty() || !self.can_edit_source() {
             return;
@@ -159,6 +203,8 @@ impl FileViewer {
         if tab.is_markdown {
             tab.markdown_doc = Some(MarkdownDocument::parse(tab.buffer.text()));
         }
+        // Keep the diff decorations live as the buffer changes.
+        self.recompute_active_diff();
         cx.notify();
     }
 }

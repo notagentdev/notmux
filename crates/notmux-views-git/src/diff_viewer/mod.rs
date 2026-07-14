@@ -213,6 +213,95 @@ impl DiffViewer {
         self.error_message.clone()
     }
 
+    /// Whether hunks can be staged/unstaged in the current mode (only the
+    /// working tree and the index are mutable; commit / branch-compare diffs
+    /// are read-only).
+    pub(super) fn hunk_staging_available(&self) -> bool {
+        matches!(self.diff_mode, DiffMode::WorkingTree | DiffMode::Staged)
+    }
+
+    /// Button label for the current mode: staged hunks unstage, working-tree
+    /// hunks stage.
+    pub(super) fn hunk_stage_label(&self) -> &'static str {
+        if matches!(self.diff_mode, DiffMode::Staged) {
+            "Unstage"
+        } else {
+            "Stage"
+        }
+    }
+
+    /// Path of the file currently shown, used to address hunk staging.
+    fn current_file_path(&self) -> Option<String> {
+        self.raw_files
+            .get(self.selected_file_index)
+            .and_then(|f| f.new_path.clone().or_else(|| f.old_path.clone()))
+    }
+
+    /// Zero-based hunk ordinal for the header display item at `item_idx`
+    /// (headers appear in `items` in the same order as `FileDiff::hunks`).
+    pub(super) fn hunk_index_for_item(&self, item_idx: usize) -> Option<usize> {
+        let file = self.current_file.as_ref()?;
+        if !matches!(
+            file.items.get(item_idx),
+            Some(DisplayItem::Line(l)) if l.line_type == notmux_git::DiffLineType::Header
+        ) {
+            return None;
+        }
+        let ordinal = file.items[..item_idx]
+            .iter()
+            .filter(|it| {
+                matches!(it, DisplayItem::Line(l) if l.line_type == notmux_git::DiffLineType::Header)
+            })
+            .count();
+        Some(ordinal)
+    }
+
+    /// Zero-based hunk ordinal for the side-by-side header row at `sbs_idx`.
+    pub(super) fn hunk_index_for_sbs(&self, sbs_idx: usize) -> Option<usize> {
+        if !self.side_by_side_lines.get(sbs_idx)?.is_header {
+            return None;
+        }
+        Some(
+            self.side_by_side_lines[..sbs_idx]
+                .iter()
+                .filter(|l| l.is_header)
+                .count(),
+        )
+    }
+
+    /// Stage (working-tree mode) or unstage (staged mode) the given hunk, then
+    /// reload the diff and notify the owner so its file list refreshes.
+    pub(super) fn toggle_hunk_stage(&mut self, hunk_index: usize, cx: &mut Context<Self>) {
+        let Some(file_path) = self.current_file_path() else {
+            return;
+        };
+        let reverse = matches!(self.diff_mode, DiffMode::Staged);
+        let mode = self.diff_mode.clone();
+        let provider = self.provider.clone();
+        cx.spawn(async move |this, cx| {
+            let path = file_path.clone();
+            let result = smol::unblock(move || {
+                if reverse {
+                    provider.unstage_hunk(&path, hunk_index)
+                } else {
+                    provider.stage_hunk(&path, hunk_index)
+                }
+            })
+            .await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    this.load_diff_async(mode, Some(file_path), cx);
+                    cx.emit(DiffViewerEvent::HunksChanged);
+                }
+                Err(e) => {
+                    this.error_message = Some(e);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     /// The fixed line height (whole pixels) the host should reserve per item.
     pub fn inline_line_height(&self) -> f32 {
         self.line_height()
@@ -916,6 +1005,9 @@ impl DiffViewer {
 #[derive(Clone, Debug)]
 pub enum DiffViewerEvent {
     Close,
+    /// A hunk was staged or unstaged from within the viewer — the owner should
+    /// refresh its working-tree status / file list.
+    HunksChanged,
 }
 
 impl EventEmitter<DiffViewerEvent> for DiffViewer {}
