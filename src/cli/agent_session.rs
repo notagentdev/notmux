@@ -71,12 +71,12 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
     }
 
     // Merge stdin payload (if any) under explicit flags.
-    if session_id.is_none() || cwd.is_none() || transcript_path.is_none() {
-        if let Some(payload) = read_stdin_json() {
-            session_id = session_id.or_else(|| first_string(&payload, SESSION_ID_KEYS));
-            cwd = cwd.or_else(|| first_string(&payload, CWD_KEYS));
-            transcript_path = transcript_path.or_else(|| first_string(&payload, TRANSCRIPT_KEYS));
-        }
+    if (session_id.is_none() || cwd.is_none() || transcript_path.is_none())
+        && let Some(payload) = read_stdin_json()
+    {
+        session_id = session_id.or_else(|| first_string(&payload, SESSION_ID_KEYS));
+        cwd = cwd.or_else(|| first_string(&payload, CWD_KEYS));
+        transcript_path = transcript_path.or_else(|| first_string(&payload, TRANSCRIPT_KEYS));
     }
 
     let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) else {
