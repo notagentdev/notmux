@@ -123,10 +123,11 @@ impl FileViewer {
 
         // Diff-editor decorations: green background + accent bar for additions.
         // Deletions render as their own red rows (see `render_deleted_row`).
+        // Colors + alphas match the git panel's inline diff (theme diff colors).
         let diff_mode = self.diff_mode;
         let added = diff_mode && self.line_is_added(line_number);
-        let added_bg = rgba(t.success, 0.14);
-        let accent_green = rgb(t.success);
+        let added_bg = rgba(t.diff_added_bg, 0.18);
+        let accent_green = rgba(t.diff_added_fg, 0.7);
 
         div()
             .id(ElementId::Name(format!("line-{}", line_number).into()))
@@ -255,11 +256,17 @@ impl FileViewer {
             .w_full()
             .flex()
             .h(px(line_height))
-            .bg(rgba(t.error, 0.14))
+            .bg(rgba(t.diff_removed_bg, 0.18))
             .text_size(ui_text(font_size, cx))
             .font_family("monospace")
             // Red accent bar (matches the green additions bar).
-            .child(div().w(px(3.0)).h_full().flex_shrink_0().bg(rgb(t.error)))
+            .child(
+                div()
+                    .w(px(3.0))
+                    .h_full()
+                    .flex_shrink_0()
+                    .bg(rgba(t.diff_removed_fg, 0.7)),
+            )
             // Empty gutter (no number) — keeps the separator column aligned.
             .child(
                 div()
@@ -285,7 +292,7 @@ impl FileViewer {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .line_height(px(line_height))
-                    .text_color(rgba(t.error, 0.85))
+                    .text_color(rgb(t.diff_removed_fg))
                     .child(text.replace('\t', "    ")),
             )
     }
