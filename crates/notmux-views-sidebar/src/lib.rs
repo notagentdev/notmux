@@ -7,6 +7,7 @@ pub mod folder_list;
 pub mod hook_list;
 pub mod hook_log;
 pub mod item_widgets;
+pub mod pinned_list;
 pub mod project_list;
 pub mod remote_list;
 pub mod rename_directory_dialog;

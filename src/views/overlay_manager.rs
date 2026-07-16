@@ -1109,6 +1109,17 @@ impl OverlayManager {
         self.close_modal(cx);
         self.close_all_context_menus();
 
+        // Some(is_pinned) for panes in local projects, None (no pin entry) otherwise.
+        let pin_state = {
+            let ws = self.workspace.read(cx);
+            ws.project(&project_id)
+                .filter(|p| !p.is_remote)
+                .and_then(|p| p.layout.as_ref())
+                .and_then(|l| l.get_at_path(&layout_path))
+                .and_then(|n| n.slot_id())
+                .map(|slot| ws.is_pinned(&project_id, slot))
+        };
+
         let menu = cx.new(|cx| {
             TerminalContextMenu::new(
                 terminal_id,
@@ -1117,6 +1128,7 @@ impl OverlayManager {
                 position,
                 has_selection,
                 link_url,
+                pin_state,
                 cx,
             )
         });
@@ -1180,6 +1192,26 @@ impl OverlayManager {
                 TerminalContextMenuEvent::CopyLink { url } => {
                     this.hide_terminal_context_menu(cx);
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                }
+                TerminalContextMenuEvent::TogglePin {
+                    project_id,
+                    layout_path,
+                } => {
+                    this.hide_terminal_context_menu(cx);
+                    let slot = this
+                        .workspace
+                        .read(cx)
+                        .project(project_id)
+                        .and_then(|p| p.layout.as_ref())
+                        .and_then(|l| l.get_at_path(layout_path))
+                        .and_then(|n| n.slot_id())
+                        .map(String::from);
+                    if let Some(slot) = slot {
+                        let project_id = project_id.clone();
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.toggle_pin(&project_id, &slot, cx);
+                        });
+                    }
                 }
             },
         )
@@ -1612,8 +1644,25 @@ impl OverlayManager {
         self.close_modal(cx);
         self.close_all_context_menus();
 
+        // Some(is_pinned) for panes in local projects, None (no pin entry) otherwise.
+        let pin_state = {
+            let ws = self.workspace.read(cx);
+            ws.project(&project_id)
+                .filter(|p| !p.is_remote)
+                .and_then(|_| Self::tab_slot_id(ws, &project_id, &layout_path, tab_index))
+                .map(|slot| ws.is_pinned(&project_id, &slot))
+        };
+
         let menu = cx.new(|cx| {
-            TabContextMenu::new(tab_index, num_tabs, project_id, layout_path, position, cx)
+            TabContextMenu::new(
+                tab_index,
+                num_tabs,
+                project_id,
+                layout_path,
+                position,
+                pin_state,
+                cx,
+            )
         });
 
         cx.subscribe(
@@ -1658,12 +1707,50 @@ impl OverlayManager {
                         tab_index: *tab_index,
                     });
                 }
+                TabContextMenuEvent::TogglePin {
+                    project_id,
+                    layout_path,
+                    tab_index,
+                } => {
+                    this.hide_tab_context_menu(cx);
+                    let slot = Self::tab_slot_id(
+                        this.workspace.read(cx),
+                        project_id,
+                        layout_path,
+                        *tab_index,
+                    );
+                    if let Some(slot) = slot {
+                        let project_id = project_id.clone();
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.toggle_pin(&project_id, &slot, cx);
+                        });
+                    }
+                }
             },
         )
         .detach();
 
         self.tab_context_menu.set(menu);
         cx.notify();
+    }
+
+    /// Resolve the slot id of the pane a tab context menu points at.
+    /// Tab bars pass the Tabs node path + child index; standalone bars pass
+    /// the leaf's own path with index 0 — try both.
+    fn tab_slot_id(
+        ws: &Workspace,
+        project_id: &str,
+        layout_path: &[usize],
+        tab_index: usize,
+    ) -> Option<String> {
+        let layout = ws.project(project_id)?.layout.as_ref()?;
+        let mut child_path = layout_path.to_vec();
+        child_path.push(tab_index);
+        layout
+            .get_at_path(&child_path)
+            .and_then(|n| n.slot_id())
+            .or_else(|| layout.get_at_path(layout_path).and_then(|n| n.slot_id()))
+            .map(String::from)
     }
 
     /// Hide tab context menu.

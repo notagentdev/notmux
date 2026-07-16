@@ -108,11 +108,6 @@ impl SettingsState {
     setting_setter!(set_color_tinted_background, color_tinted_background, bool);
     setting_setter!(set_monochrome_icons, monochrome_icons, bool);
     setting_setter!(set_transparent_background, transparent_background, bool);
-    setting_setter!(
-        set_show_all_projects_on_projects_click,
-        show_all_projects_on_projects_click,
-        bool
-    );
     setting_setter!(set_show_shell_selector, show_shell_selector, bool);
     setting_setter!(set_min_column_width, min_column_width, f32, 100.0, 2000.0);
     setting_setter!(set_idle_timeout_secs, idle_timeout_secs, u32, 0, 300);

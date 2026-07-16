@@ -24,6 +24,11 @@ pub enum TabContextMenuEvent {
         layout_path: Vec<usize>,
         tab_index: usize,
     },
+    TogglePin {
+        project_id: String,
+        layout_path: Vec<usize>,
+        tab_index: usize,
+    },
 }
 
 /// Context menu for tab bar
@@ -33,6 +38,8 @@ pub struct TabContextMenu {
     project_id: String,
     layout_path: Vec<usize>,
     position: Point<Pixels>,
+    /// Some(is_pinned) when the pane can be pinned (local project), None otherwise.
+    pin_state: Option<bool>,
     focus_handle: FocusHandle,
 }
 
@@ -43,6 +50,7 @@ impl TabContextMenu {
         project_id: String,
         layout_path: Vec<usize>,
         position: Point<Pixels>,
+        pin_state: Option<bool>,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -52,6 +60,7 @@ impl TabContextMenu {
             project_id,
             layout_path,
             position,
+            pin_state,
             focus_handle,
         }
     }
@@ -100,6 +109,27 @@ impl Render for TabContextMenu {
             .child(deferred(
                 anchored().position(position).snap_to_window().child(
                     context_menu_panel("tab-context-menu", &t)
+                        // Pin / Unpin (local projects only)
+                        .children(self.pin_state.map(|is_pinned| {
+                            menu_item(
+                                "tab-ctx-toggle-pin",
+                                if is_pinned {
+                                    "icons/unpin.svg"
+                                } else {
+                                    "icons/pinned.svg"
+                                },
+                                if is_pinned { "Unpin" } else { "Pin" },
+                                &t,
+                            )
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                cx.emit(TabContextMenuEvent::TogglePin {
+                                    project_id: this.project_id.clone(),
+                                    layout_path: this.layout_path.clone(),
+                                    tab_index: this.tab_index,
+                                });
+                            }))
+                        }))
+                        .children(self.pin_state.map(|_| menu_separator(&t)))
                         // Close tab
                         .child(
                             menu_item("tab-ctx-close", "icons/close.svg", "Close", &t).on_click(

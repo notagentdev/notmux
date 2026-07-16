@@ -12,6 +12,10 @@ impl Workspace {
     /// Also focuses the first terminal in the project if one exists.
     /// If the project has no layout, drills into the first worktree child.
     pub fn set_focused_project(&mut self, project_id: Option<String>, cx: &mut Context<Self>) {
+        // Focusing a single project leaves the pinned view
+        if project_id.is_some() {
+            self.data.pinned_view_active = false;
+        }
         // Clear fullscreen without restoring old project_id (we're overriding it)
         self.focus_manager.clear_fullscreen_without_restore();
 
@@ -35,6 +39,9 @@ impl Workspace {
         project_id: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        if project_id.is_some() {
+            self.data.pinned_view_active = false;
+        }
         self.focus_manager.clear_fullscreen_without_restore();
         self.focus_manager
             .set_focused_project_id_individual(project_id.clone());

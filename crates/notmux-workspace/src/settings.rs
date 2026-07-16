@@ -394,10 +394,6 @@ pub struct AppSettings {
     pub monochrome_icons: bool,
     #[serde(default = "default_transparent_background")]
     pub transparent_background: bool,
-    /// Clicking the Projects label exits single-project view and shows all projects.
-    #[serde(default)]
-    pub show_all_projects_on_projects_click: bool,
-
     // Font settings
     /// Terminal font size (default: 14.0)
     #[serde(default = "default_font_size")]
@@ -550,7 +546,6 @@ impl Default for AppSettings {
             color_tinted_background: false,
             monochrome_icons: false,
             transparent_background: default_transparent_background(),
-            show_all_projects_on_projects_click: false,
             font_size: default_font_size(),
             font_family: default_font_family(),
             line_height: default_line_height(),
@@ -805,13 +800,6 @@ fn recover_settings_from_json(content: &str) -> Result<AppSettings> {
     if let Some(v) = obj.get("monochrome_icons").and_then(|v| v.as_bool()) {
         settings.monochrome_icons = v;
     }
-    if let Some(v) = obj
-        .get("show_all_projects_on_projects_click")
-        .and_then(|v| v.as_bool())
-    {
-        settings.show_all_projects_on_projects_click = v;
-    }
-
     if let Some(v) = obj.get("font_size").and_then(|v| v.as_f64()) {
         settings.font_size = (v as f32).clamp(8.0, 48.0);
     }
@@ -1224,12 +1212,6 @@ mod tests {
                 directory: "/tmp".to_string()
             }
         );
-    }
-
-    #[test]
-    fn show_all_projects_on_projects_click_defaults_off() {
-        let settings: AppSettings = serde_json::from_str("{}").unwrap();
-        assert!(!settings.show_all_projects_on_projects_click);
     }
 
     #[test]

@@ -229,8 +229,6 @@ impl RootView {
                     notmux_views_sidebar::SidebarSettings {
                         worktree_path_template: app_settings.worktree.path_template.clone(),
                         hooks: app_settings.hooks.clone(),
-                        show_all_projects_on_projects_click: app_settings
-                            .show_all_projects_on_projects_click,
                         monochrome_icons: app_settings.monochrome_icons,
                         show_hidden: app_settings.file_explorer.show_hidden,
                         transparent_background: app_settings.transparent_background,
@@ -796,6 +794,7 @@ impl RootView {
                                 service_terminals: std::collections::HashMap::new(),
                                 default_shell: None,
                                 hook_terminals: std::collections::HashMap::new(),
+                                pinned_slots: Vec::new(),
                             });
                         }
                         // Update the transient remote snapshot regardless of create/update path.

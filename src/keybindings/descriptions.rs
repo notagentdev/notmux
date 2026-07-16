@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use super::types::ActionDescription;
 use super::{
-    AddTab, CheckForUpdates, ClearFocus, CloseSearch, CloseTerminal, Copy, CreateWorktree,
-    EqualizeLayout, FocusActiveProject, FocusDown, FocusLeft, FocusNextNotification,
+    AddTab, CheckForUpdates, CloseSearch, CloseTerminal, Copy, CreateWorktree,
+    EqualizeLayout, FocusDown, FocusLeft, FocusNextNotification,
     FocusNextTerminal, FocusPrevTerminal, FocusRight, FocusSidebar, FocusUp, FullscreenNextTerminal,
     FullscreenPrevTerminal, InstallUpdate, MinimizeTerminal, NewProject, OpenBrowser,
     OpenSettingsFile, Paste,
@@ -75,24 +75,6 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
             description: "Open the embedded browser pane in the active project",
             category: "Global",
             factory: || Box::new(OpenBrowser),
-        },
-    );
-    map.insert(
-        "ClearFocus",
-        ActionDescription {
-            name: "Clear Focus",
-            description: "Clear focus and show all projects",
-            category: "Global",
-            factory: || Box::new(ClearFocus),
-        },
-    );
-    map.insert(
-        "FocusActiveProject",
-        ActionDescription {
-            name: "Focus Active Project",
-            description: "Focus the project containing the active terminal",
-            category: "Global",
-            factory: || Box::new(FocusActiveProject),
         },
     );
 

@@ -3,12 +3,10 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
-use notmux_core::api::ActionRequest;
 use notmux_ui::icon_button::icon_button;
 use notmux_ui::rename_state::is_renaming;
 use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::{ui_text_md, ui_text_sm};
-use notmux_views_terminal::actions::{MinimizeTerminal, ToggleFullscreen};
 use crate::drag::{FolderDrag, ProjectDrag, ProjectDragView, WorktreeDrag, WorktreeDragView};
 use crate::item_widgets::*;
 use crate::sidebar::{Sidebar, SidebarProjectInfo};
@@ -593,6 +591,20 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             })
         };
 
+        // Pin state (panes pin by their leaf slot id; local projects only)
+        let (pin_slot, is_pinned, can_pin) = {
+            let ws = self.workspace.read(cx);
+            let project = ws.project(&project_id);
+            let slot = project
+                .and_then(|p| p.layout.as_ref())
+                .and_then(|l| l.find_terminal_slot_id(&terminal_id));
+            let pinned = project
+                .zip(slot.as_ref())
+                .is_some_and(|(p, s)| p.pinned_slots.iter().any(|ps| ps == s));
+            let can = slot.is_some() && project.is_some_and(|p| !p.is_remote);
+            (slot, pinned, can)
+        };
+
         div()
             .id(ElementId::Name(
                 format!("{}terminal-item-{}", id_prefix, terminal_id).into(),
@@ -627,6 +639,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                 move |this, _, _window, cx| {
                     this.cursor_index = None;
                     this.workspace.update(cx, |ws, cx| {
+                        // Clicking a pane in the tree focuses its project
+                        // (and thereby leaves the pinned view)
+                        ws.set_focused_project(Some(project_id.clone()), cx);
                         ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
                     });
                 }
@@ -719,6 +734,7 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                             } else {
                                 this.cursor_index = None;
                                 this.workspace.update(cx, |ws, cx| {
+                                    ws.set_focused_project(Some(project_id.clone()), cx);
                                     ws.focus_terminal_by_id(&project_id, &terminal_id, cx);
                                 });
                             }
@@ -735,90 +751,42 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     .flex_shrink_0()
                     .child(d)
             }))
-            .child(
-                // Action buttons - show on hover
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .gap(px(2.0))
-                    .opacity(0.0)
-                    .group_hover("terminal-item", |s| s.opacity(1.0))
-                    .child(
-                        // Minimize/restore button
-                        icon_button(
-                            ElementId::Name(
-                                format!("{}minimize-{}", id_prefix, terminal_id).into(),
-                            ),
-                            "icons/minimize.svg",
-                            &t,
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|_this, _, _, cx| {
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_click(cx.listener({
-                            let project_id = project_id.clone();
-                            let terminal_id = terminal_id.clone();
-                            move |this, _, _window, cx| {
-                                cx.stop_propagation();
-                                this.dispatch_action_for_project(
-                                    &project_id,
-                                    ActionRequest::ToggleMinimized {
-                                        project_id: project_id.clone(),
-                                        terminal_id: terminal_id.clone(),
-                                    },
-                                    cx,
-                                );
-                            }
-                        }))
-                        .tooltip({
-                            let tooltip_text = if is_minimized { "Restore" } else { "Minimize" };
-                            move |_window, cx| {
-                                Tooltip::new(tooltip_text)
-                                    .action(&MinimizeTerminal as &dyn Action, None)
-                                    .build(_window, cx)
-                            }
-                        }),
-                    )
-                    .child(
-                        // Fullscreen button
-                        icon_button(
-                            ElementId::Name(
-                                format!("{}fullscreen-{}", id_prefix, terminal_id).into(),
-                            ),
-                            "icons/fullscreen.svg",
-                            &t,
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|_this, _, _, cx| {
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_click(cx.listener({
-                            let project_id = project_id.clone();
-                            let terminal_id = terminal_id.clone();
-                            move |this, _, _window, cx| {
-                                cx.stop_propagation();
-                                this.dispatch_action_for_project(
-                                    &project_id,
-                                    ActionRequest::SetFullscreen {
-                                        project_id: project_id.clone(),
-                                        terminal_id: Some(terminal_id.clone()),
-                                    },
-                                    cx,
-                                );
-                            }
-                        }))
-                        .tooltip(|_window, cx| {
-                            Tooltip::new("Fullscreen")
-                                .action(&ToggleFullscreen as &dyn Action, None)
-                                .build(_window, cx)
-                        }),
-                    ),
-            )
+            // Pin button: always visible when pinned, hover-only otherwise
+            .children(can_pin.then(|| {
+                let slot = pin_slot.clone().expect("can_pin implies a slot id");
+                icon_button(
+                    ElementId::Name(format!("{}pin-{}", id_prefix, terminal_id).into()),
+                    if is_pinned {
+                        "icons/unpin.svg"
+                    } else {
+                        "icons/pinned.svg"
+                    },
+                    &t,
+                )
+                .when(!is_pinned, |d| {
+                    d.opacity(0.0)
+                        .group_hover("terminal-item", |s| s.opacity(1.0))
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|_this, _, _, cx| {
+                        cx.stop_propagation();
+                    }),
+                )
+                .on_click(cx.listener({
+                    let project_id = project_id.clone();
+                    move |this, _, _window, cx| {
+                        cx.stop_propagation();
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.toggle_pin(&project_id, &slot, cx);
+                        });
+                    }
+                }))
+                .tooltip({
+                    let tooltip_text = if is_pinned { "Unpin" } else { "Pin" };
+                    move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx)
+                })
+            }))
     }
 
     /// A row in the "Editors" group: file icon + basename, click focuses the
@@ -861,10 +829,13 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             })
         };
 
+        let (is_pinned, can_pin) = self.pane_pin_state(&project_id, &slot_id, cx);
+
         div()
             .id(ElementId::Name(
                 format!("{}editor-item-{}", id_prefix, slot_id).into(),
             ))
+            .group("editor-item")
             .mx(px(6.0))
             .pl(px(left_padding))
             .pr(px(14.0))
@@ -883,6 +854,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                 move |this, _, _window, cx| {
                     this.cursor_index = None;
                     this.workspace.update(cx, |ws, cx| {
+                        // Clicking a pane in the tree focuses its project
+                        // (and thereby leaves the pinned view)
+                        ws.set_focused_project(Some(project_id.clone()), cx);
                         let path = ws
                             .project(&project_id)
                             .and_then(|p| p.layout.as_ref())
@@ -917,6 +891,16 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     .truncate()
                     .child(file_name),
             )
+            .children(can_pin.then(|| {
+                self.render_pane_pin_button(
+                    ElementId::Name(format!("{}editor-pin-{}", id_prefix, slot_id).into()),
+                    "editor-item",
+                    &project_id,
+                    &slot_id,
+                    is_pinned,
+                    cx,
+                )
+            }))
     }
 
     /// A row in the "Browsers" group: globe icon + host, click focuses the
@@ -958,10 +942,13 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             })
         };
 
+        let (is_pinned, can_pin) = self.pane_pin_state(&project_id, &slot_id, cx);
+
         div()
             .id(ElementId::Name(
                 format!("{}browser-item-{}", id_prefix, slot_id).into(),
             ))
+            .group("browser-item")
             .mx(px(6.0))
             .pl(px(left_padding))
             .pr(px(14.0))
@@ -980,6 +967,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                 move |this, _, _window, cx| {
                     this.cursor_index = None;
                     this.workspace.update(cx, |ws, cx| {
+                        // Clicking a pane in the tree focuses its project
+                        // (and thereby leaves the pinned view)
+                        ws.set_focused_project(Some(project_id.clone()), cx);
                         let path = ws
                             .project(&project_id)
                             .and_then(|p| p.layout.as_ref())
@@ -1014,6 +1004,72 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     .truncate()
                     .child(label),
             )
+            .children(can_pin.then(|| {
+                self.render_pane_pin_button(
+                    ElementId::Name(format!("{}browser-pin-{}", id_prefix, slot_id).into()),
+                    "browser-item",
+                    &project_id,
+                    &slot_id,
+                    is_pinned,
+                    cx,
+                )
+            }))
+    }
+
+    /// Pin state of a pane addressed directly by its slot id (editor/browser rows).
+    fn pane_pin_state(&self, project_id: &str, slot_id: &str, cx: &Context<Self>) -> (bool, bool) {
+        let ws = self.workspace.read(cx);
+        let project = ws.project(project_id);
+        let is_pinned =
+            project.is_some_and(|p| p.pinned_slots.iter().any(|ps| ps == slot_id));
+        let can_pin = project.is_some_and(|p| !p.is_remote);
+        (is_pinned, can_pin)
+    }
+
+    /// Shared hover pin toggle button for sidebar pane rows.
+    fn render_pane_pin_button(
+        &self,
+        id: ElementId,
+        group: &'static str,
+        project_id: &str,
+        slot_id: &str,
+        is_pinned: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let t = theme(cx);
+        let project_id = project_id.to_string();
+        let slot_id = slot_id.to_string();
+
+        icon_button(
+            id,
+            if is_pinned {
+                "icons/unpin.svg"
+            } else {
+                "icons/pinned.svg"
+            },
+            &t,
+        )
+        // Dimmed but always visible — editor/browser rows have no other
+        // hover buttons that would hint at the affordance
+        .when(!is_pinned, |d| {
+            d.opacity(0.4).group_hover(group, |s| s.opacity(1.0))
+        })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|_this, _, _, cx| {
+                cx.stop_propagation();
+            }),
+        )
+        .on_click(cx.listener(move |this, _, _window, cx| {
+            cx.stop_propagation();
+            this.workspace.update(cx, |ws, cx| {
+                ws.toggle_pin(&project_id, &slot_id, cx);
+            });
+        }))
+        .tooltip({
+            let tooltip_text = if is_pinned { "Unpin" } else { "Pin" };
+            move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx)
+        })
     }
 
     /// Render project as a group header when it has worktrees.

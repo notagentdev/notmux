@@ -50,6 +50,9 @@ pub struct WorkspaceData {
     /// Last focused terminal pane.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_terminal: Option<FocusedTerminalState>,
+    /// When true, the main view shows all projects with pinned panes side by side.
+    #[serde(default)]
+    pub pinned_view_active: bool,
 }
 
 impl WorkspaceData {
@@ -116,6 +119,7 @@ impl WorkspaceData {
                 .filter(|f| !f.id.starts_with("remote:"))
                 .cloned()
                 .collect(),
+            pinned_view_active: self.pinned_view_active,
         }
     }
 }
@@ -210,6 +214,9 @@ pub struct ProjectData {
     /// Hook terminals displayed in the service panel (persisted across restarts)
     #[serde(default)]
     pub hook_terminals: HashMap<String, HookTerminalEntry>,
+    /// Slot IDs of pinned panes (terminal/editor/browser leaves).
+    #[serde(default)]
+    pub pinned_slots: Vec<String>,
 }
 
 impl ProjectData {
@@ -288,6 +295,7 @@ mod tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -431,5 +439,28 @@ mod tests {
 
         let reloaded: ProjectData = serde_json::from_str(&saved).unwrap();
         assert_eq!(reloaded.hooks.project.on_open.as_deref(), Some("init.sh"));
+    }
+
+    #[test]
+    fn pin_fields_default_on_old_files() {
+        // Old workspace.json without pin fields → empty pins, view off
+        let project: ProjectData = serde_json::from_str(
+            r#"{"id":"p1","name":"P1","path":"/tmp","layout":null}"#,
+        )
+        .unwrap();
+        assert!(project.pinned_slots.is_empty());
+
+        let data: WorkspaceData =
+            serde_json::from_str(r#"{"projects":[],"project_order":[]}"#).unwrap();
+        assert!(!data.pinned_view_active);
+    }
+
+    #[test]
+    fn pin_fields_round_trip() {
+        let mut project = make_project("/tmp");
+        project.pinned_slots = vec!["slot-a".to_string(), "slot-b".to_string()];
+        let json = serde_json::to_string(&project).unwrap();
+        let back: ProjectData = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.pinned_slots, vec!["slot-a", "slot-b"]);
     }
 }

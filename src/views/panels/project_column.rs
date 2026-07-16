@@ -45,6 +45,9 @@ pub struct ProjectColumn {
     service_panel: Entity<ServicePanel<ActionDispatcher>>,
     /// Self-contained hook panel entity
     hook_panel: Entity<HookPanel>,
+    /// Window-drag latch for the pinned-view title bar: set on mouse-down,
+    /// consumed by the next mouse-move (a plain click must not move the window).
+    title_should_move: bool,
 }
 
 impl ProjectColumn {
@@ -126,6 +129,7 @@ impl ProjectColumn {
             git_header,
             service_panel,
             hook_panel,
+            title_should_move: false,
         }
     }
 
@@ -745,6 +749,62 @@ impl Render for ProjectColumn {
                     gh.set_current_branch(current_branch.clone());
                 });
 
+                // Pinned view: title bar with the project name on each container.
+                // Also a window-drag handle (same latch pattern as the tab strip:
+                // mouse-down arms, the next mouse-move starts the OS window move,
+                // so a plain click stays a click).
+                let pinned_title_bar = if self.workspace.read(cx).data.pinned_view_active {
+                    // Colored projects color the pin icon (not the bar background)
+                    let effective_color = self.workspace.read(cx).effective_folder_color(&project);
+                    let pin_color = if effective_color != crate::theme::FolderColor::Default {
+                        rgb(t.get_folder_color(effective_color))
+                    } else {
+                        rgb(t.text_secondary)
+                    };
+                    Some(
+                        div()
+                            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                            .px(px(12.0))
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .bg(rgb(t.bg_header))
+                            .border_b_1()
+                            .border_color(rgb(t.border))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, _| this.title_should_move = true),
+                            )
+                            .on_mouse_up(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, _| this.title_should_move = false),
+                            )
+                            .on_mouse_move(cx.listener(|this, _, window, _| {
+                                if this.title_should_move {
+                                    this.title_should_move = false;
+                                    window.start_window_move();
+                                }
+                            }))
+                            .child(
+                                svg()
+                                    .path("icons/pinned.svg")
+                                    .size(px(12.0))
+                                    .text_color(pin_color),
+                            )
+                            .child(
+                                div()
+                                    .text_size(ui_text_md(cx))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(t.text_primary))
+                                    .text_ellipsis()
+                                    .child(project.name.clone()),
+                            ),
+                    )
+                } else {
+                    None
+                };
+
                 div()
                     .id("project-column-main")
                     .relative()
@@ -753,6 +813,7 @@ impl Render for ProjectColumn {
                     .size_full()
                     .min_h_0()
                     .bg(bg_color)
+                    .children(pinned_title_bar)
                     .child(content)
                     // Hook panel (delegated to HookPanel entity)
                     .child(self.hook_panel.update(cx, |hp, cx| hp.render_panel(&t, cx)))

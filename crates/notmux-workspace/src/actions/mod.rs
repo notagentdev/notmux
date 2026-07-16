@@ -9,6 +9,7 @@
 pub mod focus;
 pub mod folder;
 pub mod layout;
+pub mod pin;
 pub mod project;
 pub mod terminal;
 

@@ -39,6 +39,10 @@ pub enum TerminalContextMenuEvent {
     CopyLink {
         url: String,
     },
+    TogglePin {
+        project_id: String,
+        layout_path: Vec<usize>,
+    },
 }
 
 /// Context menu for terminal content
@@ -50,6 +54,8 @@ pub struct TerminalContextMenu {
     has_selection: bool,
     /// URL at the right-click position (if any).
     link_url: Option<String>,
+    /// Some(is_pinned) when the pane can be pinned (local project), None otherwise.
+    pin_state: Option<bool>,
     focus_handle: FocusHandle,
 }
 
@@ -61,6 +67,7 @@ impl TerminalContextMenu {
         position: Point<Pixels>,
         has_selection: bool,
         link_url: Option<String>,
+        pin_state: Option<bool>,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -71,6 +78,7 @@ impl TerminalContextMenu {
             position,
             has_selection,
             link_url,
+            pin_state,
             focus_handle,
         }
     }
@@ -232,6 +240,25 @@ impl Render for TerminalContextMenu {
                                 },
                             )),
                         )
+                        // Pin / Unpin (local projects only)
+                        .children(self.pin_state.map(|is_pinned| {
+                            menu_item(
+                                "ctx-toggle-pin",
+                                if is_pinned {
+                                    "icons/unpin.svg"
+                                } else {
+                                    "icons/pinned.svg"
+                                },
+                                if is_pinned { "Unpin" } else { "Pin" },
+                                &t,
+                            )
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                cx.emit(TerminalContextMenuEvent::TogglePin {
+                                    project_id: this.project_id.clone(),
+                                    layout_path: this.layout_path.clone(),
+                                });
+                            }))
+                        }))
                         .child(menu_separator(&t))
                         // Close
                         .child(

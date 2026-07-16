@@ -40,6 +40,14 @@ impl Workspace {
             project.hidden_terminals.remove(id);
         }
 
+        // Drop pins whose pane no longer exists in the layout
+        let layout_slots: std::collections::HashSet<String> = project
+            .layout
+            .as_ref()
+            .map(|l| l.collect_slot_ids().into_iter().collect())
+            .unwrap_or_default();
+        project.pinned_slots.retain(|s| layout_slots.contains(s));
+
         orphaned
     }
     /// Split a terminal at a path
@@ -795,7 +803,7 @@ impl Workspace {
     ///
     /// Extracts the source terminal from its current position and inserts it
     /// next to the target based on the drop zone (Top/Bottom/Left/Right/Center).
-    /// Supports both same-project and cross-project moves.
+    /// Cross-project moves are rejected.
     pub fn move_pane(
         &mut self,
         source_project_id: &str,
@@ -810,24 +818,17 @@ impl Workspace {
             return;
         }
 
-        if source_project_id == target_project_id {
-            self.move_pane_same_project(
-                source_project_id,
-                source_terminal_id,
-                target_terminal_id,
-                zone,
-                cx,
-            );
-        } else {
-            self.move_pane_cross_project(
-                source_project_id,
-                source_terminal_id,
-                target_project_id,
-                target_terminal_id,
-                zone,
-                cx,
-            );
+        // Panes never move between projects
+        if source_project_id != target_project_id {
+            return;
         }
+        self.move_pane_same_project(
+            source_project_id,
+            source_terminal_id,
+            target_terminal_id,
+            zone,
+            cx,
+        );
     }
 
     /// Same-project pane move (original logic).
@@ -910,149 +911,7 @@ impl Workspace {
         }
     }
 
-    /// Cross-project pane move: extract terminal from source project, insert into target project.
-    fn move_pane_cross_project(
-        &mut self,
-        source_project_id: &str,
-        source_terminal_id: &str,
-        target_project_id: &str,
-        target_terminal_id: &str,
-        zone: DropZone,
-        cx: &mut Context<Self>,
-    ) {
-        // Find project indices (needed for split borrows)
-        let src_idx = match self
-            .data
-            .projects
-            .iter()
-            .position(|p| p.id == source_project_id)
-        {
-            Some(i) => i,
-            None => return,
-        };
-        let tgt_idx = match self
-            .data
-            .projects
-            .iter()
-            .position(|p| p.id == target_project_id)
-        {
-            Some(i) => i,
-            None => return,
-        };
-
-        // Validate source has layout and terminal exists
-        let src_layout = match self.data.projects[src_idx].layout.as_ref() {
-            Some(l) => l,
-            None => return,
-        };
-        let source_path = match src_layout.find_pane_path(source_terminal_id) {
-            Some(p) => p,
-            None => return,
-        };
-        let source_node = match src_layout.get_at_path(&source_path) {
-            Some(node) => node.clone(),
-            None => return,
-        };
-
-        // Block if terminal is a service terminal
-        if self.data.projects[src_idx]
-            .service_terminals
-            .values()
-            .any(|id| id == source_terminal_id)
-        {
-            return;
-        }
-
-        // Validate target has layout and target terminal exists
-        let tgt_layout = match self.data.projects[tgt_idx].layout.as_ref() {
-            Some(l) => l,
-            None => return,
-        };
-        if tgt_layout.find_pane_path(target_terminal_id).is_none() {
-            return;
-        }
-
-        // --- Extract from source ---
-        let src_project = &mut self.data.projects[src_idx];
-        if source_path.is_empty() {
-            // Source is root — remove entire layout
-            src_project.layout = None;
-        } else {
-            let src_layout = src_project
-                .layout
-                .as_mut()
-                .expect("non-empty source_path implies layout is Some");
-            if src_layout.remove_at_path(&source_path).is_none() {
-                return;
-            }
-            src_layout.normalize();
-        }
-
-        // Migrate metadata from source to target
-        let terminal_name = src_project.terminal_names.remove(source_terminal_id);
-        let hidden_state = src_project.hidden_terminals.remove(source_terminal_id);
-
-        // Cleanup orphaned source metadata
-        let src_layout_ids: std::collections::HashSet<String> = src_project
-            .layout
-            .as_ref()
-            .map(|l| l.collect_terminal_ids().into_iter().collect())
-            .unwrap_or_default();
-        src_project
-            .terminal_names
-            .retain(|id, _| src_layout_ids.contains(id));
-        src_project
-            .hidden_terminals
-            .retain(|id, _| src_layout_ids.contains(id));
-
-        // --- Insert into target ---
-        let tgt_project = &mut self.data.projects[tgt_idx];
-
-        if let Some(name) = terminal_name {
-            tgt_project
-                .terminal_names
-                .insert(source_terminal_id.to_string(), name);
-        }
-        if let Some(hidden) = hidden_state {
-            tgt_project
-                .hidden_terminals
-                .insert(source_terminal_id.to_string(), hidden);
-        }
-
-        let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
-            // Re-find target path in target layout
-            let target_path = match tgt_layout.find_pane_path(target_terminal_id) {
-                Some(p) => p,
-                None => return,
-            };
-
-            Self::insert_node_at_drop_zone(tgt_layout, source_node, &target_path, zone);
-
-            tgt_layout.normalize();
-            tgt_layout.find_pane_path(source_terminal_id)
-        } else {
-            // Target has no layout — set source node as root
-            tgt_project.layout = Some(source_node);
-            tgt_project
-                .layout
-                .as_ref()
-                .expect("set to Some one line above")
-                .find_pane_path(source_terminal_id)
-        };
-
-        self.notify_data(cx);
-
-        // Focus the moved terminal in the target project
-        if let Some(new_path) = new_focus_path {
-            self.set_focused_terminal(target_project_id.to_string(), new_path, cx);
-        }
-    }
-
-    /// Place `source_node` relative to the pane at `target_path` for a drop
-    /// zone. A center-drop on a pane that is already a tab joins its Tabs
-    /// group as a sibling — wrapping would nest a Tabs inside a Tabs, which
-    /// renders as an opaque "Tab n" with a second tab bar. Every other case
-    /// wraps target + source via [`Self::build_drop_zone_wrapper`].
+    /// Insert a node relative to a target path based on the drop zone.
     fn insert_node_at_drop_zone(
         layout: &mut LayoutNode,
         source_node: LayoutNode,
@@ -1115,6 +974,7 @@ impl Workspace {
             },
         }
     }
+
     /// Move a terminal into an existing tab group.
     ///
     /// Extracts the source terminal from its current position and inserts it
@@ -1127,8 +987,7 @@ impl Workspace {
     /// so we locate the target tab group by finding a reference terminal that
     /// was already in it, rather than relying on the original `tabs_path`.
     ///
-    /// Supports cross-project moves when `target_project_id` differs from
-    /// `source_project_id`.
+    /// Cross-project moves are rejected.
     pub fn move_terminal_to_tab_group(
         &mut self,
         source_project_id: &str,
@@ -1138,24 +997,17 @@ impl Workspace {
         insert_index: Option<usize>,
         cx: &mut Context<Self>,
     ) {
-        if source_project_id == target_project_id {
-            self.move_terminal_to_tab_group_same_project(
-                source_project_id,
-                terminal_id,
-                tabs_path,
-                insert_index,
-                cx,
-            );
-        } else {
-            self.move_terminal_to_tab_group_cross_project(
-                source_project_id,
-                terminal_id,
-                target_project_id,
-                tabs_path,
-                insert_index,
-                cx,
-            );
+        // Panes never move between projects
+        if source_project_id != target_project_id {
+            return;
         }
+        self.move_terminal_to_tab_group_same_project(
+            source_project_id,
+            terminal_id,
+            tabs_path,
+            insert_index,
+            cx,
+        );
     }
 
     /// Same-project tab group move (original logic).
@@ -1280,171 +1132,6 @@ impl Workspace {
         }
     }
 
-    /// Cross-project tab group move: extract terminal from source project, insert into target tab group.
-    fn move_terminal_to_tab_group_cross_project(
-        &mut self,
-        source_project_id: &str,
-        terminal_id: &str,
-        target_project_id: &str,
-        tabs_path: &[usize],
-        insert_index: Option<usize>,
-        cx: &mut Context<Self>,
-    ) {
-        let src_idx = match self
-            .data
-            .projects
-            .iter()
-            .position(|p| p.id == source_project_id)
-        {
-            Some(i) => i,
-            None => return,
-        };
-        let tgt_idx = match self
-            .data
-            .projects
-            .iter()
-            .position(|p| p.id == target_project_id)
-        {
-            Some(i) => i,
-            None => return,
-        };
-
-        // Validate source
-        let src_layout = match self.data.projects[src_idx].layout.as_ref() {
-            Some(l) => l,
-            None => return,
-        };
-        let source_path = match src_layout.find_pane_path(terminal_id) {
-            Some(p) => p,
-            None => return,
-        };
-        let source_node = match src_layout.get_at_path(&source_path) {
-            Some(node) => node.clone(),
-            None => return,
-        };
-
-        // Block service terminals
-        if self.data.projects[src_idx]
-            .service_terminals
-            .values()
-            .any(|id| id == terminal_id)
-        {
-            return;
-        }
-
-        // Validate target has the tab group
-        let tgt_layout = match self.data.projects[tgt_idx].layout.as_ref() {
-            Some(l) => l,
-            None => return,
-        };
-
-        // Find a reference terminal in the target tab group
-        let reference_tid = match tgt_layout.get_at_path(tabs_path) {
-            Some(node) => {
-                let ids = node.collect_pane_ids();
-                ids.into_iter().find(|id| id != terminal_id)
-            }
-            None => return,
-        };
-        let reference_tid = match reference_tid {
-            Some(id) => id,
-            None => return,
-        };
-
-        // --- Extract from source ---
-        let src_project = &mut self.data.projects[src_idx];
-        if source_path.is_empty() {
-            src_project.layout = None;
-        } else {
-            let src_layout = src_project
-                .layout
-                .as_mut()
-                .expect("non-empty source_path implies layout is Some");
-            if src_layout.remove_at_path(&source_path).is_none() {
-                return;
-            }
-            src_layout.normalize();
-        }
-
-        // Migrate metadata
-        let terminal_name = src_project.terminal_names.remove(terminal_id);
-        let hidden_state = src_project.hidden_terminals.remove(terminal_id);
-
-        // Cleanup orphaned source metadata
-        let src_layout_ids: std::collections::HashSet<String> = src_project
-            .layout
-            .as_ref()
-            .map(|l| l.collect_terminal_ids().into_iter().collect())
-            .unwrap_or_default();
-        src_project
-            .terminal_names
-            .retain(|id, _| src_layout_ids.contains(id));
-        src_project
-            .hidden_terminals
-            .retain(|id, _| src_layout_ids.contains(id));
-
-        // --- Insert into target ---
-        let tgt_project = &mut self.data.projects[tgt_idx];
-
-        if let Some(name) = terminal_name {
-            tgt_project
-                .terminal_names
-                .insert(terminal_id.to_string(), name);
-        }
-        if let Some(hidden) = hidden_state {
-            tgt_project
-                .hidden_terminals
-                .insert(terminal_id.to_string(), hidden);
-        }
-
-        let new_focus_path = if let Some(ref mut tgt_layout) = tgt_project.layout {
-            // Re-find the tabs container via the reference terminal
-            let ref_path = match tgt_layout.find_pane_path(&reference_tid) {
-                Some(p) => p,
-                None => return,
-            };
-            let new_tabs_path = if ref_path.is_empty() {
-                return;
-            } else {
-                ref_path[..ref_path.len() - 1].to_vec()
-            };
-
-            let tabs_node = match tgt_layout.get_at_path_mut(&new_tabs_path) {
-                Some(node) => node,
-                None => return,
-            };
-
-            if let LayoutNode::Tabs {
-                children,
-                active_tab,
-            } = tabs_node
-            {
-                let idx = insert_index.unwrap_or(children.len());
-                let clamped = idx.min(children.len());
-                children.insert(clamped, source_node);
-                *active_tab = clamped;
-            } else {
-                return;
-            }
-
-            tgt_layout.normalize();
-            tgt_layout.find_pane_path(terminal_id)
-        } else {
-            // Target has no layout — set source node as root
-            tgt_project.layout = Some(source_node);
-            tgt_project
-                .layout
-                .as_ref()
-                .expect("set to Some one line above")
-                .find_pane_path(terminal_id)
-        };
-
-        self.notify_data(cx);
-
-        if let Some(new_path) = new_focus_path {
-            self.set_focused_terminal(target_project_id.to_string(), new_path, cx);
-        }
-    }
 
     /// Equalize pane sizes in the focused terminal's parent split.
     pub fn equalize_focused_split(&mut self, cx: &mut Context<Self>) {
@@ -1895,6 +1582,7 @@ mod gpui_tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -1910,6 +1598,7 @@ mod gpui_tests {
             focused_project_id: None,
             focus_project_individual: false,
             focused_terminal: None,
+            pinned_view_active: false,
         }
     }
 
@@ -2357,6 +2046,7 @@ mod gpui_tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -2952,11 +2642,9 @@ mod gpui_tests {
         });
     }
 
-    // === cross-project move_pane tests ===
-
     #[gpui::test]
-    fn test_move_pane_cross_project(cx: &mut gpui::TestAppContext) {
-        // p1: V[t1, t2], p2: t3 → move t1 to left of t3 → p1: t2, p2: V[t1, t3]
+    fn test_move_pane_cross_project_is_noop(cx: &mut gpui::TestAppContext) {
+        // Panes never move between projects — both layouts stay unchanged.
         let p1 = make_project_with_layout(
             "p1",
             LayoutNode::Split {
@@ -2971,194 +2659,14 @@ mod gpui_tests {
 
         workspace.update(cx, |ws: &mut Workspace, cx| {
             ws.move_pane("p1", "t1", "p2", "t3", DropZone::Left, cx);
+            ws.move_terminal_to_tab_group("p1", "t1", "p2", &[], Some(0), cx);
         });
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
-            // p1 should have just t2
-            let p1_layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
-            assert!(matches!(p1_layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2"));
-
-            // p2 should have V[t1, t3]
-            let p2_layout = ws.project("p2").unwrap().layout.as_ref().unwrap();
-            match p2_layout {
-                LayoutNode::Split { direction, children, .. } => {
-                    assert_eq!(*direction, SplitDirection::Vertical);
-                    assert_eq!(children.len(), 2);
-                    let ids = p2_layout.collect_terminal_ids();
-                    assert_eq!(ids, vec!["t1", "t3"]);
-                }
-                _ => panic!("Expected vertical split in p2, got {:?}", p2_layout),
-            }
-        });
-    }
-
-    #[gpui::test]
-    fn test_move_pane_cross_project_center(cx: &mut gpui::TestAppContext) {
-        // p1: V[t1, t2], p2: t3 → move t1 center onto t3 → p2: Tabs[t3, t1]
-        let p1 = make_project_with_layout(
-            "p1",
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                sizes: vec![50.0, 50.0],
-                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-            },
-        );
-        let p2 = make_project_with_layout("p2", terminal_node_t("t3"));
-        let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.move_pane("p1", "t1", "p2", "t3", DropZone::Center, cx);
-        });
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            let p2_layout = ws.project("p2").unwrap().layout.as_ref().unwrap();
-            match p2_layout {
-                LayoutNode::Tabs {
-                    children,
-                    active_tab,
-                } => {
-                    assert_eq!(children.len(), 2);
-                    assert_eq!(*active_tab, 1);
-                    let ids = p2_layout.collect_terminal_ids();
-                    assert_eq!(ids, vec!["t3", "t1"]);
-                }
-                _ => panic!("Expected tabs in p2, got {:?}", p2_layout),
-            }
-        });
-    }
-
-    #[gpui::test]
-    fn test_move_pane_cross_project_last_terminal(cx: &mut gpui::TestAppContext) {
-        // p1: t1 (sole terminal), p2: t2 → move t1 to left of t2 → p1 layout = None
-        let p1 = make_project_with_layout("p1", terminal_node_t("t1"));
-        let p2 = make_project_with_layout("p2", terminal_node_t("t2"));
-        let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.move_pane("p1", "t1", "p2", "t2", DropZone::Left, cx);
-        });
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            // p1 layout should be None (sole terminal moved out)
-            assert!(ws.project("p1").unwrap().layout.is_none());
-
-            // p2 should have V[t1, t2]
-            let p2_layout = ws.project("p2").unwrap().layout.as_ref().unwrap();
-            let ids = p2_layout.collect_terminal_ids();
-            assert_eq!(ids, vec!["t1", "t2"]);
-        });
-    }
-
-    #[gpui::test]
-    fn test_move_pane_cross_project_metadata_migration(cx: &mut gpui::TestAppContext) {
-        // Move t1 from p1 to p2, verify terminal_names and hidden_terminals migrate
-        let mut p1 = make_project_with_layout(
-            "p1",
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                sizes: vec![50.0, 50.0],
-                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-            },
-        );
-        p1.terminal_names
-            .insert("t1".to_string(), "My Terminal".to_string());
-        p1.terminal_names
-            .insert("t2".to_string(), "Other Terminal".to_string());
-        p1.hidden_terminals.insert("t1".to_string(), true);
-
-        let p2 = make_project_with_layout("p2", terminal_node_t("t3"));
-        let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.move_pane("p1", "t1", "p2", "t3", DropZone::Right, cx);
-        });
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            let p1 = ws.project("p1").unwrap();
-            assert!(!p1.terminal_names.contains_key("t1"));
-            assert!(p1.terminal_names.contains_key("t2"));
-            assert!(!p1.hidden_terminals.contains_key("t1"));
-
-            let p2 = ws.project("p2").unwrap();
-            assert_eq!(p2.terminal_names.get("t1").unwrap(), "My Terminal");
-            assert_eq!(p2.hidden_terminals.get("t1").unwrap(), &true);
-        });
-    }
-
-    #[gpui::test]
-    fn test_move_pane_cross_project_to_bookmark(cx: &mut gpui::TestAppContext) {
-        // p2 has no layout (bookmark) → t1 becomes root of p2
-        let p1 = make_project_with_layout(
-            "p1",
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                sizes: vec![50.0, 50.0],
-                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-            },
-        );
-        let mut p2 = make_project("p2");
-        p2.layout = None;
-        let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        // Can't use move_pane with target_terminal_id since p2 has no layout/terminal.
-        // In practice the UI wouldn't offer a drop target on a bookmark.
-        // This test verifies the guard: move_pane should be a noop when target has no terminal.
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            // p1 should be unchanged (no valid target terminal in p2)
             let p1_layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
             assert_eq!(p1_layout.collect_terminal_ids(), vec!["t1", "t2"]);
-        });
-    }
-
-    #[gpui::test]
-    fn test_move_to_tab_group_cross_project(cx: &mut gpui::TestAppContext) {
-        // p1: V[t1, t2], p2: Tabs[t3, t4] → move t1 into p2's tabs at index 1
-        let p1 = make_project_with_layout(
-            "p1",
-            LayoutNode::Split {
-                direction: SplitDirection::Vertical,
-                sizes: vec![50.0, 50.0],
-                children: vec![terminal_node_t("t1"), terminal_node_t("t2")],
-            },
-        );
-        let p2 = make_project_with_layout(
-            "p2",
-            LayoutNode::Tabs {
-                children: vec![terminal_node_t("t3"), terminal_node_t("t4")],
-                active_tab: 0,
-            },
-        );
-        let data = make_workspace_data(vec![p1, p2], vec!["p1", "p2"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.move_terminal_to_tab_group("p1", "t1", "p2", &[], Some(1), cx);
-        });
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            // p1 should have just t2
-            let p1_layout = ws.project("p1").unwrap().layout.as_ref().unwrap();
-            assert!(matches!(p1_layout, LayoutNode::Terminal { terminal_id: Some(id), .. } if id == "t2"));
-
-            // p2 should have Tabs[t3, t1, t4]
             let p2_layout = ws.project("p2").unwrap().layout.as_ref().unwrap();
-            match p2_layout {
-                LayoutNode::Tabs { children, active_tab } => {
-                    assert_eq!(children.len(), 3);
-                    assert_eq!(*active_tab, 1);
-                    let ids: Vec<_> = children.iter().filter_map(|c| match c {
-                        LayoutNode::Terminal { terminal_id: Some(id), .. } => Some(id.as_str()),
-                        _ => None,
-                    }).collect();
-                    assert_eq!(ids, vec!["t3", "t1", "t4"]);
-                }
-                _ => panic!("Expected tabs in p2, got {:?}", p2_layout),
-            }
+            assert_eq!(p2_layout.collect_terminal_ids(), vec!["t3"]);
         });
     }
 }

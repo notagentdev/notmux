@@ -85,6 +85,78 @@ impl LayoutNode {
         }
     }
 
+    /// The slot ID of a leaf node (None for Split/Tabs).
+    pub fn slot_id(&self) -> Option<&str> {
+        match self {
+            LayoutNode::Terminal { slot_id, .. }
+            | LayoutNode::Editor { slot_id, .. }
+            | LayoutNode::Browser { slot_id, .. } => Some(slot_id),
+            LayoutNode::Split { .. } | LayoutNode::Tabs { .. } => None,
+        }
+    }
+
+    /// Returns true if this subtree contains at least one leaf whose slot_id is pinned.
+    pub fn contains_pinned(&self, pinned: &[String]) -> bool {
+        match self {
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                children.iter().any(|c| c.contains_pinned(pinned))
+            }
+            leaf => leaf
+                .slot_id()
+                .is_some_and(|s| pinned.iter().any(|p| p == s)),
+        }
+    }
+
+    /// Find the path of the leaf with the given slot_id.
+    pub fn find_path_by_slot_id(&self, slot: &str) -> Option<Vec<usize>> {
+        match self {
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                children.iter().enumerate().find_map(|(i, c)| {
+                    c.find_path_by_slot_id(slot).map(|mut path| {
+                        path.insert(0, i);
+                        path
+                    })
+                })
+            }
+            leaf => (leaf.slot_id() == Some(slot)).then(Vec::new),
+        }
+    }
+
+    /// Collect the slot_ids of all leaves in tree order.
+    pub fn collect_slot_ids(&self) -> Vec<String> {
+        match self {
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                children.iter().flat_map(|c| c.collect_slot_ids()).collect()
+            }
+            leaf => leaf.slot_id().map(String::from).into_iter().collect(),
+        }
+    }
+
+    /// Collect cloned leaf nodes whose slot_id is pinned, in tree order.
+    pub fn collect_pinned_leaves(&self, pinned: &[String]) -> Vec<LayoutNode> {
+        let mut leaves = Vec::new();
+        self.collect_pinned_leaves_into(pinned, &mut leaves);
+        leaves
+    }
+
+    fn collect_pinned_leaves_into(&self, pinned: &[String], out: &mut Vec<LayoutNode>) {
+        match self {
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for child in children {
+                    child.collect_pinned_leaves_into(pinned, out);
+                }
+            }
+            leaf => {
+                if leaf
+                    .slot_id()
+                    .is_some_and(|s| pinned.iter().any(|p| p == s))
+                {
+                    out.push(leaf.clone());
+                }
+            }
+        }
+    }
+
     /// Replace a terminal ID in the layout tree (for hook rerun).
     pub fn replace_terminal_id(&mut self, old_id: &str, new_id: &str) {
         match self {
@@ -2228,5 +2300,89 @@ mod tests {
             LayoutNode::Browser { url, .. } => assert_eq!(url, "https://example.com/x?q=1"),
             other => panic!("expected browser, got {:?}", other),
         }
+    }
+
+    // === pin helpers ===
+
+    fn terminal_slot(slot: &str) -> LayoutNode {
+        LayoutNode::Terminal {
+            slot_id: slot.to_string(),
+            terminal_id: Some(format!("tid-{slot}")),
+            minimized: false,
+            detached: false,
+            shell_type: ShellType::Default,
+            zoom_level: 1.0,
+        }
+    }
+
+    fn editor_slot(slot: &str) -> LayoutNode {
+        LayoutNode::Editor {
+            slot_id: slot.to_string(),
+            file_path: "/tmp/a.rs".to_string(),
+            diff: false,
+        }
+    }
+
+    fn browser_slot(slot: &str) -> LayoutNode {
+        LayoutNode::Browser {
+            slot_id: slot.to_string(),
+            url: "https://example.com".to_string(),
+        }
+    }
+
+    /// Split[Tabs[term(a), editor(b)], browser(c)]
+    fn pin_tree() -> LayoutNode {
+        LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            sizes: vec![50.0, 50.0],
+            children: vec![
+                LayoutNode::Tabs {
+                    children: vec![terminal_slot("a"), editor_slot("b")],
+                    active_tab: 0,
+                },
+                browser_slot("c"),
+            ],
+        }
+    }
+
+    fn pins(slots: &[&str]) -> Vec<String> {
+        slots.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn contains_pinned_finds_nested_leaves() {
+        let tree = pin_tree();
+        assert!(tree.contains_pinned(&pins(&["b"])));
+        assert!(tree.contains_pinned(&pins(&["c"])));
+        assert!(!tree.contains_pinned(&pins(&["x"])));
+        assert!(!tree.contains_pinned(&[]));
+        // Leaf root matches its own slot
+        assert!(terminal_slot("a").contains_pinned(&pins(&["a"])));
+    }
+
+    #[test]
+    fn collect_pinned_leaves_in_tree_order() {
+        let tree = pin_tree();
+        let leaves = tree.collect_pinned_leaves(&pins(&["c", "a"]));
+        let slots: Vec<_> = leaves.iter().filter_map(|l| l.slot_id()).collect();
+        assert_eq!(slots, vec!["a", "c"]);
+        assert!(tree.collect_pinned_leaves(&[]).is_empty());
+    }
+
+    #[test]
+    fn collect_slot_ids_all_leaves() {
+        assert_eq!(pin_tree().collect_slot_ids(), vec!["a", "b", "c"]);
+        assert_eq!(terminal_slot("a").collect_slot_ids(), vec!["a"]);
+    }
+
+    #[test]
+    fn find_path_by_slot_id_nested() {
+        let tree = pin_tree();
+        assert_eq!(tree.find_path_by_slot_id("a"), Some(vec![0, 0]));
+        assert_eq!(tree.find_path_by_slot_id("b"), Some(vec![0, 1]));
+        assert_eq!(tree.find_path_by_slot_id("c"), Some(vec![1]));
+        assert_eq!(tree.find_path_by_slot_id("x"), None);
+        // Leaf root resolves to the empty path
+        assert_eq!(browser_slot("c").find_path_by_slot_id("c"), Some(vec![]));
     }
 }

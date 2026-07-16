@@ -221,6 +221,7 @@ mod tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -248,6 +249,7 @@ mod tests {
             focused_project_id: None,
             focus_project_individual: false,
             focused_terminal: None,
+            pinned_view_active: false,
         }
     }
 

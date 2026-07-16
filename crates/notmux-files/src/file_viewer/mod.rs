@@ -270,6 +270,9 @@ pub struct FileViewer {
     sidebar_visible: bool,
     /// Whether this viewer is embedded into the main app content area.
     embedded: bool,
+    /// Host callback fired when the embedded viewer is clicked (the root
+    /// occludes lower hitboxes, so the host pane can't observe clicks itself).
+    pub(super) on_click_embedded: Option<Box<dyn Fn(&mut Window, &mut App)>>,
     monochrome_icons: bool,
     /// Open tabs
     pub(super) tabs: Vec<FileViewerTab>,
@@ -410,6 +413,7 @@ impl FileViewer {
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
             embedded: false,
+            on_click_embedded: None,
             monochrome_icons,
             tabs: vec![tab],
             active_tab: 0,
@@ -478,6 +482,7 @@ impl FileViewer {
             tree_scroll_handle: ScrollHandle::new(),
             sidebar_visible: true,
             embedded: false,
+            on_click_embedded: None,
             monochrome_icons,
             tabs: vec![FileViewerTab::new_empty()],
             active_tab: 0,
@@ -522,6 +527,16 @@ impl FileViewer {
         viewer.sidebar_visible = false;
         viewer.embedded = true;
         viewer
+    }
+
+    /// Set the host callback fired on any click into the embedded viewer.
+    /// The embedded root occludes lower hitboxes, so the host pane cannot
+    /// observe clicks itself.
+    pub fn set_on_click_embedded(
+        &mut self,
+        callback: impl Fn(&mut Window, &mut App) + 'static,
+    ) {
+        self.on_click_embedded = Some(Box::new(callback));
     }
 
     /// Update configuration (font size and dark mode) from the host app.

@@ -375,6 +375,41 @@ impl Workspace {
     /// When a folder filter is active, only projects from that folder are shown
     /// (top-level projects are hidden). Focused project override still takes priority.
     pub fn visible_projects(&self) -> Vec<&ProjectData> {
+        // Pinned view: local projects with at least one pinned pane, side by
+        // side. Independent of show_in_overview / folder filter — a pin alone
+        // decides visibility here.
+        if self.data.pinned_view_active {
+            let has_pins = |p: &ProjectData| {
+                !p.is_remote
+                    && p.layout
+                        .as_ref()
+                        .is_some_and(|l| l.contains_pinned(&p.pinned_slots))
+            };
+            let mut result: Vec<&ProjectData> = Vec::new();
+            // project_order first (folders expanded) for stable ordering
+            for id in &self.data.project_order {
+                if let Some(folder) = self.data.folders.iter().find(|f| f.id == *id) {
+                    for pid in &folder.project_ids {
+                        if let Some(p) = self.data.projects.iter().find(|p| &p.id == pid)
+                            && has_pins(p)
+                        {
+                            result.push(p);
+                        }
+                    }
+                } else if let Some(p) = self.data.projects.iter().find(|p| p.id == *id)
+                    && has_pins(p)
+                {
+                    result.push(p);
+                }
+            }
+            // Any pinned project not covered by project_order (safety net)
+            for p in &self.data.projects {
+                if has_pins(p) && !result.iter().any(|r| r.id == p.id) {
+                    result.push(p);
+                }
+            }
+            return result;
+        }
         compute_visible_projects(
             &self.data,
             self.focused_project_id(),
@@ -589,6 +624,7 @@ mod workspace_tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -604,6 +640,7 @@ mod workspace_tests {
             focused_project_id: None,
             focus_project_individual: false,
             focused_terminal: None,
+            pinned_view_active: false,
         }
     }
 
@@ -1351,6 +1388,7 @@ mod gpui_tests {
             service_terminals: HashMap::new(),
             default_shell: None,
             hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
         }
     }
 
@@ -1366,6 +1404,7 @@ mod gpui_tests {
             focused_project_id: None,
             focus_project_individual: false,
             focused_terminal: None,
+            pinned_view_active: false,
         }
     }
 

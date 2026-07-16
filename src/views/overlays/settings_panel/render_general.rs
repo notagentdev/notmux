@@ -59,14 +59,6 @@ impl SettingsPanel {
                 |state, val, cx| state.set_file_explorer_show_hidden(val, cx),
                 cx,
             ))
-            .child(self.render_toggle(
-                "show-all-projects-on-projects-click",
-                "Show All Projects on Projects Click",
-                s.show_all_projects_on_projects_click,
-                true,
-                |state, val, cx| state.set_show_all_projects_on_projects_click(val, cx),
-                cx,
-            ))
             .child(self.render_number_stepper(
                 "min-col-width", "Min Column Width", s.min_column_width,
                 "{}px", 50.0, 60.0, false,

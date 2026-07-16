@@ -31,6 +31,8 @@ enum BrowserMsg {
     Url(String),
     /// An annotation was created; carries its JSON payload.
     Annotation(String),
+    /// The user clicked into the page — focus this pane in the workspace.
+    Focused,
 }
 
 /// JavaScript injected before every page load. Sets up `window.__annoToggle()`
@@ -51,6 +53,12 @@ const ANNOTATION_JS: &str = r#"
   function report() { try { window.ipc.postMessage('url:' + location.href); } catch (e) {} }
   report();
   window.addEventListener('hashchange', report);
+
+  // Clicking into the page focuses the pane in the host app (capture phase,
+  // so pages that stop propagation still report).
+  window.addEventListener('mousedown', function () {
+    try { window.ipc.postMessage('focus:1'); } catch (e) {}
+  }, true);
 
   // Hover highlight (viewport-fixed).
   var hi = document.createElement('div');
@@ -230,6 +238,8 @@ fn build_webview(
                 let _ = tx.unbounded_send(BrowserMsg::Url(rest.to_string()));
             } else if let Some(rest) = body.strip_prefix("anno:") {
                 let _ = tx.unbounded_send(BrowserMsg::Annotation(rest.to_string()));
+            } else if body.starts_with("focus:") {
+                let _ = tx.unbounded_send(BrowserMsg::Focused);
             }
         })
         .build_as_child(window)?;
@@ -483,6 +493,12 @@ impl BrowserPane {
                 });
                 self.handle_annotation(payload, cx);
                 cx.notify();
+            }
+            BrowserMsg::Focused => {
+                let (project_id, slot_id) = (self.project_id.clone(), self.slot_id.clone());
+                self.workspace.update(cx, |ws, cx| {
+                    ws.focus_pane_by_slot(&project_id, &slot_id, cx);
+                });
             }
         }
     }

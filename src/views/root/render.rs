@@ -1,5 +1,5 @@
 use crate::keybindings::{
-    CheckForUpdates, ClearFocus, CreateWorktree, EqualizeLayout, FocusActiveProject,
+    CheckForUpdates, CreateWorktree, EqualizeLayout,
     FocusNextNotification, FocusSidebar, InstallUpdate, NewProject, OpenBrowser, OpenSettingsFile,
     ShowCommandPalette, ShowContentSearch, ShowDiffViewer, ShowFileSearch, ShowHookLog,
     ShowKeybindings, ShowPairingDialog, ShowProjectSwitcher, ShowSessionManager, ShowSettings,
@@ -750,36 +750,6 @@ impl Render for RootView {
             // File explorer = the Files tab of the tabbed right panel.
             .on_action(cx.listener(|this, _: &ToggleFileExplorer, _window, cx| {
                 this.toggle_right_panel(RightView::Files, cx);
-            }))
-            // Handle clear focus action (show all projects)
-            .on_action(cx.listener(|this, _: &ClearFocus, _window, cx| {
-                this.workspace.update(cx, |ws, cx| {
-                    ws.set_focused_project(None, cx);
-                    ws.set_folder_filter(None, cx);
-                });
-            }))
-            // Toggle focus on the active terminal's project (zoom in / zoom out)
-            .on_action(cx.listener(|this, _: &FocusActiveProject, _window, cx| {
-                let ws = this.workspace.read(cx);
-                let is_focused = ws.focus_manager.focused_project_id().is_some();
-                if is_focused {
-                    this.workspace.update(cx, |ws, cx| {
-                        ws.set_focused_project(None, cx);
-                        ws.set_folder_filter(None, cx);
-                    });
-                } else {
-                    let project_id = this
-                        .workspace
-                        .read(cx)
-                        .focus_manager
-                        .focused_terminal_state()
-                        .map(|state| state.project_id);
-                    if let Some(project_id) = project_id {
-                        this.workspace.update(cx, |ws, cx| {
-                            ws.set_focused_project(Some(project_id), cx);
-                        });
-                    }
-                }
             }))
             // Open the embedded browser pane in the active project.
             .on_action(cx.listener(|this, _: &OpenBrowser, _window, cx| {

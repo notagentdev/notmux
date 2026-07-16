@@ -121,7 +121,19 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             }));
         }
         if let Some(viewer) = &self.file_viewer {
-            viewer.update(cx, |v, cx| v.set_diff_mode(diff, cx));
+            let workspace = self.workspace.clone();
+            let project_id = self.project_id.clone();
+            let path = self.layout_path.clone();
+            viewer.update(cx, |v, cx| {
+                v.set_diff_mode(diff, cx);
+                // The embedded viewer occludes the pane's own hitboxes, so it
+                // reports clicks back to focus this pane in the workspace.
+                v.set_on_click_embedded(move |_window, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.set_focused_terminal(project_id.clone(), path.clone(), cx);
+                    });
+                });
+            });
         }
     }
 
@@ -148,7 +160,20 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .overflow_hidden()
             .flex()
             .flex_col()
-            .relative();
+            .relative()
+            // Clicking anywhere in the pane focuses it in the workspace,
+            // exactly like a terminal pane. Capture phase so inner widgets
+            // that stop propagation (editor content, toolbar) can't swallow it.
+            .capture_any_mouse_down({
+                let workspace = self.workspace.clone();
+                let project_id = self.project_id.clone();
+                let path = self.layout_path.clone();
+                move |_, _window, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.set_focused_terminal(project_id.clone(), path.clone(), cx);
+                    });
+                }
+            });
         if !in_tab_group {
             container = container.child(self.render_standalone_tab_bar(window, cx));
         }
@@ -213,7 +238,20 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             .overflow_hidden()
             .flex()
             .flex_col()
-            .relative();
+            .relative()
+            // Clicking anywhere in the pane focuses it in the workspace,
+            // exactly like a terminal pane. Capture phase so inner widgets
+            // that stop propagation (editor content, toolbar) can't swallow it.
+            .capture_any_mouse_down({
+                let workspace = self.workspace.clone();
+                let project_id = self.project_id.clone();
+                let path = self.layout_path.clone();
+                move |_, _window, cx| {
+                    workspace.update(cx, |ws, cx| {
+                        ws.set_focused_terminal(project_id.clone(), path.clone(), cx);
+                    });
+                }
+            });
         if !in_tab_group {
             container = container.child(self.render_standalone_tab_bar(window, cx));
         }
@@ -453,10 +491,15 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     DropZone::Center => "center",
                 };
 
+                let pid_for_hover = pid.clone();
                 div()
                     .id(ElementId::Name(zone_id.into()))
-                    .drag_over::<PaneDrag>(move |style, _, _, _| {
+                    .drag_over::<PaneDrag>(move |style, drag, _, _| {
                         if active_drag_for_hover.borrow().is_some() {
+                            return style;
+                        }
+                        // Panes never move between projects — no highlight
+                        if drag.project_id != pid_for_hover {
                             return style;
                         }
                         style.bg(highlight)
@@ -466,6 +509,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                         let this_tid = this_tid.clone();
                         move |_this, drag: &PaneDrag, _window, cx| {
                             if active_drag_for_drop.borrow().is_some() {
+                                return;
+                            }
+                            // Panes never move between projects
+                            if drag.project_id != pid {
                                 return;
                             }
                             if Some(drag.terminal_id.as_str()) == this_tid.as_deref() {
@@ -590,9 +637,18 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
         let container_bounds_ref = self.container_bounds_ref.clone();
 
+        // In the pinned view only subtrees containing pinned panes are shown
+        let pin_filter = self
+            .workspace
+            .read(cx)
+            .active_pin_filter(&self.project_id);
+
         let mut visible_children_info: Vec<(usize, f32)> = Vec::new();
         for (i, child) in children.iter().enumerate() {
-            if !child.is_all_hidden() {
+            let pinned_visible = pin_filter
+                .as_ref()
+                .is_none_or(|pins| child.contains_pinned(pins));
+            if !child.is_all_hidden() && pinned_visible {
                 let size = sizes.get(i).copied().unwrap_or(100.0 / num_children as f32);
                 visible_children_info.push((i, size));
             }

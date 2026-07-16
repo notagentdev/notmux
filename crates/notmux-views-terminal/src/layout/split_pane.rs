@@ -241,8 +241,9 @@ pub fn render_split_divider<D: ActionDispatch + Send + Sync>(
         move |mouse_pos, cx| {
             let bounds = *container_bounds.borrow();
 
-            let (initial_sizes, visible_sizes_sum) = workspace
-                .read(cx)
+            let ws = workspace.read(cx);
+            let pin_filter = ws.active_pin_filter(&project_id);
+            let (initial_sizes, visible_sizes_sum) = ws
                 .project(&project_id)
                 .and_then(|p| p.layout.as_ref()?.get_at_path(&layout_path))
                 .and_then(|node| {
@@ -253,7 +254,12 @@ pub fn render_split_divider<D: ActionDispatch + Send + Sync>(
                         let visible_sum: f32 = children
                             .iter()
                             .enumerate()
-                            .filter(|(_, c)| !c.is_all_hidden())
+                            .filter(|(_, c)| {
+                                !c.is_all_hidden()
+                                    && pin_filter
+                                        .as_ref()
+                                        .is_none_or(|pins| c.contains_pinned(pins))
+                            })
                             .map(|(i, _)| sizes.get(i).copied().unwrap_or(0.0))
                             .sum();
                         Some((sizes.clone(), visible_sum))

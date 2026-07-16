@@ -59,7 +59,6 @@ pub type GetSettingsFn = Box<dyn Fn(&App) -> SidebarSettings>;
 pub struct SidebarSettings {
     pub worktree_path_template: String,
     pub hooks: notmux_workspace::settings::HooksConfig,
-    pub show_all_projects_on_projects_click: bool,
     pub monochrome_icons: bool,
     pub show_hidden: bool,
     pub transparent_background: bool,
@@ -2091,10 +2090,7 @@ impl Sidebar {
 
     fn render_projects_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
-        let workspace_entity = self.workspace.clone();
         let request_broker = self.request_broker.clone();
-        let show_all_projects_on_projects_click =
-            self.sidebar_settings(cx).show_all_projects_on_projects_click;
 
         div()
             .h(px(28.0))
@@ -2105,18 +2101,7 @@ impl Sidebar {
             .flex()
             .items_center()
             .justify_between()
-            .when(show_all_projects_on_projects_click, |d| {
-                d.cursor_pointer().hover(|s| s.bg(rgb(t.bg_hover)))
-            })
             .id("projects-header")
-            .on_click(move |_, _window, cx| {
-                if show_all_projects_on_projects_click {
-                    workspace_entity.update(cx, |ws, cx| {
-                        ws.set_focused_project(None, cx);
-                        ws.set_folder_filter(None, cx);
-                    });
-                }
-            })
             .child(
                 div()
                     .flex()
@@ -3009,6 +2994,8 @@ impl Render for Sidebar {
             // section headers carry their own "+" to add a project / remote.
             SidebarView::Projects => root
                 .child(self.render_search_entry(cx))
+                // PINNED is its own section above PROJECTS
+                .child(self.render_pinned_section(cx))
                 .child(self.render_projects_header(cx))
                 .child(
                     div()

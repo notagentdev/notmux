@@ -322,6 +322,22 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         self.child_containers
             .retain(|path, _| valid_paths.contains(path));
 
+        // In the pinned view only pinned tabs are shown; if the active tab is
+        // not pinned, show the first pinned one instead (render-only, the
+        // persisted active_tab is untouched).
+        let active_tab = match self.workspace.read(cx).active_pin_filter(&self.project_id) {
+            Some(pins) => {
+                let is_visible =
+                    |i: usize| children.get(i).is_some_and(|c| c.contains_pinned(&pins));
+                if is_visible(active_tab) {
+                    active_tab
+                } else {
+                    (0..num_children).find(|&i| is_visible(i)).unwrap_or(active_tab)
+                }
+            }
+            None => active_tab,
+        };
+
         let container_bounds_ref = self.container_bounds_ref.clone();
 
         v_flex()
@@ -419,9 +435,16 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 f.project_id == self.project_id && f.layout_path.starts_with(&self.layout_path)
             });
 
+        let pin_filter = workspace_reader.active_pin_filter(&self.project_id);
+
         let tab_elements: Vec<_> = children
             .iter()
             .enumerate()
+            .filter(|(_, child)| {
+                pin_filter
+                    .as_ref()
+                    .is_none_or(|pins| child.contains_pinned(pins))
+            })
             .map(|(i, child)| {
                 let is_active = i == active_tab;
                 let workspace = workspace.clone();
@@ -507,6 +530,15 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 } else {
                     format!("Tab {}", i + 1)
                 };
+
+                // Pinning: every leaf kind pins by its slot id; local projects only.
+                let pin_slot_id = child.slot_id().map(String::from);
+                let is_pinned = project_for_names
+                    .as_ref()
+                    .zip(pin_slot_id.as_ref())
+                    .is_some_and(|(p, s)| p.pinned_slots.iter().any(|ps| ps == s));
+                let can_pin = pin_slot_id.is_some()
+                    && project_for_names.as_ref().is_some_and(|p| !p.is_remote);
 
                 let has_drop_animation = drop_animation.map(|(idx, _)| idx == i).unwrap_or(false);
                 let animation_progress = drop_animation
@@ -642,6 +674,50 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 .bg(rgb(cover_bg))
                                 .opacity(0.0)
                                 .group_hover(tab_group.clone(), |s| s.opacity(1.0))
+                                .when(can_pin, |slot| {
+                                    let pin_workspace = workspace.clone();
+                                    let pin_project_id = project_id.clone();
+                                    let pin_slot = pin_slot_id
+                                        .clone()
+                                        .expect("can_pin implies a slot id");
+                                    slot.child(
+                                        h_flex()
+                                            .id(ElementId::Name(
+                                                format!("tab-pin-{}-{:?}", i, layout_path).into(),
+                                            ))
+                                            .flex_none()
+                                            .w(px(20.0))
+                                            .h(px(20.0))
+                                            .justify_center()
+                                            .items_center()
+                                            .rounded(px(4.0))
+                                            .cursor_pointer()
+                                            .hover(move |s| s.bg(rgb(bg_hover)))
+                                            .child(
+                                                svg()
+                                                    .path(if is_pinned {
+                                                        "icons/unpin.svg"
+                                                    } else {
+                                                        "icons/pinned.svg"
+                                                    })
+                                                    .size(px(12.0))
+                                                    .text_color(rgb(muted)),
+                                            )
+                                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                                cx.stop_propagation();
+                                            })
+                                            .on_click(move |_, _window, cx| {
+                                                cx.stop_propagation();
+                                                pin_workspace.update(cx, |ws, cx| {
+                                                    ws.toggle_pin(
+                                                        &pin_project_id,
+                                                        &pin_slot,
+                                                        cx,
+                                                    );
+                                                });
+                                            }),
+                                    )
+                                })
                                 .when_some(close_terminal_id, |slot, tid| {
                                     slot.child(
                                         h_flex()
@@ -694,6 +770,15 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 .overflow_hidden()
                                 .child(start_slot)
                                 .child(label)
+                                .when(is_pinned, |d| {
+                                    d.child(
+                                        svg()
+                                            .path("icons/pinned.svg")
+                                            .size(px(10.0))
+                                            .flex_shrink_0()
+                                            .text_color(rgb(t.text_muted)),
+                                    )
+                                })
                                 .when(has_notification, |d| {
                                     d.child(
                                         div()
@@ -780,8 +865,13 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     .when(!standalone, |el| {
                         el.drag_over::<PaneDrag>({
                             let active_drag = self.active_drag.clone();
-                            move |style, _, _, _| {
+                            let pid_for_hover = project_id_for_drop.clone();
+                            move |style, drag: &PaneDrag, _, _| {
                                 if active_drag.borrow().is_some() {
+                                    return style;
+                                }
+                                // Panes never move between projects — no highlight
+                                if drag.project_id != pid_for_hover {
                                     return style;
                                 }
                                 style
@@ -795,6 +885,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             let dispatcher_for_drop = self.action_dispatcher.clone();
                             move |this, drag: &PaneDrag, _window, cx| {
                                 if active_drag.borrow().is_some() {
+                                    return;
+                                }
+                                // Panes never move between projects
+                                if drag.project_id != project_id_for_drop {
                                     return;
                                 }
 
@@ -940,17 +1034,28 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             let dispatcher_for_end = self.action_dispatcher.clone();
 
             end_drop_zone = end_drop_zone
-                .drag_over::<PaneDrag>(move |style, _, _, _| {
-                    if active_drag_for_end_hover.borrow().is_some() {
-                        return style;
+                .drag_over::<PaneDrag>({
+                    let pid_for_hover = project_id_for_end.clone();
+                    move |style, drag: &PaneDrag, _, _| {
+                        if active_drag_for_end_hover.borrow().is_some() {
+                            return style;
+                        }
+                        // Panes never move between projects — no highlight
+                        if drag.project_id != pid_for_hover {
+                            return style;
+                        }
+                        style
+                            .border_l(px(3.0))
+                            .border_color(rgb(t.border_active))
+                            .bg(with_alpha(t.border_active, 0.1))
                     }
-                    style
-                        .border_l(px(3.0))
-                        .border_color(rgb(t.border_active))
-                        .bg(with_alpha(t.border_active, 0.1))
                 })
                 .on_drop(cx.listener(move |this, drag: &PaneDrag, _window, cx| {
                     if active_drag_for_end_drop.borrow().is_some() {
+                        return;
+                    }
+                    // Panes never move between projects
+                    if drag.project_id != project_id_for_end {
                         return;
                     }
 

@@ -920,6 +920,9 @@ impl Render for FileViewer {
                 cx.listener(|this, _event: &MouseDownEvent, window, cx| {
                     if this.embedded {
                         window.focus(&this.focus_handle, cx);
+                        if let Some(on_click) = &this.on_click_embedded {
+                            on_click(window, cx);
+                        }
                     }
                 }),
             )

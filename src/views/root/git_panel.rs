@@ -211,6 +211,30 @@ impl RootView {
                 .into_any_element();
         }
 
+        // Pinned view: the panel follows the focused project.
+        let pinned_view_active = self.workspace.read(cx).data.pinned_view_active;
+        if pinned_view_active {
+            let focused_pid = self
+                .workspace
+                .read(cx)
+                .focus_manager
+                .focused_terminal_state()
+                .map(|f| f.project_id);
+            if let Some(pid) = focused_pid
+                && self.git_panel_project_id.as_ref() != Some(&pid)
+                && self.project_columns.contains_key(&pid)
+            {
+                self.git_panel_project_id = Some(pid.clone());
+                if let Some(col) = self.project_columns.get(&pid).cloned() {
+                    let gh = col.read(cx).git_header();
+                    gh.update(cx, |gh, cx| {
+                        gh.open_commit_log(cx);
+                        gh.refresh_working_tree_status(cx);
+                    });
+                }
+            }
+        }
+
         let has_content = self
             .git_panel_project_id
             .as_ref()
@@ -354,6 +378,63 @@ impl RootView {
                     )),
             );
 
+        // Pinned view: title bar with the focused project's name. Sits at the
+        // very top (toolbar height), aligned with the project title bars in
+        // the grid; tinted with the project's folder color like those.
+        let pinned_title_bar = if pinned_view_active {
+            let (name, pin_color) = {
+                let ws = self.workspace.read(cx);
+                let project = self
+                    .git_panel_project_id
+                    .as_ref()
+                    .and_then(|pid| ws.project(pid));
+                let name = project.map(|p| p.name.clone()).unwrap_or_default();
+                // Colored projects color the pin icon (not the bar background)
+                let color = match project {
+                    Some(p) => {
+                        let c = ws.effective_folder_color(p);
+                        if c != crate::theme::FolderColor::Default {
+                            rgb(t.get_folder_color(c))
+                        } else {
+                            rgb(t.text_secondary)
+                        }
+                    }
+                    None => rgb(t.text_secondary),
+                };
+                (name, color)
+            };
+            Some(
+                div()
+                    .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                    .pl(px(12.0))
+                    // Clear the git/settings controls floating over the top-right
+                    .pr(px(76.0))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .bg(rgb(t.bg_header))
+                    .border_b_1()
+                    .border_color(rgb(t.border))
+                    .child(
+                        svg()
+                            .path("icons/pinned.svg")
+                            .size(px(12.0))
+                            .text_color(pin_color),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_md(cx))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(rgb(t.text_primary))
+                            .text_ellipsis()
+                            .child(name),
+                    ),
+            )
+        } else {
+            None
+        };
+
         let panel_container = div()
             .id("git-panel-container")
             .h_full()
@@ -364,6 +445,7 @@ impl RootView {
             .flex_shrink_0()
             .flex()
             .flex_col()
+            .children(pinned_title_bar)
             .child(tab_bar)
             .child(div().w(px(configured_width)).flex_1().min_h_0().child(body));
         // Right status segment (remote/zoom/clock) at the panel's bottom —
