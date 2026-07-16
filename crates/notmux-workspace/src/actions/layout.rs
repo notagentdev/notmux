@@ -114,7 +114,7 @@ impl Workspace {
         self.notify_data(cx);
 
         if let Some(new_path) = new_path {
-            self.set_focused_terminal(project_id.to_string(), new_path, cx);
+            self.focus_new_pane(project_id, new_path, cx);
         }
     }
 
@@ -153,7 +153,7 @@ impl Workspace {
         // Focus the new tab
         let mut new_path = path.to_vec();
         new_path.push(1);
-        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+        self.focus_new_pane(project_id, new_path, cx);
     }
 
     /// Add a new tab to an existing Tabs container
@@ -186,7 +186,7 @@ impl Workspace {
         // Focus the new tab
         let mut new_path = tabs_path.to_vec();
         new_path.push(new_tab_index);
-        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+        self.focus_new_pane(project_id, new_path, cx);
     }
 
     /// Open a file as a new editor tab next to the node at `path` (mirrors
@@ -248,7 +248,7 @@ impl Workspace {
             };
             true
         });
-        self.set_focused_terminal(project_id.to_string(), vec![1], cx);
+        self.focus_new_pane(project_id, vec![1], cx);
     }
 
     /// Open the embedded browser in the project's editor area: focuses an
@@ -310,7 +310,7 @@ impl Workspace {
                         new_path.push(1);
                     }
                 }
-                self.set_focused_terminal(project_id.to_string(), new_path, cx);
+                self.focus_new_pane(project_id, new_path, cx);
                 return;
             }
         }
@@ -326,7 +326,7 @@ impl Workspace {
             };
             true
         });
-        self.set_focused_terminal(project_id.to_string(), vec![1], cx);
+        self.focus_new_pane(project_id, vec![1], cx);
     }
 
     /// Persist a browser pane's current URL into its layout node so it
@@ -390,7 +390,7 @@ impl Workspace {
 
         let mut new_path = path.to_vec();
         new_path.push(1);
-        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+        self.focus_new_pane(project_id, new_path, cx);
     }
 
     /// Add a new editor tab to an existing Tabs container.
@@ -421,7 +421,7 @@ impl Workspace {
 
         let mut new_path = tabs_path.to_vec();
         new_path.push(new_tab_index);
-        self.set_focused_terminal(project_id.to_string(), new_path, cx);
+        self.focus_new_pane(project_id, new_path, cx);
     }
 
     /// Close a terminal at a path.

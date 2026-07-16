@@ -58,6 +58,25 @@ impl Workspace {
         self.set_focused_terminal(project_id.to_string(), path, cx);
     }
 
+    /// Focus a freshly-created leaf and, while the pinned view is active,
+    /// auto-pin it so new splits / editors / browsers stay visible.
+    pub fn focus_new_pane(&mut self, project_id: &str, path: Vec<usize>, cx: &mut Context<Self>) {
+        if self.data.pinned_view_active
+            && let Some(slot) = self
+                .project(project_id)
+                .and_then(|p| p.layout.as_ref())
+                .and_then(|l| l.get_at_path(&path))
+                .and_then(|n| n.slot_id())
+                .map(str::to_string)
+            && let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id)
+            && !project.is_remote
+            && !project.pinned_slots.iter().any(|s| *s == slot)
+        {
+            project.pinned_slots.push(slot);
+        }
+        self.set_focused_terminal(project_id.to_string(), path, cx);
+    }
+
     /// Pinned slots of a project while the pinned view is active — the render
     /// filter for panes. None means no filtering (normal view).
     pub fn active_pin_filter(&self, project_id: &str) -> Option<Vec<String>> {
@@ -232,6 +251,35 @@ mod tests {
             let visible: Vec<_> = ws.visible_projects().iter().map(|p| p.id.clone()).collect();
             // Folder project first (folder comes first in project_order)
             assert_eq!(visible, vec!["p2", "p1"]);
+        });
+    }
+
+    #[gpui::test]
+    fn test_split_auto_pins_in_pinned_view(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1", terminal_slot("s1"))], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.toggle_pin("p1", "s1", cx);
+            ws.enter_pinned_view(cx);
+            assert!(ws.data.pinned_view_active);
+
+            // Splitting the pinned pane creates a new terminal — it must auto-pin.
+            ws.split_terminal("p1", &[], SplitDirection::Vertical, cx);
+            let pinned = ws.project("p1").unwrap().pinned_slots.len();
+            assert_eq!(pinned, 2, "new split pane should be auto-pinned");
+        });
+    }
+
+    #[gpui::test]
+    fn test_no_auto_pin_outside_pinned_view(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(vec![make_project("p1", terminal_slot("s1"))], vec!["p1"]);
+        let workspace = cx.new(|_cx| Workspace::new(data));
+
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            // Not in pinned view → splitting must not pin anything.
+            ws.split_terminal("p1", &[], SplitDirection::Vertical, cx);
+            assert!(ws.project("p1").unwrap().pinned_slots.is_empty());
         });
     }
 
