@@ -36,7 +36,38 @@ pub(crate) async fn remote_command_loop(
             Err(_) => break,
         };
 
+        // Browser automation resolves asynchronously against page JavaScript,
+        // so it answers through the reply sender itself instead of the
+        // synchronous match below.
+        let msg = match msg {
+            BridgeMessage {
+                command: RemoteCommand::Browser(req),
+                reply,
+            } => {
+                let ws = workspace.clone();
+                cx.update(|cx| {
+                    notmux_views_terminal::layout::browser_registry::execute_browser_request(
+                        req,
+                        &ws,
+                        Box::new(move |outcome| {
+                            if let Some(reply) = reply {
+                                let _ = reply.send(match outcome {
+                                    Ok(v) => CommandResult::Ok(Some(v)),
+                                    Err(e) => CommandResult::Err(e),
+                                });
+                            }
+                        }),
+                        cx,
+                    );
+                });
+                continue;
+            }
+            other => other,
+        };
+
         let result = match msg.command {
+            // Answered asynchronously above — never reaches this match.
+            RemoteCommand::Browser(_) => continue,
             RemoteCommand::Action(action) => match action {
                 ActionRequest::StartService {
                     project_id,

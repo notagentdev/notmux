@@ -1,4 +1,5 @@
 mod agent_session;
+mod browser_commands;
 mod commands;
 mod hooks;
 mod register;
@@ -48,6 +49,7 @@ pub fn try_handle_cli() -> Option<i32> {
         "notify" => commands::cli_notify(rest),
         "clear-notification" => commands::cli_clear_notification(rest),
         "agent-status" => commands::cli_agent_status(rest),
+        "browser" => browser_commands::cli_browser(rest),
         "agent-session" => agent_session::cli_agent_session(rest),
         "hooks" => hooks::cli_hooks(rest),
         "whoami" => commands::cli_whoami(rest),
@@ -78,6 +80,8 @@ fn print_help() {
     eprintln!("  read [--terminal <id>] [--json]    Print a terminal's visible content");
     eprintln!("  add-project <path> [--name <n>]    Add a project to the workspace");
     eprintln!("  events [-n <count>] [--follow]     Print the event log (events.jsonl)");
+    eprintln!("  browser <command> [--pane <id>]    Automate a browser pane (open, snapshot, click, …);");
+    eprintln!("                                     see `notmux browser help`");
     eprintln!("  services [project] [--json]        List services and their status");
     eprintln!("  service start <name> [project]     Start a service");
     eprintln!("  service stop <name> [project]      Stop a service");

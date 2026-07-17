@@ -259,6 +259,19 @@ impl Workspace {
             return;
         };
 
+        // Opening a browser is an explicit "show me this" action — a pane in a
+        // project hidden from the overview would never render its webview
+        // (`should_show_webview` requires `show_in_overview`). Force the target
+        // project visible so the new pane is actually seen.
+        self.with_project(project_id, cx, |project| {
+            if project.show_in_overview {
+                false
+            } else {
+                project.show_in_overview = true;
+                true
+            }
+        });
+
         // Every call opens a fresh browser pane (multiple browsers per
         // project are expected).
         // Existing editor/browser area at the right edge → join it as a tab.

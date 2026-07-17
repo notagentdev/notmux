@@ -1,4 +1,4 @@
-use crate::remote::types::ActionRequest;
+use crate::remote::types::{ActionRequest, BrowserRequest};
 use tokio::sync::oneshot;
 
 /// Commands sent from the axum server to the GPUI main thread.
@@ -20,6 +20,9 @@ pub enum RemoteCommand {
     RenderSnapshot { terminal_id: String },
     /// Get current grid sizes (cols, rows) for multiple terminals.
     GetTerminalSizes { terminal_ids: Vec<String> },
+    /// One agent-browser-style automation command against a browser pane.
+    /// Answered asynchronously (page JavaScript), not by the sync match.
+    Browser(BrowserRequest),
 }
 
 /// Result of processing a RemoteCommand.

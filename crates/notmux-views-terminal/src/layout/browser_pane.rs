@@ -327,14 +327,14 @@ fn snapshot_page(
     let _ = tx.send(None);
 }
 
-/// Writes annotation-screenshot PNG bytes to a unique temp file and returns
-/// its path. Ported from notagent's `write_temp_png`.
-fn write_temp_png(bytes: &[u8]) -> Option<std::path::PathBuf> {
+/// Writes page-screenshot PNG bytes to a unique temp file and returns its
+/// path. Ported from notagent's `write_temp_png`.
+fn write_temp_png(bytes: &[u8], kind: &str) -> Option<std::path::PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
-        "notmux-annotation-{}-{}.png",
+        "notmux-{kind}-{}-{}.png",
         std::process::id(),
         id
     ));
@@ -344,7 +344,7 @@ fn write_temp_png(bytes: &[u8]) -> Option<std::path::PathBuf> {
 
 /// Turn toolbar input into a loadable URL: bare hosts get `https://`.
 /// Empty input stays empty (no page — the webview isn't even created).
-fn normalize_url(input: &str) -> String {
+pub(crate) fn normalize_url(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -374,6 +374,8 @@ pub struct BrowserPane {
     webview: Option<Entity<gpui_wry::WebView>>,
     annotation_mode: bool,
     annotations: Vec<PageAnnotation>,
+    /// `@eN` element refs handed out by automation `snapshot`s (remote API).
+    automation_refs: crate::layout::browser_automation::RefMap,
     focus_handle: FocusHandle,
 }
 
@@ -412,6 +414,10 @@ impl BrowserPane {
         })
         .detach();
 
+        // Make this pane reachable for remote automation (`notmux browser …`).
+        // The entry is weak; a dead one is pruned on the next registry access.
+        crate::layout::browser_registry::register(&slot_id, &project_id, cx.weak_entity());
+
         Self {
             workspace,
             terminals,
@@ -422,12 +428,37 @@ impl BrowserPane {
             webview: None,
             annotation_mode: false,
             annotations: Vec::new(),
+            automation_refs: crate::layout::browser_automation::RefMap::new(),
             focus_handle: cx.focus_handle(),
         }
     }
 
     pub fn slot_id(&self) -> &str {
         &self.slot_id
+    }
+
+    /// Current URL (empty while the pane has no page).
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// Bring this pane on screen: make its project visible in the overview
+    /// (webviews stay hidden while `show_in_overview` is false) and focus the
+    /// pane's slot. Used by the `open` automation action so it reliably reveals
+    /// the page even when reusing a pane in a hidden project.
+    fn reveal(&mut self, cx: &mut Context<Self>) {
+        let (project_id, slot_id) = (self.project_id.clone(), self.slot_id.clone());
+        self.workspace.update(cx, |ws, cx| {
+            ws.with_project(&project_id, cx, |project| {
+                if project.show_in_overview {
+                    false
+                } else {
+                    project.show_in_overview = true;
+                    true
+                }
+            });
+            ws.focus_pane_by_slot(&project_id, &slot_id, cx);
+        });
     }
 
     /// Annotations captured so far (chat wiring pending).
@@ -700,7 +731,7 @@ impl BrowserPane {
         };
 
         // 1. Screenshot (temp PNG path; the numbered marker is in the image).
-        if let Some(path) = png.as_deref().and_then(write_temp_png) {
+        if let Some(path) = png.as_deref().and_then(|b| write_temp_png(b, "annotation")) {
             terminal.send_paste(&format!("{} ", path.display()));
         }
         // 2. Element info.
@@ -834,6 +865,330 @@ impl BrowserPane {
                         this.toggle_annotation_mode(cx);
                     }))
             })
+    }
+}
+
+// ── remote automation (agent-browser command vocabulary) ────────────────────
+
+impl BrowserPane {
+    /// Runs one browser-automation action against this pane's webview and
+    /// answers through `respond`. Element actions resolve their `@eN` ref via
+    /// `automation_refs` (fed by `snapshot`). Only `wait` polls with its own
+    /// deadline; everything else resolves with the eval callback. Ported from
+    /// notagent's executor (the reference implementation agent-browser port semantics).
+    pub(crate) fn automation_execute(
+        &mut self,
+        req: notmux_core::api::BrowserRequest,
+        respond: crate::layout::browser_registry::BrowserRespond,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::layout::browser_automation as auto;
+
+        fn ok_text(text: impl Into<String>) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({ "text": text.into() }))
+        }
+
+        // `open` (re)navigates this pane — it works without a webview (the
+        // next render builds one with the new URL).
+        if req.action == "open" {
+            let Some(url) = req.url.clone().filter(|u| !u.trim().is_empty()) else {
+                respond(Err("open requires `url`".to_string()));
+                return;
+            };
+            self.navigate(&url, cx);
+            // Reusing an existing pane must still bring it on screen: make its
+            // project visible in the overview and focus the pane, so `open`
+            // reliably reveals the page (matches add_browser_right for new panes).
+            self.reveal(cx);
+            respond(ok_text(format!(
+                "navigating to {} — use `wait` or `snapshot` once the page is loaded",
+                self.url
+            )));
+            return;
+        }
+
+        let Some(wv) = self.webview.clone() else {
+            respond(Err(
+                "this browser pane has no page yet — `open <url>` first".to_string(),
+            ));
+            return;
+        };
+
+        match req.action.as_str() {
+            "back" => {
+                self.eval_js("history.back();", cx);
+                respond(ok_text("navigated back"));
+            }
+            "forward" => {
+                self.eval_js("history.forward();", cx);
+                respond(ok_text("navigated forward"));
+            }
+            "reload" => {
+                self.eval_js("location.reload();", cx);
+                respond(ok_text("reloading"));
+            }
+            "screenshot" => {
+                // WKWebView's takeSnapshot fails for hidden views — surface
+                // that as a clear error instead of a generic failure.
+                if !self.should_show_webview(cx) {
+                    respond(Err(
+                        "the browser pane is hidden — bring it on screen (focus its \
+                         project/tab) to take a screenshot"
+                            .to_string(),
+                    ));
+                    return;
+                }
+                let (tx, rx) = futures::channel::oneshot::channel();
+                snapshot_page(wv.read(cx).raw(), tx);
+                cx.spawn(async move |_, _| {
+                    respond(match rx.await {
+                        Ok(Some(png)) => match write_temp_png(&png, "screenshot") {
+                            Some(path) => {
+                                let path = path.display().to_string();
+                                Ok(serde_json::json!({
+                                    "text": path.clone(),
+                                    "value": { "path": path },
+                                }))
+                            }
+                            None => Err("failed to write the screenshot file".to_string()),
+                        },
+                        _ => Err(
+                            "screenshot failed (page snapshots are macOS-only)".to_string(),
+                        ),
+                    });
+                })
+                .detach();
+            }
+            "snapshot" => {
+                let js = auto::snapshot_script(!req.full.unwrap_or(false), 12, None);
+                let rx = auto::eval_json(wv.read(cx).raw(), &js);
+                cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                    let outcome = match rx.await {
+                        Ok(Ok(value)) => match auto::parse_snapshot_result(&value) {
+                            Ok(page) => this
+                                .update(cx, |this, _| {
+                                    let outline =
+                                        auto::format_snapshot(&page, &mut this.automation_refs);
+                                    serde_json::json!({
+                                        "text": format!(
+                                            "Page: {}\nURL: {}\n\n{outline}",
+                                            page.title, page.url
+                                        ),
+                                    })
+                                })
+                                .map_err(|_| "browser pane was closed".to_string()),
+                            Err(e) => Err(e),
+                        },
+                        Ok(Err(e)) => Err(e),
+                        Err(_) => Err("webview evaluation was cancelled".to_string()),
+                    };
+                    respond(outcome);
+                })
+                .detach();
+            }
+            "wait" => {
+                let Some(selector) = req.selector.clone().filter(|s| !s.is_empty()) else {
+                    respond(Err("wait requires `selector`".to_string()));
+                    return;
+                };
+                let timeout_ms = req.timeout_ms.unwrap_or(5_000).min(30_000);
+                cx.spawn(async move |this: WeakEntity<Self>, cx| {
+                    let deadline =
+                        std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+                    loop {
+                        let rx = match this.update(cx, |this, cx| {
+                            this.webview.clone().map(|wv| {
+                                auto::eval_json(
+                                    wv.read(cx).raw(),
+                                    &auto::wait_condition_script(&selector, true),
+                                )
+                            })
+                        }) {
+                            Ok(Some(rx)) => rx,
+                            _ => {
+                                respond(Err("browser pane was closed".to_string()));
+                                return;
+                            }
+                        };
+                        if let Ok(Ok(value)) = rx.await
+                            && value.as_bool() == Some(true)
+                        {
+                            respond(Ok(
+                                serde_json::json!({ "text": format!("`{selector}` is visible") }),
+                            ));
+                            return;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            respond(Err(format!(
+                                "timed out after {timeout_ms}ms waiting for `{selector}`"
+                            )));
+                            return;
+                        }
+                        cx.background_executor()
+                            .timer(Duration::from_millis(120))
+                            .await;
+                    }
+                })
+                .detach();
+            }
+            "eval" => {
+                let Some(js) = req.js.clone().filter(|s| !s.trim().is_empty()) else {
+                    respond(Err("eval requires `js`".to_string()));
+                    return;
+                };
+                let rx = auto::eval_json(wv.read(cx).raw(), &js);
+                cx.spawn(async move |_, _| {
+                    respond(match rx.await {
+                        Ok(Ok(value)) => {
+                            let text = value.to_string();
+                            Ok(serde_json::json!({ "text": text, "value": value }))
+                        }
+                        Ok(Err(e)) => Err(e),
+                        Err(_) => Err("webview evaluation was cancelled".to_string()),
+                    });
+                })
+                .detach();
+            }
+            // `scroll` works with or without an element target.
+            "scroll" => {
+                let selector = match req.element.as_deref() {
+                    Some(r) => match self.automation_refs.resolve(r) {
+                        Some(entry) => Some(entry.selector.clone()),
+                        None => {
+                            respond(Err(format!(
+                                "unknown element ref `{r}` — take a `snapshot` first"
+                            )));
+                            return;
+                        }
+                    },
+                    None => None,
+                };
+                let js = auto::scroll_script(
+                    selector.as_deref(),
+                    req.dx.unwrap_or(0),
+                    req.dy.unwrap_or(0),
+                );
+                Self::respond_with_envelope(
+                    auto::eval_json(wv.read(cx).raw(), &js),
+                    req.action.clone(),
+                    respond,
+                    cx,
+                );
+            }
+            // Element-free getters: url from host state, title/count from JS.
+            "get" if req.what.as_deref() == Some("url") => {
+                respond(Ok(serde_json::json!({ "text": self.url, "value": self.url })));
+            }
+            "get" if req.what.as_deref() == Some("title") => {
+                let rx = auto::eval_json(
+                    wv.read(cx).raw(),
+                    "(() => ({ ok: true, value: String(document.title || '') }))()",
+                );
+                Self::respond_with_envelope(rx, req.action.clone(), respond, cx);
+            }
+            "get" if req.what.as_deref() == Some("count") => {
+                let Some(selector) = req.selector.clone().filter(|s| !s.is_empty()) else {
+                    respond(Err("get count requires `selector`".to_string()));
+                    return;
+                };
+                let js = auto::get_script(&selector, "count", None);
+                Self::respond_with_envelope(
+                    auto::eval_json(wv.read(cx).raw(), &js),
+                    req.action.clone(),
+                    respond,
+                    cx,
+                );
+            }
+            // Everything else targets an element ref from the last snapshot.
+            action => {
+                let Some(entry) = req
+                    .element
+                    .as_deref()
+                    .and_then(|r| self.automation_refs.resolve(r))
+                else {
+                    respond(Err(format!(
+                        "`{action}` requires `element` with a ref from a previous `snapshot` \
+                         (e.g. \"e3\"); unknown or missing ref"
+                    )));
+                    return;
+                };
+                let selector = entry.selector.clone();
+                let js = match action {
+                    "click" => auto::click_script(&selector),
+                    "dblclick" => auto::dblclick_script(&selector),
+                    "hover" => auto::hover_script(&selector),
+                    "focus" => auto::focus_script(&selector),
+                    "fill" => auto::fill_script(&selector, req.text.as_deref().unwrap_or("")),
+                    "type" => auto::type_script(&selector, req.text.as_deref().unwrap_or("")),
+                    "press" => {
+                        auto::press_script(&selector, req.key.as_deref().unwrap_or("Enter"))
+                    }
+                    "check" => auto::set_checked_script(&selector, true),
+                    "uncheck" => auto::set_checked_script(&selector, false),
+                    "select" => {
+                        auto::select_script(&selector, &req.values.clone().unwrap_or_default())
+                    }
+                    "scroll_into_view" => auto::scroll_into_view_script(&selector),
+                    "get" => auto::get_script(
+                        &selector,
+                        req.what.as_deref().unwrap_or("text"),
+                        req.attr.as_deref(),
+                    ),
+                    "is" => auto::is_script(&selector, req.what.as_deref().unwrap_or("visible")),
+                    unknown => {
+                        respond(Err(format!("unknown browser action `{unknown}`")));
+                        return;
+                    }
+                };
+                Self::respond_with_envelope(
+                    auto::eval_json(wv.read(cx).raw(), &js),
+                    action.to_string(),
+                    respond,
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// Awaits one action-script evaluation and translates its
+    /// `{ok, error?, value?}` envelope into the response payload.
+    fn respond_with_envelope(
+        rx: futures::channel::oneshot::Receiver<Result<serde_json::Value, String>>,
+        action: String,
+        respond: crate::layout::browser_registry::BrowserRespond,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |_, _| {
+            let outcome = match rx.await {
+                Ok(Ok(value)) => {
+                    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+                        let text = match value.get("value") {
+                            Some(serde_json::Value::String(s)) => s.clone(),
+                            Some(v) if !v.is_null() => v.to_string(),
+                            _ => format!("{action}: done"),
+                        };
+                        let payload =
+                            value.get("value").cloned().unwrap_or(serde_json::Value::Null);
+                        Ok(serde_json::json!({ "text": text, "value": payload }))
+                    } else {
+                        let error = value
+                            .get("error")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("action failed");
+                        Err(if error == "not_found" {
+                            "element not found — the page may have changed; take a fresh `snapshot`"
+                                .to_string()
+                        } else {
+                            error.to_string()
+                        })
+                    }
+                }
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err("webview evaluation was cancelled".to_string()),
+            };
+            respond(outcome);
+        })
+        .detach();
     }
 }
 

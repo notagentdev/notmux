@@ -1,7 +1,8 @@
 #[allow(unused_imports)]
 pub use notmux_core::api::{
     ActionRequest, ApiFolder, ApiFullscreen, ApiGitStatus, ApiLayoutNode, ApiProject,
-    ApiServiceInfo, ErrorResponse, HealthResponse, PairRequest, PairResponse, StateResponse,
+    ApiServiceInfo, BrowserRequest, ErrorResponse, HealthResponse, PairRequest, PairResponse,
+    StateResponse,
 };
 #[allow(unused_imports)]
 pub use notmux_core::ws::{

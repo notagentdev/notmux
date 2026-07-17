@@ -452,6 +452,84 @@ fn default_max_results() -> usize {
     1000
 }
 
+/// POST /v1/browser request body — one agent-browser-style automation command
+/// against an embedded browser pane. `action` selects the verb, the optional
+/// fields carry its parameters (vocabulary ported from vercel-labs/agent-browser
+/// via the the reference implementation ports).
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserRequest {
+    /// The action to perform: list, open, back, forward, reload, snapshot,
+    /// screenshot, wait, scroll, eval, get, is, click, dblclick, hover, focus,
+    /// fill, type, press, check, uncheck, select, scroll_into_view
+    pub action: String,
+
+    /// Target browser pane (layout slot id). Defaults to the only open pane.
+    #[serde(default)]
+    pub pane: Option<String>,
+
+    /// Project for `open` when no browser pane exists yet (a new pane is
+    /// split off on the right, like the UI's OpenBrowser action).
+    #[serde(default)]
+    pub project_id: Option<String>,
+
+    /// Element ref from the latest snapshot (e.g. "e3"); required by element
+    /// actions (click, fill, type, press, hover, focus, check, uncheck,
+    /// select, scroll_into_view, get, is)
+    #[serde(default)]
+    pub element: Option<String>,
+
+    /// URL for `open`
+    #[serde(default)]
+    pub url: Option<String>,
+
+    /// Text for `fill` (empty text clears the field) and `type`
+    #[serde(default)]
+    pub text: Option<String>,
+
+    /// Key for `press`, e.g. "Enter", "Escape", "Tab"
+    #[serde(default)]
+    pub key: Option<String>,
+
+    /// Option values (or visible labels) for `select`
+    #[serde(default)]
+    pub values: Option<Vec<String>>,
+
+    /// CSS selector for `wait` and for `get` with what=count
+    #[serde(default)]
+    pub selector: Option<String>,
+
+    /// Property for `get` (url|title|text|html|value|attr|count|box) or `is`
+    /// (visible|enabled|checked)
+    #[serde(default)]
+    pub what: Option<String>,
+
+    /// Attribute name for `get` with what=attr
+    #[serde(default)]
+    pub attr: Option<String>,
+
+    /// Horizontal scroll delta in pixels for `scroll`
+    #[serde(default)]
+    pub dx: Option<i64>,
+
+    /// Vertical scroll delta in pixels for `scroll`
+    #[serde(default)]
+    pub dy: Option<i64>,
+
+    /// Timeout in milliseconds for `wait` (default 5000, max 30000)
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+
+    /// JavaScript expression for `eval` (must evaluate to a JSON value)
+    #[serde(default)]
+    pub js: Option<String>,
+
+    /// `snapshot`: include content roles too (headings, cells, list items),
+    /// not just interactive elements
+    #[serde(default)]
+    pub full: Option<bool>,
+}
+
 /// POST /v1/pair request
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
