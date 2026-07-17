@@ -553,24 +553,32 @@ impl BrowserPane {
         {
             return false;
         }
-        // Project hidden by the focused-project filter?
-        if let Some(focused) = ws.focus_manager.focused_project_id()
-            && *focused != self.project_id
-        {
+        // The pane's project must actually be rendered as a column. This is the
+        // authoritative filter: `visible_projects` already folds in the
+        // focused-project override, the folder filter, `show_in_overview`, and
+        // — crucially — the pinned view (where only projects that own a pinned
+        // pane appear). A native webview floats above *all* GPUI content, so a
+        // browser whose project is off screen would otherwise bleed over
+        // whatever view replaced it.
+        if !ws.visible_projects().iter().any(|p| p.id == self.project_id) {
             return false;
         }
         let Some(project) = ws.project(&self.project_id) else {
             return false;
         };
-        if !project.show_in_overview {
-            return false;
-        }
         let Some(ref layout) = project.layout else {
             return false;
         };
         let Some(path) = layout.find_browser_path_by_slot(&self.slot_id) else {
             return false;
         };
+        // In the pinned view a visible project still renders only its pinned
+        // panes — hide the webview when this browser's slot isn't pinned.
+        if let Some(pins) = ws.active_pin_filter(&self.project_id)
+            && !pins.iter().any(|s| s == &self.slot_id)
+        {
+            return false;
+        }
         layout.is_path_visible(&path)
     }
 

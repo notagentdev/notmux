@@ -19,6 +19,23 @@ struct MainDiffViewerRequest {
     commit_index: Option<usize>,
 }
 
+/// Minimum width of a sidebar context-menu panel (matches `context_menu_panel`'s
+/// `min_w`). Used to keep the menu inside the sidebar's horizontal band.
+const SIDEBAR_MENU_WIDTH: f32 = 240.0;
+
+/// Clamp a sidebar context-menu anchor so the panel stays within the sidebar's
+/// horizontal band and never overlaps a project's browser pane.
+///
+/// A browser pane is a native webview that floats above *all* GPUI content and
+/// cannot be drawn over — but it only covers its own pane rect in the main
+/// area. The sidebar is never under it, so a menu kept left of the sidebar's
+/// right edge is never occluded. The menu grows rightward from its anchor, so
+/// we cap x at `sidebar_width - menu_width` (the sidebar is docked at x = 0).
+fn clamp_sidebar_menu_x(x: Pixels, sidebar_width: f32) -> Pixels {
+    let max_x = (sidebar_width - SIDEBAR_MENU_WIDTH).max(0.0);
+    px(f32::from(x).clamp(0.0, max_x))
+}
+
 impl RootView {
     /// Build an ActionDispatcher for the given project.
     /// Returns Remote variant if the project is a remote project,
@@ -752,9 +769,11 @@ impl RootView {
             match request {
                 OverlayRequest::ContextMenu {
                     project_id,
-                    position,
+                    mut position,
                 } => {
                     if !self.overlay_manager.read(cx).has_context_menu() {
+                        position.x =
+                            clamp_sidebar_menu_x(position.x, self.sidebar_ctrl.current_width());
                         self.overlay_manager.update(cx, |om, cx| {
                             om.show_context_menu(
                                 crate::workspace::requests::ContextMenuRequest {
@@ -769,9 +788,11 @@ impl RootView {
                 OverlayRequest::FolderContextMenu {
                     folder_id,
                     folder_name,
-                    position,
+                    mut position,
                 } => {
                     if !self.overlay_manager.read(cx).has_folder_context_menu() {
+                        position.x =
+                            clamp_sidebar_menu_x(position.x, self.sidebar_ctrl.current_width());
                         self.overlay_manager.update(cx, |om, cx| {
                             om.show_folder_context_menu(
                                 crate::workspace::requests::FolderContextMenuRequest {
