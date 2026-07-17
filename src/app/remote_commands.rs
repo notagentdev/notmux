@@ -191,7 +191,9 @@ pub(crate) async fn remote_command_loop(
                                 id: p.id.clone(),
                                 name: p.name.clone(),
                                 path: p.path.clone(),
-                                show_in_overview: p.show_in_overview,
+                                // Overview hiding was removed on the desktop; the
+                                // wire field stays for protocol/client compat.
+                                show_in_overview: true,
                                 layout: p.layout.as_ref().map(|l| l.to_api()),
                                 terminal_names: p.terminal_names.clone(),
                                 git_status,

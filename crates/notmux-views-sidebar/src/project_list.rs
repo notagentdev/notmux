@@ -43,7 +43,7 @@ impl Sidebar {
         row: Stateful<Div>,
         project: &SidebarProjectInfo,
         id_prefix: &str,
-        group_name: &'static str,
+        _group_name: &'static str,
         style: &ProjectRowStyle,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -53,7 +53,6 @@ impl Sidebar {
         let project_name = project.name.clone();
         let is_renaming_now = is_renaming(&self.project_rename, &project.id);
         let is_busy = matches!(style, ProjectRowStyle::Worktree { is_busy: true, .. });
-        let is_worktree_style = matches!(style, ProjectRowStyle::Worktree { .. });
         let supports_rename = !matches!(style, ProjectRowStyle::GroupChild);
 
         let has_expandable = match style {
@@ -68,16 +67,6 @@ impl Sidebar {
         } else {
             0
         };
-
-        // Hide the terminal count badge when expanded (terminals are visible), busy, or shown in overview
-        let hide_terminal_badge = is_expanded || is_busy || project.show_in_overview;
-
-        let (vis_tooltip_show, vis_tooltip_hide): (&'static str, &'static str) =
-            if is_worktree_style {
-                ("Show Worktree", "Hide Worktree")
-            } else {
-                ("Show Project", "Hide Project")
-            };
 
         row
             // 1. Expand arrow
@@ -191,7 +180,7 @@ impl Sidebar {
                 sidebar_name_or_badge(
                     name_label,
                     &project_name,
-                    hide_terminal_badge,
+                    true,
                     project.terminal_ids.len(),
                     &t,
                     cx,
@@ -279,35 +268,6 @@ impl Sidebar {
                         .child(label),
                 )
             })
-            // 7. Visibility button
-            .when(!is_busy, |d| {
-                d.child(
-                    sidebar_visibility_button(
-                        ElementId::Name(format!("{}-vis-{}", id_prefix, project_id).into()),
-                        project.show_in_overview,
-                        group_name,
-                        if project.show_in_overview {
-                            vis_tooltip_hide
-                        } else {
-                            vis_tooltip_show
-                        },
-                        &t,
-                    )
-                    .on_click(cx.listener({
-                        let project_id = project_id.clone();
-                        move |this, _, _window, cx| {
-                            this.workspace.update(cx, |ws, cx| {
-                                if is_worktree_style {
-                                    ws.toggle_worktree_visibility(&project_id, cx);
-                                } else {
-                                    ws.toggle_project_overview_visibility(&project_id, cx);
-                                }
-                            });
-                            cx.stop_propagation();
-                        }
-                    })),
-                )
-            })
     }
 
     pub fn render_project_item(
@@ -341,7 +301,6 @@ impl Sidebar {
             .when(is_cursor, |d| {
                 d.bg(rgb(t.bg_hover))
             })
-            .when(!project.show_in_overview, |d| d.opacity(0.75))
             .on_drag(
                 ProjectDrag {
                     project_id: project_id.clone(),
@@ -445,7 +404,6 @@ impl Sidebar {
             .when(is_cursor, |d| {
                 d.bg(rgb(t.bg_hover))
             })
-            .when(!project.show_in_overview && !is_busy, |d| d.opacity(0.75))
             .when(!parent_id.is_empty(), |d| {
                 let wt_id = project_id.clone();
                 let wt_name = project_name.clone();
@@ -659,7 +617,7 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                         svg()
                             .path("icons/spinner.svg")
                             .size(px(12.0))
-                            .text_color(rgb(t.border_active))
+                            .text_color(rgb(t.text_primary))
                             .with_animation(
                                 ElementId::Name(
                                     format!("term-spinner-{}", terminal_id).into(),
@@ -1082,7 +1040,6 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
         id_prefix: &str,
         group_name: &'static str,
         drag_config: GroupHeaderDragConfig,
-        all_hidden: bool,
         is_cursor: bool,
         is_focused_project: bool,
         _window: &mut Window,
@@ -1117,7 +1074,6 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_focused_project, |d| d.bg(rgb(t.bg_hover)))
             .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
-            .when(all_hidden, |d| d.opacity(0.75))
             .on_drag(
                 ProjectDrag {
                     project_id: project_id.clone(),
@@ -1302,7 +1258,6 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_focused_project, |d| d.bg(rgb(t.bg_hover)))
             .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
-            .when(!project.show_in_overview, |d| d.opacity(0.75))
             .on_click(cx.listener({
                 let project_id = project_id.clone();
                 move |this, _, _window, cx| {

@@ -157,13 +157,9 @@ fn push_project_with_worktrees<'a>(
 ) {
     match focused {
         None => {
-            if p.show_in_overview {
-                result.push(p);
-            }
+            result.push(p);
             for wt_id in &p.worktree_ids {
-                if let Some(wt) = data.projects.iter().find(|pp| &pp.id == wt_id)
-                    && wt.show_in_overview
-                {
+                if let Some(wt) = data.projects.iter().find(|pp| &pp.id == wt_id) {
                     result.push(wt);
                 }
             }
@@ -196,12 +192,11 @@ mod tests {
     use notmux_core::theme::FolderColor;
     use notmux_terminal::shell_config::ShellType;
 
-    fn make_project(id: &str, visible: bool) -> ProjectData {
+    fn make_project(id: &str, _visible: bool) -> ProjectData {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
             path: "/tmp/test".to_string(),
-            show_in_overview: visible,
             layout: Some(LayoutNode::Terminal {
                 slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
@@ -254,28 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn filters_hidden_projects() {
-        let data = make_data(
-            vec![
-                make_project("p1", true),
-                make_project("p2", false),
-                make_project("p3", true),
-            ],
-            vec!["p1", "p2", "p3"],
-        );
-        let visible = compute_visible_projects(&data, None, false, None);
-        assert_eq!(visible.len(), 2);
-        assert_eq!(visible[0].id, "p1");
-        assert_eq!(visible[1].id, "p3");
-    }
-
-    #[test]
-    fn focused_project_shown_even_when_hidden() {
+    fn focused_project_is_the_only_one_shown() {
         let data = make_data(
             vec![
                 make_project("p1", true),
                 make_project("p2", true),
-                make_project("p3", false),
+                make_project("p3", true),
             ],
             vec!["p1", "p2", "p3"],
         );
@@ -361,15 +340,4 @@ mod tests {
         assert_eq!(visible[0].id, "parent");
     }
 
-    #[test]
-    fn orphan_worktree_shown_when_parent_hidden() {
-        // Hidden parent without worktree_ids — the child still has worktree_info
-        // pointing at it and lives in project_order as an independent entry.
-        let parent = make_project("p1", false);
-        let w1 = make_wt("w1", "p1");
-        let data = make_data(vec![parent, w1], vec!["p1", "w1"]);
-        let visible = compute_visible_projects(&data, None, false, None);
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].id, "w1");
-    }
 }

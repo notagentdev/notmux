@@ -781,7 +781,6 @@ impl RootView {
                                 id: prefixed_id.clone(),
                                 name: api_project.name.clone(),
                                 path: api_project.path.clone(),
-                                show_in_overview: api_project.show_in_overview,
                                 layout,
                                 terminal_names,
                                 hidden_terminals: std::collections::HashMap::new(),

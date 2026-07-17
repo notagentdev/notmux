@@ -22,27 +22,6 @@ fn expand_tilde(path: &str) -> String {
 }
 
 impl Workspace {
-    /// Toggle visibility for a single worktree (no propagation to children)
-    pub fn toggle_worktree_visibility(&mut self, project_id: &str, cx: &mut Context<Self>) {
-        self.with_project(project_id, cx, |project| {
-            project.show_in_overview = !project.show_in_overview;
-            true
-        });
-    }
-
-    /// Toggle project overview visibility (also toggles all worktree children)
-    pub fn toggle_project_overview_visibility(&mut self, project_id: &str, cx: &mut Context<Self>) {
-        let new_visible = self.project(project_id).map(|p| !p.show_in_overview);
-        let Some(new_visible) = new_visible else {
-            return;
-        };
-
-        self.with_project(project_id, cx, |project| {
-            project.show_in_overview = new_visible;
-            true
-        });
-    }
-
     /// Add a new project
     /// If `with_terminal` is false, creates a bookmark project without a terminal layout.
     pub fn add_project(
@@ -70,9 +49,7 @@ impl Workspace {
         let project = ProjectData {
             id: id.clone(),
             name: name.clone(),
-            path: path.clone(),
-            show_in_overview: true,
-            layout: if with_terminal {
+            path: path.clone(),            layout: if with_terminal {
                 Some(LayoutNode::new_terminal())
             } else {
                 None
@@ -555,9 +532,7 @@ impl Workspace {
         let project = ProjectData {
             id: id.clone(),
             name: project_name,
-            path: project_path.to_string(),
-            show_in_overview: true,
-            // When hooks are deferred the worktree directory doesn't exist yet.
+            path: project_path.to_string(),            // When hooks are deferred the worktree directory doesn't exist yet.
             // Use None so no terminals are spawned until creation finishes.
             layout: if fire_hooks { new_layout } else { None },
             terminal_names: HashMap::new(),
@@ -704,9 +679,7 @@ impl Workspace {
         let project = ProjectData {
             id: id.clone(),
             name: project_name,
-            path: project_path,
-            show_in_overview: false,
-            layout: Some(LayoutNode::new_terminal()),
+            path: project_path,            layout: Some(LayoutNode::new_terminal()),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: Some(crate::state::WorktreeMetadata {
@@ -864,9 +837,7 @@ mod tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(LayoutNode::new_terminal()),
+            path: "/tmp/test".to_string(),            layout: Some(LayoutNode::new_terminal()),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,
@@ -1001,9 +972,7 @@ mod gpui_tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(LayoutNode::new_terminal()),
+            path: "/tmp/test".to_string(),            layout: Some(LayoutNode::new_terminal()),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,

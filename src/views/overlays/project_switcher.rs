@@ -27,8 +27,6 @@ pub enum ProjectSwitcherEvent {
     Close,
     /// Focus a specific project (makes it the only visible one)
     FocusProject(String),
-    /// Toggle visibility of a project
-    ToggleVisibility(String),
 }
 
 impl EventEmitter<ProjectSwitcherEvent> for ProjectSwitcher {}
@@ -54,15 +52,11 @@ impl ProjectSwitcher {
             .collect();
 
         let config = ListOverlayConfig::new("Switch Project")
-            .subtitle("Type to search, Enter to focus, Space to toggle visibility")
+            .subtitle("Type to search, Enter to focus")
             .searchable("Type to filter projects...")
             .size(500.0, 500.0)
             .empty_message("No projects found")
-            .keyboard_hints(vec![
-                ("Enter", "focus"),
-                ("Space", "toggle visibility"),
-                ("Esc", "close"),
-            ])
+            .keyboard_hints(vec![("Enter", "focus"), ("Esc", "close")])
             .key_context("ProjectSwitcher");
 
         let state = ListOverlayState::new(projects, config, cx);
@@ -84,12 +78,6 @@ impl ProjectSwitcher {
         }
     }
 
-    fn toggle_visibility_selected(&self, cx: &mut Context<Self>) {
-        if let Some(project) = self.state.selected_item() {
-            cx.emit(ProjectSwitcherEvent::ToggleVisibility(project.id.clone()));
-        }
-    }
-
     fn filter_projects(&mut self) {
         let filtered = substring_filter(&self.state.items, &self.state.search_query, |p| {
             vec![p.name.clone(), p.path.clone()]
@@ -108,7 +96,6 @@ impl ProjectSwitcher {
         let is_selected = display_index == self.state.selected_index;
         let name = project.name.clone();
         let path = project.path.clone();
-        let show_in_overview = project.show_in_overview;
         let is_worktree = project.worktree_info.is_some();
         let folder_color = t.get_folder_color(project.folder_color);
 
@@ -172,29 +159,6 @@ impl ProjectSwitcher {
                         .child(path),
                 ),
         )
-        .child(
-            // Visibility indicator
-            div()
-                .w(px(20.0))
-                .h(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    svg()
-                        .path(if show_in_overview {
-                            "icons/eye.svg"
-                        } else {
-                            "icons/eye-off.svg"
-                        })
-                        .size(px(14.0))
-                        .text_color(if show_in_overview {
-                            rgb(t.text_secondary)
-                        } else {
-                            rgb(t.text_muted)
-                        }),
-                ),
-        )
     }
 }
 
@@ -228,7 +192,7 @@ impl Render for ProjectSwitcher {
                 this.close(cx);
             }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                match handle_list_overlay_key(&mut this.state, event, &[("space", "toggle")]) {
+                match handle_list_overlay_key(&mut this.state, event, &[]) {
                     ListOverlayAction::Close => this.close(cx),
                     ListOverlayAction::SelectPrev | ListOverlayAction::SelectNext => {
                         this.state.scroll_to_selected();
@@ -238,9 +202,6 @@ impl Render for ProjectSwitcher {
                     ListOverlayAction::QueryChanged => {
                         this.filter_projects();
                         cx.notify();
-                    }
-                    ListOverlayAction::Custom(action) if action == "toggle" => {
-                        this.toggle_visibility_selected(cx);
                     }
                     _ => {}
                 }
@@ -279,11 +240,7 @@ impl Render for ProjectSwitcher {
                             }),
                     )
                     .child(keyboard_hints_footer(
-                        &[
-                            ("Enter", "focus"),
-                            ("Space", "toggle visibility"),
-                            ("Esc", "close"),
-                        ],
+                        &[("Enter", "focus"), ("Esc", "close")],
                         &t,
                     )),
             )

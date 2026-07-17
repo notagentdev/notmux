@@ -256,11 +256,6 @@ impl RootView {
                 });
                 self.follow_git_panel_to_project(project_id, cx);
             }
-            OverlayManagerEvent::ToggleProjectVisibility(project_id) => {
-                self.workspace.update(cx, |ws, cx| {
-                    ws.toggle_project_overview_visibility(project_id, cx);
-                });
-            }
             OverlayManagerEvent::RemoteReconnect { connection_id } => {
                 if let Some(ref rm) = self.remote_manager {
                     rm.update(cx, |rm, cx| {

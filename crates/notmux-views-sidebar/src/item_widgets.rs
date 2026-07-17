@@ -5,9 +5,7 @@
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::tooltip::Tooltip;
 use notmux_core::theme::ThemeColors;
-use notmux_ui::icon_button::icon_button;
 use notmux_ui::rename_state::{RenameState, rename_input};
 use notmux_ui::simple_input::SimpleInput;
 use notmux_ui::tokens::{ui_text_md, ui_text_sm, ui_text_xs};
@@ -223,29 +221,6 @@ pub fn sidebar_terminal_count_badge(count: usize, t: &ThemeColors, cx: &App) -> 
         .text_size(ui_text_sm(cx))
         .text_color(rgb(t.text_primary))
         .child(format!("{}", count))
-}
-
-/// Visibility toggle button with hover-reveal behavior.
-///
-/// Shows the eye icon on hover only.
-///
-/// Caller chains `.on_click()` to handle the toggle action.
-pub fn sidebar_visibility_button(
-    id: impl Into<ElementId>,
-    show_in_overview: bool,
-    group_name: &'static str,
-    tooltip_text: &'static str,
-    t: &ThemeColors,
-) -> Stateful<Div> {
-    icon_button(id, "icons/eye.svg", t)
-        // Rows are inset by mx(6) for the rounded highlight; pull the eye 6px
-        // into the right padding so it lines up in the same column as the
-        // section headers' "+" buttons (which have no mx inset).
-        .mr(px(-6.0))
-        .opacity(0.0)
-        .when(show_in_overview, |d| d.opacity(1.0))
-        .group_hover(group_name, |s| s.opacity(1.0))
-        .tooltip(move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx))
 }
 
 /// Project/worktree name with optional terminal count badge.

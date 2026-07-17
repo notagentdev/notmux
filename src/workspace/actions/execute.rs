@@ -852,13 +852,11 @@ fn execute_action_inner(
             ws.delete_project(&project_id, &global_hooks, cx);
             ActionResult::Ok(None)
         }
-        ActionRequest::SetProjectShowInOverview { project_id, show } => {
-            let current = match ws.project(&project_id) {
-                Some(p) => p.show_in_overview,
-                None => return ActionResult::Err(format!("project not found: {}", project_id)),
-            };
-            if current != show {
-                ws.toggle_project_overview_visibility(&project_id, cx);
+        ActionRequest::SetProjectShowInOverview { project_id, show: _ } => {
+            // Overview hiding was removed; projects are always shown. Kept as a
+            // no-op so remote clients issuing this action still succeed.
+            if ws.project(&project_id).is_none() {
+                return ActionResult::Err(format!("project not found: {}", project_id));
             }
             ActionResult::Ok(None)
         }

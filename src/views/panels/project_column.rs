@@ -368,9 +368,7 @@ impl ProjectColumn {
     fn render_header(&self, project: &ProjectData, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(cx);
         let workspace = self.workspace.clone();
-        let workspace_for_hide = self.workspace.clone();
         let project_id = self.project_id.clone();
-        let project_id_for_hide = self.project_id.clone();
         let effective_color = self.workspace.read(cx).effective_folder_color(project);
         let folder_color = t.get_folder_color(effective_color);
 
@@ -501,39 +499,6 @@ impl ProjectColumn {
                                 .gap(px(2.0))
                                 .opacity(0.0)
                                 .group_hover("project-header", |s| s.opacity(1.0))
-                                .child(
-                                    div()
-                                        .id("hide-project-btn")
-                                        .cursor_pointer()
-                                        .w(px(24.0))
-                                        .h(px(24.0))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded(px(4.0))
-                                        .hover(|s| s.bg(rgb(t.bg_hover)))
-                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                            cx.stop_propagation();
-                                        })
-                                        .on_click(move |_, _window, cx| {
-                                            cx.stop_propagation();
-                                            workspace_for_hide.update(cx, |ws, cx| {
-                                                ws.toggle_project_overview_visibility(
-                                                    &project_id_for_hide,
-                                                    cx,
-                                                );
-                                            });
-                                        })
-                                        .child(
-                                            svg()
-                                                .path("icons/eye-off.svg")
-                                                .size(px(14.0))
-                                                .text_color(rgb(t.text_secondary)),
-                                        )
-                                        .tooltip(|_window, cx| {
-                                            Tooltip::new("Hide Project").build(_window, cx)
-                                        }),
-                                )
                                 .child(
                                     div()
                                         .id("fullscreen-project-btn")

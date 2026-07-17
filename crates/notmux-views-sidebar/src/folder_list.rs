@@ -54,7 +54,6 @@ impl Sidebar {
         index: usize,
         _project_count: usize,
         idle_terminal_count: usize,
-        all_hidden: bool,
         is_cursor: bool,
         _window: &mut Window,
         cx: &mut Context<Self>,
@@ -84,7 +83,6 @@ impl Sidebar {
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_active_filter, |d| d.bg(rgb(t.bg_hover)))
             .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
-            .when(all_hidden, |d| d.opacity(0.75))
             // Drag source for folder reordering
             .on_drag(
                 FolderDrag {
@@ -315,7 +313,6 @@ impl Sidebar {
             .hover(|s| s.bg(rgb(t.bg_hover)))
             .when(is_focused_project, |d| d.bg(rgb(t.bg_hover)))
             .when(is_cursor, |d| d.bg(rgb(t.bg_hover)))
-            .when(!project.show_in_overview, |d| d.opacity(0.75))
             // Drag source
             .on_drag(
                 ProjectDrag {
@@ -475,7 +472,7 @@ impl Sidebar {
                     sidebar_name_or_badge(
                         name_label,
                         &project_name,
-                        is_expanded || project.show_in_overview,
+                        true,
                         project.terminal_ids.len(),
                         &t,
                         cx,
@@ -483,27 +480,5 @@ impl Sidebar {
                 },
             )
             .when(idle_count > 0, |d| d.child(sidebar_idle_dot(&t)))
-            .child(
-                sidebar_visibility_button(
-                    ElementId::Name(format!("fp-visibility-{}", project.id).into()),
-                    project.show_in_overview,
-                    "folder-project-item",
-                    if project.show_in_overview {
-                        "Hide Project"
-                    } else {
-                        "Show Project"
-                    },
-                    &t,
-                )
-                .on_click(cx.listener({
-                    let project_id = project_id.clone();
-                    move |this, _, _window, cx| {
-                        this.workspace.update(cx, |ws, cx| {
-                            ws.toggle_project_overview_visibility(&project_id, cx);
-                        });
-                        cx.stop_propagation();
-                    }
-                })),
-            )
     }
 }

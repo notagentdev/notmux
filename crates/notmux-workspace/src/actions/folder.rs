@@ -181,9 +181,7 @@ mod tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(LayoutNode::new_terminal()),
+            path: "/tmp/test".to_string(),            layout: Some(LayoutNode::new_terminal()),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,
@@ -305,9 +303,7 @@ mod gpui_tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(LayoutNode::new_terminal()),
+            path: "/tmp/test".to_string(),            layout: Some(LayoutNode::new_terminal()),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,

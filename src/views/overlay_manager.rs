@@ -166,9 +166,6 @@ pub enum OverlayManagerEvent {
     /// Project switcher: Focus a specific project
     FocusProject(String),
 
-    /// Project switcher: Toggle project overview visibility
-    ToggleProjectVisibility(String),
-
     /// Remote connect dialog: connection paired and ready
     RemoteConnected { config: RemoteConnectionConfig },
 
@@ -627,12 +624,6 @@ impl OverlayManager {
                         cx.emit(OverlayManagerEvent::FocusProject(project_id.clone()));
                         this.close_modal(cx);
                     }
-                    ProjectSwitcherEvent::ToggleVisibility(project_id) => {
-                        cx.emit(OverlayManagerEvent::ToggleProjectVisibility(
-                            project_id.clone(),
-                        ));
-                        cx.notify();
-                    }
                 },
             )
             .detach();
@@ -934,12 +925,6 @@ impl OverlayManager {
                 ContextMenuEvent::FocusProject { project_id } => {
                     this.hide_context_menu(cx);
                     cx.emit(OverlayManagerEvent::FocusProject(project_id.clone()));
-                }
-                ContextMenuEvent::HideProject { project_id } => {
-                    this.hide_context_menu(cx);
-                    cx.emit(OverlayManagerEvent::ToggleProjectVisibility(
-                        project_id.clone(),
-                    ));
                 }
                 ContextMenuEvent::CreateFolder => {
                     this.hide_context_menu(cx);

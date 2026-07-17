@@ -259,19 +259,6 @@ impl Workspace {
             return;
         };
 
-        // Opening a browser is an explicit "show me this" action — a pane in a
-        // project hidden from the overview would never render its webview
-        // (`should_show_webview` requires `show_in_overview`). Force the target
-        // project visible so the new pane is actually seen.
-        self.with_project(project_id, cx, |project| {
-            if project.show_in_overview {
-                false
-            } else {
-                project.show_in_overview = true;
-                true
-            }
-        });
-
         // Every call opens a fresh browser pane (multiple browsers per
         // project are expected).
         // Existing editor/browser area at the right edge → join it as a tab.
@@ -1574,9 +1561,7 @@ mod gpui_tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(LayoutNode::Terminal {
+            path: "/tmp/test".to_string(),            layout: Some(LayoutNode::Terminal {
                 slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
                 minimized: false,
@@ -2045,9 +2030,7 @@ mod gpui_tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(layout),
+            path: "/tmp/test".to_string(),            layout: Some(layout),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,

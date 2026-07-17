@@ -61,9 +61,6 @@ pub enum ContextMenuEvent {
     FocusProject {
         project_id: String,
     },
-    HideProject {
-        project_id: String,
-    },
     CreateFolder,
 }
 
@@ -189,12 +186,6 @@ impl ContextMenu {
         });
     }
 
-    fn hide_project(&self, cx: &mut Context<Self>) {
-        cx.emit(ContextMenuEvent::HideProject {
-            project_id: self.request.project_id.clone(),
-        });
-    }
-
     fn create_folder(&self, cx: &mut Context<Self>) {
         cx.emit(ContextMenuEvent::CreateFolder);
     }
@@ -316,20 +307,6 @@ impl Render for ContextMenu {
                             .on_click(cx.listener(
                                 |this, _, _window, cx| {
                                     this.focus_project(cx);
-                                },
-                            )),
-                        )
-                        // Hide Project
-                        .child(
-                            menu_item(
-                                "context-menu-hide-project",
-                                "icons/eye-off.svg",
-                                "Hide Project",
-                                &t,
-                            )
-                            .on_click(cx.listener(
-                                |this, _, _window, cx| {
-                                    this.hide_project(cx);
                                 },
                             )),
                         )

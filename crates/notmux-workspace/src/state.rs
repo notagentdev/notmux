@@ -599,12 +599,11 @@ mod workspace_tests {
     use notmux_core::theme::FolderColor;
     use notmux_terminal::shell_config::ShellType;
 
-    fn make_project(id: &str, visible: bool) -> ProjectData {
+    fn make_project(id: &str, _visible: bool) -> ProjectData {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
             path: "/tmp/test".to_string(),
-            show_in_overview: visible,
             layout: Some(LayoutNode::Terminal {
                 slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
@@ -642,24 +641,6 @@ mod workspace_tests {
             focused_terminal: None,
             pinned_view_active: false,
         }
-    }
-
-    #[test]
-    fn test_visible_projects_filters_hidden() {
-        let data = make_workspace_data(
-            vec![
-                make_project("p1", true),
-                make_project("p2", false),
-                make_project("p3", true),
-            ],
-            vec!["p1", "p2", "p3"],
-        );
-        let ws = Workspace::new(data);
-
-        let visible = ws.visible_projects();
-        assert_eq!(visible.len(), 2);
-        assert_eq!(visible[0].id, "p1");
-        assert_eq!(visible[1].id, "p3");
     }
 
     #[test]
@@ -1055,14 +1036,15 @@ mod workspace_tests {
         let ws = Workspace::new(data);
         let visible = ws.visible_projects();
 
-        assert_eq!(visible.len(), 2);
+        assert_eq!(visible.len(), 3);
         assert_eq!(visible[0].id, "p1");
-        assert_eq!(visible[1].id, "w1");
+        assert_eq!(visible[1].id, "p2");
+        assert_eq!(visible[2].id, "w1");
         assert_eq!(visible.iter().filter(|p| p.id == "w1").count(), 1);
     }
 
     #[test]
-    fn test_worktree_children_ordered_when_parent_hidden() {
+    fn test_worktree_children_ordered_within_folder_sections() {
         let mut w1 = make_project("w1", true);
         w1.worktree_info = Some(WorktreeMetadata {
             parent_project_id: "p1".to_string(),
@@ -1099,9 +1081,10 @@ mod workspace_tests {
         let ws = Workspace::new(data);
         let visible = ws.visible_projects();
 
-        assert_eq!(visible.len(), 2);
-        assert_eq!(visible[0].id, "w1");
-        assert_eq!(visible[1].id, "p2");
+        assert_eq!(visible.len(), 3);
+        assert_eq!(visible[0].id, "p1");
+        assert_eq!(visible[1].id, "w1");
+        assert_eq!(visible[2].id, "p2");
     }
 
     #[test]
@@ -1144,25 +1127,6 @@ mod workspace_tests {
         assert_eq!(visible[1].id, "w1");
         assert_eq!(visible[2].id, "p2");
         assert_eq!(visible.iter().filter(|p| p.id == "w1").count(), 1);
-    }
-
-    #[test]
-    fn test_orphan_worktree_shown_when_parent_not_in_result() {
-        let mut w1 = make_project("w1", true);
-        w1.worktree_info = Some(WorktreeMetadata {
-            parent_project_id: "p1".to_string(),
-            color_override: None,
-            main_repo_path: "/tmp/repo".to_string(),
-            worktree_path: "/tmp/wt1".to_string(),
-            branch_name: "branch-w1".to_string(),
-        });
-
-        let data = make_workspace_data(vec![make_project("p1", false), w1], vec!["p1", "w1"]);
-        let ws = Workspace::new(data);
-
-        let visible = ws.visible_projects();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].id, "w1");
     }
 
     #[test]
@@ -1368,7 +1332,6 @@ mod gpui_tests {
             id: id.to_string(),
             name: format!("Project {}", id),
             path: "/tmp/test".to_string(),
-            show_in_overview: true,
             layout: Some(LayoutNode::Terminal {
                 slot_id: format!("slot-{}", id),
                 terminal_id: Some(format!("term_{}", id)),
@@ -1491,34 +1454,6 @@ mod gpui_tests {
         });
     }
 
-    #[gpui::test]
-    fn test_visible_projects_gpui(cx: &mut gpui::TestAppContext) {
-        let mut p1 = make_project("p1");
-        let p2 = make_project("p2");
-        let mut p3 = make_project("p3");
-        p1.show_in_overview = false;
-        p3.show_in_overview = false;
-        let data = make_workspace_data(vec![p1, p2, p3], vec!["p1", "p2", "p3"]);
-        let workspace = cx.new(|_cx| Workspace::new(data));
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            let visible = ws.visible_projects();
-            assert_eq!(visible.len(), 1);
-            assert_eq!(visible[0].id, "p2");
-        });
-
-        workspace.update(cx, |ws: &mut Workspace, cx| {
-            ws.toggle_project_overview_visibility("p1", cx);
-        });
-
-        workspace.read_with(cx, |ws: &Workspace, _cx| {
-            let visible = ws.visible_projects();
-            assert_eq!(visible.len(), 2);
-            assert_eq!(visible[0].id, "p1");
-            assert_eq!(visible[1].id, "p2");
-        });
-    }
-
     fn make_remote_project(id: &str, conn_id: &str) -> ProjectData {
         let mut p = make_project(id);
         p.is_remote = true;
@@ -1587,10 +1522,8 @@ mod gpui_tests {
         use crate::state::FolderData;
 
         let local = make_project("local1");
-        let mut remote1 = make_remote_project("remote:conn1:p1", "conn1");
-        remote1.show_in_overview = true;
-        let mut remote2 = make_remote_project("remote:conn1:p2", "conn1");
-        remote2.show_in_overview = false;
+        let remote1 = make_remote_project("remote:conn1:p1", "conn1");
+        let remote2 = make_remote_project("remote:conn1:p2", "conn1");
 
         let mut data = make_workspace_data(
             vec![local, remote1, remote2],
@@ -1608,9 +1541,10 @@ mod gpui_tests {
 
         workspace.read_with(cx, |ws: &Workspace, _cx| {
             let visible = ws.visible_projects();
-            assert_eq!(visible.len(), 2);
+            assert_eq!(visible.len(), 3);
             assert_eq!(visible[0].id, "local1");
             assert_eq!(visible[1].id, "remote:conn1:p1");
+            assert_eq!(visible[2].id, "remote:conn1:p2");
         });
     }
 

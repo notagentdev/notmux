@@ -121,9 +121,7 @@ mod tests {
         ProjectData {
             id: id.to_string(),
             name: format!("Project {}", id),
-            path: "/tmp/test".to_string(),
-            show_in_overview: true,
-            layout: Some(layout),
+            path: "/tmp/test".to_string(),            layout: Some(layout),
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
             worktree_info: None,
@@ -206,11 +204,12 @@ mod tests {
         let mut remote = make_project("p3", terminal_slot("s3"));
         remote.is_remote = true;
         remote.pinned_slots = vec!["s3".to_string()];
-        // p2 is hidden from the old overview — pins must still make it visible
-        let mut p2 = make_project("p2", terminal_slot("s2"));
-        p2.show_in_overview = false;
         let data = make_workspace_data(
-            vec![make_project("p1", terminal_slot("s1")), p2, remote],
+            vec![
+                make_project("p1", terminal_slot("s1")),
+                make_project("p2", terminal_slot("s2")),
+                remote,
+            ],
             vec!["p1", "p2", "p3"],
         );
         let workspace = cx.new(|_cx| Workspace::new(data));
@@ -218,8 +217,7 @@ mod tests {
         workspace.update(cx, |ws: &mut Workspace, cx| {
             ws.toggle_pin("p2", "s2", cx);
             ws.enter_pinned_view(cx);
-            // Only local projects with pinned panes are visible,
-            // regardless of show_in_overview
+            // Only local projects with pinned panes are visible.
             let visible: Vec<_> = ws.visible_projects().iter().map(|p| p.id.clone()).collect();
             assert_eq!(visible, vec!["p2"]);
         });

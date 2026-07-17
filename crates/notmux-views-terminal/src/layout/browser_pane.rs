@@ -442,21 +442,12 @@ impl BrowserPane {
         &self.url
     }
 
-    /// Bring this pane on screen: make its project visible in the overview
-    /// (webviews stay hidden while `show_in_overview` is false) and focus the
-    /// pane's slot. Used by the `open` automation action so it reliably reveals
-    /// the page even when reusing a pane in a hidden project.
+    /// Bring this pane on screen: focus the pane's slot so its project column
+    /// scrolls into view. Used by the `open` automation action so it reliably
+    /// reveals the page even when reusing an existing pane.
     fn reveal(&mut self, cx: &mut Context<Self>) {
         let (project_id, slot_id) = (self.project_id.clone(), self.slot_id.clone());
         self.workspace.update(cx, |ws, cx| {
-            ws.with_project(&project_id, cx, |project| {
-                if project.show_in_overview {
-                    false
-                } else {
-                    project.show_in_overview = true;
-                    true
-                }
-            });
             ws.focus_pane_by_slot(&project_id, &slot_id, cx);
         });
     }
@@ -555,11 +546,11 @@ impl BrowserPane {
         }
         // The pane's project must actually be rendered as a column. This is the
         // authoritative filter: `visible_projects` already folds in the
-        // focused-project override, the folder filter, `show_in_overview`, and
-        // — crucially — the pinned view (where only projects that own a pinned
-        // pane appear). A native webview floats above *all* GPUI content, so a
-        // browser whose project is off screen would otherwise bleed over
-        // whatever view replaced it.
+        // focused-project override, the folder filter, and — crucially — the
+        // pinned view (where only projects that own a pinned pane appear). A
+        // native webview floats above *all* GPUI content, so a browser whose
+        // project is off screen would otherwise bleed over whatever view
+        // replaced it.
         if !ws.visible_projects().iter().any(|p| p.id == self.project_id) {
             return false;
         }

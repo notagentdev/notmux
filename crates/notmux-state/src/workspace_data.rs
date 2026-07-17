@@ -178,8 +178,6 @@ pub struct ProjectData {
     pub id: String,
     pub name: String,
     pub path: String,
-    #[serde(default = "default_true", alias = "is_visible")]
-    pub show_in_overview: bool,
     /// Layout tree for terminal panes. None means project is a bookmark without terminals.
     pub layout: Option<LayoutNode>,
     #[serde(default)]
@@ -267,10 +265,6 @@ pub fn is_bash_prompt_title(title: &str) -> bool {
 
 fn default_workspace_version() -> u32 {
     0 // pre-versioning workspace files
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[cfg(test)]

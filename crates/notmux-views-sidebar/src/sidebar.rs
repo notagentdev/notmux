@@ -2176,7 +2176,6 @@ pub struct SidebarHookInfo {
 pub struct SidebarProjectInfo {
     pub id: String,
     pub name: String,
-    pub show_in_overview: bool,
     pub folder_color: FolderColor,
     pub has_layout: bool,
     pub terminal_ids: Vec<String>,
@@ -2242,7 +2241,6 @@ impl SidebarProjectInfo {
         Self {
             id: project.id.clone(),
             name,
-            show_in_overview: project.show_in_overview,
             folder_color: project.folder_color,
             has_layout: layout.is_some(),
             terminal_ids: layout
@@ -2603,8 +2601,6 @@ impl Render for Sidebar {
                         // Group header highlights when focused non-individual (showing all)
                         let is_focused_group =
                             focused_project_id.as_ref() == Some(&project.id) && !focus_individual;
-                        let all_hidden = !project.show_in_overview
-                            && worktree_children.iter().all(|c| !c.show_in_overview);
                         flat_elements.push(
                             self.render_project_group_header(
                                 &project,
@@ -2612,7 +2608,6 @@ impl Render for Sidebar {
                                 "gh",
                                 "group-header-item",
                                 crate::project_list::GroupHeaderDragConfig::TopLevel { index },
-                                all_hidden,
                                 is_cursor,
                                 is_focused_group,
                                 window,
@@ -2766,18 +2761,12 @@ impl Render for Sidebar {
                     } else {
                         0
                     };
-                    let all_hidden = projects.iter().all(|p| !p.show_in_overview)
-                        && worktree_children
-                            .values()
-                            .flat_map(|c| c.iter())
-                            .all(|c| !c.show_in_overview);
                     flat_elements.push(
                         self.render_folder_header(
                             &folder,
                             index,
                             projects.len(),
                             idle_terminal_count,
-                            all_hidden,
                             is_cursor,
                             window,
                             cx,
@@ -2798,9 +2787,6 @@ impl Render for Sidebar {
                                 let is_focused_group = focused_project_id.as_ref() == Some(&fp.id)
                                     && !focus_individual;
                                 flat_elements.push({
-                                    let all_hidden = !fp.show_in_overview
-                                        && fp_wt_children
-                                            .is_none_or(|c| c.iter().all(|c| !c.show_in_overview));
                                     self.render_project_group_header(
                                         fp,
                                         20.0,
@@ -2809,7 +2795,6 @@ impl Render for Sidebar {
                                         crate::project_list::GroupHeaderDragConfig::InFolder {
                                             folder_id: folder.id.clone(),
                                         },
-                                        all_hidden,
                                         is_cursor,
                                         is_focused_group,
                                         window,
