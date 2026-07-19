@@ -441,19 +441,19 @@ impl Sidebar {
     }
 
     /// Apply an FS patch to every explorer whose project contains `path`.
+    /// `path` is the changed entry itself — `patch_paths` re-lists its
+    /// parent directory (passing the parent here would re-list the
+    /// grandparent and leave the actual directory stale).
     pub fn patch_explorers_for_path(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
-        let parent = path
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| path.to_path_buf());
+        let path = path.to_path_buf();
         let targets: Vec<Entity<FileExplorer>> = self
             .file_explorers
             .values()
-            .filter(|fe| parent.starts_with(fe.read(cx).project_path()))
+            .filter(|fe| path.starts_with(fe.read(cx).project_path()))
             .cloned()
             .collect();
         for fe in targets {
-            fe.update(cx, |fe, cx| fe.patch_paths(std::slice::from_ref(&parent), cx));
+            fe.update(cx, |fe, cx| fe.patch_paths(std::slice::from_ref(&path), cx));
         }
     }
 

@@ -403,7 +403,10 @@ impl FileExplorer {
                     return;
                 };
                 let new_path = parent.join(&raw);
-                let patch_dirs = vec![parent.clone()];
+                // The changed entries themselves — patch_paths re-lists their
+                // parent directory (passing the parent would re-list the
+                // grandparent and leave this directory stale).
+                let patch_dirs = vec![new_path.clone()];
                 cx.spawn(async move |this, cx| {
                     let (src, dst) = (target.clone(), new_path.clone());
                     let result = smol::unblock(move || fs_ops::rename(&src, &dst)).await;
@@ -418,7 +421,7 @@ impl FileExplorer {
             }
             InputMode::NewFile { parent } => {
                 let path = parent.join(&raw);
-                let patch_dirs = vec![parent.clone()];
+                let patch_dirs = vec![path.clone()];
                 cx.spawn(async move |this, cx| {
                     let p = path.clone();
                     let result = smol::unblock(move || fs_ops::create_file(&p)).await;
@@ -433,7 +436,7 @@ impl FileExplorer {
             }
             InputMode::NewFolder { parent } => {
                 let path = parent.join(&raw);
-                let patch_dirs = vec![parent.clone()];
+                let patch_dirs = vec![path.clone()];
                 cx.spawn(async move |this, cx| {
                     let p = path.clone();
                     let result = smol::unblock(move || fs_ops::create_folder(&p)).await;
