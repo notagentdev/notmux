@@ -429,6 +429,9 @@ impl NotMux {
                 if let Err(e) = notmux_hooks::agent_hooks::install_cursor() {
                     log::warn!("Cursor hook install on startup: {e}");
                 }
+                if let Err(e) = notmux_hooks::agent_hooks::install_kimi() {
+                    log::warn!("Kimi Code hook install on startup: {e}");
+                }
             }
         }
 

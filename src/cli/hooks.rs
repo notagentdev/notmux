@@ -24,6 +24,7 @@ pub fn cli_hooks(args: &[String]) -> i32 {
         ("setup", Some("notagent")) | ("install", Some("notagent")) => {
             agent_hooks::install_notagent()
         }
+        ("setup", Some("kimi")) | ("install", Some("kimi")) => agent_hooks::install_kimi(),
         ("setup", Some("shell")) | ("install", Some("shell")) => agent_hooks::install_shell(),
         ("uninstall", None) => {
             let errors = agent_hooks::uninstall_all();
@@ -37,9 +38,10 @@ pub fn cli_hooks(args: &[String]) -> i32 {
         ("uninstall", Some("claude")) => agent_hooks::uninstall_claude(),
         ("uninstall", Some("codex")) => agent_hooks::uninstall_codex(),
         ("uninstall", Some("notagent")) => agent_hooks::uninstall_notagent(),
+        ("uninstall", Some("kimi")) => agent_hooks::uninstall_kimi(),
         ("uninstall", Some("shell")) => agent_hooks::uninstall_shell(),
         ("list", _) => {
-            println!("Available agents: claude, codex, notagent, shell");
+            println!("Available agents: claude, codex, notagent, kimi, shell");
             println!("Usage: notmux hooks setup [agent]");
             println!("       notmux hooks uninstall [agent]");
             Ok(())

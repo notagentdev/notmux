@@ -707,6 +707,141 @@ pub fn uninstall_notagent() -> Result<(), String> {
     Ok(())
 }
 
+/// Markers delimiting the notmux-managed `[[hooks]]` block in Kimi Code's
+/// `config.toml`. Everything between them (inclusive) is ours to rewrite;
+/// the rest of the user's config is never touched.
+const KIMI_HOOKS_BEGIN: &str = "# notmux kimi hooks begin";
+const KIMI_HOOKS_END: &str = "# notmux kimi hooks end";
+
+/// Resolve the Kimi Code config dir: `$KIMI_CODE_HOME` or `~/.kimi-code`.
+fn kimi_config_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("KIMI_CODE_HOME")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
+    }
+    home_dir().map(|h| h.join(".kimi-code"))
+}
+
+/// Return `existing` with the notmux-managed `[[hooks]]` block removed.
+fn strip_kimi_hooks_block(existing: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    let mut inside = false;
+    for line in existing.lines() {
+        match line.trim() {
+            KIMI_HOOKS_BEGIN => inside = true,
+            KIMI_HOOKS_END => inside = false,
+            _ if !inside => out.push(line),
+            _ => {}
+        }
+    }
+    let mut joined = out.join("\n");
+    let trimmed = joined.trim_end().len();
+    joined.truncate(trimmed);
+    if !joined.is_empty() {
+        joined.push('\n');
+    }
+    joined
+}
+
+/// Install Kimi Code hooks: a marker-delimited `[[hooks]]` block appended to
+/// `~/.kimi-code/config.toml` (Kimi has no hooks file of its own — hooks live
+/// in the main config; exactly four fields per entry; fail-open; commands run
+/// through the shell). Kimi mirrors Claude's events and adds the ones Claude
+/// lacks: `PermissionResult` fires right after an approval decision and
+/// `PostToolUse` right after the user answers an `AskUserQuestion`, so both
+/// needs-input states clear at the exact moment they resolve. Commands are
+/// TOML literal strings ('…'); none of them may contain a single quote.
+/// Only runs if Kimi is already set up.
+pub fn install_kimi() -> Result<(), String> {
+    let config_dir = kimi_config_dir().ok_or("HOME not set")?;
+    if !config_dir.exists() {
+        log::info!(
+            "Kimi Code not set up ({} missing); skipping",
+            config_dir.display()
+        );
+        return Ok(());
+    }
+    let exe = notmux_binary();
+    let notify = |body: &str| {
+        format!(
+            "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Kimi Code\" --body \"{body}\" >/dev/null 2>&1 || true"
+        )
+    };
+    let working_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    let idle_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status idle >/dev/null 2>&1 || true"
+    );
+
+    let entries: [(&str, Option<&str>, String); 8] = [
+        // A new prompt marks the agent working and clears stale badges.
+        ("UserPromptSubmit", None, working_cmd.clone()),
+        ("Stop", None, notify("Turn complete")),
+        ("StopFailure", None, notify("Turn failed")),
+        // User pressed Esc: no badge, just stop the spinner (`Stop` does not
+        // fire on interrupts).
+        ("Interrupt", None, idle_cmd),
+        // Fires only for real interactive prompts, never auto-approvals.
+        ("PermissionRequest", None, notify("Approval needed")),
+        // Fires right after the approve/deny decision — the immediate badge
+        // clear Claude has no event for.
+        ("PermissionResult", None, working_cmd.clone()),
+        // Follow-up questions: badge on when the question appears, off the
+        // moment it is answered.
+        ("PreToolUse", Some("AskUserQuestion"), notify("Input needed")),
+        ("PostToolUse", Some("AskUserQuestion"), working_cmd),
+    ];
+
+    let mut block = String::new();
+    block.push_str(KIMI_HOOKS_BEGIN);
+    block.push('\n');
+    for (event, matcher, command) in &entries {
+        if command.contains('\'') {
+            return Err(format!(
+                "Kimi hook command contains a single quote and cannot be TOML-encoded: {command}"
+            ));
+        }
+        block.push_str("[[hooks]]\n");
+        block.push_str(&format!("event = \"{event}\"\n"));
+        if let Some(m) = matcher {
+            block.push_str(&format!("matcher = \"{m}\"\n"));
+        }
+        block.push_str(&format!("command = '{command}'\n"));
+        block.push_str("timeout = 10\n\n");
+    }
+    block.push_str(KIMI_HOOKS_END);
+    block.push('\n');
+
+    let config_path = config_dir.join("config.toml");
+    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let mut updated = strip_kimi_hooks_block(&existing);
+    if !updated.is_empty() {
+        updated.push('\n');
+    }
+    updated.push_str(&block);
+    std::fs::write(&config_path, updated)
+        .map_err(|e| format!("Failed to write {}: {e}", config_path.display()))?;
+    log::info!("Installed Kimi Code hooks -> {}", config_path.display());
+    Ok(())
+}
+
+/// Remove the Kimi Code hooks block written by [`install_kimi`].
+pub fn uninstall_kimi() -> Result<(), String> {
+    let config_dir = kimi_config_dir().ok_or("HOME not set")?;
+    let config_path = config_dir.join("config.toml");
+    if let Ok(existing) = std::fs::read_to_string(&config_path) {
+        let cleaned = strip_kimi_hooks_block(&existing);
+        if cleaned != existing {
+            std::fs::write(&config_path, cleaned)
+                .map_err(|e| format!("Failed to write {}: {e}", config_path.display()))?;
+        }
+    }
+    log::info!("Removed Kimi Code hooks <- {}", config_dir.display());
+    Ok(())
+}
+
 /// Marker identifying our OpenCode plugin file (never edit foreign files).
 const OPENCODE_PLUGIN_MARKER: &str = "notmux-opencode-plugin-marker";
 
@@ -1174,6 +1309,9 @@ pub fn install_all() -> Vec<String> {
     if let Err(e) = install_cursor() {
         errors.push(e);
     }
+    if let Err(e) = install_kimi() {
+        errors.push(e);
+    }
     if let Err(e) = install_shell() {
         errors.push(e);
     }
@@ -1202,6 +1340,9 @@ pub fn uninstall_all() -> Vec<String> {
         errors.push(e);
     }
     if let Err(e) = uninstall_cursor() {
+        errors.push(e);
+    }
+    if let Err(e) = uninstall_kimi() {
         errors.push(e);
     }
     if let Err(e) = uninstall_shell() {
