@@ -20,45 +20,6 @@ use std::future::Future;
 
 use super::{RightView, RootView};
 
-/// Walk to the terminal at the top-right corner of a layout tree, recording the
-/// path — used to register which pane's tab bar carries the right reserve.
-fn top_right_terminal_path(node: &crate::workspace::state::LayoutNode, path: &mut Vec<usize>) {
-    use crate::workspace::state::{LayoutNode, SplitDirection};
-    match node {
-        LayoutNode::Terminal { .. } | LayoutNode::Editor { .. } | LayoutNode::Browser { .. } => {}
-        LayoutNode::Split {
-            direction,
-            children,
-            ..
-        } => {
-            // Horizontal = stacked top/bottom (top-right is the top child);
-            // Vertical = side-by-side (top-right is the right-most child).
-            let idx = match direction {
-                SplitDirection::Horizontal => 0,
-                SplitDirection::Vertical => children.len().saturating_sub(1),
-            };
-            if let Some(child) = children.get(idx) {
-                path.push(idx);
-                top_right_terminal_path(child, path);
-            }
-        }
-        LayoutNode::Tabs {
-            children,
-            active_tab,
-        } => {
-            let idx = if children.get(*active_tab).is_some() {
-                *active_tab
-            } else {
-                0
-            };
-            if let Some(child) = children.get(idx) {
-                path.push(idx);
-                top_right_terminal_path(child, path);
-            }
-        }
-    }
-}
-
 impl RootView {
     /// Applies the active resize drag for a mouse position. Returns true when
     /// the caller must refresh the window (split/column resizes bypass cached
@@ -587,16 +548,12 @@ impl Render for RootView {
 
         // Title-bar overlay reserves: when the sidebar is collapsed the grid
         // reaches the window's left edge, so the top-left pane insets its tabs
-        // past the traffic lights + left toggle. On the right the top-right pane
-        // insets its buttons past the git/settings cluster (when the git panel is
-        // closed) and the Windows caption buttons.
-        //
-        // The pinned view has its own title bar above the columns, so the window
-        // chrome never floats over a pane's tab bar there — the tab-strip
-        // reserves don't apply (they'd push the pinned panes' action buttons in
-        // from their own edge). Instead the chrome floats over the first/last
-        // column's title bar, which takes the same insets (see below).
-        let pinned_view = self.workspace.read(cx).data.pinned_view_active;
+        // Every view now renders a title bar above each column (projects and
+        // pinned alike), so the window chrome never floats over a pane's tab
+        // bar — the tab-strip reserves stay 0 and the chrome insets go to the
+        // first/last column's title bar instead: traffic lights + left toggle
+        // on the left, git/settings cluster and Windows caption buttons on
+        // the right.
         let chrome_left = if self.sidebar_ctrl.should_render() {
             0.0
         } else {
@@ -609,8 +566,7 @@ impl Render for RootView {
             };
             150.0 + pair
         };
-        let left_reserve = if pinned_view { 0.0 } else { chrome_left };
-        notmux_views_terminal::set_tab_action_left_reserve(left_reserve, cx);
+        notmux_views_terminal::set_tab_action_left_reserve(0.0, cx);
         // Match the title-bar overlay height so the tab strip centers with the
         // traffic lights / controls floating over it. Same constant positions
         // the fullscreen overlays (file/diff viewer) below the strip.
@@ -624,27 +580,13 @@ impl Render for RootView {
         if cfg!(target_os = "windows") {
             chrome_right += 138.0; // three 46px caption buttons
         }
-        let right_reserve = if pinned_view { 0.0 } else { chrome_right };
-        notmux_views_terminal::set_tab_action_right_reserve(right_reserve, cx);
-        // Pinned view: the chrome floats over the columns' own title bars, so
-        // the first/last column insets its title content instead of the tabs.
-        crate::views::panels::project_column::set_pinned_title_reserves(
-            if pinned_view { chrome_left } else { 0.0 },
-            if pinned_view { chrome_right } else { 0.0 },
+        notmux_views_terminal::set_tab_action_right_reserve(0.0, cx);
+        crate::views::panels::project_column::set_column_title_reserves(
+            chrome_left,
+            chrome_right,
             cx,
         );
-        let right_path = {
-            let ws = self.workspace.read(cx);
-            ws.visible_projects()
-                .last()
-                .and_then(|p| p.layout.as_ref())
-                .map(|layout| {
-                    let mut p = Vec::new();
-                    top_right_terminal_path(layout, &mut p);
-                    p
-                })
-        };
-        notmux_views_terminal::set_tab_action_right_reserve_path(right_path, cx);
+        notmux_views_terminal::set_tab_action_right_reserve_path(None, cx);
 
         div()
             .id("root")

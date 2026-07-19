@@ -22,20 +22,20 @@ use notmux_core::api::ActionRequest;
 use notmux_views_services::service_panel::ServicePanel;
 use notmux_workspace::requests::OverlayRequest;
 
-/// Chrome insets for the pinned-view title bars: the window chrome floats over
-/// the first column's title bar on the left (traffic lights + sidebar toggle
-/// when the sidebar is hidden) and the last column's on the right (git/settings
-/// cluster, Windows caption buttons) — the same edges the tab-strip reserves
-/// cover in the normal project view. Set by RootView each frame.
+/// Chrome insets for the column title bars: the window chrome floats over the
+/// first column's title bar on the left (traffic lights + sidebar toggle when
+/// the sidebar is hidden) and the last column's on the right (git/settings
+/// cluster, Windows caption buttons). Applies to every view that renders
+/// column title bars (projects and pinned). Set by RootView each frame.
 #[derive(Clone, Copy, Default)]
-pub struct PinnedTitleReserves {
+pub struct ColumnTitleReserves {
     pub left: f32,
     pub right: f32,
 }
-impl Global for PinnedTitleReserves {}
+impl Global for ColumnTitleReserves {}
 
-pub fn set_pinned_title_reserves(left: f32, right: f32, cx: &mut App) {
-    cx.set_global(PinnedTitleReserves { left, right });
+pub fn set_column_title_reserves(left: f32, right: f32, cx: &mut App) {
+    cx.set_global(ColumnTitleReserves { left, right });
 }
 
 /// A single project column with header and layout
@@ -730,30 +730,42 @@ impl Render for ProjectColumn {
                     gh.set_current_branch(current_branch.clone());
                 });
 
-                // Pinned view: title bar with the project name on each container.
-                // Also a window-drag handle (same latch pattern as the tab strip:
-                // mouse-down arms, the next mouse-move starts the OS window move,
-                // so a plain click stays a click).
-                let pinned_title_bar = if self.workspace.read(cx).data.pinned_view_active {
-                    // Colored projects color the pin icon (not the bar background)
+                // Column title bar with the project name — rendered in the
+                // projects view and the pinned view alike; the pinned view
+                // additionally shows the pin icon. Also a window-drag handle
+                // (same latch pattern as the tab strip: mouse-down arms, the
+                // next mouse-move starts the OS window move, so a plain click
+                // stays a click).
+                let title_bar = {
+                    let pinned_view = self.workspace.read(cx).data.pinned_view_active;
+                    // Colored projects color the leading icon (not the bar
+                    // background): the pin in the pinned view, the folder icon
+                    // in the projects view.
                     let effective_color = self.workspace.read(cx).effective_folder_color(&project);
-                    let pin_color = if effective_color != crate::theme::FolderColor::Default {
+                    let icon_color = if effective_color != crate::theme::FolderColor::Default {
                         rgb(t.get_folder_color(effective_color))
                     } else {
                         rgb(t.text_secondary)
                     };
                     // Edge columns inset their title content past the floating
                     // window chrome (traffic lights/toggles left, git/settings
-                    // right), like the tab strips do in the normal view.
+                    // right). A zoomed column spans the full width and is both
+                    // edges at once.
                     let (chrome_left, chrome_right) = {
                         let r = cx
-                            .try_global::<PinnedTitleReserves>()
+                            .try_global::<ColumnTitleReserves>()
                             .copied()
                             .unwrap_or_default();
                         let ws = self.workspace.read(cx);
+                        let zoomed = ws
+                            .focus_manager
+                            .fullscreen_project_id()
+                            .is_some_and(|id| id == self.project_id.as_str());
                         let visible = ws.visible_projects();
-                        let is_first = visible.first().is_some_and(|p| p.id == self.project_id);
-                        let is_last = visible.last().is_some_and(|p| p.id == self.project_id);
+                        let is_first =
+                            zoomed || visible.first().is_some_and(|p| p.id == self.project_id);
+                        let is_last =
+                            zoomed || visible.last().is_some_and(|p| p.id == self.project_id);
                         (
                             if is_first { r.left } else { 0.0 },
                             if is_last { r.right } else { 0.0 },
@@ -787,9 +799,13 @@ impl Render for ProjectColumn {
                             }))
                             .child(
                                 svg()
-                                    .path("icons/pinned.svg")
+                                    .path(if pinned_view {
+                                        "icons/pinned.svg"
+                                    } else {
+                                        "icons/folder.svg"
+                                    })
                                     .size(px(12.0))
-                                    .text_color(pin_color),
+                                    .text_color(icon_color),
                             )
                             .child(
                                 div()
@@ -800,8 +816,6 @@ impl Render for ProjectColumn {
                                     .child(project.name.clone()),
                             ),
                     )
-                } else {
-                    None
                 };
 
                 div()
@@ -812,7 +826,7 @@ impl Render for ProjectColumn {
                     .size_full()
                     .min_h_0()
                     .bg(bg_color)
-                    .children(pinned_title_bar)
+                    .children(title_bar)
                     .child(content)
                     // Hook panel (delegated to HookPanel entity)
                     .child(self.hook_panel.update(cx, |hp, cx| hp.render_panel(&t, cx)))
