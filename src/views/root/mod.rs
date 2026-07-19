@@ -51,6 +51,16 @@ pub enum RightView {
     Files,
 }
 
+/// Which sub-view the right panel's Files tab shows (like the git panel's
+/// Changes / History switch).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FilesView {
+    /// File explorer tree.
+    Explorer,
+    /// Fast content search (ripgrep-style, literal/regex/fuzzy).
+    Search,
+}
+
 /// Root view of the application
 pub struct RootView {
     workspace: Entity<Workspace>,
@@ -116,6 +126,12 @@ pub struct RootView {
     /// central editor (`main_file_viewer`).
     right_explorers:
         HashMap<String, Entity<crate::views::panels::right_files::file_explorer::FileExplorer>>,
+    /// Which sub-tab the Files tab shows (explorer tree or content search).
+    files_view: FilesView,
+    /// Per-project content-search panels for the Files tab's Search sub-tab.
+    /// Reuses the sidebar's search panel; result clicks open the central editor.
+    right_search_panels:
+        HashMap<String, Entity<notmux_views_sidebar::search_panel::ContentSearchPanel>>,
     /// Diff viewer shown in the central project area from the git changes list.
     main_diff_viewer: Option<Entity<notmux_views_git::diff_viewer::DiffViewer>>,
     /// File viewer shown in the central project area from the sidebar explorer.
@@ -288,6 +304,8 @@ impl RootView {
             right_view: RightView::Git,
             title_should_move: false,
             right_explorers: HashMap::new(),
+            files_view: FilesView::Explorer,
+            right_search_panels: HashMap::new(),
             main_diff_viewer: None,
             main_file_viewer: None,
             pending_git_internal_refresh: HashMap::new(),
@@ -922,6 +940,8 @@ impl RootView {
         // Drop Files-tab explorers for projects that no longer exist —
         // they are recreated lazily on next use.
         self.right_explorers
+            .retain(|id, _| all_project_ids.contains(id));
+        self.right_search_panels
             .retain(|id, _| all_project_ids.contains(id));
 
         // Clean up columns for projects that no longer exist

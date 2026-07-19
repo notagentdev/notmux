@@ -99,7 +99,7 @@ impl RootView {
     }
 
     /// Build a ProjectFs provider for the given project (local or remote).
-    fn build_project_fs(
+    pub(super) fn build_project_fs(
         &self,
         project_id: &str,
         cx: &Context<Self>,

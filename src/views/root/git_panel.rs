@@ -469,10 +469,13 @@ impl RootView {
             .into_any_element()
     }
 
-    /// Render the Files tab: the focused project's optimized file explorer,
-    /// wired to RootView's request broker so a file click opens the central
-    /// editor (`main_file_viewer`) rather than a viewer inside this panel.
+    /// Render the Files tab: an Explorer / Search sub-tab switch (like the git
+    /// panel's Changes / History header) over the focused project's file
+    /// explorer or content-search panel. Both are wired to RootView's request
+    /// broker so a click opens the central editor (`main_file_viewer`) rather
+    /// than a viewer inside this panel.
     fn render_right_files_tab(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let t = theme(cx);
         let proj = {
             let ws = self.workspace.read(cx);
             ws.focus_manager
@@ -486,7 +489,6 @@ impl RootView {
                 })
         };
         let Some((pid, path)) = proj else {
-            let t = theme(cx);
             return div()
                 .size_full()
                 .flex()
@@ -497,10 +499,92 @@ impl RootView {
                 .child("No project")
                 .into_any_element();
         };
-        if !self.right_explorers.contains_key(&pid) {
+
+        let body: AnyElement = match self.files_view {
+            super::FilesView::Explorer => self.render_right_explorer(&pid, &path, cx),
+            super::FilesView::Search => self.render_right_search(&pid, cx),
+        };
+
+        // One sub-tab (icon + label pill) in the Files header.
+        let render_sub_tab = |this: &Self,
+                              view: super::FilesView,
+                              icon: &'static str,
+                              label: &'static str,
+                              cx: &mut Context<Self>| {
+            let is_active = this.files_view == view;
+            let fg = if is_active { t.text_primary } else { t.text_muted };
+            div()
+                .id(label)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                .px(px(10.0))
+                .h(px(24.0))
+                .rounded_md()
+                .cursor_pointer()
+                .when(is_active, |d| d.bg(rgb(t.bg_hover)))
+                .when(!is_active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+                .child(svg().path(icon).size(px(12.0)).text_color(rgb(fg)))
+                .child(
+                    div()
+                        .text_size(ui_text_md(cx))
+                        .text_color(rgb(fg))
+                        .child(label),
+                )
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.files_view = view;
+                    cx.notify();
+                }))
+        };
+
+        let header = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(34.0))
+            .px(px(6.0))
+            .gap(px(4.0))
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .child(render_sub_tab(
+                self,
+                super::FilesView::Explorer,
+                "icons/folder.svg",
+                "Explorer",
+                cx,
+            ))
+            .child(render_sub_tab(
+                self,
+                super::FilesView::Search,
+                "icons/search.svg",
+                "Search",
+                cx,
+            ))
+            .when(self.files_view == super::FilesView::Search, |d| {
+                d.child(div().flex_1())
+                    .child(self.render_right_search_toggles(&pid, cx))
+            });
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .min_h_0()
+            .child(header)
+            .child(div().flex_1().min_h_0().child(body))
+            .into_any_element()
+    }
+
+    /// The Files tab's Explorer sub-view: per-project optimized file explorer.
+    fn render_right_explorer(&mut self, pid: &str, path: &str, cx: &mut Context<Self>) -> AnyElement {
+        if !self.right_explorers.contains_key(pid) {
             let broker = self.request_broker.clone();
             let explorer = cx.new({
-                let pid = pid.clone();
+                let pid = pid.to_string();
+                let path = path.to_string();
                 move |cx| {
                     crate::views::panels::right_files::file_explorer::FileExplorer::new(
                         pid,
@@ -512,15 +596,111 @@ impl RootView {
                 }
             });
             cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
-            self.right_explorers.insert(pid.clone(), explorer);
+            self.right_explorers.insert(pid.to_string(), explorer);
         }
         let explorer = self
             .right_explorers
-            .get(&pid)
+            .get(pid)
             .cloned()
             .expect("just inserted");
         AnyView::from(explorer)
             .cached(StyleRefinement::default().size_full())
+            .into_any_element()
+    }
+
+    /// The Files tab's Search sub-view: per-project content-search panel
+    /// (reuses the sidebar's panel; result clicks open the central editor).
+    fn render_right_search(&mut self, pid: &str, cx: &mut Context<Self>) -> AnyElement {
+        let Some(panel) = self.ensure_right_search_panel(pid, cx) else {
+            let t = theme(cx);
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(ui_text_md(cx))
+                .text_color(rgb(t.text_muted))
+                .child("Search unavailable")
+                .into_any_element();
+        };
+        AnyView::from(panel)
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element()
+    }
+
+    /// Get or lazily create the content-search panel for a project.
+    fn ensure_right_search_panel(
+        &mut self,
+        pid: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<notmux_views_sidebar::search_panel::ContentSearchPanel>> {
+        if let Some(existing) = self.right_search_panels.get(pid) {
+            return Some(existing.clone());
+        }
+        let fs = self.build_project_fs(pid, cx)?;
+        let broker = self.request_broker.clone();
+        let panel = cx.new({
+            let pid = pid.to_string();
+            move |cx| {
+                notmux_views_sidebar::search_panel::ContentSearchPanel::new(pid, fs, broker, cx)
+            }
+        });
+        cx.observe(&panel, |_, _, cx| cx.notify()).detach();
+        self.right_search_panels.insert(pid.to_string(), panel.clone());
+        Some(panel)
+    }
+
+    /// Right-aligned Aa / .* / ~ mode toggles for the Search sub-tab header.
+    fn render_right_search_toggles(&mut self, pid: &str, cx: &mut Context<Self>) -> AnyElement {
+        let Some(panel) = self.ensure_right_search_panel(pid, cx) else {
+            return div().into_any_element();
+        };
+        let t = theme(cx);
+        let (case_sensitive, regex_mode, fuzzy_mode) = {
+            let p = panel.read(cx);
+            (p.is_case_sensitive(), p.is_regex_mode(), p.is_fuzzy_mode())
+        };
+
+        let toggle = |id: &'static str,
+                      label: &'static str,
+                      active: bool,
+                      panel: Entity<notmux_views_sidebar::search_panel::ContentSearchPanel>,
+                      cx: &mut Context<Self>| {
+            div()
+                .id(ElementId::Name(format!("files-search-toggle-{id}").into()))
+                .cursor_pointer()
+                .px(px(7.0))
+                .py(px(3.0))
+                .rounded(px(4.0))
+                .text_size(ui_text_md(cx))
+                .when(active, |d| {
+                    d.bg(rgb(t.border_active)).text_color(rgb(t.text_primary))
+                })
+                .when(!active, |d| d.text_color(rgb(t.text_muted)))
+                .hover(|s| s.bg(rgb(t.bg_hover)))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |_this, _, _window, cx| {
+                        panel.update(cx, |panel, cx| match id {
+                            "case" => panel.toggle_case_sensitive(cx),
+                            "regex" => panel.toggle_regex_mode(cx),
+                            "fuzzy" => panel.toggle_fuzzy_mode(cx),
+                            _ => {}
+                        });
+                        cx.stop_propagation();
+                    }),
+                )
+                .child(label)
+        };
+
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.0))
+            .child(toggle("case", "Aa", case_sensitive, panel.clone(), cx))
+            .child(toggle("regex", ".*", regex_mode, panel.clone(), cx))
+            .child(toggle("fuzzy", "~", fuzzy_mode, panel, cx))
             .into_any_element()
     }
 
