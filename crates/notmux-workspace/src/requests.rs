@@ -14,6 +14,18 @@ pub enum ExplorerKind {
     Empty,
 }
 
+/// Which host view a `FileExplorer` instance lives in. The same project can
+/// have one explorer in the sidebar's Files view AND one in the right-panel
+/// Files tab; context-menu actions that open an inline input (rename, new
+/// file/folder) must go back to the instance the user actually clicked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExplorerHost {
+    /// The per-project file tree in the left sidebar's Files view.
+    Sidebar,
+    /// The file tree in the right panel's Files tab.
+    FilesTab,
+}
+
 /// Request to show context menu at a position
 #[derive(Clone, Debug)]
 pub struct ContextMenuRequest {
@@ -161,6 +173,9 @@ pub enum OverlayRequest {
     },
     ExplorerContextMenu {
         kind: ExplorerKind,
+        /// The host view whose explorer was right-clicked; inline-input
+        /// actions (rename, new file/folder) are routed back to it.
+        host: ExplorerHost,
         /// Path of the clicked row, or the project root for `Empty`.
         path: std::path::PathBuf,
         /// Directory used as parent for New File / New Folder / Paste.

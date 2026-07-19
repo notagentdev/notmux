@@ -259,11 +259,20 @@ pub enum OverlayManagerEvent {
     GitStashRefresh { project_id: String },
 
     /// Explorer context menu: start inline input for a new file inside `parent`.
-    ExplorerNewFile { parent: std::path::PathBuf },
+    ExplorerNewFile {
+        parent: std::path::PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
+    },
     /// Explorer context menu: start inline input for a new folder inside `parent`.
-    ExplorerNewFolder { parent: std::path::PathBuf },
+    ExplorerNewFolder {
+        parent: std::path::PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
+    },
     /// Explorer context menu: start inline rename on `target`.
-    ExplorerRename { target: std::path::PathBuf },
+    ExplorerRename {
+        target: std::path::PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
+    },
     /// Explorer context menu: delete `path` (synchronous from disk).
     ExplorerDelete {
         path: std::path::PathBuf,
@@ -1371,6 +1380,7 @@ impl OverlayManager {
     pub fn show_explorer_context_menu(
         &mut self,
         kind: notmux_workspace::requests::ExplorerKind,
+        host: notmux_workspace::requests::ExplorerHost,
         path: std::path::PathBuf,
         parent_dir: std::path::PathBuf,
         has_clipboard: bool,
@@ -1386,7 +1396,7 @@ impl OverlayManager {
 
         cx.subscribe(
             &menu,
-            |this, _, event: &ExplorerContextMenuEvent, cx| match event {
+            move |this, _, event: &ExplorerContextMenuEvent, cx| match event {
                 ExplorerContextMenuEvent::Close => {
                     this.hide_explorer_context_menu(cx);
                 }
@@ -1394,18 +1404,21 @@ impl OverlayManager {
                     this.hide_explorer_context_menu(cx);
                     cx.emit(OverlayManagerEvent::ExplorerNewFile {
                         parent: parent.clone(),
+                        host,
                     });
                 }
                 ExplorerContextMenuEvent::NewFolder { parent } => {
                     this.hide_explorer_context_menu(cx);
                     cx.emit(OverlayManagerEvent::ExplorerNewFolder {
                         parent: parent.clone(),
+                        host,
                     });
                 }
                 ExplorerContextMenuEvent::Rename { target } => {
                     this.hide_explorer_context_menu(cx);
                     cx.emit(OverlayManagerEvent::ExplorerRename {
                         target: target.clone(),
+                        host,
                     });
                 }
                 ExplorerContextMenuEvent::Delete { path, is_dir } => {

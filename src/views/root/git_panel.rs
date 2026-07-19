@@ -505,6 +505,7 @@ impl RootView {
                     crate::views::panels::right_files::file_explorer::FileExplorer::new(
                         pid,
                         std::path::PathBuf::from(&path),
+                        notmux_workspace::requests::ExplorerHost::FilesTab,
                         broker,
                         cx,
                     )

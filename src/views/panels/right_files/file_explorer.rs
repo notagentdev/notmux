@@ -71,6 +71,9 @@ struct ActiveInput {
 pub struct FileExplorer {
     project_id: String,
     project_path: PathBuf,
+    /// Which host view renders this instance — carried in the context-menu
+    /// request so actions come back to the explorer the user clicked.
+    host: notmux_workspace::requests::ExplorerHost,
     request_broker: Entity<RequestBroker>,
 
     /// Entries per directory path. Lazy-populated on expand.
@@ -105,12 +108,14 @@ impl FileExplorer {
     pub fn new(
         project_id: String,
         project_path: PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
         request_broker: Entity<RequestBroker>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut this = Self {
             project_id,
             project_path: project_path.clone(),
+            host,
             request_broker,
             loaded_children: HashMap::new(),
             expanded_paths: HashSet::new(),
@@ -509,6 +514,7 @@ impl Render for FileExplorer {
             .on_mouse_down(MouseButton::Right, {
                 let broker = broker.clone();
                 let project_path = project_path.clone();
+                let host = self.host;
                 move |event: &MouseDownEvent, _window, cx| {
                     let has_clipboard = cx
                         .try_global::<ExplorerClipboard>()
@@ -518,6 +524,7 @@ impl Render for FileExplorer {
                         b.push_overlay_request(
                             OverlayRequest::ExplorerContextMenu {
                                 kind: ExplorerKind::Empty,
+                                host,
                                 path: project_path.clone(),
                                 parent_dir: project_path.clone(),
                                 has_clipboard,
@@ -791,10 +798,12 @@ impl FileExplorer {
                             .map(|c| c.is_set())
                             .unwrap_or(false);
                         this.context_menu_target = Some(abs_path.clone());
+                        let host = this.host;
                         broker.update(cx, |b, cx| {
                             b.push_overlay_request(
                                 OverlayRequest::ExplorerContextMenu {
                                     kind,
+                                    host,
                                     path: abs_path.clone(),
                                     parent_dir,
                                     has_clipboard,

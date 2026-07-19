@@ -494,45 +494,69 @@ impl RootView {
             OverlayManagerEvent::GitStashRefresh { project_id } => {
                 self.refresh_git_panel(project_id, cx);
             }
-            OverlayManagerEvent::ExplorerNewFile { parent } => {
+            OverlayManagerEvent::ExplorerNewFile { parent, host } => {
                 let parent = parent.clone();
-                self.sidebar.update(cx, |sb, cx| {
-                    if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
-                        fe.update(cx, |fe, cx| fe.start_new_file(parent, cx));
+                match host {
+                    notmux_workspace::requests::ExplorerHost::Sidebar => {
+                        self.sidebar.update(cx, |sb, cx| {
+                            if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
+                                fe.update(cx, |fe, cx| fe.start_new_file(parent, cx));
+                            }
+                        });
                     }
-                });
+                    notmux_workspace::requests::ExplorerHost::FilesTab => {
+                        if let Some(fe) = self.right_explorer_for_path(&parent, cx) {
+                            fe.update(cx, |fe, cx| fe.start_new_file(parent, cx));
+                        }
+                    }
+                }
             }
-            OverlayManagerEvent::ExplorerNewFolder { parent } => {
+            OverlayManagerEvent::ExplorerNewFolder { parent, host } => {
                 let parent = parent.clone();
-                self.sidebar.update(cx, |sb, cx| {
-                    if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
-                        fe.update(cx, |fe, cx| fe.start_new_folder(parent, cx));
+                match host {
+                    notmux_workspace::requests::ExplorerHost::Sidebar => {
+                        self.sidebar.update(cx, |sb, cx| {
+                            if let Some(fe) = sb.file_explorer_for_path(&parent, cx) {
+                                fe.update(cx, |fe, cx| fe.start_new_folder(parent, cx));
+                            }
+                        });
                     }
-                });
+                    notmux_workspace::requests::ExplorerHost::FilesTab => {
+                        if let Some(fe) = self.right_explorer_for_path(&parent, cx) {
+                            fe.update(cx, |fe, cx| fe.start_new_folder(parent, cx));
+                        }
+                    }
+                }
             }
-            OverlayManagerEvent::ExplorerRename { target } => {
+            OverlayManagerEvent::ExplorerRename { target, host } => {
                 let target = target.clone();
-                self.sidebar.update(cx, |sb, cx| {
-                    if let Some(fe) = sb.file_explorer_for_path(&target, cx) {
-                        fe.update(cx, |fe, cx| fe.start_rename(target, cx));
+                match host {
+                    notmux_workspace::requests::ExplorerHost::Sidebar => {
+                        self.sidebar.update(cx, |sb, cx| {
+                            if let Some(fe) = sb.file_explorer_for_path(&target, cx) {
+                                fe.update(cx, |fe, cx| fe.start_rename(target, cx));
+                            }
+                        });
                     }
-                });
+                    notmux_workspace::requests::ExplorerHost::FilesTab => {
+                        if let Some(fe) = self.right_explorer_for_path(&target, cx) {
+                            fe.update(cx, |fe, cx| fe.start_rename(target, cx));
+                        }
+                    }
+                }
             }
             OverlayManagerEvent::ExplorerDelete { path, is_dir } => {
                 let path = path.clone();
                 let is_dir = *is_dir;
-                let sidebar = self.sidebar.clone();
-                cx.spawn(async move |_this, cx| {
+                cx.spawn(async move |this, cx| {
                     let p = path.clone();
                     let result =
                         smol::unblock(move || notmux_files::fs_ops::delete(&p, is_dir)).await;
-                    cx.update(|cx| {
+                    let _ = this.update(cx, |this, cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer delete failed: {msg}");
                         }
-                        sidebar.update(cx, |sb, cx| {
-                            sb.patch_explorers_for_path(&path, cx);
-                        });
+                        this.patch_all_explorers_for_path(&path, cx);
                     });
                 })
                 .detach();
@@ -550,24 +574,37 @@ impl RootView {
                 self.sidebar.update(cx, |sb, cx| {
                     sb.clear_all_explorer_context_menu_targets(cx);
                 });
+                for fe in self.right_explorers.values().cloned().collect::<Vec<_>>() {
+                    fe.update(cx, |fe, cx| fe.clear_context_menu_target(cx));
+                }
             }
             OverlayManagerEvent::ExplorerAddToGitignore { path } => {
-                let (project_id, rel) = {
-                    let sb = self.sidebar.read(cx);
-                    let Some(fe) = sb.file_explorer_for_path(path, cx) else {
-                        return;
-                    };
-                    let fe = fe.read(cx);
-                    let Ok(rel) = path.strip_prefix(fe.project_path()) else {
-                        return;
-                    };
-                    (
-                        fe.project_id().to_string(),
-                        rel.to_string_lossy().replace('\\', "/"),
-                    )
+                // The two hosts use distinct FileExplorer types; extract the
+                // (project_id, root) pair from whichever knows the path.
+                let info = self
+                    .sidebar
+                    .read(cx)
+                    .file_explorer_for_path(path, cx)
+                    .map(|fe| {
+                        let fe = fe.read(cx);
+                        (fe.project_id().to_string(), fe.project_path().to_path_buf())
+                    })
+                    .or_else(|| {
+                        self.right_explorer_for_path(path, cx).map(|fe| {
+                            let fe = fe.read(cx);
+                            (fe.project_id().to_string(), fe.project_path().to_path_buf())
+                        })
+                    });
+                let Some((project_id, root)) = info else {
+                    return;
                 };
+                let Ok(rel) = path.strip_prefix(&root) else {
+                    return;
+                };
+                let rel = rel.to_string_lossy().replace('\\', "/");
                 self.append_to_gitignore(&project_id, &rel, cx);
                 self.refresh_git_panel(&project_id, cx);
+                self.patch_all_explorers_for_path(path, cx);
             }
             OverlayManagerEvent::ExplorerPaste { target_dir } => {
                 let target_dir = target_dir.clone();
@@ -580,15 +617,14 @@ impl RootView {
                 let (Some(src), Some(op)) = (cb.path.clone(), cb.op) else {
                     return;
                 };
-                let sidebar = self.sidebar.clone();
                 let src_for_paths = src.clone();
-                let target_for_paths = target_dir.clone();
                 let file_name = match src.file_name() {
                     Some(n) => n.to_os_string(),
                     None => return,
                 };
                 let dst = target_dir.join(&file_name);
-                cx.spawn(async move |_this, cx| {
+                let dst_for_paths = dst.clone();
+                cx.spawn(async move |this, cx| {
                     let src_ = src.clone();
                     let dst_ = dst.clone();
                     let result = smol::unblock(move || match op {
@@ -600,7 +636,7 @@ impl RootView {
                         }
                     })
                     .await;
-                    cx.update(|cx| {
+                    let _ = this.update(cx, |this, cx| {
                         if let Err(msg) = result {
                             log::warn!("explorer paste failed: {msg}");
                         }
@@ -609,10 +645,10 @@ impl RootView {
                             cx.global_mut::<notmux_files::clipboard::ExplorerClipboard>()
                                 .clear();
                         }
-                        sidebar.update(cx, |sb, cx| {
-                            sb.patch_explorers_for_path(&src_for_paths, cx);
-                            sb.patch_explorers_for_path(&target_for_paths, cx);
-                        });
+                        // Patch with the moved entry paths themselves — the
+                        // explorers re-list each entry's parent directory.
+                        this.patch_all_explorers_for_path(&src_for_paths, cx);
+                        this.patch_all_explorers_for_path(&dst_for_paths, cx);
                     });
                 })
                 .detach();
@@ -639,6 +675,50 @@ impl RootView {
         if let Some(col) = self.project_columns.get(project_id).cloned() {
             let gh = col.read(cx).git_header();
             gh.update(cx, |gh, cx| gh.refresh_working_tree_status(cx));
+        }
+    }
+
+    /// Find the right-panel Files-tab explorer whose project root contains
+    /// `path` (longest prefix wins). The sidebar's Files view hosts its own,
+    /// separate `FileExplorer` type — resolved via
+    /// `Sidebar::file_explorer_for_path` instead.
+    fn right_explorer_for_path(
+        &self,
+        path: &std::path::Path,
+        cx: &App,
+    ) -> Option<Entity<crate::views::panels::right_files::file_explorer::FileExplorer>> {
+        let mut best: Option<(
+            usize,
+            Entity<crate::views::panels::right_files::file_explorer::FileExplorer>,
+        )> = None;
+        for fe in self.right_explorers.values() {
+            let root = fe.read(cx).project_path().to_path_buf();
+            if path.starts_with(&root) {
+                let len = root.as_os_str().len();
+                if best.as_ref().map(|(l, _)| len > *l).unwrap_or(true) {
+                    best = Some((len, fe.clone()));
+                }
+            }
+        }
+        best.map(|(_, fe)| fe)
+    }
+
+    /// FS-patch every explorer (sidebar AND Files tab) whose project contains
+    /// `path` — both hosts render the same directories and must stay fresh
+    /// after a delete/paste regardless of where the action was triggered.
+    fn patch_all_explorers_for_path(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        let path = path.to_path_buf();
+        self.sidebar.update(cx, |sb, cx| {
+            sb.patch_explorers_for_path(&path, cx);
+        });
+        let targets: Vec<_> = self
+            .right_explorers
+            .values()
+            .filter(|fe| path.starts_with(fe.read(cx).project_path()))
+            .cloned()
+            .collect();
+        for fe in targets {
+            fe.update(cx, |fe, cx| fe.patch_paths(std::slice::from_ref(&path), cx));
         }
     }
 
@@ -1027,6 +1107,7 @@ impl RootView {
                 }
                 OverlayRequest::ExplorerContextMenu {
                     kind,
+                    host,
                     path,
                     parent_dir,
                     has_clipboard,
@@ -1036,6 +1117,7 @@ impl RootView {
                         self.overlay_manager.update(cx, |om, cx| {
                             om.show_explorer_context_menu(
                                 kind,
+                                host,
                                 path,
                                 parent_dir,
                                 has_clipboard,

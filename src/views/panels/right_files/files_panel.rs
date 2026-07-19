@@ -89,7 +89,15 @@ impl FilesPanel {
         let explorer = {
             let rb = broker.clone();
             let path = project_path.clone();
-            cx.new(move |cx| FileExplorer::new(PROJECT_ID.to_string(), path, rb, cx))
+            cx.new(move |cx| {
+                FileExplorer::new(
+                    PROJECT_ID.to_string(),
+                    path,
+                    notmux_workspace::requests::ExplorerHost::FilesTab,
+                    rb,
+                    cx,
+                )
+            })
         };
         cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
 
@@ -145,6 +153,8 @@ impl FilesPanel {
                 parent_dir,
                 has_clipboard,
                 position,
+                // Single-host panel: the origin is always our own explorer.
+                host: _,
             } => {
                 self.show_context_menu(kind, path, parent_dir, has_clipboard, position, cx);
             }

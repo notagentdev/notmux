@@ -490,6 +490,7 @@ impl Render for FileExplorer {
                         b.push_overlay_request(
                             OverlayRequest::ExplorerContextMenu {
                                 kind: ExplorerKind::Empty,
+                                host: notmux_workspace::requests::ExplorerHost::Sidebar,
                                 path: project_path.clone(),
                                 parent_dir: project_path.clone(),
                                 has_clipboard,
@@ -734,6 +735,9 @@ impl FileExplorer {
                             b.push_overlay_request(
                                 OverlayRequest::ExplorerContextMenu {
                                     kind,
+                                    // This copy of the explorer only ever
+                                    // renders in the sidebar Files view.
+                                    host: notmux_workspace::requests::ExplorerHost::Sidebar,
                                     path: abs_path.clone(),
                                     parent_dir,
                                     has_clipboard,
