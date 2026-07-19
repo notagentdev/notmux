@@ -288,6 +288,29 @@ pub fn install_claude() -> Result<(), String> {
         "Notification".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": approval_cmd }] }]),
     );
+    // Recovery from a stale "Approval needed" badge (the reference implementation does the same via
+    // its PreToolUse hook): any tool starting means the user already approved
+    // / answered and Claude is working again, so restore the spinner and clear
+    // the badge. The two blocking needs-input tools are excluded — they are
+    // about to prompt the user, and the Notification hook sets their badge.
+    let pre_tool_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ! grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(AskUserQuestion|ExitPlanMode)\"' && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "PreToolUse".to_string(),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": pre_tool_cmd }] }]),
+    );
+    // Answering an AskUserQuestion (or approving an ExitPlanMode plan)
+    // completes that tool, so its PostToolUse fires right at the user's
+    // answer — the earliest point to drop the "Approval needed" badge, even
+    // when Claude's next step is plain text with no further tool call.
+    let post_tool_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "PostToolUse".to_string(),
+        serde_json::json!([{ "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [{ "type": "command", "command": post_tool_cmd }] }]),
+    );
 
     std::fs::write(&settings_path, serde_json::to_string_pretty(&settings).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", settings_path.display()))?;
@@ -306,7 +329,15 @@ pub fn uninstall_claude() -> Result<(), String> {
 
     if let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         let exe = notmux_binary();
-        for key in ["Stop", "Notification", "UserPromptSubmit", "SessionStart", "SessionEnd"] {
+        for key in [
+            "Stop",
+            "Notification",
+            "UserPromptSubmit",
+            "SessionStart",
+            "SessionEnd",
+            "PreToolUse",
+            "PostToolUse",
+        ] {
          if let Some(arr) = hooks.get_mut(key).and_then(|v| v.as_array_mut()) {
             for matcher_obj in arr.iter_mut() {
                 if let Some(inner) = matcher_obj.get_mut("hooks").and_then(|h| h.as_array_mut()) {
