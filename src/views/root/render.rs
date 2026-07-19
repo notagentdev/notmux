@@ -169,6 +169,14 @@ impl RootView {
             return;
         }
 
+        // Pinned view is a fixed multi-agent dashboard: never auto-scroll it.
+        // Otherwise focusing one pinned project (e.g. switching agents) would
+        // scroll the others off-screen — noticeably the left column once the
+        // git panel narrows the grid past the columns' min width.
+        if workspace.data.pinned_view_active {
+            return;
+        }
+
         let visible_projects: Vec<String> = workspace
             .visible_projects()
             .iter()
