@@ -640,6 +640,25 @@ pub fn install_notagent() -> Result<(), String> {
         "PermissionRequest".to_string(),
         serde_json::json!([{ "hooks": [{ "type": "command", "command": approval_cmd, "timeout": 10 }] }]),
     );
+    // Follow-up questions: the `followup` tool has no policy operation, so it
+    // never reaches the permission gate and PermissionRequest stays silent for
+    // it. PreToolUse fires right before the question dialog (badge on) and
+    // PostToolUse right after the user answered (spinner + badge cleared) —
+    // both matched exactly on the tool name.
+    let followup_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Input needed\" >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "PreToolUse".to_string(),
+        serde_json::json!([{ "matcher": "followup", "hooks": [{ "type": "command", "command": followup_cmd, "timeout": 10 }] }]),
+    );
+    let followup_done_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
+    );
+    hooks_obj.insert(
+        "PostToolUse".to_string(),
+        serde_json::json!([{ "matcher": "followup", "hooks": [{ "type": "command", "command": followup_done_cmd, "timeout": 10 }] }]),
+    );
     std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
         .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
 
@@ -665,7 +684,14 @@ pub fn uninstall_notagent() -> Result<(), String> {
     {
         let exe = notmux_binary();
         if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-            for key in ["Stop", "UserPromptSubmit", "PermissionRequest", "SessionStart"] {
+            for key in [
+                "Stop",
+                "UserPromptSubmit",
+                "PermissionRequest",
+                "SessionStart",
+                "PreToolUse",
+                "PostToolUse",
+            ] {
                 if hooks_obj
                     .get(key)
                     .map(|v| v.to_string().contains(&exe))
