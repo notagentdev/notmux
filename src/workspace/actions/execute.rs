@@ -908,6 +908,7 @@ fn execute_action_inner(
             title,
             body,
             keep_working,
+            sticky,
         } => {
             let title = if title.is_empty() { "Notification".to_string() } else { title };
             // Repaint every window so the pane ring + tab/sidebar badges update
@@ -921,23 +922,29 @@ fn execute_action_inner(
             if settings(cx).native_notifications && cx.active_window().is_none() {
                 crate::native_notify::post(&title, &body);
             }
+            // Sticky text survives later non-sticky notifications, but the
+            // working-spinner effect of those still applies (a turn-complete
+            // after a sticky needs-input ping keeps the badge yet stops the
+            // spinner).
+            let apply = |term: &Arc<Terminal>| {
+                if !keep_working {
+                    term.set_agent_working(false);
+                }
+                if sticky {
+                    term.set_notification_sticky(title.clone(), body.clone());
+                } else {
+                    term.set_notification(title.clone(), body.clone());
+                }
+            };
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
-                    // A turn-complete notification means the agent is no longer
-                    // working; mid-turn attention pings keep the spinner.
-                    if !keep_working {
-                        term.set_agent_working(false);
-                    }
-                    term.set_notification(title.clone(), body.clone());
+                    apply(&term);
                     return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
             }
             for (_, term) in terminals.lock().iter() {
-                if !keep_working {
-                    term.set_agent_working(false);
-                }
-                term.set_notification(title.clone(), body.clone());
+                apply(term);
             }
             ActionResult::Ok(Some(serde_json::json!({ "notified": "all", "title": title })))
             }

@@ -404,6 +404,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
     let mut body = String::new();
     let mut terminal_id: Option<String> = None;
     let mut keep_working = false;
+    let mut sticky = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -422,6 +423,9 @@ pub fn cli_notify(args: &[String]) -> i32 {
             "--keep-working" => {
                 keep_working = true;
             }
+            "--sticky" => {
+                sticky = true;
+            }
             _ if !args[i].starts_with("--") => {
                 if title.is_empty() { title = args[i].clone(); }
                 else if body.is_empty() { body = args[i].clone(); }
@@ -436,6 +440,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
         eprintln!("  --body, -b      Notification body (or second positional arg)");
         eprintln!("  --terminal-id   Target specific terminal (default: current terminal from NOTMUX_TERMINAL_ID)");
         eprintln!("  --keep-working  Don't clear the agent-working spinner (mid-turn attention ping)");
+        eprintln!("  --sticky        Survive later non-sticky notifications (needs-input badges)");
         return 1;
     }
     if terminal_id.as_ref().is_some_and(|s| s.is_empty()) {
@@ -457,6 +462,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
         "title": title,
         "body": body,
         "keep_working": keep_working,
+        "sticky": sticky,
     });
     match api_post("/v1/actions", &token, &payload.to_string()) {
         Ok(resp) => {

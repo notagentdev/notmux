@@ -1200,9 +1200,10 @@ fn antigravity_config_dir() -> Option<PathBuf> {
 /// Install Antigravity (agy) hooks. Its `hooks.json` holds *named* hook
 /// groups at the top level — we own the `"notmux"` key and leave everything
 /// else (other tools' groups, user entries) untouched. `PreInvocation` marks
-/// the agent working, `Stop`/`turn-completion` ring "Turn complete", and
+/// the agent working, `Stop`/`turn-completion` ring "Turn complete",
 /// `Notification` rings "Attention needed" (fires when agy blocks on the
-/// user, e.g. tool approvals). Only runs if `~/.gemini` is already set up.
+/// user, e.g. tool approvals), and a `suggested_responses` tool start rings
+/// a sticky "Input needed". Only runs if `~/.gemini` is already set up.
 pub fn install_antigravity() -> Result<(), String> {
     let home = home_dir().ok_or("HOME not set")?;
     if !home.join(".gemini").exists() {
@@ -1229,6 +1230,14 @@ pub fn install_antigravity() -> Result<(), String> {
     let tool_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
     );
+    // Follow-up questions: `suggested_responses` is non-blocking — agy asks
+    // as the turn's final act, the turn ends, and the answer arrives as the
+    // next invocation. The badge is set --sticky so the Stop hook's "Turn
+    // complete" (fired right after the question) can't overwrite it; the
+    // answer's PreInvocation → agent-status working clears it.
+    let followup_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"suggested_responses\"' && \"{exe}\" notify --title Antigravity --body \"Input needed\" --sticky >/dev/null 2>&1 || true"
+    );
     // Session restore: the hook payload carries the conversation id
     // (resumable via `agy --conversation <id>`).
     let session_start_cmd = format!(
@@ -1250,7 +1259,10 @@ pub fn install_antigravity() -> Result<(), String> {
         // Tool events take the matcher-wrapped form.
         "PreToolUse": [{
             "matcher": "*",
-            "hooks": [{ "type": "command", "command": tool_cmd, "timeout": 10 }],
+            "hooks": [
+                { "type": "command", "command": tool_cmd, "timeout": 10 },
+                { "type": "command", "command": followup_cmd, "timeout": 10 },
+            ],
         }],
     });
 

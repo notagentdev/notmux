@@ -418,6 +418,9 @@ pub struct Terminal {
     /// True when an OSC-announced notification has not yet been forwarded to
     /// the OS notification system (drained via `take_unposted_notification`).
     notification_unposted: AtomicBool,
+    /// True while the current notification is sticky (survives later
+    /// non-sticky `set_notification` calls until explicitly cleared).
+    notification_sticky: AtomicBool,
     /// True while an agent (claude/codex/…) is actively working a turn, driven
     /// by its hooks. Surfaces as a spinner in the sidebar list.
     agent_working: Arc<Mutex<bool>>,
@@ -518,6 +521,7 @@ impl Terminal {
             has_bell,
             last_notification,
             notification_unposted: AtomicBool::new(false),
+            notification_sticky: AtomicBool::new(false),
             agent_working,
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
@@ -1304,11 +1308,31 @@ impl Terminal {
     pub fn clear_notification(&self) {
         *self.last_notification.lock() = None;
         *self.has_bell.lock() = false;
+        self.notification_sticky.store(false, Ordering::Relaxed);
         // Repaint the mounted pane so the ring clears promptly (mirrors the
         // dirty flag set by real PTY output in `process_output_inner`).
         self.dirty.store(true, Ordering::Relaxed);
     }
     pub fn set_notification(&self, title: String, body: String) {
+        self.set_notification_inner(title, body, false);
+    }
+    /// Sticky notifications survive later plain [`set_notification`] calls:
+    /// only [`clear_notification`] or another sticky one replaces the text.
+    /// Needed where an agent's needs-input ping is immediately followed by a
+    /// turn-complete notification (e.g. Antigravity asking a question as the
+    /// turn's final act) — without stickiness the badge would flip to "Turn
+    /// complete" while the agent is actually blocked on the user.
+    pub fn set_notification_sticky(&self, title: String, body: String) {
+        self.set_notification_inner(title, body, true);
+    }
+    fn set_notification_inner(&self, title: String, body: String, sticky: bool) {
+        if !sticky
+            && self.notification_sticky.load(Ordering::Relaxed)
+            && self.last_notification.lock().is_some()
+        {
+            return;
+        }
+        self.notification_sticky.store(sticky, Ordering::Relaxed);
         *self.last_notification.lock() = Some(TerminalNotification {
             title,
             body,

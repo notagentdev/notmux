@@ -428,6 +428,13 @@ pub enum ActionRequest {
         /// (e.g. a side-effecting tool starting) rather than turn completion.
         #[serde(default)]
         keep_working: bool,
+        /// Sticky notifications survive later non-sticky ones (only an
+        /// explicit clear or a new sticky replaces the text). Used for
+        /// needs-input badges that must outlive a turn-complete notification
+        /// fired right after them (e.g. Antigravity's `suggested_responses`
+        /// question, where the turn ends immediately after asking).
+        #[serde(default)]
+        sticky: bool,
     },
     ClearNotification {
         #[serde(default)]
@@ -864,6 +871,7 @@ mod tests {
                 title: "Test".into(),
                 body: "Done".into(),
                 keep_working: false,
+                sticky: false,
             },
             ];
         for action in actions {
