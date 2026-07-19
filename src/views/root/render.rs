@@ -590,7 +590,14 @@ impl Render for RootView {
         // past the traffic lights + left toggle. On the right the top-right pane
         // insets its buttons past the git/settings cluster (when the git panel is
         // closed) and the Windows caption buttons.
-        let left_reserve = if self.sidebar_ctrl.should_render() {
+        //
+        // The pinned view has its own title bar above the columns, so the window
+        // chrome never floats over a pane's tab bar there — the tab-strip
+        // reserves don't apply (they'd push the pinned panes' action buttons in
+        // from their own edge). Instead the chrome floats over the first/last
+        // column's title bar, which takes the same insets (see below).
+        let pinned_view = self.workspace.read(cx).data.pinned_view_active;
+        let chrome_left = if self.sidebar_ctrl.should_render() {
             0.0
         } else {
             // 80 traffic-light pad + 28 toggle + 4 gap + 28 bell + 10 gap,
@@ -602,6 +609,7 @@ impl Render for RootView {
             };
             150.0 + pair
         };
+        let left_reserve = if pinned_view { 0.0 } else { chrome_left };
         notmux_views_terminal::set_tab_action_left_reserve(left_reserve, cx);
         // Match the title-bar overlay height so the tab strip centers with the
         // traffic lights / controls floating over it. Same constant positions
@@ -609,14 +617,22 @@ impl Render for RootView {
         notmux_views_terminal::set_tab_bar_height(notmux_ui::tokens::TITLE_BAR_STRIP_H, cx);
 
         let git_open = self.git_panel_ctrl.should_render();
-        let mut right_reserve = 0.0_f32;
+        let mut chrome_right = 0.0_f32;
         if !git_open {
-            right_reserve += 64.0; // git-panel toggle + settings + gaps/pad
+            chrome_right += 64.0; // git-panel toggle + settings + gaps/pad
         }
         if cfg!(target_os = "windows") {
-            right_reserve += 138.0; // three 46px caption buttons
+            chrome_right += 138.0; // three 46px caption buttons
         }
+        let right_reserve = if pinned_view { 0.0 } else { chrome_right };
         notmux_views_terminal::set_tab_action_right_reserve(right_reserve, cx);
+        // Pinned view: the chrome floats over the columns' own title bars, so
+        // the first/last column insets its title content instead of the tabs.
+        crate::views::panels::project_column::set_pinned_title_reserves(
+            if pinned_view { chrome_left } else { 0.0 },
+            if pinned_view { chrome_right } else { 0.0 },
+            cx,
+        );
         let right_path = {
             let ws = self.workspace.read(cx);
             ws.visible_projects()

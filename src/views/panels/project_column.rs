@@ -22,6 +22,22 @@ use notmux_core::api::ActionRequest;
 use notmux_views_services::service_panel::ServicePanel;
 use notmux_workspace::requests::OverlayRequest;
 
+/// Chrome insets for the pinned-view title bars: the window chrome floats over
+/// the first column's title bar on the left (traffic lights + sidebar toggle
+/// when the sidebar is hidden) and the last column's on the right (git/settings
+/// cluster, Windows caption buttons) — the same edges the tab-strip reserves
+/// cover in the normal project view. Set by RootView each frame.
+#[derive(Clone, Copy, Default)]
+pub struct PinnedTitleReserves {
+    pub left: f32,
+    pub right: f32,
+}
+impl Global for PinnedTitleReserves {}
+
+pub fn set_pinned_title_reserves(left: f32, right: f32, cx: &mut App) {
+    cx.set_global(PinnedTitleReserves { left, right });
+}
+
 /// A single project column with header and layout
 pub struct ProjectColumn {
     workspace: Entity<Workspace>,
@@ -726,10 +742,28 @@ impl Render for ProjectColumn {
                     } else {
                         rgb(t.text_secondary)
                     };
+                    // Edge columns inset their title content past the floating
+                    // window chrome (traffic lights/toggles left, git/settings
+                    // right), like the tab strips do in the normal view.
+                    let (chrome_left, chrome_right) = {
+                        let r = cx
+                            .try_global::<PinnedTitleReserves>()
+                            .copied()
+                            .unwrap_or_default();
+                        let ws = self.workspace.read(cx);
+                        let visible = ws.visible_projects();
+                        let is_first = visible.first().is_some_and(|p| p.id == self.project_id);
+                        let is_last = visible.last().is_some_and(|p| p.id == self.project_id);
+                        (
+                            if is_first { r.left } else { 0.0 },
+                            if is_last { r.right } else { 0.0 },
+                        )
+                    };
                     Some(
                         div()
                             .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
-                            .px(px(12.0))
+                            .pl(px(12.0 + chrome_left))
+                            .pr(px(12.0 + chrome_right))
                             .flex_shrink_0()
                             .flex()
                             .items_center()
