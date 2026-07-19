@@ -958,7 +958,15 @@ impl RootView {
                     project_id,
                     file,
                     diff,
+                    line,
                 } => {
+                    if let Some(line) = line {
+                        cx.set_global(notmux_workspace::requests::PendingEditorGoto {
+                            project_id: project_id.clone(),
+                            file: file.clone(),
+                            line,
+                        });
+                    }
                     self.open_editor_tab(project_id, file, diff, cx);
                 }
                 OverlayRequest::RemoteConnect => {

@@ -292,10 +292,13 @@ impl ContentSearchPanel {
             return;
         };
 
-        let file = match row {
-            SearchRow::File { relative_path, .. } | SearchRow::Match { relative_path, .. } => {
-                relative_path.clone()
-            }
+        let (file, line) = match row {
+            SearchRow::File { relative_path, .. } => (relative_path.clone(), None),
+            SearchRow::Match {
+                relative_path,
+                line_number,
+                ..
+            } => (relative_path.clone(), Some(*line_number)),
         };
 
         self.request_broker.update(cx, |broker, cx| {
@@ -304,6 +307,7 @@ impl ContentSearchPanel {
                     project_id: self.project_id.clone(),
                     file,
                     diff: false,
+                    line,
                 },
                 cx,
             );

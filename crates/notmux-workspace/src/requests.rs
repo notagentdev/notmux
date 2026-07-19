@@ -26,6 +26,19 @@ pub enum ExplorerHost {
     FilesTab,
 }
 
+/// One-shot handoff of a goto-line target for an editor pane opened via
+/// `MainFileViewer { line: Some(_) }` (e.g. from a search result). Set by the
+/// request handler, consumed by the editor pane once it renders that file.
+pub struct PendingEditorGoto {
+    pub project_id: String,
+    /// Relative file path as carried by the request.
+    pub file: String,
+    /// 1-based line number.
+    pub line: usize,
+}
+
+impl gpui::Global for PendingEditorGoto {}
+
 /// Request to show context menu at a position
 #[derive(Clone, Debug)]
 pub struct ContextMenuRequest {
@@ -86,6 +99,8 @@ pub enum OverlayRequest {
         file: String,
         /// Open as an editable diff-vs-HEAD editor instead of a plain editor.
         diff: bool,
+        /// 1-based line to scroll to after loading (e.g. a search match).
+        line: Option<usize>,
     },
     RemoteConnect,
     RemoteConnectionContextMenu {

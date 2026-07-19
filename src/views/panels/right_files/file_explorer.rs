@@ -771,7 +771,8 @@ impl FileExplorer {
                             OverlayRequest::MainFileViewer {
                                 project_id: this.project_id.clone(),
                                 file: rel.clone(),
-                                    diff: false,
+                                diff: false,
+                                line: None,
                             },
                             cx,
                         );

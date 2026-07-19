@@ -1313,6 +1313,7 @@ impl OverlayManager {
                                 project_id: project_id.clone(),
                                 file: file_path.clone(),
                                 diff: true,
+                                line: None,
                             },
                             cx,
                         );
@@ -1330,6 +1331,7 @@ impl OverlayManager {
                                 project_id: project_id.clone(),
                                 file: file_path.clone(),
                                 diff: false,
+                                line: None,
                             },
                             cx,
                         );

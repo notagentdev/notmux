@@ -120,11 +120,24 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 )
             }));
         }
+        // Consume a pending goto-line handoff (file opened from a search
+        // result) once this pane renders the matching file.
+        let goto_line = cx
+            .try_global::<notmux_workspace::requests::PendingEditorGoto>()
+            .filter(|g| g.project_id == self.project_id && g.file == file_path)
+            .map(|g| g.line);
+        if goto_line.is_some() {
+            cx.remove_global::<notmux_workspace::requests::PendingEditorGoto>();
+        }
         if let Some(viewer) = &self.file_viewer {
             let workspace = self.workspace.clone();
             let project_id = self.project_id.clone();
             let path = self.layout_path.clone();
             viewer.update(cx, |v, cx| {
+                if let Some(line) = goto_line {
+                    v.goto_line(line);
+                    cx.notify();
+                }
                 v.set_diff_mode(diff, cx);
                 // The embedded viewer occludes the pane's own hitboxes, so it
                 // reports clicks back to focus this pane in the workspace.

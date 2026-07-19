@@ -302,6 +302,9 @@ pub struct FileViewer {
     pub(super) delete_confirm: Option<DeleteConfirmState>,
     /// In-file search state (Ctrl+F)
     pub(super) search_state: Option<search::FileSearchState>,
+    /// 1-based line to scroll to once the active tab's content is loaded
+    /// (set when opening a file from a search result).
+    pending_goto_line: Option<usize>,
     /// When true this pane is an editable diff editor: the active tab is
     /// decorated with additions (green) / deletions (red) vs `HEAD`.
     pub(super) diff_mode: bool,
@@ -393,6 +396,7 @@ impl FileViewer {
                         tab.apply_loaded_content(result, &this.syntax_set, &this.theme_colors);
                         cx.notify();
                     }
+                    this.apply_pending_goto_line();
                 });
             })
             .detach();
@@ -429,6 +433,7 @@ impl FileViewer {
             rename_state: None,
             delete_confirm: None,
             search_state: None,
+            pending_goto_line: None,
             diff_mode: false,
         }
     }
@@ -498,6 +503,7 @@ impl FileViewer {
             rename_state: None,
             delete_confirm: None,
             search_state: None,
+            pending_goto_line: None,
             diff_mode: false,
         }
     }
@@ -625,6 +631,28 @@ impl FileViewer {
     /// Get the active tab.
     pub(super) fn active_tab(&self) -> &FileViewerTab {
         &self.tabs[self.active_tab]
+    }
+
+    /// Scroll the active tab to a 1-based line, deferring until its content
+    /// has finished loading (used when opening a file from a search result).
+    pub fn goto_line(&mut self, line: usize) {
+        self.pending_goto_line = Some(line);
+        self.apply_pending_goto_line();
+    }
+
+    /// Apply a pending goto-line once the active tab has content.
+    fn apply_pending_goto_line(&mut self) {
+        let Some(line) = self.pending_goto_line else {
+            return;
+        };
+        let tab = self.active_tab();
+        if tab.loading || tab.line_count == 0 {
+            return;
+        }
+        let idx = line.saturating_sub(1).min(tab.line_count - 1);
+        tab.source_scroll_handle
+            .scroll_to_item(idx, ScrollStrategy::Center);
+        self.pending_goto_line = None;
     }
 
     /// Get the active tab mutably.
@@ -822,6 +850,7 @@ impl FileViewer {
                     tab.apply_loaded_content(result, &this.syntax_set, &this.theme_colors);
                     cx.notify();
                 }
+                this.apply_pending_goto_line();
             });
         })
         .detach();
