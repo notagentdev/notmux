@@ -1006,17 +1006,23 @@ impl GitHeader {
         let color = rgb(if active { t.text_primary } else { t.text_muted });
         h_flex()
             .id(id)
-            .size(px(26.0))
+            .h(px(26.0))
+            .px(px(10.0))
+            .gap(px(6.0))
             .items_center()
             .justify_center()
             .rounded_md()
             .cursor_pointer()
-            // Plain icon button (not a tab): the active one is a filled square,
-            // others just highlight on hover — no underline indicator.
+            // Labeled pill: the active one is filled, others highlight on hover.
             .when(active, |d| d.bg(rgb(t.bg_hover)))
             .when(!active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-            .child(svg().path(icon_path).size(px(15.0)).text_color(color))
-            .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+            .child(svg().path(icon_path).size(px(13.0)).text_color(color))
+            .child(
+                div()
+                    .text_size(ui_text_md(cx))
+                    .text_color(color)
+                    .child(label),
+            )
             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
