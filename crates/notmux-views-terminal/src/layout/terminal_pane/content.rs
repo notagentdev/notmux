@@ -338,6 +338,14 @@ impl TerminalContent {
     ) {
         window.focus(&self.focus_handle, cx);
 
+        // An explicit click on the pane dismisses its pending notification /
+        // needs-input badge — the user is now looking at this agent. (Passive
+        // render-time focus can't do this: it would clear the badge in the same
+        // frame the agent sets it.)
+        if let Some(ref terminal) = self.terminal {
+            terminal.clear_notification();
+        }
+
         if let Some(ref terminal) = self.terminal
             && let Some((col, row, side)) = self.pixel_to_cell(event.position)
         {

@@ -88,6 +88,11 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
     pub(super) fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         if let Some(ref terminal) = self.terminal {
+            // Typing into the pane dismisses its pending notification /
+            // needs-input badge — the user is now interacting with this agent
+            // (matches the click path in `handle_mouse_down`).
+            terminal.clear_notification();
+
             if is_paste_shortcut(event) {
                 terminal.claim_resize_local();
                 paste_clipboard_into_terminal(terminal, cx.read_from_clipboard());
