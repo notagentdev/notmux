@@ -33,6 +33,9 @@ pub struct PendingEditorGoto {
     pub project_id: String,
     /// Relative file path as carried by the request.
     pub file: String,
+    /// Whether the target is the diff editor (a plain and a diff editor of the
+    /// same file are distinct panes; the goto must land on the intended one).
+    pub diff: bool,
     /// 1-based line number.
     pub line: usize,
 }

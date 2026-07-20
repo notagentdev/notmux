@@ -124,7 +124,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         // result) once this pane renders the matching file.
         let goto_line = cx
             .try_global::<notmux_workspace::requests::PendingEditorGoto>()
-            .filter(|g| g.project_id == self.project_id && g.file == file_path)
+            .filter(|g| {
+                g.project_id == self.project_id && g.file == file_path && g.diff == diff
+            })
             .map(|g| g.line);
         if goto_line.is_some() {
             cx.remove_global::<notmux_workspace::requests::PendingEditorGoto>();

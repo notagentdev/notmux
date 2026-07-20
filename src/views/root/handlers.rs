@@ -964,6 +964,7 @@ impl RootView {
                         cx.set_global(notmux_workspace::requests::PendingEditorGoto {
                             project_id: project_id.clone(),
                             file: file.clone(),
+                            diff,
                             line,
                         });
                     }
