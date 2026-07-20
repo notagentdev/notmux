@@ -59,7 +59,9 @@ use crate::app::NotMux;
 use crate::app::headless::HeadlessApp;
 use crate::assets::{Assets, embedded_fonts};
 use crate::keybindings::{
-    About, Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector,
+    About, AddTab, CheckForUpdates, NewProject, Quit, ShowCommandPalette, ShowContentSearch,
+    ShowKeybindings, ShowProjectSwitcher, ShowSettings, ShowThemeSelector, SplitHorizontal,
+    SplitVertical, ToggleFullscreen, ToggleSidebar,
 };
 use crate::settings::GlobalSettings;
 use crate::terminal::pty_manager::PtyManager;
@@ -253,6 +255,9 @@ fn about(_: &About, _cx: &mut App) {
 
 /// Set up macOS application menu
 fn set_app_menus(cx: &mut App) {
+    // The native macOS menu bar mirrors the non-macOS in-window burger menu
+    // (`TitleBar::render_menu`) — same command set, organized into native
+    // top-level menus. Keep the two in sync when either changes.
     cx.set_menus(vec![
         Menu {
             name: "NotMux".into(),
@@ -261,10 +266,22 @@ fn set_app_menus(cx: &mut App) {
                 MenuItem::action("About NotMux", About),
                 MenuItem::separator(),
                 MenuItem::action("Settings...", ShowSettings),
+                MenuItem::action("Check for Updates...", CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action("Quit NotMux", Quit),
+            ],
+        },
+        Menu {
+            name: "File".into(),
+            disabled: false,
+            items: vec![
+                MenuItem::action("New Terminal", AddTab),
+                MenuItem::action("New Project...", NewProject),
+                MenuItem::separator(),
+                MenuItem::action("Split Vertical", SplitVertical),
+                MenuItem::action("Split Horizontal", SplitHorizontal),
             ],
         },
         Menu {
@@ -285,8 +302,13 @@ fn set_app_menus(cx: &mut App) {
             disabled: false,
             items: vec![
                 MenuItem::action("Command Palette", ShowCommandPalette),
-                MenuItem::action("Select Theme", ShowThemeSelector),
+                MenuItem::action("Go to Project...", ShowProjectSwitcher),
+                MenuItem::action("Find in Files...", ShowContentSearch),
                 MenuItem::separator(),
+                MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                MenuItem::action("Toggle Full Screen", ToggleFullscreen),
+                MenuItem::separator(),
+                MenuItem::action("Select Theme", ShowThemeSelector),
                 MenuItem::action("Keyboard Shortcuts", ShowKeybindings),
             ],
         },

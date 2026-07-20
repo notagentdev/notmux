@@ -1,6 +1,7 @@
 use crate::keybindings::{
-    Quit, ShowCommandPalette, ShowKeybindings, ShowSettings, ShowThemeSelector, ToggleGitPanel,
-    ToggleSidebar,
+    About, AddTab, CheckForUpdates, NewProject, Quit, ShowCommandPalette, ShowContentSearch,
+    ShowKeybindings, ShowProjectSwitcher, ShowSettings, ShowThemeSelector, SplitHorizontal,
+    SplitVertical, ToggleFullscreen, ToggleGitPanel, ToggleSidebar,
 };
 use crate::theme::theme;
 use crate::ui::tokens::{ui_text, ui_text_sm};
@@ -175,7 +176,6 @@ struct AttentionItem {
 
 /// Title bar with window controls and sidebar toggle
 pub struct TitleBar {
-    title: SharedString,
     menu_open: bool,
     sidebar_open: bool,
     git_panel_open: bool,
@@ -202,7 +202,6 @@ pub struct TitleBar {
 
 impl TitleBar {
     pub fn new(
-        title: impl Into<SharedString>,
         workspace: Entity<Workspace>,
         terminals: TerminalsRegistry,
         cx: &mut Context<Self>,
@@ -223,7 +222,6 @@ impl TitleBar {
         })
         .detach();
         Self {
-            title: title.into(),
             menu_open: false,
             sidebar_open: true,
             git_panel_open: false,
@@ -372,15 +370,30 @@ impl TitleBar {
         cx.notify();
     }
 
-    /// Render the app dropdown menu overlay (must be called from a parent with full window coverage).
+    /// Render the app dropdown menu overlay (must be called from a parent with
+    /// full window coverage). This is the non-macOS counterpart to the native
+    /// menu bar: a single flat dropdown anchored under the burger button in the
+    /// top-left corner. macOS uses `cx.set_menus()` instead.
     pub fn render_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let t = theme(cx);
 
-        let traffic_light_padding = if cfg!(target_os = "macos") {
-            px(80.0)
-        } else {
-            px(8.0)
+        // Anchor the panel under the burger, which sits at the left edge of the
+        // strip (after the small non-macOS inset). This path only renders on
+        // non-macOS, so there are no traffic lights to clear.
+        let left_inset = px(8.0);
+
+        // One dropdown row wired to dispatch `action` on click.
+        let item = |id: &'static str,
+                    icon: &'static str,
+                    label: &'static str,
+                    action: Box<dyn gpui::Action>,
+                    cx: &mut Context<Self>| {
+            menu_item(id, icon, label, &t).on_click(cx.listener(move |this, _, window, cx| {
+                this.close_menu(cx);
+                window.dispatch_action(action.boxed_clone(), cx);
+            }))
         };
+        let divider = || div().h(px(1.0)).mx(px(8.0)).my(px(4.0)).bg(rgb(t.border));
 
         div()
             .id("app-menu-backdrop")
@@ -401,72 +414,132 @@ impl TitleBar {
                 div()
                     .absolute()
                     .top(px(42.0))
-                    .left(traffic_light_padding + px(40.0))
+                    .left(left_inset)
                     .bg(rgb(t.bg_primary))
                     .border_1()
                     .border_color(rgb(t.border))
                     .rounded(px(4.0))
                     .shadow_xl()
-                    .min_w(px(200.0))
+                    .min_w(px(220.0))
                     .py(px(4.0))
                     .id("app-menu-panel")
                     .on_mouse_down(MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    // Settings
-                    .child(
-                        menu_item("app-menu-settings", "icons/edit.svg", "Open Settings", &t)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.close_menu(cx);
-                                window.dispatch_action(Box::new(ShowSettings), cx);
-                            })),
-                    )
-                    // Theme
-                    .child(
-                        menu_item("app-menu-theme", "icons/eye.svg", "Select Theme", &t).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.close_menu(cx);
-                                window.dispatch_action(Box::new(ShowThemeSelector), cx);
-                            }),
-                        ),
-                    )
-                    // Command Palette
-                    .child(
-                        menu_item(
-                            "app-menu-command-palette",
-                            "icons/search.svg",
-                            "Command Palette",
-                            &t,
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.close_menu(cx);
-                            window.dispatch_action(Box::new(ShowCommandPalette), cx);
-                        })),
-                    )
-                    // Keyboard Shortcuts
-                    .child(
-                        menu_item(
-                            "app-menu-keybindings",
-                            "icons/keyboard.svg",
-                            "Keyboard Shortcuts",
-                            &t,
-                        )
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.close_menu(cx);
-                            window.dispatch_action(Box::new(ShowKeybindings), cx);
-                        })),
-                    )
-                    // Separator
-                    .child(div().h(px(1.0)).mx(px(8.0)).my(px(4.0)).bg(rgb(t.border)))
-                    // Exit
-                    .child(
-                        menu_item("app-menu-exit", "icons/close.svg", "Exit", &t).on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.close_menu(cx);
-                                window.dispatch_action(Box::new(Quit), cx);
-                            }),
-                        ),
-                    ),
+                    // — App —
+                    .child(item(
+                        "app-menu-about",
+                        "icons/terminal.svg",
+                        "About NotMux",
+                        Box::new(About),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-settings",
+                        "icons/settings-gear.svg",
+                        "Settings…",
+                        Box::new(ShowSettings),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-updates",
+                        "icons/refresh.svg",
+                        "Check for Updates…",
+                        Box::new(CheckForUpdates),
+                        cx,
+                    ))
+                    .child(divider())
+                    // — Create / navigate —
+                    .child(item(
+                        "app-menu-new-terminal",
+                        "icons/plus.svg",
+                        "New Terminal",
+                        Box::new(AddTab),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-new-project",
+                        "icons/folder.svg",
+                        "New Project…",
+                        Box::new(NewProject),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-command-palette",
+                        "icons/search.svg",
+                        "Command Palette…",
+                        Box::new(ShowCommandPalette),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-go-to-project",
+                        "icons/git-branch.svg",
+                        "Go to Project…",
+                        Box::new(ShowProjectSwitcher),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-find",
+                        "icons/search.svg",
+                        "Find in Files…",
+                        Box::new(ShowContentSearch),
+                        cx,
+                    ))
+                    .child(divider())
+                    // — Layout / view —
+                    .child(item(
+                        "app-menu-split-vertical",
+                        "icons/split-vertical.svg",
+                        "Split Vertical",
+                        Box::new(SplitVertical),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-split-horizontal",
+                        "icons/split-horizontal.svg",
+                        "Split Horizontal",
+                        Box::new(SplitHorizontal),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-toggle-sidebar",
+                        "icons/layout-sidebar-left.svg",
+                        "Toggle Sidebar",
+                        Box::new(ToggleSidebar),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-fullscreen",
+                        "icons/maximize.svg",
+                        "Toggle Full Screen",
+                        Box::new(ToggleFullscreen),
+                        cx,
+                    ))
+                    .child(divider())
+                    // — Appearance / help —
+                    .child(item(
+                        "app-menu-theme",
+                        "icons/eye.svg",
+                        "Select Theme",
+                        Box::new(ShowThemeSelector),
+                        cx,
+                    ))
+                    .child(item(
+                        "app-menu-keybindings",
+                        "icons/keyboard.svg",
+                        "Keyboard Shortcuts",
+                        Box::new(ShowKeybindings),
+                        cx,
+                    ))
+                    .child(divider())
+                    // — Exit —
+                    .child(item(
+                        "app-menu-exit",
+                        "icons/close.svg",
+                        "Exit",
+                        Box::new(Quit),
+                        cx,
+                    )),
             )
     }
 
@@ -731,6 +804,38 @@ impl TitleBar {
             .gap(px(4.0))
             .pl(traffic_light_padding)
             .window_control_area(WindowControlArea::Drag)
+            // Burger (non-macOS only): the app menu, outermost-left so it reads
+            // as the menu "root" — the same slot the Apple menu occupies on
+            // macOS, which uses the native menu bar instead.
+            .when(!cfg!(target_os = "macos"), |d| {
+                let menu_open = self.menu_open;
+                d.child(
+                    div()
+                        .id("app-menu-trigger")
+                        .cursor_pointer()
+                        .w(px(28.0))
+                        .h(px(28.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(4.0))
+                        .when(menu_open, |b| b.bg(rgb(t.bg_hover)))
+                        .hover(|s| s.opacity(0.85))
+                        .child(
+                            svg()
+                                .path("icons/menu.svg")
+                                .size(px(16.0))
+                                .text_color(rgb(t.text_primary)),
+                        )
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(cx.listener(|this, _, _window, cx| {
+                            cx.stop_propagation();
+                            this.toggle_menu(cx);
+                        })),
+                )
+            })
             .child(self.render_panel_toggle_button(
                 "tb-toggle-sidebar",
                 "icons/layout-sidebar-left.svg",
@@ -771,42 +876,6 @@ impl TitleBar {
                             );
                         }),
                 )
-            })
-            .when(!cfg!(target_os = "macos"), |d| {
-                d.child({
-                    let menu_open = self.menu_open;
-                    let chevron = if menu_open { "▲" } else { "▼" };
-                    div()
-                        .id("app-menu-trigger")
-                        .cursor_pointer()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .rounded(px(4.0))
-                        .hover(|s| s.opacity(0.85))
-                        .child(
-                            div()
-                                .text_size(ui_text(13.0, cx))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(rgb(t.text_primary))
-                                .child(self.title.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_size(ui_text(8.0, cx))
-                                .text_color(rgb(t.text_muted))
-                                .child(chevron),
-                        )
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                            cx.stop_propagation();
-                        })
-                        .on_click(cx.listener(|this, _, _window, cx| {
-                            cx.stop_propagation();
-                            this.toggle_menu(cx);
-                        }))
-                })
             });
         // Wrapper so the bell dropdown can hang below the strip without
         // being part of the drag area.
