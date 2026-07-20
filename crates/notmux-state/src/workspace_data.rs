@@ -223,10 +223,16 @@ impl ProjectData {
     /// OSC titles matching bash prompt format (user@host:...) are ignored in favor
     /// of the directory name. Explicit titles (e.g. from printf) are shown.
     pub fn terminal_display_name(&self, terminal_id: &str, osc_title: Option<String>) -> String {
-        if let Some(custom_name) = self.terminal_names.get(terminal_id) {
+        // Empty / whitespace-only names must never win: an agent that clears its
+        // OSC title on exit (or a blank custom name) would otherwise leave the
+        // terminal with no label. Fall through to the directory-based default.
+        if let Some(custom_name) = self.terminal_names.get(terminal_id)
+            && !custom_name.trim().is_empty()
+        {
             return custom_name.clone();
         }
         if let Some(ref title) = osc_title
+            && !title.trim().is_empty()
             && !is_bash_prompt_title(title)
         {
             return title.clone();
@@ -276,7 +282,6 @@ mod tests {
             id: "test-id".to_string(),
             name: "test".to_string(),
             path: path.to_string(),
-            show_in_overview: true,
             layout: None,
             terminal_names: HashMap::new(),
             hidden_terminals: HashMap::new(),
@@ -326,6 +331,29 @@ mod tests {
     #[test]
     fn terminal_display_name_falls_back_to_directory() {
         let project = make_project("/home/user/myproject");
+        assert_eq!(project.terminal_display_name("t1", None), "myproject");
+    }
+
+    #[test]
+    fn terminal_display_name_ignores_empty_osc_title() {
+        // An agent that clears its OSC title on exit must not blank the label.
+        let project = make_project("/home/user/myproject");
+        assert_eq!(
+            project.terminal_display_name("t1", Some(String::new())),
+            "myproject"
+        );
+        assert_eq!(
+            project.terminal_display_name("t1", Some("   ".to_string())),
+            "myproject"
+        );
+    }
+
+    #[test]
+    fn terminal_display_name_ignores_blank_custom_name() {
+        let mut project = make_project("/home/user/myproject");
+        project
+            .terminal_names
+            .insert("t1".to_string(), "  ".to_string());
         assert_eq!(project.terminal_display_name("t1", None), "myproject");
     }
 

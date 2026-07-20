@@ -10,7 +10,6 @@ use notmux_ui::tokens::{ui_text_md, ui_text_sm};
 use crate::drag::{FolderDrag, ProjectDrag, ProjectDragView, WorktreeDrag, WorktreeDragView};
 use crate::item_widgets::*;
 use crate::sidebar::{Sidebar, SidebarProjectInfo};
-use std::collections::HashMap;
 
 /// Drag/drop configuration for group header rendering.
 /// Determines how project drag and folder drag are handled.
@@ -479,7 +478,6 @@ impl Sidebar {
         &self,
         project_id: &str,
         terminal_id: &str,
-        terminal_names: &HashMap<String, String>,
         is_minimized: bool,
         is_inactive_tab: bool,
         is_in_tab_group: bool,
@@ -497,9 +495,10 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             let terminals = self.terminals.lock();
             let terminal = terminals.get(terminal_id.as_str());
             let osc_title = terminal.and_then(|t| t.title());
-            let name = if let Some(custom_name) = terminal_names.get(terminal_id.as_str()) {
-                custom_name.clone()
-            } else if let Some(p) = project {
+            // Route through `terminal_display_name` so the empty-name fallback
+            // (see workspace_data.rs) applies here too — a raw custom-name read
+            // would resurrect the blank-label bug when an agent clears its title.
+            let name = if let Some(p) = project {
                 p.terminal_display_name(terminal_id.as_str(), osc_title)
             } else {
                 "Terminal".to_string()

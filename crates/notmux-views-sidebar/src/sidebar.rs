@@ -758,7 +758,6 @@ impl Sidebar {
                         self.render_terminal_item(
                             &project.id,
                             tid,
-                            &project.terminal_names,
                             *is_minimized,
                             is_inactive_tab,
                             is_in_tab_group,
