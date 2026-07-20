@@ -40,7 +40,10 @@ fn expand_tabs(text: &str, ranges: &[Range<usize>]) -> (String, Vec<Range<usize>
     let mut expanded_pos: usize = 0;
 
     for (orig_pos, ch) in text.char_indices() {
-        offset_map.resize(orig_pos + 1, expanded_pos);
+        // Map every byte of this char (including its interior bytes, which the
+        // byte-oriented matcher can hand back) to the char's expanded start, so
+        // an offset landing mid-char never overshoots past it.
+        offset_map.resize(orig_pos + ch.len_utf8(), expanded_pos);
         if ch == '\t' {
             expanded.push_str("    ");
             expanded_pos += 4;
