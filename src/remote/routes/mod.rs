@@ -139,20 +139,18 @@ fn serve_embedded_file(path: &str, file: rust_embed::EmbeddedFile) -> axum::resp
 }
 
 /// Auth middleware: validates Bearer token on protected routes.
-/// Skips validation for WebSocket upgrade requests (WS has its own auth flow).
+/// The WebSocket stream endpoint authenticates itself and is the only route
+/// allowed through without a Bearer token.
 async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<AppState>,
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Allow WebSocket upgrades through — they handle auth via query param or first message
-    let is_websocket = req
-        .headers()
-        .get("upgrade")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.eq_ignore_ascii_case("websocket"))
-        .unwrap_or(false);
-    if is_websocket {
+    // Only `/v1/stream` runs its own auth flow (token via query param or first
+    // message). Every other protected route requires a valid Bearer token.
+    // This MUST NOT key off request headers (e.g. `Upgrade: websocket`), which
+    // the client fully controls — doing so let any request skip validation.
+    if req.uri().path() == "/v1/stream" {
         return Ok(next.run(req).await);
     }
 
