@@ -1,6 +1,6 @@
 //! Settings panel for visual settings configuration
 //!
-//! Provides a Zed-style settings dialog with sidebar categories, project selector,
+//! Provides a settings dialog with sidebar categories, project selector,
 //! and hooks configuration.
 
 mod categories;

@@ -25,7 +25,7 @@ const BELL_FLASH_DURATION: f32 = 0.9;
 
 /// Opacity of the bell ring `elapsed` seconds into the flash: keyframes
 /// [0, 1, 0, 1, 0] at quarter intervals with alternating ease-out/ease-in
-/// segments (ported from the reference implementation's FocusFlashPattern). 0 outside the window,
+/// segments. 0 outside the window,
 /// so the ring ends invisible and stays gone.
 fn bell_flash_opacity(elapsed: f32) -> f32 {
     if !(0.0..BELL_FLASH_DURATION).contains(&elapsed) {
@@ -117,7 +117,7 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
         }
         self.was_focused = is_focused;
 
-        // The bell ring is a transient double-blink (the reference implementation FocusFlashPattern)
+        // The bell ring is a transient double-blink
         // instead of a permanent border — the notification label below carries
         // the persistent state. Start the flash on the has_bell rising edge and
         // drive ~30fps repaints until it finishes.

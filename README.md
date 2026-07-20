@@ -4,7 +4,7 @@
 
 # NotMux
 
-A fast, native terminal multiplexer built in Rust with [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (the UI framework from Zed editor).
+A fast, native terminal multiplexer built in Rust with GPUI.
 Tabs, splits, detachable windows, command palette, and automatic workspace restore.
 
 ## Installation
@@ -239,17 +239,6 @@ Custom themes (notagent JSON format) live in `~/.notagent/agent/themes/*.json` a
 - **tokio** + **axum** - Remote control server
 - **syntect** - Syntax highlighting
 - **serde_yaml** - Service config parsing
-
-## A Note on Authorship
-
-> **This codebase has not been contaminated by human hands.**
->
-> Every line of code, every architectural decision, every meticulously placed semicolon — pure, unfiltered Claude Opus.
-> The human's contribution was limited to typing vague requirements like "make it work" and then pressing `Enter` to approve tool calls with the mass-produced enthusiasm of a factory worker.
->
-> If you find a bug, rest assured — it's not a bug. It's the AI testing whether you're paying attention.
->
-> *Humans are kindly thanked for providing electricity.*
 
 ## License
 

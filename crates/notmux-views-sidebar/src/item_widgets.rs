@@ -99,7 +99,7 @@ pub fn sidebar_name_label(
     t: &ThemeColors,
     cx: &App,
 ) -> Stateful<Div> {
-    // Matches Zed LabelSize::Default (14px, `text_ui`).
+    // Default label size (14px, `text_ui`).
     div()
         .id(id)
         .flex_1()

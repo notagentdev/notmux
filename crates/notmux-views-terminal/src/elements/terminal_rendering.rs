@@ -2,7 +2,7 @@ use alacritty_terminal::vte::ansi::{Color, NamedColor};
 use gpui::*;
 use notmux_core::theme::ThemeColors;
 
-/// A batched text run that combines multiple adjacent cells with the same style (like Zed)
+/// A batched text run that combines multiple adjacent cells with the same style
 #[derive(Debug)]
 pub(crate) struct BatchedTextRun {
     pub start_line: i32,
@@ -78,7 +78,7 @@ impl BatchedTextRun {
     }
 }
 
-/// A layout rectangle for background colors (like Zed)
+/// A layout rectangle for background colors
 #[derive(Clone, Debug)]
 pub(crate) struct LayoutRect {
     pub line: i32,

@@ -289,7 +289,7 @@ impl KeybindingConfig {
         );
 
         // cmd-shift-e belongs to ToggleFileExplorer (VS Code convention);
-        // equalize uses the reference implementation's default (cmd-ctrl-=), with a ctrl-alt variant
+        // equalize uses cmd-ctrl-=, with a ctrl-alt variant
         // for Linux/Windows.
         bindings.insert(
             "EqualizeLayout".to_string(),

@@ -1,6 +1,6 @@
 //! Restorable agent session store + resume command builder.
 //!
-//! Mirrors the reference implementation's agent session restore: lifecycle hooks installed into each
+//! Lifecycle hooks installed into each
 //! agent's config call `notmux agent-session record`, which persists
 //! `{kind, session_id, cwd, …}` keyed by the terminal's surface id
 //! (`NOTMUX_SURFACE_ID`). On workspace restore, a freshly respawned terminal
@@ -147,7 +147,7 @@ pub fn resume_argv(kind: &str, session_id: &str) -> Option<Vec<String>> {
 /// Build the full shell command to resume a recorded session, including the
 /// cd-guard prefix when the record carries a cwd. The prefix is a plain
 /// AND-OR list (no `{ …; }` grouping) so it parses in sh/bash/zsh/fish alike
-/// (fish has no brace grouping — same reasoning as the the reference implementation reference):
+/// (fish has no brace grouping):
 /// `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && <agent cmd>`
 /// runs the agent after a successful cd, still runs it (in the current dir)
 /// when the dir is gone, and does nothing when the dir exists but cd failed.

@@ -237,7 +237,7 @@ impl Element for TerminalElement {
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);
 
-        // Use advance() for proper cell width (like Zed)
+        // Use advance() for proper cell width
         let cell_width = text_system
             .advance(font_id, font_size, 'm')
             .map(|size| size.width)

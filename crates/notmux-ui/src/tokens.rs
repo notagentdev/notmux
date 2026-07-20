@@ -46,25 +46,23 @@ pub const SPACE_LG: gpui::Pixels = px(12.0);
 pub const SPACE_XL: gpui::Pixels = px(16.0);
 
 // =============================================================================
-// Text sizes — aligned to Zed's `TextSize` scale (ref/zed-main/crates/ui/src/
-// styles/typography.rs). Zed uses XSmall=10, Small=12, Default=14, Large=16
-// at the base 1rem = 16px. We match those values so lists, trees, and panels
-// look visually consistent with Zed's UI density.
+// Text sizes — XSmall=10, Small=12, Default=14, Large=16 at the base
+// 1rem = 16px, so lists, trees, and panels keep a consistent UI density.
 // =============================================================================
 
-/// Extra small text (10px) — badges, tags (matches Zed XSmall)
+/// Extra small text (10px) — badges, tags
 pub const TEXT_XS: gpui::Pixels = px(10.0);
 
-/// Small text (12px) — secondary labels, hints (matches Zed Small)
+/// Small text (12px) — secondary labels, hints
 pub const TEXT_SM: gpui::Pixels = px(12.0);
 
 /// Medium-small text (13px) — in-between step for tighter UI chrome
 pub const TEXT_MS: gpui::Pixels = px(13.0);
 
-/// Medium text (14px) — default UI label size (matches Zed Default)
+/// Medium text (14px) — default UI label size
 pub const TEXT_MD: gpui::Pixels = px(14.0);
 
-/// Extra large text (16px) — panel headings (matches Zed Large)
+/// Extra large text (16px) — panel headings
 pub const TEXT_XL: gpui::Pixels = px(16.0);
 
 // =============================================================================

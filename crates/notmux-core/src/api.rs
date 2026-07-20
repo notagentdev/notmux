@@ -459,10 +459,9 @@ fn default_max_results() -> usize {
     1000
 }
 
-/// POST /v1/browser request body — one agent-browser-style automation command
+/// POST /v1/browser request body — one automation command
 /// against an embedded browser pane. `action` selects the verb, the optional
-/// fields carry its parameters (vocabulary ported from vercel-labs/agent-browser
-/// via the the reference implementation ports).
+/// fields carry its parameters.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserRequest {

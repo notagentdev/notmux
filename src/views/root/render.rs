@@ -619,7 +619,7 @@ impl Render for RootView {
             .on_mouse_move(cx.listener({
                 move |this, event: &MouseMoveEvent, window, cx| {
                     // Deferred window move: a title-bar mouse-down armed the flag;
-                    // start the native drag on the first move (matches zed).
+                    // start the native drag on the first move.
                     if this.title_should_move {
                         this.title_should_move = false;
                         window.start_window_move();
@@ -1166,7 +1166,7 @@ impl Render for RootView {
                                 // Reserve the title-bar overlay height so sidebar
                                 // content clears the traffic lights + left toggle.
                                 // This strip is also a window-drag handle
-                                // (full sidebar width, like Zed's full title bar)
+                                // (full sidebar width)
                                 // so the window can be moved from the top-left.
                                 // (The Pair button moved into the title-bar
                                 // left cluster, next to the bell.)

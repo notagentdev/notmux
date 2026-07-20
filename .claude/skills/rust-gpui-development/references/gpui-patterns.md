@@ -1,6 +1,6 @@
 # GPUI Framework - Comprehensive Patterns & Architecture Guide
 
-> Extracted from Zed editor source at commit `b642565` in `~/.cargo/git/checkouts/zed-a70e2ad075855582/b642565/`
+> Reference patterns for the GPUI framework as used in this project.
 
 ---
 
@@ -25,7 +25,7 @@
 ### Bootstrap Flow
 
 ```rust
-// crates/zed/src/main.rs
+// main.rs
 let app = Application::new().with_assets(Assets);
 
 app.run(move |cx| {

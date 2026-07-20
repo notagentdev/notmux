@@ -95,7 +95,7 @@ fn agent_hook_shim_dir() -> Option<std::path::PathBuf> {
 /// user's `.zshrc`/`.zprofile`, which usually re-prepend Homebrew/asdf/... ahead
 /// of our shim dir, so `claude`/`codex` resolve to the real binary and the
 /// wrapper never runs. Pointing ZDOTDIR at our own dir lets us run *after* the
-/// user's rc. Modeled on the reference implementation's ZDOTDIR bootstrap (RemoteRelayZshBootstrap).
+/// user's rc.
 #[cfg(not(windows))]
 fn agent_hook_zsh_dir(shim_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     let shell_dir = agent_hook_base_dir()?.join("shell");

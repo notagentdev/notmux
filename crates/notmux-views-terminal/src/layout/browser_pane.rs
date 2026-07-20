@@ -867,14 +867,14 @@ impl BrowserPane {
     }
 }
 
-// ── remote automation (agent-browser command vocabulary) ────────────────────
+// ── remote automation (browser command vocabulary) ──────────────────────────
 
 impl BrowserPane {
     /// Runs one browser-automation action against this pane's webview and
     /// answers through `respond`. Element actions resolve their `@eN` ref via
     /// `automation_refs` (fed by `snapshot`). Only `wait` polls with its own
     /// deadline; everything else resolves with the eval callback. Ported from
-    /// notagent's executor (the reference implementation agent-browser port semantics).
+    /// notagent's executor.
     pub(crate) fn automation_execute(
         &mut self,
         req: notmux_core::api::BrowserRequest,

@@ -9,8 +9,7 @@
 use notmux_terminal::agent_sessions::{self, AgentSessionRecord};
 use std::io::Read;
 
-/// Payload keys that may carry the session/conversation id (same candidates
-/// as the the reference implementation reference's hook payload parser).
+/// Payload keys that may carry the session/conversation id.
 const SESSION_ID_KEYS: &[&str] = &["session_id", "sessionId", "conversation_id", "conversationId"];
 const TRANSCRIPT_KEYS: &[&str] = &["transcript_path", "transcriptPath", "rollout_path"];
 const CWD_KEYS: &[&str] = &["cwd", "workspace_root", "working_directory"];

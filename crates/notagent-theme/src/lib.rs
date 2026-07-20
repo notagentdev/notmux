@@ -24,7 +24,7 @@ pub const POIMANDRES_DARK_THEME_JSON: &str = include_str!("../themes/poimandres-
 pub const POIMANDRES_LIGHT_THEME_JSON: &str = include_str!("../themes/poimandres-light.json");
 /// The Alucard theme JSON content.
 pub const ALUCARD_THEME_JSON: &str = include_str!("../themes/alucard.json");
-/// Anysphere (a warm near-black dark theme ported from the Cursor editor).
+/// Anysphere (a warm near-black dark theme).
 pub const ANYSPHERE_THEME_JSON: &str = include_str!("../themes/anysphere.json");
 /// Nord Midnight (a darker Nord variant).
 pub const NORD_MIDNIGHT_THEME_JSON: &str = include_str!("../themes/nord-midnight.json");

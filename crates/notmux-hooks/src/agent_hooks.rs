@@ -288,8 +288,7 @@ pub fn install_claude() -> Result<(), String> {
         "Notification".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": approval_cmd }] }]),
     );
-    // Recovery from a stale "Approval needed" badge (the reference implementation does the same via
-    // its PreToolUse hook): any tool starting means the user already approved
+    // Recovery from a stale "Approval needed" badge any tool starting means the user already approved
     // / answered and Claude is working again, so restore the spinner and clear
     // the badge. The two blocking needs-input tools are excluded — they are
     // about to prompt the user, and the Notification hook sets their badge.
@@ -858,7 +857,7 @@ fn opencode_config_dir() -> Option<PathBuf> {
 /// Install the OpenCode integration: a small JS plugin (OpenCode has no
 /// hooks.json — plugins subscribe to the event bus). Turn completion comes
 /// from `session.idle`, approvals from the permission events. No "working"
-/// signal: like the the reference implementation reference, `message.updated` is NOT a reliable
+/// signal: `message.updated` is NOT a reliable
 /// prompt-submit — OpenCode re-emits it for the *user* message at turn end,
 /// which would clear the fresh turn-complete bell and restart the spinner.
 /// Only runs if OpenCode is already set up.
@@ -888,7 +887,7 @@ function send(args) {{
   }} catch (_) {{}}
 }}
 
-// Session restore: same id candidates as the the reference implementation reference plugin
+// Session restore: same id candidates
 // (resumable via `opencode --session <id>`).
 function sessionIdFor(event, props) {{
   const candidates = [
@@ -997,7 +996,7 @@ fn pi_agent_dir() -> Option<PathBuf> {
 /// Install the Pi integration: a TypeScript extension (Pi has no hooks.json —
 /// extensions subscribe to lifecycle events). `before_agent_start` marks the
 /// agent working, `agent_end` rings "Turn complete". Pi has no approval
-/// system, so — like the reference implementation's `toolStartMaybeApproval` — a *side-effecting*
+/// system, so —`toolStartMaybeApproval` — a *side-effecting*
 /// tool starting (bash/edit/write) rings an attention bell; read-only tools
 /// stay quiet. Only runs if Pi is already set up.
 pub fn install_pi() -> Result<(), String> {
@@ -1026,7 +1025,7 @@ function send(args: string[]) {{
 }}
 
 // Pi has no approval system; ring the bell when a side-effecting tool
-// starts (the reference implementation's toolStartMaybeApproval semantics) — read-only tools
+// starts — read-only tools
 // (read/grep/find/ls) stay quiet.
 const SIDE_EFFECTING = new Set([
   "bash", "write", "edit", "multiedit", "notebookedit", "apply_patch", "shell",
@@ -1224,8 +1223,8 @@ pub fn install_antigravity() -> Result<(), String> {
     let attention_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" >/dev/null 2>&1 || true"
     );
-    // Antigravity has no dedicated approval event — like the reference implementation's
-    // toolStartMaybeApproval, a side-effecting tool starting rings the bell
+    // Antigravity has no dedicated approval event — a side-effecting tool
+    // starting rings the bell
     // (filtered on the hook's stdin payload); read-only tools stay quiet.
     let tool_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"

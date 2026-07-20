@@ -1,6 +1,6 @@
 ---
 name: rust-gpui-development
-description: Development skill for Rust GUI applications using GPUI framework (Zed's UI framework). Use when working on GPUI-based desktop applications - creating views, managing state, handling actions, or reviewing/refactoring existing code. Triggers on Rust GUI development, GPUI views, Entity/Context usage, terminal emulators, code editors, or any desktop app built with GPUI.
+description: Development skill for Rust GUI applications using the GPUI framework. Use when working on GPUI-based desktop applications - creating views, managing state, handling actions, or reviewing/refactoring existing code. Triggers on Rust GUI development, GPUI views, Entity/Context usage, terminal emulators, code editors, or any desktop app built with GPUI.
 ---
 
 # Rust GPUI Development

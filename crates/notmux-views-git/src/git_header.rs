@@ -1313,7 +1313,7 @@ impl GitHeader {
             .into_any_element()
     }
 
-    /// Render the commit tab header — Zed-style: "N Changes" text on the left,
+    /// Render the commit tab header — "N Changes" text on the left,
     /// Stage/Unstage All button on the right.
     fn render_commit_header_bar(
         &self,
@@ -1843,7 +1843,7 @@ impl GitHeader {
         )
     }
 
-    /// Render a collapsible section header — Zed-style: just the label, muted,
+    /// Render a collapsible section header — just the label, muted,
     /// no count, no chevron. Click area stays for toggling.
     fn render_section_header(
         &self,
@@ -1880,7 +1880,7 @@ impl GitHeader {
             )
     }
 
-    /// Render a single file entry — Zed-style: compact (~24px), filename with
+    /// Render a single file entry — compact (~24px), filename with
     /// muted parent path, status-color on the filename, checkbox on the right.
     fn render_file_entry(
         &self,
@@ -1988,7 +1988,7 @@ impl GitHeader {
                 git_settings(cx).monochrome_icons,
                 cx,
             ))
-            // Filename (status color) + parent dir (muted) — Zed pattern:
+            // Filename (status color) + parent dir (muted):
             // `min_w_0` lets the flex item shrink below content size,
             // `flex_1` makes it grow to consume the available space so the
             // diff stats + status letter sit on the right edge.
@@ -2072,7 +2072,7 @@ impl GitHeader {
                     .text_color(rgb(status_color))
                     .child(status_letter),
             )
-            // Checkbox on the RIGHT — after the status letter (Zed-style: 20x20
+            // Checkbox on the RIGHT — after the status letter (20x20
             // outer, 16x16 inner, neutral border, darker fill, accent check).
             .child({
                 let path = file_path.clone();

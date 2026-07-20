@@ -1,6 +1,6 @@
 # NotMux
 
-Cross-platform terminal multiplexer built with Rust and GPUI (from Zed editor).
+Cross-platform terminal multiplexer built with Rust and GPUI.
 
 ## Git Rules
 

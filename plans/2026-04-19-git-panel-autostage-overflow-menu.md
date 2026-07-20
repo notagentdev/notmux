@@ -6,7 +6,7 @@ Today the **Commit** button in the git panel is only enabled when files are expl
 staged. That forces the user through a two-step "tick the checkbox → click Commit"
 flow even for the trivial case of "commit everything I changed".
 
-We want to mirror Zed's behaviour (without copying its GPL code):
+We want the following behaviour:
 
 1. The commit button auto-stages tracked changes when nothing is selected, and the
    label switches between **"Commit Tracked"** / **"Commit"** / **"Amend"** based
@@ -214,7 +214,7 @@ fn handle_commit(&mut self, cx: &mut Context<Self>) {
 ```
 
 Per-file `stage_file` (vs. `stage_all`) is intentional — it stages exactly the
-non-untracked tracked set we observed at click time, matching Zed's behaviour
+non-untracked tracked set we observed at click time,
 without adding an `vryn_git::stage_paths(&[...])` helper. Untracked files are
 left alone.
 
@@ -317,7 +317,7 @@ pub enum GitStashListEvent {
 ```
 
 After Pop/Drop the list is reloaded in-place (the overlay reads the provider
-again). After Apply, the overlay closes (Zed-style: applying restores changes
+again). After Apply, the overlay closes (applying restores changes
 into the working tree, the panel content matters more than the stash list).
 
 ### 7. `src/views/overlay_manager.rs`

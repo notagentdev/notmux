@@ -43,8 +43,8 @@ pub struct LayoutContainer<D: ActionDispatch> {
     pub(super) tab_scroll_handle: ScrollHandle,
     pub(super) last_scrolled_to_tab: Option<usize>,
     /// Deferred window-move latch: set on mouse-down in the empty tab-strip area,
-    /// consumed on the next mouse-move to call `start_window_move` (mirrors Zed's
-    /// title-bar drag so a plain click doesn't move the window).
+    /// consumed on the next mouse-move to call `start_window_move` (title-bar
+    /// drag, so a plain click doesn't move the window).
     pub(super) title_should_move: bool,
     /// File viewer entity for an `Editor` leaf (lazily created on first render).
     file_viewer: Option<Entity<notmux_files::file_viewer::FileViewer>>,

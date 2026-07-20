@@ -47,7 +47,7 @@ pub fn get_scroll_metrics(scroll_handle: &UniformListScrollHandle) -> Option<Cod
     })
 }
 
-/// Zed-like vertical mouse autoscroll scaling.
+/// Vertical mouse autoscroll scaling.
 pub fn scale_vertical_mouse_autoscroll_delta(delta: f32) -> f32 {
     (delta.max(0.0).powf(1.2) / 100.0).min(3.0)
 }

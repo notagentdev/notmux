@@ -1,9 +1,7 @@
-//! Browser-automation layer for embedded wry webviews: agent-browser-style
+//! Browser-automation layer for embedded wry webviews: accessibility
 //! snapshots with `@eN` element refs plus JavaScript action builders.
 //!
-//! Ported from notagent's `browser_automation` module, which follows the
-//! architecture proven by the reference implementation's WKWebView port of `vercel-labs/agent-browser`
-//! (Apache-2.0): an injected script walks the DOM and returns entries
+//! An injected script walks the DOM and returns entries
 //! (CSS selector + role + accessible name + depth); the HOST assigns monotonic
 //! element refs (`e1`, `e2`, …), keeps the ref→selector table, and renders the
 //! aria-snapshot-style outline the agent reads (`- role "name" [ref=eN]`).
@@ -11,8 +9,8 @@
 //! returning a `{ok, error?, value?}` envelope.
 //!
 //! Refs are session-monotonic: a new snapshot allocates fresh numbers and old
-//! refs keep resolving until the page changes underneath them (agent-browser
-//! semantics: re-snapshot after navigation).
+//! refs keep resolving until the page changes underneath them (re-snapshot
+//! after navigation).
 
 use std::collections::HashMap;
 
@@ -132,10 +130,10 @@ pub struct SnapshotPage {
 /// optionally content) roles, and returns
 /// `{title, url, ready_state, text, entries: [{selector, role, name, depth}]}`.
 ///
-/// The role/name/visibility logic mirrors the agent-browser taxonomy
-/// (INTERACTIVE_ROLES / CONTENT_ROLES) as ported to DOM JavaScript by the reference implementation;
-/// the full-page `outerHTML` of the original is deliberately omitted — the
-/// agent tool never consumes it and it dominates payload size.
+/// The role/name/visibility logic uses an accessibility-role taxonomy
+/// (INTERACTIVE_ROLES / CONTENT_ROLES); the full-page `outerHTML` is
+/// deliberately omitted — the agent tool never consumes it and it dominates
+/// payload size.
 #[must_use]
 pub fn snapshot_script(interactive_only: bool, max_depth: usize, scope: Option<&str>) -> String {
     let interactive = if interactive_only { "true" } else { "false" };
@@ -244,7 +242,7 @@ pub fn snapshot_script(interactive_only: bool, max_depth: usize, scope: Option<&
     if (!role) return;
     if (__interactiveOnly && !__interactiveRoles.has(role)) return;
     if (!__interactiveOnly && !__interactiveRoles.has(role) && !__contentRoles.has(role)) return;
-    // Content roles only earn a line when they have a name (agent-browser rule).
+    // Content roles only earn a line when they have a name.
     if (!__interactiveRoles.has(role) && !__nameFor(el)) return;
     const selector = __cssPath(el);
     if (!selector || __seen.has(selector)) return;
@@ -328,7 +326,7 @@ pub fn parse_snapshot_result(value: &serde_json::Value) -> Result<SnapshotPage, 
 
 /// Renders the outline the agent reads and registers every entry in `refs`.
 ///
-/// Format (agent-browser): a `- document "title"` header, then one
+/// Format: a `- document "title"` header, then one
 /// `- role "name" [ref=eN]` line per entry, indented two spaces per DOM depth
 /// level. Pages without entries fall back to a clipped text excerpt.
 #[must_use]
@@ -420,7 +418,7 @@ pub fn dblclick_script(selector: &str) -> String {
 
 /// Sets an input/textarea/select value React-safely (native value setter +
 /// `input`/`change` events). Empty `text` clears the field
-/// (agent-browser decision: `fill ""` is a clear).
+/// (`fill ""` is a clear).
 #[must_use]
 pub fn fill_script(selector: &str, text: &str) -> String {
     let value = js_string(text);

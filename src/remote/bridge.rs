@@ -20,7 +20,7 @@ pub enum RemoteCommand {
     RenderSnapshot { terminal_id: String },
     /// Get current grid sizes (cols, rows) for multiple terminals.
     GetTerminalSizes { terminal_ids: Vec<String> },
-    /// One agent-browser-style automation command against a browser pane.
+    /// One automation command against a browser pane.
     /// Answered asynchronously (page JavaScript), not by the sync match.
     Browser(BrowserRequest),
 }

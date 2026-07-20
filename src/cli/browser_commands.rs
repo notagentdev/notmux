@@ -1,6 +1,5 @@
-//! `notmux browser …` — agent-browser-style automation of embedded browser
-//! panes (command grammar ported from vercel-labs/agent-browser, as in the
-//! the reference implementation browser CLI). Talks to `POST /v1/browser`; the app resolves element
+//! `notmux browser …` — automation of embedded browser
+//! panes. Talks to `POST /v1/browser`; the app resolves element
 //! refs (`@eN`) against the pane's latest `snapshot`.
 
 use crate::cli::{discover_server, ensure_token};
@@ -174,8 +173,7 @@ fn parse_browser_args(args: &[String]) -> Result<(BrowserRequest, bool), String>
         }
         "fill" | "type" => {
             req.element = Some(element_arg(&verb)?);
-            // Empty text is deliberate: `fill @e3` clears the field
-            // (agent-browser semantics).
+            // Empty text is deliberate: `fill @e3` clears the field.
             req.text = Some(rest[1..].join(" "));
             req.action = verb;
         }
@@ -308,7 +306,7 @@ fn parse_browser_args(args: &[String]) -> Result<(BrowserRequest, bool), String>
 fn print_browser_help() {
     eprintln!("Usage: notmux browser [--pane <id>] [--project <id>] [--json] <command>");
     eprintln!();
-    eprintln!("Automate an embedded browser pane (agent-browser command grammar).");
+    eprintln!("Automate an embedded browser pane.");
     eprintln!("Element refs (@eN) come from the latest `snapshot` of that pane.");
     eprintln!();
     eprintln!("Commands:");
@@ -364,7 +362,7 @@ mod tests {
         assert_eq!(req.element.as_deref(), Some("@e3"));
         assert_eq!(req.text.as_deref(), Some("hello world"));
 
-        // No text = clear (agent-browser semantics), not an error.
+        // No text = clear, not an error.
         let (req, _) = parse(&["fill", "e3"]).unwrap();
         assert_eq!(req.text.as_deref(), Some(""));
         assert!(parse(&["fill"]).is_err(), "missing ref is an error");
