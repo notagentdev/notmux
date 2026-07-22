@@ -268,8 +268,6 @@ fn set_app_menus(cx: &mut App) {
                 MenuItem::action("Settings...", ShowSettings),
                 MenuItem::action("Check for Updates...", CheckForUpdates),
                 MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
                 MenuItem::action("Quit NotMux", Quit),
             ],
         },
