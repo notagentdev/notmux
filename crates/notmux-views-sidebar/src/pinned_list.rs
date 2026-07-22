@@ -18,6 +18,9 @@ struct PinnedRow {
     slot_id: String,
     icon: &'static str,
     label: String,
+    /// True while the pinned terminal's agent is mid-turn — swaps the leading
+    /// icon for a rotating spinner (matches the PROJECTS terminal rows).
+    working: bool,
 }
 
 impl Sidebar {
@@ -45,20 +48,23 @@ impl Sidebar {
                 continue;
             };
             for leaf in layout.collect_pinned_leaves(&project.pinned_slots) {
-                let (slot_id, icon, label) = match &leaf {
+                let (slot_id, icon, label, working) = match &leaf {
                     LayoutNode::Terminal {
                         slot_id,
                         terminal_id,
                         ..
                     } => {
-                        let name = terminal_id
+                        let (name, working) = terminal_id
                             .as_ref()
                             .map(|tid| {
-                                let osc = self.terminals.lock().get(tid).and_then(|t| t.title());
-                                project.terminal_display_name(tid, osc)
+                                let terminals = self.terminals.lock();
+                                let terminal = terminals.get(tid);
+                                let osc = terminal.and_then(|t| t.title());
+                                let working = terminal.is_some_and(|t| t.agent_working());
+                                (project.terminal_display_name(tid, osc), working)
                             })
-                            .unwrap_or_else(|| "Terminal".to_string());
-                        (slot_id.clone(), "icons/terminal.svg", name)
+                            .unwrap_or_else(|| ("Terminal".to_string(), false));
+                        (slot_id.clone(), "icons/terminal.svg", name, working)
                     }
                     LayoutNode::Editor {
                         slot_id, file_path, ..
@@ -69,7 +75,7 @@ impl Sidebar {
                             .filter(|n| !n.is_empty())
                             .unwrap_or("Untitled")
                             .to_string();
-                        (slot_id.clone(), "icons/file.svg", name)
+                        (slot_id.clone(), "icons/file.svg", name, false)
                     }
                     LayoutNode::Browser { slot_id, url, .. } => {
                         let name = url
@@ -81,7 +87,7 @@ impl Sidebar {
                             .filter(|h| !h.is_empty())
                             .unwrap_or("Browser")
                             .to_string();
-                        (slot_id.clone(), "icons/globe.svg", name)
+                        (slot_id.clone(), "icons/globe.svg", name, false)
                     }
                     _ => continue,
                 };
@@ -91,6 +97,7 @@ impl Sidebar {
                     slot_id,
                     icon,
                     label,
+                    working,
                 });
             }
         }
@@ -153,6 +160,8 @@ impl Sidebar {
         let workspace_for_unpin = self.workspace.clone();
         let project_id = row.project_id;
         let slot_id = row.slot_id;
+        let working = row.working;
+        let icon = row.icon;
 
         // While the pinned view is active, mark the entry whose pane has focus
         let is_focused = {
@@ -197,11 +206,40 @@ impl Sidebar {
                 }
             })
             .child(
-                svg()
-                    .path(row.icon)
-                    .size(px(12.0))
+                // Leading icon slot — same fixed-size centered box as the
+                // PROJECTS terminal rows, so the spinner animates identically.
+                div()
                     .flex_shrink_0()
-                    .text_color(rgb(t.text_muted)),
+                    .w(px(14.0))
+                    .h(px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(if working {
+                        // Rotating spinner while the pinned pane's agent works a turn.
+                        svg()
+                            .path("icons/spinner.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.text_primary))
+                            .with_animation(
+                                ElementId::Name(
+                                    format!("pinned-spinner-{}-{}", project_id, slot_id).into(),
+                                ),
+                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                                |svg, delta| {
+                                    svg.with_transformation(Transformation::rotate(percentage(
+                                        delta,
+                                    )))
+                                },
+                            )
+                            .into_any_element()
+                    } else {
+                        svg()
+                            .path(icon)
+                            .size(px(12.0))
+                            .text_color(rgb(t.text_muted))
+                            .into_any_element()
+                    }),
             )
             .child(
                 div()
