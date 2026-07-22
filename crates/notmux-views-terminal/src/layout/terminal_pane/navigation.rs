@@ -93,6 +93,21 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             // (matches the click path in `handle_mouse_down`).
             terminal.clear_notification();
 
+            // Esc / Ctrl-C interrupt a working agent. Claude Code and friends do
+            // not fire a Stop/turn-complete hook on interrupt, so the "working"
+            // spinner would otherwise rotate forever. Clear it optimistically;
+            // the next agent turn re-sets it via the UserPromptSubmit hook.
+            let ks = &event.keystroke;
+            let is_interrupt =
+                ks.key == "escape" || (ks.key.eq_ignore_ascii_case("c") && ks.modifiers.control);
+            if is_interrupt && terminal.agent_working() {
+                terminal.set_agent_working(false);
+                // Notify the workspace so the sidebar/tab spinners (separate
+                // entities) re-render and stop — the terminal's own state
+                // change doesn't reach them otherwise.
+                self.workspace.update(cx, |_ws, cx| cx.notify());
+            }
+
             if is_paste_shortcut(event) {
                 terminal.claim_resize_local();
                 paste_clipboard_into_terminal(terminal, cx.read_from_clipboard());
