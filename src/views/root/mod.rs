@@ -381,7 +381,10 @@ impl RootView {
                 sidebar.update(cx, |sb, cx| sb.refresh_file_explorer(&pid, cx));
                 if let Some(col) = this.project_columns.get(&pid).cloned() {
                     let gh = col.read(cx).git_header();
-                    gh.update(cx, |gh, cx| gh.refresh_working_tree_status(cx));
+                    gh.update(cx, |gh, cx| {
+                        gh.refresh_working_tree_status(cx);
+                        gh.refresh_commit_log(cx);
+                    });
                 }
                 this.pending_git_internal_refresh.remove(&pid);
             });

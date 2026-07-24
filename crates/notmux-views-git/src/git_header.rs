@@ -2818,6 +2818,28 @@ impl GitHeader {
         .detach();
     }
 
+    /// Reload the commit log in place (watcher-driven: a commit was made
+    /// from outside, a rebase finished, HEAD moved). Refetches everything
+    /// currently loaded so pagination depth and scroll position survive.
+    pub fn refresh_commit_log(&mut self, cx: &mut Context<Self>) {
+        if !self.commit_log_visible || self.commit_log_loading {
+            return;
+        }
+        let provider = self.git_provider.clone();
+        let branch = self.commit_log_branch.clone();
+        let count = self.commit_log_entries.len().max(COMMIT_PAGE_SIZE);
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let entries =
+                smol::unblock(move || provider.get_commit_log(0, count, branch.as_deref())).await;
+            let _ = this.update(cx, |this, cx| {
+                this.commit_log_has_more = entries.len() >= count;
+                this.commit_log_entries = entries;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Refresh both commit log and working tree status after a new commit.
     fn refresh_after_commit(&mut self, cx: &mut Context<Self>) {
         let provider = self.git_provider.clone();
