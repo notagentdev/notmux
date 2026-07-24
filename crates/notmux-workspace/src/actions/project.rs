@@ -278,9 +278,31 @@ impl Workspace {
         self.data.project_widths.remove(project_id);
         // Clear closing state
         self.lifecycle.finish_closing(project_id);
-        // Clear focus if this was the focused project
+        // If this was the focused project, jump to the first remaining project
+        // (folders in project_order resolve to their first contained project)
         if self.focus_manager.focused_project_id().map(|s| s.as_str()) == Some(project_id) {
-            self.focus_manager.set_focused_project_id(None);
+            let first_id = self
+                .data
+                .project_order
+                .iter()
+                .find_map(|id| {
+                    if let Some(folder) = self.data.folders.iter().find(|f| f.id == *id) {
+                        folder
+                            .project_ids
+                            .iter()
+                            .find(|pid| self.data.projects.iter().any(|p| &p.id == *pid))
+                            .cloned()
+                    } else if self.data.projects.iter().any(|p| p.id == *id) {
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| self.data.projects.first().map(|p| p.id.clone()));
+            self.focus_manager.set_focused_project_id(first_id.clone());
+            if let Some(ref pid) = first_id {
+                self.focus_first_terminal_in(pid);
+            }
         }
         // Exit fullscreen if this project's terminal was in fullscreen
         if self.focus_manager.fullscreen_project_id() == Some(project_id) {

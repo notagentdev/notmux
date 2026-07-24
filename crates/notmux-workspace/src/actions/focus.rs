@@ -81,7 +81,7 @@ impl Workspace {
     ///
     /// If the project has no layout (e.g. only worktree children), drills into
     /// the first worktree child that has a terminal.
-    fn focus_first_terminal_in(&mut self, project_id: &str) {
+    pub(crate) fn focus_first_terminal_in(&mut self, project_id: &str) {
         // Try the project itself first, then its worktree children
         let candidates =
             std::iter::once(project_id.to_string()).chain(self.worktree_child_ids(project_id));
