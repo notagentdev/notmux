@@ -611,25 +611,9 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(if agent_working {
-                        // Rotating spinner while the agent is working a turn.
-                        svg()
-                            .path("icons/spinner.svg")
-                            .size(px(12.0))
-                            .text_color(rgb(t.text_primary))
-                            .with_animation(
-                                ElementId::Name(
-                                    format!("term-spinner-{}", terminal_id).into(),
-                                ),
-                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
-                                |svg, delta| {
-                                    svg.with_transformation(Transformation::rotate(
-                                        percentage(delta),
-                                    ))
-                                },
-                            )
-                            .into_any_element()
-                    } else {
+                    .child(
+                        // Static type icon; the working spinner lives at the
+                        // trailing end of the row instead.
                         svg()
                             .path(if has_bell {
                                 "icons/bell.svg"
@@ -645,9 +629,8 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                                 rgb(t.text_muted)
                             } else {
                                 rgb(t.text_secondary)
-                            })
-                            .into_any_element()
-                    }),
+                            }),
+                    ),
             )
             .child(
                 // Terminal name (or input if renaming)
@@ -743,6 +726,32 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     let tooltip_text = if is_pinned { "Unpin" } else { "Pin" };
                     move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx)
                 })
+            }))
+            // Working spinner — very end of the row, only while the agent
+            // works a turn.
+            .children(agent_working.then(|| {
+                div()
+                    .flex_shrink_0()
+                    .w(px(14.0))
+                    .h(px(14.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path("icons/spinner.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.text_primary))
+                            .with_animation(
+                                ElementId::Name(format!("term-spinner-{}", terminal_id).into()),
+                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                                |svg, delta| {
+                                    svg.with_transformation(Transformation::rotate(percentage(
+                                        delta,
+                                    )))
+                                },
+                            ),
+                    )
             }))
     }
 

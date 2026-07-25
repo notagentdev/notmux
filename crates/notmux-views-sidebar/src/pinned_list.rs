@@ -206,8 +206,7 @@ impl Sidebar {
                 }
             })
             .child(
-                // Leading icon slot — same fixed-size centered box as the
-                // PROJECTS terminal rows, so the spinner animates identically.
+                // Leading icon slot — static type icon (terminal/file/globe).
                 div()
                     .flex_shrink_0()
                     .w(px(14.0))
@@ -215,31 +214,12 @@ impl Sidebar {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(if working {
-                        // Rotating spinner while the pinned pane's agent works a turn.
-                        svg()
-                            .path("icons/spinner.svg")
-                            .size(px(12.0))
-                            .text_color(rgb(t.text_primary))
-                            .with_animation(
-                                ElementId::Name(
-                                    format!("pinned-spinner-{}-{}", project_id, slot_id).into(),
-                                ),
-                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
-                                |svg, delta| {
-                                    svg.with_transformation(Transformation::rotate(percentage(
-                                        delta,
-                                    )))
-                                },
-                            )
-                            .into_any_element()
-                    } else {
+                    .child(
                         svg()
                             .path(icon)
                             .size(px(12.0))
-                            .text_color(rgb(t.text_muted))
-                            .into_any_element()
-                    }),
+                            .text_color(rgb(t.text_muted)),
+                    ),
             )
             .child(
                 div()
@@ -284,5 +264,36 @@ impl Sidebar {
                 })
                 .tooltip(|_window, cx| Tooltip::new("Unpin").build(_window, cx)),
             )
+            // Working spinner — very end of the row, only while the pinned
+            // pane's agent works a turn.
+            .when(working, |d| {
+                d.child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(14.0))
+                        .h(px(14.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            svg()
+                                .path("icons/spinner.svg")
+                                .size(px(12.0))
+                                .text_color(rgb(t.text_primary))
+                                .with_animation(
+                                    ElementId::Name(
+                                        format!("pinned-spinner-{}-{}", project_id, slot_id)
+                                            .into(),
+                                    ),
+                                    Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                                    |svg, delta| {
+                                        svg.with_transformation(Transformation::rotate(
+                                            percentage(delta),
+                                        ))
+                                    },
+                                ),
+                        ),
+                )
+            })
     }
 }
