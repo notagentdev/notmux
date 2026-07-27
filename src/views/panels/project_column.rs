@@ -814,7 +814,41 @@ impl Render for ProjectColumn {
                                     .text_color(rgb(t.text_primary))
                                     .text_ellipsis()
                                     .child(project.name.clone()),
-                            ),
+                            )
+                            .when(pinned_view, |bar| {
+                                let workspace = self.workspace.clone();
+                                let project_id = self.project_id.clone();
+                                let bg_hover = t.bg_hover;
+                                bar.child(
+                                    div()
+                                        .id("unpin-all-project")
+                                        .ml_auto()
+                                        .flex_shrink_0()
+                                        .flex()
+                                        .w(px(20.0))
+                                        .h(px(20.0))
+                                        .justify_center()
+                                        .items_center()
+                                        .rounded(px(4.0))
+                                        .cursor_pointer()
+                                        .hover(move |s| s.bg(rgb(bg_hover)))
+                                        .child(
+                                            svg()
+                                                .path("icons/unpin.svg")
+                                                .size(px(12.0))
+                                                .text_color(rgb(t.text_muted)),
+                                        )
+                                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                            cx.stop_propagation();
+                                        })
+                                        .on_click(move |_, _window, cx| {
+                                            cx.stop_propagation();
+                                            workspace.update(cx, |ws, cx| {
+                                                ws.unpin_all_in_project(&project_id, cx);
+                                            });
+                                        }),
+                                )
+                            }),
                     )
                 };
 

@@ -12,12 +12,83 @@ impl Workspace {
         if project.is_remote {
             return;
         }
+        let mut gone = false;
         if let Some(pos) = project.pinned_slots.iter().position(|s| s == slot_id) {
             project.pinned_slots.remove(pos);
+            // Removing the project's last pin drops it from the pinned view —
+            // move focus along
+            gone = !project
+                .layout
+                .as_ref()
+                .is_some_and(|l| l.contains_pinned(&project.pinned_slots));
         } else {
             project.pinned_slots.push(slot_id.to_string());
         }
+        if gone {
+            self.refocus_pinned_view(project_id, cx);
+        }
         self.notify_data(cx);
+    }
+
+    /// Unpin every pane of a project. If this empties the pinned view,
+    /// leave it and zoom to the project instead of the all-projects overview.
+    pub fn unpin_all_in_project(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id) else {
+            return;
+        };
+        if project.pinned_slots.is_empty() {
+            return;
+        }
+        project.pinned_slots.clear();
+        self.refocus_pinned_view(project_id, cx);
+        self.notify_data(cx);
+    }
+
+    /// Keep focus (and with it the git/files panels, which follow the focused
+    /// terminal's project) on a visible project after `removed_project_id`
+    /// dropped out of the pinned view — by unpinning or deletion.
+    ///
+    /// - Other pinned projects remain: focus the first one's first pinned pane.
+    /// - Nothing pinned anymore: exit the pinned view and zoom to the removed
+    ///   project (or the first remaining one if it was deleted).
+    pub(crate) fn refocus_pinned_view(&mut self, removed_project_id: &str, cx: &mut Context<Self>) {
+        if !self.data.pinned_view_active {
+            return;
+        }
+        if !self.has_pinned_panes() {
+            self.data.pinned_view_active = false;
+            let target = if self.project(removed_project_id).is_some() {
+                Some(removed_project_id.to_string())
+            } else {
+                self.first_project_id_in_order()
+            };
+            self.focus_manager.set_focused_project_id(target.clone());
+            if let Some(ref pid) = target {
+                self.focus_first_terminal_in(pid);
+            }
+            self.persist_focus_state();
+            return;
+        }
+        // Only steal focus if it still points at the removed project
+        let focused = self
+            .focus_manager
+            .focused_terminal_state()
+            .map(|f| f.project_id);
+        if focused.as_deref() != Some(removed_project_id) {
+            return;
+        }
+        // First project still in the pinned view, and its first pinned pane
+        // that is actually present in the layout
+        let target = self.visible_projects().first().and_then(|p| {
+            let layout = p.layout.as_ref()?;
+            p.pinned_slots
+                .iter()
+                .find(|s| layout.find_path_by_slot_id(s).is_some())
+                .map(|s| (p.id.clone(), s.clone()))
+        });
+        if let Some((pid, slot)) = target {
+            self.focus_pane_by_slot(&pid, &slot, cx);
+        }
     }
 
     /// Whether a pane is pinned.

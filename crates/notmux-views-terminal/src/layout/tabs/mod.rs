@@ -770,15 +770,6 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 .overflow_hidden()
                                 .child(start_slot)
                                 .child(label)
-                                .when(is_pinned, |d| {
-                                    d.child(
-                                        svg()
-                                            .path("icons/pinned.svg")
-                                            .size(px(10.0))
-                                            .flex_shrink_0()
-                                            .text_color(rgb(t.text_muted)),
-                                    )
-                                })
                                 .when(has_notification, |d| {
                                     d.child(
                                         div()
