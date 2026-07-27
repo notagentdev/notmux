@@ -1718,6 +1718,25 @@ impl GitHeader {
             .on_click(cx.listener(move |this, _, _window, cx| {
                 this.toggle_inline_diff(path_owned.clone(), false, cx);
             }))
+            // Disclosure chevron at the row start — same as the sidebar explorer
+            .child(
+                div()
+                    .w(px(16.0))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path(if is_expanded {
+                                "icons/chevron-down.svg"
+                            } else {
+                                "icons/chevron-right.svg"
+                            })
+                            .size(px(14.0))
+                            .text_color(rgb(t.text_muted)),
+                    ),
+            )
             .child(vscode_file_icon_with_options(
                 &file_name,
                 t,
@@ -1743,18 +1762,7 @@ impl GitHeader {
                                 .overflow_hidden()
                                 .child(dir_part),
                         )
-                    })
-                    .child(
-                        svg()
-                            .path(if is_expanded {
-                                "icons/chevron-down.svg"
-                            } else {
-                                "icons/chevron-right.svg"
-                            })
-                            .size(px(12.0))
-                            .flex_shrink_0()
-                            .text_color(rgb(t.text_muted)),
-                    ),
+                    }),
             )
             .when(added > 0 || removed > 0, |d| {
                 d.child(
@@ -1958,7 +1966,13 @@ impl GitHeader {
             .gap(px(6.0))
             .items_center()
             .rounded_lg()
+            .cursor_pointer()
             .hover(|s| s.bg(rgb(t.bg_hover)))
+            // Whole row (chevron included) toggles the inline diff; the
+            // checkbox stops propagation and keeps its own action.
+            .on_click(cx.listener(move |this, _, _window, cx| {
+                this.toggle_inline_diff(file_path_click.clone(), is_fully_staged, cx);
+            }))
             // Right-click context menu
             .on_mouse_down(MouseButton::Right, {
                 let pid = project_id_ctx.clone();
@@ -1981,6 +1995,26 @@ impl GitHeader {
                     });
                 }
             })
+            // Disclosure chevron at the row start — same as the sidebar
+            // explorer: right when collapsed, down when the diff is expanded.
+            .child(
+                div()
+                    .w(px(16.0))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path(if is_expanded {
+                                "icons/chevron-down.svg"
+                            } else {
+                                "icons/chevron-right.svg"
+                            })
+                            .size(px(14.0))
+                            .text_color(rgb(t.text_muted)),
+                    ),
+            )
             // VSCode-icons file-type icon (real shape, language-tinted).
             .child(vscode_file_icon_with_options(
                 &file_name,
@@ -2003,15 +2037,6 @@ impl GitHeader {
                     .text_size(ui_text_md(cx))
                     .when(matches!(status, FileStatus::Deleted), |d| d.line_through())
                     .overflow_hidden()
-                    .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .on_click(cx.listener(move |this, _, _window, cx| {
-                        // Toggle the diff inline (expand directly in the list)
-                        // instead of opening the overlay diff viewer.
-                        this.toggle_inline_diff(file_path_click.clone(), is_fully_staged, cx);
-                    }))
                     .child(div().flex_shrink_0().text_color(rgb(name_color)).child(file_name))
                     .when(!dir_part.is_empty(), |d| {
                         // The directory is the shrinking element: `min_w_0` lets
@@ -2028,20 +2053,7 @@ impl GitHeader {
                                 .overflow_hidden()
                                 .child(dir_part),
                         )
-                    })
-                    // Disclosure chevron: right when collapsed, down when the
-                    // inline diff is expanded.
-                    .child(
-                        svg()
-                            .path(if is_expanded {
-                                "icons/chevron-down.svg"
-                            } else {
-                                "icons/chevron-right.svg"
-                            })
-                            .size(px(12.0))
-                            .flex_shrink_0()
-                            .text_color(rgb(t.text_muted)),
-                    ),
+                    }),
             )
             // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
             .when(added > 0 || removed > 0, |d| {
@@ -2089,6 +2101,7 @@ impl GitHeader {
                         cx.stop_propagation();
                     })
                     .on_click(cx.listener(move |this, _, _window, cx| {
+                        cx.stop_propagation();
                         if is_fully_staged {
                             this.handle_unstage_file(&path, cx);
                         } else {
