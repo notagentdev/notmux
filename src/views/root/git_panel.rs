@@ -177,6 +177,17 @@ impl RootView {
     pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let show_panel = self.git_panel_ctrl.should_render();
 
+        // The bound project may have been deleted — drop the binding so the
+        // block below adopts the (re)focused project instead.
+        if show_panel
+            && self
+                .git_panel_project_id
+                .as_ref()
+                .is_some_and(|pid| self.workspace.read(cx).project(pid).is_none())
+        {
+            self.git_panel_project_id = None;
+        }
+
         // If the panel was restored open from settings but no project is
         // bound yet (fresh session), adopt the focused project, or fall back
         // to the first visible one, so content actually appears.

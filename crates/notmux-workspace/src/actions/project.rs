@@ -279,31 +279,26 @@ impl Workspace {
         // Clear closing state
         self.lifecycle.finish_closing(project_id);
         // If this was the focused project, jump to the first remaining project
-        // (folders in project_order resolve to their first contained project)
+        let focused_terminal_in_deleted = self
+            .focus_manager
+            .focused_terminal_state()
+            .is_some_and(|f| f.project_id == project_id);
         if self.focus_manager.focused_project_id().map(|s| s.as_str()) == Some(project_id) {
-            let first_id = self
-                .data
-                .project_order
-                .iter()
-                .find_map(|id| {
-                    if let Some(folder) = self.data.folders.iter().find(|f| f.id == *id) {
-                        folder
-                            .project_ids
-                            .iter()
-                            .find(|pid| self.data.projects.iter().any(|p| &p.id == *pid))
-                            .cloned()
-                    } else if self.data.projects.iter().any(|p| p.id == *id) {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| self.data.projects.first().map(|p| p.id.clone()));
+            let first_id = self.first_project_id_in_order();
             self.focus_manager.set_focused_project_id(first_id.clone());
             if let Some(ref pid) = first_id {
                 self.focus_first_terminal_in(pid);
             }
+        } else if focused_terminal_in_deleted && !self.data.pinned_view_active {
+            // Overview / other view mode: keep it, but move the terminal focus
+            // (git and files panels follow it) to the first remaining project
+            if let Some(first_id) = self.first_project_id_in_order() {
+                self.focus_first_terminal_in(&first_id);
+            }
         }
+        // Pinned view: refocus a still-visible pinned project (or leave the
+        // view if the deleted project held the last pins)
+        self.refocus_pinned_view(project_id, cx);
         // Exit fullscreen if this project's terminal was in fullscreen
         if self.focus_manager.fullscreen_project_id() == Some(project_id) {
             self.focus_manager.exit_fullscreen();
@@ -322,6 +317,28 @@ impl Workspace {
                 cx,
             );
         }
+    }
+
+    /// First project in `project_order` (folders resolve to their first
+    /// contained project), falling back to any project.
+    pub(crate) fn first_project_id_in_order(&self) -> Option<String> {
+        self.data
+            .project_order
+            .iter()
+            .find_map(|id| {
+                if let Some(folder) = self.data.folders.iter().find(|f| f.id == *id) {
+                    folder
+                        .project_ids
+                        .iter()
+                        .find(|pid| self.data.projects.iter().any(|p| &p.id == *pid))
+                        .cloned()
+                } else if self.data.projects.iter().any(|p| p.id == *id) {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .or_else(|| self.data.projects.first().map(|p| p.id.clone()))
     }
 
     /// Move a project to a new position in the top-level order.
