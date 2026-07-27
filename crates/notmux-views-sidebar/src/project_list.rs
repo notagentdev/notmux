@@ -52,7 +52,6 @@ impl Sidebar {
         let project_name = project.name.clone();
         let is_renaming_now = is_renaming(&self.project_rename, &project.id);
         let is_busy = matches!(style, ProjectRowStyle::Worktree { is_busy: true, .. });
-        let supports_rename = !matches!(style, ProjectRowStyle::GroupChild);
 
         let has_expandable = match style {
             ProjectRowStyle::Project => {
@@ -150,32 +149,14 @@ impl Sidebar {
                 .map(|el| el.into_any_element())
                 .unwrap_or_else(|| div().flex_1().into_any_element())
             } else {
+                // No own click handler — clicks bubble to the row, which
+                // focuses, toggles expansion and handles double-click rename.
                 let name_label = sidebar_name_label(
                     ElementId::Name(format!("{}-name-{}", id_prefix, project.id).into()),
                     project_name.clone(),
                     &t,
                     cx,
-                )
-                .on_click(cx.listener({
-                    let project_id = project_id.clone();
-                    let project_name = project_name.clone();
-                    move |this, _event: &ClickEvent, window, cx| {
-                        if supports_rename && this.check_project_double_click(&project_id) {
-                            this.start_project_rename(
-                                project_id.clone(),
-                                project_name.clone(),
-                                window,
-                                cx,
-                            );
-                        } else {
-                            this.cursor_index = None;
-                            this.workspace.update(cx, |ws, cx| {
-                                ws.set_focused_project_individual(Some(project_id.clone()), cx);
-                            });
-                        }
-                        cx.stop_propagation();
-                    }
-                }));
+                );
                 sidebar_name_or_badge(
                     name_label,
                     &project_name,
@@ -344,11 +325,23 @@ impl Sidebar {
             )
             .on_click(cx.listener({
                 let project_id = project_id.clone();
-                move |this, _, _window, cx| {
-                    this.cursor_index = None;
-                    this.workspace.update(cx, |ws, cx| {
-                        ws.set_focused_project_individual(Some(project_id.clone()), cx);
-                    });
+                let project_name = project_name.clone();
+                move |this, _, window, cx| {
+                    if this.check_project_double_click(&project_id) {
+                        this.start_project_rename(
+                            project_id.clone(),
+                            project_name.clone(),
+                            window,
+                            cx,
+                        );
+                    } else {
+                        this.cursor_index = None;
+                        this.toggle_expanded(&project_id);
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.set_focused_project_individual(Some(project_id.clone()), cx);
+                        });
+                        cx.notify();
+                    }
                 }
             }));
 
@@ -446,11 +439,23 @@ impl Sidebar {
             )
             .on_click(cx.listener({
                 let project_id = project_id.clone();
-                move |this, _, _window, cx| {
-                    this.cursor_index = None;
-                    this.workspace.update(cx, |ws, cx| {
-                        ws.set_focused_project_individual(Some(project_id.clone()), cx);
-                    });
+                let project_name = project_name.clone();
+                move |this, _, window, cx| {
+                    if this.check_project_double_click(&project_id) {
+                        this.start_project_rename(
+                            project_id.clone(),
+                            project_name.clone(),
+                            window,
+                            cx,
+                        );
+                    } else {
+                        this.cursor_index = None;
+                        this.toggle_expanded(&project_id);
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.set_focused_project_individual(Some(project_id.clone()), cx);
+                        });
+                        cx.notify();
+                    }
                 }
             }));
 
@@ -1153,11 +1158,18 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
         )
         .on_click(cx.listener({
             let project_id = project_id.clone();
-            move |this, _, _window, cx| {
-                this.cursor_index = None;
-                this.workspace.update(cx, |ws, cx| {
-                    ws.set_focused_project(Some(project_id.clone()), cx);
-                });
+            let project_name = project_name.clone();
+            move |this, _, window, cx| {
+                if this.check_project_double_click(&project_id) {
+                    this.start_project_rename(project_id.clone(), project_name.clone(), window, cx);
+                } else {
+                    this.cursor_index = None;
+                    this.toggle_worktrees_collapsed(&project_id);
+                    this.workspace.update(cx, |ws, cx| {
+                        ws.set_focused_project(Some(project_id.clone()), cx);
+                    });
+                    cx.notify();
+                }
             }
         }))
         .child(
@@ -1200,6 +1212,8 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             .map(|el| el.into_any_element())
             .unwrap_or_else(|| div().flex_1().into_any_element())
         } else {
+            // No own click handler — the row focuses, toggles the worktree
+            // list and handles double-click rename.
             sidebar_name_label(
                 ElementId::Name(format!("{}-name-{}", id_prefix, project.id).into()),
                 project_name.clone(),
@@ -1207,26 +1221,6 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                 cx,
             )
             .font_weight(FontWeight::MEDIUM)
-            .on_click(cx.listener({
-                let project_id = project_id.clone();
-                let project_name = project_name.clone();
-                move |this, _event: &ClickEvent, window, cx| {
-                    if this.check_project_double_click(&project_id) {
-                        this.start_project_rename(
-                            project_id.clone(),
-                            project_name.clone(),
-                            window,
-                            cx,
-                        );
-                    } else {
-                        this.cursor_index = None;
-                        this.workspace.update(cx, |ws, cx| {
-                            ws.set_focused_project(Some(project_id.clone()), cx);
-                        });
-                    }
-                    cx.stop_propagation();
-                }
-            }))
             .into_any_element()
         })
         .when(idle_count > 0, |d| d.child(sidebar_idle_dot(&t)))
@@ -1270,9 +1264,11 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                 let project_id = project_id.clone();
                 move |this, _, _window, cx| {
                     this.cursor_index = None;
+                    this.toggle_expanded(&project_id);
                     this.workspace.update(cx, |ws, cx| {
                         ws.set_focused_project_individual(Some(project_id.clone()), cx);
                     });
+                    cx.notify();
                 }
             }))
             .on_mouse_down(
