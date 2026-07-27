@@ -198,6 +198,18 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                     });
                 }),
             )
+            .on_scroll_wheel(cx.listener(|this, _event: &ScrollWheelEvent, window, cx| {
+                if !this.focus_handle.is_focused(window) {
+                    window.focus(&this.focus_handle, cx);
+                    this.workspace.update(cx, |ws, cx| {
+                        ws.set_focused_terminal(
+                            this.project_id.clone(),
+                            this.layout_path.clone(),
+                            cx,
+                        );
+                    });
+                }
+            }))
             .on_action(cx.listener(|this, _: &SplitVertical, _window, cx| {
                 this.handle_split(SplitDirection::Vertical, cx);
             }))
