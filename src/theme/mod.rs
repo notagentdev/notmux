@@ -39,6 +39,20 @@ pub fn theme(cx: &App) -> ThemeColors {
 pub fn right_panel_theme(cx: &App) -> ThemeColors {
     let mut t = notmux_theme::terminal_theme(cx);
     t.bg_hover = notmux_theme::sidebar_theme(cx).bg_hover;
+    // Green/red follow the app theme (the terminal bridge keeps the palette
+    // defaults for these): diff stats, status letters and the inline-diff
+    // line colors all use the theme's Success/Warning/Error.
+    let git = notmux_theme::git_theme(cx);
+    t.success = git.success;
+    t.warning = git.warning;
+    t.error = git.error;
+    t.term_green = git.term_green;
+    t.term_yellow = git.term_yellow;
+    t.term_red = git.term_red;
+    t.diff_added_fg = git.success;
+    t.diff_removed_fg = git.error;
+    t.diff_added_bg = git.success;
+    t.diff_removed_bg = git.error;
     t
 }
 
