@@ -201,7 +201,7 @@ fn about(_: &About, _cx: &mut App) {
         );
 
         // Load embedded app icon as NSImage
-        let icon_png = include_bytes!("../assets/logo.png");
+        let icon_png = include_bytes!("../assets/app-icon-1024.png");
         let ns_data = msg_bytes_len(
             objc_getClass(c"NSData".as_ptr()),
             sel_registerName(c"dataWithBytes:length:".as_ptr()),
