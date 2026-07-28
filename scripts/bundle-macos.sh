@@ -134,6 +134,29 @@ fi
 iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/AppIcon.icns"
 rm -rf "$ICONSET_DIR"
 
+# Compile the Icon Composer bundle (Assets.car + CFBundleIconName) so macOS 26+
+# renders the icon natively instead of applying its full-bleed legacy treatment
+# to the .icns. Falls back to the .icns-only bundle when actool is unavailable.
+if xcrun --find actool >/dev/null 2>&1; then
+    echo "==> Compiling Icon Composer icon (macOS 26+)..."
+    ACTOOL_OUT="$DIST_DIR/actool-out"
+    rm -rf "$ACTOOL_OUT"
+    mkdir -p "$ACTOOL_OUT"
+    if xcrun actool "$PROJECT_ROOT/assets/AppIcon.icon" \
+        --compile "$ACTOOL_OUT" \
+        --platform macosx \
+        --minimum-deployment-target 11.0 \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$ACTOOL_OUT/partial.plist" >/dev/null; then
+        cp "$ACTOOL_OUT/Assets.car" "$RESOURCES_DIR/"
+    else
+        echo "    actool failed, keeping .icns only"
+    fi
+    rm -rf "$ACTOOL_OUT"
+else
+    echo "    actool not found, keeping .icns only"
+fi
+
 # Create PkgInfo
 echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
