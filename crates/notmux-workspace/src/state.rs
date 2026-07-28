@@ -26,6 +26,16 @@ pub struct GlobalWorkspace(pub Entity<Workspace>);
 
 impl Global for GlobalWorkspace {}
 
+/// A terminal orphaned by project deletion, queued for the app layer to reap
+/// (kill the PTY, drop the registry entry, clear the persisted slot snapshot).
+#[derive(Debug, Clone)]
+pub struct TerminalCleanup {
+    pub terminal_id: String,
+    pub project_path: String,
+    /// Layout slot for snapshot cleanup; hook/service terminals have none.
+    pub slot_id: Option<String>,
+}
+
 /// GPUI Entity for workspace state.
 ///
 /// Composes focused helper types by ownership. `Workspace` itself is a
@@ -46,6 +56,10 @@ pub struct Workspace {
     /// Transient folder filter — when set, only projects from this folder are shown.
     /// Not serialized; resets to None on restart.
     pub active_folder_filter: Option<String>,
+    /// Terminals of deleted projects awaiting PTY/registry cleanup by the app
+    /// layer (the workspace crate has no backend access). Drained by an
+    /// observer in the main app.
+    pub(crate) pending_terminal_cleanup: Vec<TerminalCleanup>,
 }
 
 impl Workspace {
@@ -58,6 +72,7 @@ impl Workspace {
             access_history: ProjectAccessHistory::new(),
             data_version: 0,
             active_folder_filter: None,
+            pending_terminal_cleanup: Vec::new(),
         };
         workspace.restore_focus_from_data();
         workspace
@@ -179,6 +194,11 @@ impl Workspace {
 
     pub fn drain_pending_remote_focus(&mut self) -> Vec<String> {
         self.remote_sync.drain_pending_focus()
+    }
+
+    /// Take the terminals queued for cleanup by project deletion.
+    pub fn drain_pending_terminal_cleanup(&mut self) -> Vec<TerminalCleanup> {
+        std::mem::take(&mut self.pending_terminal_cleanup)
     }
 
     pub fn remote_snapshot(&self, project_id: &str) -> Option<&RemoteProjectSnapshot> {

@@ -193,17 +193,12 @@ impl RootView {
                 });
             }
             OverlayManagerEvent::DeleteProject { project_id } => {
-                // Collect hook terminal IDs before deleting so we can clean them from the registry
-                let hook_tids = self
-                    .workspace
-                    .read(cx)
-                    .hook_terminal_ids_for_project(project_id);
+                // Terminal cleanup (layout, hook and service terminals) happens
+                // centrally: delete_project queues the ids and the app observer
+                // reaps them.
                 self.workspace.update(cx, |ws, cx| {
                     ws.delete_project(project_id, &settings(cx).hooks, cx);
                 });
-                for tid in hook_tids {
-                    self.terminals.lock().remove(&tid);
-                }
             }
             OverlayManagerEvent::ConfigureHooks { project_id } => {
                 self.main_diff_viewer = None;

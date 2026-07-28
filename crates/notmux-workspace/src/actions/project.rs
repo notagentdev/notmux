@@ -251,6 +251,36 @@ impl Workspace {
             .map(|p| p.worktree_ids.clone())
             .unwrap_or_default();
 
+        // Queue every terminal of the project for PTY/registry cleanup — layout
+        // panes, hook terminals and service terminals alike. The app layer
+        // drains this queue and reaps them; otherwise the PTYs (and their
+        // pending notifications) outlive the project.
+        if let Some(project) = self.project(project_id) {
+            let path = project.path.clone();
+            let mut cleanup = Vec::new();
+            if let Some(ref layout) = project.layout {
+                for tid in layout.collect_terminal_ids() {
+                    cleanup.push(crate::state::TerminalCleanup {
+                        slot_id: layout.find_terminal_slot_id(&tid),
+                        terminal_id: tid,
+                        project_path: path.clone(),
+                    });
+                }
+            }
+            for tid in project
+                .hook_terminals
+                .keys()
+                .chain(project.service_terminals.values())
+            {
+                cleanup.push(crate::state::TerminalCleanup {
+                    terminal_id: tid.clone(),
+                    project_path: path.clone(),
+                    slot_id: None,
+                });
+            }
+            self.pending_terminal_cleanup.extend(cleanup);
+        }
+
         // Remove from parent's worktree_ids (if deleting a worktree child)
         for parent in &mut self.data.projects {
             parent.worktree_ids.retain(|id| id != project_id);

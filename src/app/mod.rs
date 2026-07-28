@@ -225,6 +225,33 @@ impl NotMux {
         // Get terminals registry from root view
         let terminals = root_view.read(cx).terminals().clone();
 
+        // Reap terminals orphaned by project deletion: delete_project queues
+        // its terminal ids; kill their PTYs and drop the registry entries so
+        // running agents and their notifications don't outlive the project.
+        // Every delete path (menu, sidebar, CLI, worktree removal) funnels
+        // through this observer.
+        let pty_for_cleanup = pty_manager.clone();
+        let terminals_for_cleanup = terminals.clone();
+        cx.observe(&workspace, move |_this, workspace, cx| {
+            let cleanups =
+                workspace.update(cx, |ws, _| ws.drain_pending_terminal_cleanup());
+            if cleanups.is_empty() {
+                return;
+            }
+            let mut reg = terminals_for_cleanup.lock();
+            for c in cleanups {
+                if let Some(ref slot_id) = c.slot_id {
+                    crate::terminal::snapshot_persist::clear_slot_snapshot(
+                        &c.project_path,
+                        slot_id,
+                    );
+                }
+                pty_for_cleanup.kill(&c.terminal_id);
+                reg.remove(&c.terminal_id);
+            }
+        })
+        .detach();
+
         // Create service manager for project-scoped background processes
         let local_backend_for_services: Arc<dyn crate::terminal::backend::TerminalBackend> =
             Arc::new(crate::terminal::backend::LocalBackend::new(
