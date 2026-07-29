@@ -305,6 +305,12 @@ pub struct FileViewer {
     /// 1-based line to scroll to once the active tab's content is loaded
     /// (set when opening a file from a search result).
     pending_goto_line: Option<usize>,
+    /// An explicit goto-line was requested for this viewer — suppresses the
+    /// automatic scroll-to-first-change of a freshly opened diff editor.
+    pub(super) had_goto_line: bool,
+    /// Scroll to the first changed row once the diff is computed (set when
+    /// the pane enters diff mode, e.g. "Open Diff" from the git panel).
+    pub(super) pending_first_diff_scroll: bool,
     /// When true this pane is an editable diff editor: the active tab is
     /// decorated with additions (green) / deletions (red) vs `HEAD`.
     pub(super) diff_mode: bool,
@@ -434,6 +440,8 @@ impl FileViewer {
             delete_confirm: None,
             search_state: None,
             pending_goto_line: None,
+            had_goto_line: false,
+            pending_first_diff_scroll: false,
             diff_mode: false,
         }
     }
@@ -504,6 +512,8 @@ impl FileViewer {
             delete_confirm: None,
             search_state: None,
             pending_goto_line: None,
+            had_goto_line: false,
+            pending_first_diff_scroll: false,
             diff_mode: false,
         }
     }
@@ -637,6 +647,10 @@ impl FileViewer {
     /// has finished loading (used when opening a file from a search result).
     pub fn goto_line(&mut self, line: usize) {
         self.pending_goto_line = Some(line);
+        // An explicit target line wins over the diff editor's automatic
+        // jump to its first change
+        self.had_goto_line = true;
+        self.pending_first_diff_scroll = false;
         self.apply_pending_goto_line();
     }
 

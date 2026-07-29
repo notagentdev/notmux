@@ -63,6 +63,30 @@ impl LineDiff {
         }
         rows
     }
+
+    /// Index into `rows()` of the first changed row — the first deleted
+    /// baseline line or added buffer line. None when the diff is empty.
+    pub fn first_change_row(&self) -> Option<usize> {
+        let line_count = self.added.len();
+        let mut row = 0;
+        for i in 0..line_count {
+            if self
+                .deleted_before_lines
+                .get(i)
+                .is_some_and(|d| !d.is_empty())
+            {
+                return Some(row);
+            }
+            if self.added[i] {
+                return Some(row);
+            }
+            row += 1;
+        }
+        self.deleted_before_lines
+            .get(line_count)
+            .is_some_and(|d| !d.is_empty())
+            .then_some(row)
+    }
 }
 
 /// Above this window size (after prefix/suffix trimming) we skip the O(n·m)
@@ -205,6 +229,33 @@ mod tests {
         let d = compute_line_diff("a\nb\n", "a\nX\nb\n");
         assert_eq!(d.added, vec![false, true, false]);
         assert!(deleted_texts(&d).is_empty());
+    }
+
+    #[test]
+    fn first_change_row_none_when_no_changes() {
+        let d = compute_line_diff("a\nb\nc\n", "a\nb\nc\n");
+        assert_eq!(d.first_change_row(), None);
+    }
+
+    #[test]
+    fn first_change_row_points_at_added_line() {
+        let d = compute_line_diff("a\nb\n", "a\nX\nb\n");
+        // Rows: a(0), X(1, added), b(2)
+        assert_eq!(d.first_change_row(), Some(1));
+    }
+
+    #[test]
+    fn first_change_row_points_at_deleted_row() {
+        let d = compute_line_diff("a\nb\nc\n", "a\nc\n");
+        // Rows: a(0), deleted "b"(1), c(2)
+        assert_eq!(d.first_change_row(), Some(1));
+    }
+
+    #[test]
+    fn first_change_row_trailing_deletion() {
+        let d = compute_line_diff("a\nb\n", "a\n");
+        // Rows: a(0), trailing deleted "b"(1)
+        assert_eq!(d.first_change_row(), Some(1));
     }
 
     #[test]

@@ -28,6 +28,11 @@ impl FileViewer {
             return;
         }
         self.diff_mode = diff;
+        // A freshly opened diff editor jumps to its first change once the
+        // diff is computed — unless an explicit goto-line was requested
+        if diff && !self.had_goto_line {
+            self.pending_first_diff_scroll = true;
+        }
         if !diff {
             for tab in &mut self.tabs {
                 tab.line_diff = None;
@@ -62,6 +67,13 @@ impl FileViewer {
         let baseline = tab.diff_baseline.as_deref().unwrap_or("");
         let ld = super::diff::compute_line_diff(baseline, tab.buffer.text());
         tab.diff_rows = ld.rows();
+        if self.pending_first_diff_scroll {
+            if let Some(row) = ld.first_change_row() {
+                tab.source_scroll_handle
+                    .scroll_to_item(row, ScrollStrategy::Center);
+            }
+            self.pending_first_diff_scroll = false;
+        }
         tab.line_diff = Some(ld);
     }
 
