@@ -251,6 +251,35 @@ impl Workspace {
             .map(|p| p.worktree_ids.clone())
             .unwrap_or_default();
 
+        // Resolve focus BEFORE the removal so no state ever points at the
+        // deleted project. Fullscreen on it is cleared without restore — the
+        // saved stack entry may hold the overview (None) or a stale focus,
+        // which would override the refocus below and drop the user into the
+        // all-projects view.
+        if self.focus_manager.fullscreen_project_id() == Some(project_id) {
+            self.focus_manager.clear_fullscreen_without_restore();
+        }
+        let next_project_id = self.first_project_id_in_order_excluding(project_id);
+        let terminal_focus_in_deleted = self
+            .focus_manager
+            .focused_terminal_state()
+            .is_some_and(|f| f.project_id == project_id);
+        if self.focus_manager.focused_project_id().map(|s| s.as_str()) == Some(project_id) {
+            // Zoomed into the deleted project: zoom onto the first remaining one
+            self.focus_manager
+                .set_focused_project_id(next_project_id.clone());
+            if let Some(ref pid) = next_project_id {
+                self.focus_first_terminal_in(pid);
+            }
+        } else if terminal_focus_in_deleted && !self.data.pinned_view_active {
+            // Overview / other view mode: keep it, but move the terminal focus
+            // (git and files panels follow it) to the first remaining project
+            if let Some(ref pid) = next_project_id {
+                self.focus_first_terminal_in(pid);
+            }
+        }
+        self.persist_focus_state();
+
         // Queue every terminal of the project for PTY/registry cleanup — layout
         // panes, hook terminals and service terminals alike. The app layer
         // drains this queue and reaps them; otherwise the PTYs (and their
@@ -308,31 +337,9 @@ impl Workspace {
         self.data.project_widths.remove(project_id);
         // Clear closing state
         self.lifecycle.finish_closing(project_id);
-        // If this was the focused project, jump to the first remaining project
-        let focused_terminal_in_deleted = self
-            .focus_manager
-            .focused_terminal_state()
-            .is_some_and(|f| f.project_id == project_id);
-        if self.focus_manager.focused_project_id().map(|s| s.as_str()) == Some(project_id) {
-            let first_id = self.first_project_id_in_order();
-            self.focus_manager.set_focused_project_id(first_id.clone());
-            if let Some(ref pid) = first_id {
-                self.focus_first_terminal_in(pid);
-            }
-        } else if focused_terminal_in_deleted && !self.data.pinned_view_active {
-            // Overview / other view mode: keep it, but move the terminal focus
-            // (git and files panels follow it) to the first remaining project
-            if let Some(first_id) = self.first_project_id_in_order() {
-                self.focus_first_terminal_in(&first_id);
-            }
-        }
         // Pinned view: refocus a still-visible pinned project (or leave the
         // view if the deleted project held the last pins)
         self.refocus_pinned_view(project_id, cx);
-        // Exit fullscreen if this project's terminal was in fullscreen
-        if self.focus_manager.fullscreen_project_id() == Some(project_id) {
-            self.focus_manager.exit_fullscreen();
-        }
         self.notify_data(cx);
 
         if let Some((project_hooks, id, name, path)) = hook_info {
@@ -352,6 +359,14 @@ impl Workspace {
     /// First project in `project_order` (folders resolve to their first
     /// contained project), falling back to any project.
     pub(crate) fn first_project_id_in_order(&self) -> Option<String> {
+        self.first_project_id_in_order_excluding("")
+    }
+
+    /// First project in `project_order` that is not `excluded` (folders
+    /// resolve to their first contained project), falling back to any other
+    /// project. Used to pick the refocus target before a deletion.
+    pub(crate) fn first_project_id_in_order_excluding(&self, excluded: &str) -> Option<String> {
+        let exists = |id: &str| id != excluded && self.data.projects.iter().any(|p| p.id == id);
         self.data
             .project_order
             .iter()
@@ -360,15 +375,21 @@ impl Workspace {
                     folder
                         .project_ids
                         .iter()
-                        .find(|pid| self.data.projects.iter().any(|p| &p.id == *pid))
+                        .find(|pid| exists(pid))
                         .cloned()
-                } else if self.data.projects.iter().any(|p| p.id == *id) {
+                } else if exists(id) {
                     Some(id.clone())
                 } else {
                     None
                 }
             })
-            .or_else(|| self.data.projects.first().map(|p| p.id.clone()))
+            .or_else(|| {
+                self.data
+                    .projects
+                    .iter()
+                    .find(|p| p.id != excluded)
+                    .map(|p| p.id.clone())
+            })
     }
 
     /// Move a project to a new position in the top-level order.
