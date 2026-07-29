@@ -157,6 +157,169 @@ impl LayoutNode {
         }
     }
 
+    /// Clone the tree keeping only leaves whose slot_id is in `keep`. Empty
+    /// containers are pruned, single-child containers unwrapped, split sizes
+    /// keep their relative weights. Returns None when nothing remains.
+    pub fn clone_filtered_by_slots(&self, keep: &[String]) -> Option<LayoutNode> {
+        match self {
+            LayoutNode::Split {
+                direction,
+                sizes,
+                children,
+            } => {
+                let mut kept_children = Vec::new();
+                let mut kept_sizes = Vec::new();
+                for (i, child) in children.iter().enumerate() {
+                    if let Some(kept) = child.clone_filtered_by_slots(keep) {
+                        kept_children.push(kept);
+                        kept_sizes.push(
+                            sizes
+                                .get(i)
+                                .copied()
+                                .unwrap_or(100.0 / children.len() as f32),
+                        );
+                    }
+                }
+                match kept_children.len() {
+                    0 => None,
+                    1 => Some(kept_children.remove(0)),
+                    _ => Some(LayoutNode::Split {
+                        direction: *direction,
+                        sizes: kept_sizes,
+                        children: kept_children,
+                    }),
+                }
+            }
+            LayoutNode::Tabs {
+                children,
+                active_tab,
+            } => {
+                let mut kept_children = Vec::new();
+                let mut new_active = 0;
+                for (i, child) in children.iter().enumerate() {
+                    if let Some(kept) = child.clone_filtered_by_slots(keep) {
+                        if i <= *active_tab {
+                            new_active = kept_children.len();
+                        }
+                        kept_children.push(kept);
+                    }
+                }
+                match kept_children.len() {
+                    0 => None,
+                    1 => Some(kept_children.remove(0)),
+                    _ => Some(LayoutNode::Tabs {
+                        children: kept_children,
+                        active_tab: new_active,
+                    }),
+                }
+            }
+            leaf => leaf
+                .slot_id()
+                .is_some_and(|s| keep.iter().any(|k| k == s))
+                .then(|| leaf.clone()),
+        }
+    }
+
+    /// Append a leaf at the root level as a rightmost vertical-split sibling,
+    /// giving it an average share of the existing sizes.
+    pub fn append_leaf(&mut self, leaf: LayoutNode) {
+        if let LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            sizes,
+            children,
+        } = self
+        {
+            let total: f32 = sizes.iter().sum();
+            let avg = if children.is_empty() {
+                100.0
+            } else {
+                total / children.len() as f32
+            };
+            sizes.push(avg);
+            children.push(leaf);
+        } else {
+            let old = std::mem::replace(self, LayoutNode::new_terminal());
+            *self = LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes: vec![50.0, 50.0],
+                children: vec![old, leaf],
+            };
+        }
+    }
+
+    /// Insert `leaf` as a 50/50 split sibling of the leaf with `anchor_slot`.
+    /// Returns false when the anchor is not in the tree. Callers should
+    /// normalize afterwards to flatten same-direction nesting.
+    pub fn insert_leaf_next_to_slot(
+        &mut self,
+        anchor_slot: &str,
+        leaf: LayoutNode,
+        direction: SplitDirection,
+    ) -> bool {
+        let Some(path) = self.find_path_by_slot_id(anchor_slot) else {
+            return false;
+        };
+        let Some(node) = self.get_at_path_mut(&path) else {
+            return false;
+        };
+        let old = std::mem::replace(node, LayoutNode::new_terminal());
+        *node = LayoutNode::Split {
+            direction,
+            sizes: vec![50.0, 50.0],
+            children: vec![old, leaf],
+        };
+        true
+    }
+
+    /// Insert `leaf` as a tab sibling of the leaf with `anchor_slot` and make
+    /// it the active tab. Returns false when the anchor is not in the tree.
+    pub fn insert_leaf_as_tab_of_slot(&mut self, anchor_slot: &str, leaf: LayoutNode) -> bool {
+        let Some(path) = self.find_path_by_slot_id(anchor_slot) else {
+            return false;
+        };
+        // Anchor already inside a Tabs group → append there
+        if !path.is_empty()
+            && let Some(LayoutNode::Tabs {
+                children,
+                active_tab,
+            }) = self.get_at_path_mut(&path[..path.len() - 1])
+        {
+            children.push(leaf);
+            *active_tab = children.len() - 1;
+            return true;
+        }
+        let Some(node) = self.get_at_path_mut(&path) else {
+            return false;
+        };
+        let old = std::mem::replace(node, LayoutNode::new_terminal());
+        *node = LayoutNode::Tabs {
+            children: vec![old, leaf],
+            active_tab: 1,
+        };
+        true
+    }
+
+    /// Replace every leaf with a fresh clone of the same-slot leaf in `source`.
+    /// Leaves without a counterpart are left untouched (the caller removes
+    /// them); container structure (splits, sizes, tabs) is preserved.
+    pub fn refresh_leaves_from(&mut self, source: &LayoutNode) {
+        match self {
+            LayoutNode::Split { children, .. } | LayoutNode::Tabs { children, .. } => {
+                for child in children {
+                    child.refresh_leaves_from(source);
+                }
+            }
+            leaf => {
+                if let Some(slot) = leaf.slot_id().map(str::to_string)
+                    && let Some(path) = source.find_path_by_slot_id(&slot)
+                    && let Some(src) = source.get_at_path(&path)
+                {
+                    *leaf = src.clone();
+                }
+            }
+        }
+    }
+
     /// Replace a terminal ID in the layout tree (for hook rerun).
     pub fn replace_terminal_id(&mut self, old_id: &str, new_id: &str) {
         match self {

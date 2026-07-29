@@ -554,10 +554,9 @@ impl BrowserPane {
         if !ws.visible_projects().iter().any(|p| p.id == self.project_id) {
             return false;
         }
-        let Some(project) = ws.project(&self.project_id) else {
-            return false;
-        };
-        let Some(ref layout) = project.layout else {
+        // Resolve against the tree the current view renders — in the pinned
+        // view tab-visibility follows the pinned arrangement
+        let Some(layout) = ws.view_layout(&self.project_id) else {
             return false;
         };
         let Some(path) = layout.find_browser_path_by_slot(&self.slot_id) else {

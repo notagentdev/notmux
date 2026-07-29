@@ -206,6 +206,9 @@ pub(crate) fn validate_workspace_data(
         if let Some(ref mut layout) = project.layout {
             layout.normalize();
         }
+        if let Some(ref mut pinned) = project.pinned_layout {
+            pinned.normalize();
+        }
     }
 
     // Clean up orphaned terminal metadata (terminal_names/hidden_terminals entries
@@ -562,6 +565,7 @@ mod tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

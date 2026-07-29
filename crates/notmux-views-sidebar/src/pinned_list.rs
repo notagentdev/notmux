@@ -170,8 +170,7 @@ impl Sidebar {
                 && ws.focus_manager.focused_terminal_state().is_some_and(|ft| {
                     ft.project_id == project_id
                         && ws
-                            .project(&project_id)
-                            .and_then(|p| p.layout.as_ref())
+                            .view_layout(&project_id)
                             .and_then(|l| l.find_path_by_slot_id(&slot_id))
                             .is_some_and(|path| ft.layout_path == path)
                 })

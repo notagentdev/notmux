@@ -194,6 +194,7 @@ mod tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 
@@ -316,6 +317,7 @@ mod gpui_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

@@ -1397,10 +1397,8 @@ fn collect_tab_terminal_ids(
     cx: &Context<RootView>,
 ) -> Vec<String> {
     let ws = workspace.read(cx);
-    let Some(project) = ws.project(project_id) else {
-        return Vec::new();
-    };
-    let Some(ref layout) = project.layout else {
+    // Paths from the UI address the tree the current view renders
+    let Some(layout) = ws.view_layout(project_id) else {
         return Vec::new();
     };
     let Some(node) = layout.get_at_path(layout_path) else {

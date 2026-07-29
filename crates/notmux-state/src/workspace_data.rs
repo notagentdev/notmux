@@ -215,6 +215,11 @@ pub struct ProjectData {
     /// Slot IDs of pinned panes (terminal/editor/browser leaves).
     #[serde(default)]
     pub pinned_slots: Vec<String>,
+    /// Independent arrangement of the pinned panes for the pinned view.
+    /// Structure (splits, sizes, tabs) is owned by this tree; leaf content is
+    /// mirrored from `layout` by slot_id. None until a pane is pinned.
+    #[serde(default)]
+    pub pinned_layout: Option<LayoutNode>,
 }
 
 impl ProjectData {
@@ -295,6 +300,7 @@ mod tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

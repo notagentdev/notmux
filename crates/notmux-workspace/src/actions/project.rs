@@ -66,6 +66,7 @@ impl Workspace {
             default_shell,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         };
         let project_hooks = project.hooks.clone();
         self.data.projects.push(project);
@@ -643,6 +644,7 @@ impl Workspace {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         };
 
         let new_project_hooks = project.hooks.clone();
@@ -788,6 +790,7 @@ impl Workspace {
             service_terminals: HashMap::new(),
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         };
 
         // Insert after parent in project_order
@@ -940,6 +943,7 @@ mod tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 
@@ -1075,6 +1079,7 @@ mod gpui_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

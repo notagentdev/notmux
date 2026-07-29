@@ -75,6 +75,7 @@ impl Workspace {
             pending_terminal_cleanup: Vec::new(),
         };
         workspace.restore_focus_from_data();
+        workspace.sync_pinned_layouts();
         workspace
     }
 
@@ -92,6 +93,9 @@ impl Workspace {
     /// and refreshes all windows to bypass `.cached()` view wrappers.
     /// Use this instead of cx.notify() when mutating `self.data`.
     pub fn notify_data(&mut self, cx: &mut Context<Self>) {
+        // Keep every pinned-view arrangement consistent with its main layout
+        // (leaf content, added/removed pins) before views re-read the data.
+        self.sync_pinned_layouts();
         self.data_version += 1;
         cx.notify();
         cx.refresh_windows();
@@ -103,6 +107,7 @@ impl Workspace {
         self.data = data;
         self.focus_manager.clear_all();
         self.restore_focus_from_data();
+        self.sync_pinned_layouts();
         self.active_folder_filter = None;
         cx.notify();
     }
@@ -457,6 +462,52 @@ impl Workspace {
         self.data.projects.iter().find(|p| p.id == id)
     }
 
+    /// The layout tree that layout paths refer to for this project in the
+    /// current view mode: the independent pinned arrangement while the pinned
+    /// view is active, the project layout otherwise.
+    pub fn view_layout(&self, id: &str) -> Option<&LayoutNode> {
+        let project = self.project(id)?;
+        if self.data.pinned_view_active && project.pinned_layout.is_some() {
+            project.pinned_layout.as_ref()
+        } else {
+            project.layout.as_ref()
+        }
+    }
+
+    /// Mutable variant of [`Self::view_layout`].
+    pub(crate) fn view_layout_mut(&mut self, id: &str) -> Option<&mut LayoutNode> {
+        let pinned = self.data.pinned_view_active;
+        let project = self.project_mut(id)?;
+        if pinned && project.pinned_layout.is_some() {
+            project.pinned_layout.as_mut()
+        } else {
+            project.layout.as_mut()
+        }
+    }
+
+    /// True when layout paths for this project currently address the pinned
+    /// arrangement instead of the project layout.
+    pub fn uses_pinned_layout(&self, id: &str) -> bool {
+        self.data.pinned_view_active
+            && self.project(id).is_some_and(|p| p.pinned_layout.is_some())
+    }
+
+    /// Translate a leaf path in the current view tree to the corresponding
+    /// path in the main project layout (identity outside the pinned view).
+    pub(crate) fn to_main_layout_path(&self, id: &str, path: &[usize]) -> Option<Vec<usize>> {
+        if !self.uses_pinned_layout(id) {
+            return Some(path.to_vec());
+        }
+        let project = self.project(id)?;
+        let slot = project
+            .pinned_layout
+            .as_ref()?
+            .get_at_path(path)?
+            .slot_id()?
+            .to_string();
+        project.layout.as_ref()?.find_path_by_slot_id(&slot)
+    }
+
     /// Get the parent project's path for a worktree project (i.e. the main repo path).
     pub fn worktree_parent_path(&self, project_id: &str) -> Option<String> {
         self.project(project_id)
@@ -592,6 +643,29 @@ impl Workspace {
         false
     }
 
+    /// Like [`Self::with_layout_node`], but resolves the path against the tree
+    /// the current view renders — the pinned arrangement while the pinned view
+    /// is active. Use for purely structural mutations (split sizes, tabs).
+    pub fn with_view_layout_node<F>(
+        &mut self,
+        project_id: &str,
+        path: &[usize],
+        cx: &mut Context<Self>,
+        f: F,
+    ) -> bool
+    where
+        F: FnOnce(&mut LayoutNode) -> bool,
+    {
+        if let Some(layout) = self.view_layout_mut(project_id)
+            && let Some(node) = layout.get_at_path_mut(path)
+            && f(node)
+        {
+            self.notify_data(cx);
+            return true;
+        }
+        false
+    }
+
     /// Helper to mutate a project, with automatic notify.
     /// Returns true if the mutation was applied.
     pub fn with_project<F>(&mut self, project_id: &str, cx: &mut Context<Self>, f: F) -> bool
@@ -644,6 +718,7 @@ mod workspace_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 
@@ -1372,6 +1447,7 @@ mod gpui_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

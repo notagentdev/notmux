@@ -345,8 +345,11 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
     }
 
     pub(super) fn get_layout<'a>(&self, workspace: &'a Workspace) -> Option<&'a LayoutNode> {
-        let project = workspace.project(&self.project_id)?;
-        project.layout.as_ref()?.get_at_path(&self.layout_path)
+        // In the pinned view this renders the project's independent pinned
+        // arrangement instead of its main layout
+        workspace
+            .view_layout(&self.project_id)?
+            .get_at_path(&self.layout_path)
     }
 
     pub(super) fn find_zoomed_child_index(
@@ -377,11 +380,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         }
         let parent_path = &self.layout_path[..self.layout_path.len() - 1];
         let ws = self.workspace.read(cx);
-        if let Some(project) = ws.project(&self.project_id)
-            && let Some(LayoutNode::Tabs { .. }) = project
-                .layout
-                .as_ref()
-                .and_then(|l| l.get_at_path(parent_path))
+        if let Some(LayoutNode::Tabs { .. }) = ws
+            .view_layout(&self.project_id)
+            .and_then(|l| l.get_at_path(parent_path))
         {
             return true;
         }

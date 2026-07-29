@@ -86,15 +86,10 @@ impl Workspace {
         let candidates =
             std::iter::once(project_id.to_string()).chain(self.worktree_child_ids(project_id));
         for id in candidates {
-            if let Some(project) = self.project(&id)
-                && project.layout.is_some()
-            {
-                // Focus the currently visible terminal (follows active tabs)
-                let path = project
-                    .layout
-                    .as_ref()
-                    .expect("guarded by layout.is_some() above")
-                    .find_visible_terminal_path();
+            // Focus the currently visible terminal (follows active tabs) in
+            // the tree the current view renders
+            if let Some(layout) = self.view_layout(&id) {
+                let path = layout.find_visible_terminal_path();
                 self.focus_manager.focus_terminal(id, path);
                 return;
             }
@@ -118,8 +113,7 @@ impl Workspace {
         // a terminal id for terminals, a slot id for editors/browsers — so
         // resolve through `find_pane_path`, which handles all three.
         let layout_path = self
-            .project(&project_id)
-            .and_then(|p| p.layout.as_ref())
+            .view_layout(&project_id)
             .and_then(|l| l.find_pane_path(&terminal_id))
             .unwrap_or_default();
 
@@ -199,14 +193,12 @@ impl Workspace {
         terminal_id: &str,
         cx: &mut Context<Self>,
     ) {
-        if let Some(project) = self.project(project_id)
-            && let Some(ref layout) = project.layout
-            && let Some(path) = layout.find_terminal_path(terminal_id)
+        if let Some(path) = self
+            .view_layout(project_id)
+            .and_then(|l| l.find_terminal_path(terminal_id))
         {
             // Activate any tabs along the path so the terminal becomes visible
-            if let Some(project_mut) = self.project_mut(project_id)
-                && let Some(ref mut layout) = project_mut.layout
-            {
+            if let Some(layout) = self.view_layout_mut(project_id) {
                 layout.activate_tabs_along_path(&path);
             }
             self.notify_data(cx);

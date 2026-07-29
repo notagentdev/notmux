@@ -1,6 +1,6 @@
 //! Pane pinning and the pinned view (all pinned projects side by side).
 
-use crate::state::Workspace;
+use crate::state::{ProjectData, SplitDirection, Workspace};
 use gpui::*;
 
 impl Workspace {
@@ -55,6 +55,9 @@ impl Workspace {
         if !self.data.pinned_view_active {
             return;
         }
+        // Callers mutate pins right before this — reconcile the pinned
+        // arrangements so the slot lookups below see the new state
+        self.sync_pinned_layouts();
         if !self.has_pinned_panes() {
             self.data.pinned_view_active = false;
             let target = if self.project(removed_project_id).is_some() {
@@ -77,18 +80,94 @@ impl Workspace {
         if focused.as_deref() != Some(removed_project_id) {
             return;
         }
-        // First project still in the pinned view, and its first pinned pane
-        // that is actually present in the layout
+        // First project still in the pinned view, and the first pane of its
+        // pinned arrangement
         let target = self.visible_projects().first().and_then(|p| {
-            let layout = p.layout.as_ref()?;
-            p.pinned_slots
-                .iter()
-                .find(|s| layout.find_path_by_slot_id(s).is_some())
-                .map(|s| (p.id.clone(), s.clone()))
+            let arrangement = p.pinned_layout.as_ref()?;
+            arrangement
+                .collect_slot_ids()
+                .into_iter()
+                .next()
+                .map(|s| (p.id.clone(), s))
         });
         if let Some((pid, slot)) = target {
             self.focus_pane_by_slot(&pid, &slot, cx);
         }
+    }
+
+    /// Reconcile every local project's pinned arrangement (`pinned_layout`)
+    /// with its main layout: build it on first pin (mirroring the filtered
+    /// project layout), append newly pinned panes, drop unpinned or closed
+    /// ones, and refresh leaf content (terminal ids, file paths, urls) from
+    /// the main layout — which stays the source of truth for pane content,
+    /// while `pinned_layout` owns only the pinned view's arrangement.
+    pub(crate) fn sync_pinned_layouts(&mut self) {
+        for project in self.data.projects.iter_mut().filter(|p| !p.is_remote) {
+            Self::sync_pinned_layout(project);
+        }
+    }
+
+    fn sync_pinned_layout(project: &mut ProjectData) {
+        let Some(layout) = project.layout.as_ref() else {
+            project.pinned_layout = None;
+            return;
+        };
+        // Pins that still exist as leaves in the main layout
+        let pins: Vec<String> = project
+            .pinned_slots
+            .iter()
+            .filter(|s| layout.find_path_by_slot_id(s).is_some())
+            .cloned()
+            .collect();
+        if pins.is_empty() {
+            project.pinned_layout = None;
+            return;
+        }
+        let mut tree = project.pinned_layout.take();
+        if let Some(t) = tree.as_mut() {
+            // Drop leaves that are no longer pinned or left the main layout
+            loop {
+                let Some(stale) = t
+                    .collect_slot_ids()
+                    .into_iter()
+                    .find(|s| !pins.contains(s))
+                else {
+                    break;
+                };
+                match t.find_path_by_slot_id(&stale) {
+                    Some(path) if !path.is_empty() => {
+                        t.remove_at_path(&path);
+                    }
+                    // The stale leaf is the root → nothing kept, rebuild below
+                    _ => {
+                        tree = None;
+                        break;
+                    }
+                }
+            }
+        }
+        let mut tree = match tree {
+            Some(t) => t,
+            // First pin (or full rebuild): mirror the filtered project layout
+            None => {
+                project.pinned_layout = layout.clone_filtered_by_slots(&pins);
+                return;
+            }
+        };
+        // Append pins the arrangement doesn't know yet (unless an action
+        // already placed them, e.g. a split next to its source pane)
+        let present = tree.collect_slot_ids();
+        for slot in &pins {
+            if !present.contains(slot)
+                && let Some(path) = layout.find_path_by_slot_id(slot)
+                && let Some(leaf) = layout.get_at_path(&path)
+            {
+                tree.append_leaf(leaf.clone());
+            }
+        }
+        tree.refresh_leaves_from(layout);
+        tree.normalize();
+        project.pinned_layout = Some(tree);
     }
 
     /// Whether a pane is pinned.
@@ -106,6 +185,37 @@ impl Workspace {
         self.data.pinned_view_active = true;
         self.focus_manager.clear_fullscreen_without_restore();
         self.focus_manager.set_focused_project_id(None);
+        self.sync_pinned_layouts();
+        // The previous focus path refers to the project layout — carry the
+        // focus over to the same pane in the pinned arrangement when it is
+        // pinned, otherwise to the first pane of the first pinned project.
+        let target = self
+            .focus_manager
+            .focused_terminal_state()
+            .and_then(|f| {
+                let project = self.project(&f.project_id)?;
+                let slot = project
+                    .layout
+                    .as_ref()?
+                    .get_at_path(&f.layout_path)?
+                    .slot_id()?
+                    .to_string();
+                project.pinned_layout.as_ref()?.find_path_by_slot_id(&slot)?;
+                Some((f.project_id, slot))
+            })
+            .or_else(|| {
+                self.visible_projects().first().and_then(|p| {
+                    let arrangement = p.pinned_layout.as_ref()?;
+                    arrangement
+                        .collect_slot_ids()
+                        .into_iter()
+                        .next()
+                        .map(|s| (p.id.clone(), s))
+                })
+            });
+        if let Some((pid, slot)) = target {
+            self.focus_pane_by_slot(&pid, &slot, cx);
+        }
         self.persist_focus_state();
         self.notify_data(cx);
     }
@@ -113,16 +223,15 @@ impl Workspace {
     /// Focus a pinned pane by its slot id (any leaf kind), activating tabs
     /// along the way so it becomes visible.
     pub fn focus_pane_by_slot(&mut self, project_id: &str, slot_id: &str, cx: &mut Context<Self>) {
+        // Resolve against the tree the current view renders (the independent
+        // pinned arrangement while the pinned view is active)
         let Some(path) = self
-            .project(project_id)
-            .and_then(|p| p.layout.as_ref())
+            .view_layout(project_id)
             .and_then(|l| l.find_path_by_slot_id(slot_id))
         else {
             return;
         };
-        if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id)
-            && let Some(ref mut layout) = project.layout
-        {
+        if let Some(layout) = self.view_layout_mut(project_id) {
             layout.activate_tabs_along_path(&path);
         }
         self.notify_data(cx);
@@ -146,6 +255,50 @@ impl Workspace {
             project.pinned_slots.push(slot);
         }
         self.set_focused_terminal(project_id.to_string(), path, cx);
+    }
+
+    /// Pin a freshly created main-layout pane at `main_path` and place it in
+    /// the pinned arrangement next to `anchor_slot` — as a split sibling
+    /// (`Some(direction)`) or as its tab (`None`) — then focus it. Without a
+    /// usable anchor the pane is appended at the root by the sync pass.
+    pub(crate) fn adopt_new_pane_into_pinned(
+        &mut self,
+        project_id: &str,
+        main_path: &[usize],
+        anchor_slot: Option<&str>,
+        split_direction: Option<SplitDirection>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((slot, leaf)) = self
+            .project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .and_then(|l| l.get_at_path(main_path))
+            .and_then(|n| n.slot_id().map(|s| (s.to_string(), n.clone())))
+        else {
+            return;
+        };
+        if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == project_id) {
+            if !project.pinned_slots.iter().any(|s| *s == slot) {
+                project.pinned_slots.push(slot.clone());
+            }
+            if let (Some(anchor), Some(tree)) = (anchor_slot, project.pinned_layout.as_mut()) {
+                let placed = match split_direction {
+                    Some(direction) => tree.insert_leaf_next_to_slot(anchor, leaf, direction),
+                    None => tree.insert_leaf_as_tab_of_slot(anchor, leaf),
+                };
+                if placed {
+                    tree.normalize();
+                }
+            }
+        }
+        // The sync pass (via notify) appends the pane if it wasn't placed above
+        self.notify_data(cx);
+        if let Some(path) = self
+            .view_layout(project_id)
+            .and_then(|l| l.find_path_by_slot_id(&slot))
+        {
+            self.set_focused_terminal(project_id.to_string(), path, cx);
+        }
     }
 
     /// Pinned slots of a project while the pinned view is active — the render
@@ -205,6 +358,7 @@ mod tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 

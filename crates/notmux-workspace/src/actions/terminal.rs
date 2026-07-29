@@ -15,9 +15,14 @@ impl Workspace {
         terminal_id: String,
         cx: &mut Context<Self>,
     ) {
+        // Paths from the pinned view address the pinned arrangement — leaf
+        // state lives in the main layout, so translate first
+        let Some(path) = self.to_main_layout_path(project_id, path) else {
+            return;
+        };
         self.with_project(project_id, cx, |project| {
             if let Some(ref mut layout) = project.layout
-                && let Some(node) = layout.get_at_path_mut(path)
+                && let Some(node) = layout.get_at_path_mut(&path)
                 && let LayoutNode::Terminal {
                     terminal_id: id, ..
                 } = node
@@ -37,7 +42,10 @@ impl Workspace {
         shell_type: ShellType,
         cx: &mut Context<Self>,
     ) {
-        self.with_layout_node(project_id, path, cx, |node| {
+        let Some(path) = self.to_main_layout_path(project_id, path) else {
+            return;
+        };
+        self.with_layout_node(project_id, &path, cx, |node| {
             if let LayoutNode::Terminal { shell_type: st, .. } = node {
                 *st = shell_type;
                 return true;
@@ -48,9 +56,8 @@ impl Workspace {
 
     /// Get shell type for a terminal at a layout path
     pub fn get_terminal_shell(&self, project_id: &str, path: &[usize]) -> Option<ShellType> {
-        let project = self.project(project_id)?;
         if let Some(LayoutNode::Terminal { shell_type, .. }) =
-            project.layout.as_ref().and_then(|l| l.get_at_path(path))
+            self.view_layout(project_id).and_then(|l| l.get_at_path(path))
         {
             Some(shell_type.clone())
         } else {
@@ -91,7 +98,10 @@ impl Workspace {
 
     /// Restore (un-minimize) a terminal at a path
     pub fn restore_terminal(&mut self, project_id: &str, path: &[usize], cx: &mut Context<Self>) {
-        self.with_layout_node(project_id, path, cx, |node| {
+        let Some(path) = self.to_main_layout_path(project_id, path) else {
+            return;
+        };
+        self.with_layout_node(project_id, &path, cx, |node| {
             if let LayoutNode::Terminal { minimized, .. } = node {
                 *minimized = false;
                 true
@@ -140,7 +150,10 @@ impl Workspace {
         path: &[usize],
         cx: &mut Context<Self>,
     ) -> bool {
-        self.with_layout_node(project_id, path, cx, |node| {
+        let Some(path) = self.to_main_layout_path(project_id, path) else {
+            return false;
+        };
+        self.with_layout_node(project_id, &path, cx, |node| {
             if let LayoutNode::Terminal {
                 terminal_id: Some(_),
                 detached,
@@ -188,8 +201,7 @@ impl Workspace {
 
     /// Get the zoom level for a terminal at the given path
     pub fn get_terminal_zoom(&self, project_id: &str, path: &[usize]) -> f32 {
-        self.project(project_id)
-            .and_then(|p| p.layout.as_ref())
+        self.view_layout(project_id)
             .and_then(|l| l.get_at_path(path))
             .and_then(|node| {
                 if let LayoutNode::Terminal { zoom_level, .. } = node {
@@ -210,7 +222,10 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let clamped = zoom.clamp(0.5, 3.0);
-        self.with_layout_node(project_id, path, cx, |node| {
+        let Some(path) = self.to_main_layout_path(project_id, path) else {
+            return;
+        };
+        self.with_layout_node(project_id, &path, cx, |node| {
             if let LayoutNode::Terminal { zoom_level, .. } = node {
                 *zoom_level = clamped;
                 true

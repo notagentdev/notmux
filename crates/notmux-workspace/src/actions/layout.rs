@@ -64,6 +64,26 @@ impl Workspace {
             path
         );
 
+        // In the pinned view the incoming path addresses the pinned
+        // arrangement: create the pane in the main layout next to the same
+        // pane, then place it next to its anchor in the pinned arrangement.
+        let pinned_route = self.uses_pinned_layout(project_id);
+        let (main_path, pinned_anchor) = if pinned_route {
+            let Some(mp) = self.to_main_layout_path(project_id, path) else {
+                return;
+            };
+            let anchor = self
+                .project(project_id)
+                .and_then(|p| p.layout.as_ref())
+                .and_then(|l| l.get_at_path(&mp))
+                .and_then(|n| n.slot_id())
+                .map(str::to_string);
+            (mp, anchor)
+        } else {
+            (path.to_vec(), None)
+        };
+        let path: &[usize] = &main_path;
+
         // If the target node is inside a Tabs container, split the Tabs container
         // instead of splitting inside the tab. This avoids nested splits within tabs
         // which creates a clunky UI.
@@ -114,7 +134,17 @@ impl Workspace {
         self.notify_data(cx);
 
         if let Some(new_path) = new_path {
-            self.focus_new_pane(project_id, new_path, cx);
+            if pinned_route {
+                self.adopt_new_pane_into_pinned(
+                    project_id,
+                    &new_path,
+                    pinned_anchor.as_deref(),
+                    Some(direction),
+                    cx,
+                );
+            } else {
+                self.focus_new_pane(project_id, new_path, cx);
+            }
         }
     }
 
@@ -125,6 +155,19 @@ impl Workspace {
             project_id,
             path
         );
+
+        // Pinned view with independent arrangement: group in the pinned tree
+        if self.uses_pinned_layout(project_id) {
+            let anchor = self
+                .view_layout(project_id)
+                .and_then(|l| l.get_at_path(path))
+                .and_then(|n| n.slot_id())
+                .map(str::to_string);
+            if let Some(anchor) = anchor {
+                self.add_tab_pinned(project_id, &anchor, cx);
+            }
+            return;
+        }
 
         // Check if parent is a Tabs container
         if !path.is_empty() {
@@ -163,6 +206,26 @@ impl Workspace {
         tabs_path: &[usize],
         cx: &mut Context<Self>,
     ) {
+        // Pinned view with independent arrangement: anchor on the active tab
+        if self.uses_pinned_layout(project_id) {
+            let anchor = self
+                .view_layout(project_id)
+                .and_then(|l| l.get_at_path(tabs_path))
+                .and_then(|n| match n {
+                    LayoutNode::Tabs {
+                        children,
+                        active_tab,
+                    } => children
+                        .get(*active_tab)
+                        .and_then(|c| c.collect_slot_ids().into_iter().next()),
+                    _ => None,
+                });
+            if let Some(anchor) = anchor {
+                self.add_tab_pinned(project_id, &anchor, cx);
+            }
+            return;
+        }
+
         let mut new_tab_index = 0;
         self.with_layout_node(project_id, tabs_path, cx, |node| {
             if let LayoutNode::Tabs {
@@ -187,6 +250,47 @@ impl Workspace {
         let mut new_path = tabs_path.to_vec();
         new_path.push(new_tab_index);
         self.focus_new_pane(project_id, new_path, cx);
+    }
+
+    /// `add_tab` while the pinned view shows an independent arrangement:
+    /// create the terminal as a tab of the anchor pane in the main layout,
+    /// then mirror the tab grouping in the pinned arrangement.
+    fn add_tab_pinned(&mut self, project_id: &str, anchor_slot: &str, cx: &mut Context<Self>) {
+        self.add_leaf_tab_pinned(project_id, anchor_slot, LayoutNode::new_terminal(), cx);
+    }
+
+    /// Insert `leaf` as a tab of the anchor pane in the main layout and mirror
+    /// the grouping in the pinned arrangement (pinned view only).
+    fn add_leaf_tab_pinned(
+        &mut self,
+        project_id: &str,
+        anchor_slot: &str,
+        leaf: LayoutNode,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(slot) = leaf.slot_id().map(str::to_string) else {
+            return;
+        };
+        {
+            let Some(project) = self.project_mut(project_id) else {
+                return;
+            };
+            let Some(layout) = project.layout.as_mut() else {
+                return;
+            };
+            if !layout.insert_leaf_as_tab_of_slot(anchor_slot, leaf) {
+                return;
+            }
+            layout.normalize();
+        }
+        self.notify_data(cx);
+        let main_path = self
+            .project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .and_then(|l| l.find_path_by_slot_id(&slot));
+        if let Some(path) = main_path {
+            self.adopt_new_pane_into_pinned(project_id, &path, Some(anchor_slot), None, cx);
+        }
     }
 
     /// Open a file as a new editor tab next to the node at `path` (mirrors
@@ -367,6 +471,19 @@ impl Workspace {
         diff: bool,
         cx: &mut Context<Self>,
     ) {
+        // Pinned view with independent arrangement: group in the pinned tree
+        if self.uses_pinned_layout(project_id) {
+            let anchor = self
+                .view_layout(project_id)
+                .and_then(|l| l.get_at_path(path))
+                .and_then(|n| n.slot_id())
+                .map(str::to_string);
+            if let Some(anchor) = anchor {
+                self.add_leaf_tab_pinned(project_id, &anchor, editor_node(file_path, diff), cx);
+            }
+            return;
+        }
+
         if !path.is_empty() {
             let parent_path = &path[..path.len() - 1];
             if let Some(project) = self.project(project_id)
@@ -402,6 +519,26 @@ impl Workspace {
         diff: bool,
         cx: &mut Context<Self>,
     ) {
+        // Pinned view with independent arrangement: anchor on the active tab
+        if self.uses_pinned_layout(project_id) {
+            let anchor = self
+                .view_layout(project_id)
+                .and_then(|l| l.get_at_path(tabs_path))
+                .and_then(|n| match n {
+                    LayoutNode::Tabs {
+                        children,
+                        active_tab,
+                    } => children
+                        .get(*active_tab)
+                        .and_then(|c| c.collect_slot_ids().into_iter().next()),
+                    _ => None,
+                });
+            if let Some(anchor) = anchor {
+                self.add_leaf_tab_pinned(project_id, &anchor, editor_node(file_path, diff), cx);
+            }
+            return;
+        }
+
         let file_path_owned = file_path.to_string();
         let mut new_tab_index = 0;
         self.with_layout_node(project_id, tabs_path, cx, |node| {
@@ -432,6 +569,13 @@ impl Workspace {
         path: &[usize],
         cx: &mut Context<Self>,
     ) -> Vec<String> {
+        // Pinned-view paths address the pinned arrangement — the pane itself
+        // lives in the main layout, so translate; the pinned-arrangement copy
+        // disappears via sync once the pin is cleaned up.
+        let Some(main_path) = self.to_main_layout_path(project_id, path) else {
+            return vec![];
+        };
+        let path: &[usize] = &main_path;
         if let Some(project) = self.project_mut(project_id)
             && let Some(ref mut layout) = project.layout
         {
@@ -508,9 +652,10 @@ impl Workspace {
             return removed;
         }
 
-        // Calculate the sibling to focus before closing
-        let focus_path = if let Some(project) = self.project(project_id) {
-            if let Some(ref layout) = project.layout {
+        // Calculate the sibling to focus before closing — against the tree
+        // the current view renders (pinned arrangement in the pinned view)
+        let focus_path = {
+            if let Some(layout) = self.view_layout(project_id) {
                 let parent_path = &path[..path.len() - 1];
                 let child_index = path[path.len() - 1];
 
@@ -557,8 +702,6 @@ impl Workspace {
             } else {
                 None
             }
-        } else {
-            None
         };
 
         // Close the terminal
@@ -580,7 +723,7 @@ impl Workspace {
         new_sizes: Vec<f32>,
         cx: &mut Context<Self>,
     ) {
-        self.with_layout_node(project_id, path, cx, |node| {
+        self.with_view_layout_node(project_id, path, cx, |node| {
             if let LayoutNode::Split { sizes, .. } = node {
                 *sizes = new_sizes;
                 true
@@ -600,8 +743,7 @@ impl Workspace {
         new_sizes: Vec<f32>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(project) = self.project_mut(project_id)
-            && let Some(ref mut layout) = project.layout
+        if let Some(layout) = self.view_layout_mut(project_id)
             && let Some(node) = layout.get_at_path_mut(path)
             && let LayoutNode::Split { sizes, .. } = node
         {
@@ -618,7 +760,7 @@ impl Workspace {
         tab_index: usize,
         cx: &mut Context<Self>,
     ) {
-        self.with_layout_node(project_id, path, cx, |node| {
+        self.with_view_layout_node(project_id, path, cx, |node| {
             if let LayoutNode::Tabs { active_tab, .. } = node {
                 *active_tab = tab_index;
                 true
@@ -637,7 +779,7 @@ impl Workspace {
         to_index: usize,
         cx: &mut Context<Self>,
     ) {
-        self.with_layout_node(project_id, path, cx, |node| {
+        self.with_view_layout_node(project_id, path, cx, |node| {
             if let LayoutNode::Tabs {
                 children,
                 active_tab,
@@ -840,11 +982,10 @@ impl Workspace {
         zone: DropZone,
         cx: &mut Context<Self>,
     ) {
-        let project = match self.project(project_id) {
-            Some(p) => p,
-            None => return,
-        };
-        let layout = match project.layout.as_ref() {
+        // Operate on the tree the current view renders: in the pinned view
+        // panes rearrange freely within the pinned arrangement without
+        // touching the project layout.
+        let layout = match self.view_layout(project_id) {
             Some(l) => l,
             None => return,
         };
@@ -875,11 +1016,7 @@ impl Workspace {
 
         // Perform the mutation in a block to limit mutable borrow scope
         let new_focus_path = {
-            let project = match self.project_mut(project_id) {
-                Some(p) => p,
-                None => return,
-            };
-            let layout = match project.layout.as_mut() {
+            let layout = match self.view_layout_mut(project_id) {
                 Some(l) => l,
                 None => return,
             };
@@ -1019,11 +1156,10 @@ impl Workspace {
         insert_index: Option<usize>,
         cx: &mut Context<Self>,
     ) {
-        let project = match self.project(project_id) {
-            Some(p) => p,
-            None => return,
-        };
-        let layout = match project.layout.as_ref() {
+        // Operate on the tree the current view renders: in the pinned view
+        // panes rearrange freely within the pinned arrangement without
+        // touching the project layout.
+        let layout = match self.view_layout(project_id) {
             Some(l) => l,
             None => return,
         };
@@ -1076,11 +1212,7 @@ impl Workspace {
 
         // Perform mutation
         let new_focus_path = {
-            let project = match self.project_mut(project_id) {
-                Some(p) => p,
-                None => return,
-            };
-            let layout = match project.layout.as_mut() {
+            let layout = match self.view_layout_mut(project_id) {
                 Some(l) => l,
                 None => return,
             };
@@ -1136,8 +1268,7 @@ impl Workspace {
     /// Equalize pane sizes in the focused terminal's parent split.
     pub fn equalize_focused_split(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.focus_manager.focused_terminal_state()
-            && let Some(project) = self.project_mut(&target.project_id)
-            && let Some(ref mut layout) = project.layout
+            && let Some(layout) = self.view_layout_mut(&target.project_id)
         {
             let parent_path = if target.layout_path.is_empty() {
                 &target.layout_path[..]
@@ -1581,6 +1712,7 @@ mod gpui_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 
@@ -2043,6 +2175,7 @@ mod gpui_tests {
             default_shell: None,
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
+            pinned_layout: None,
         }
     }
 
