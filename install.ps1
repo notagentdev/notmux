@@ -1,5 +1,5 @@
 # NotMux Windows Installer
-# Usage: irm https://raw.githubusercontent.com/contember/vryn-ws/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/notagent/notmux/main/install.ps1 | iex
 # Or: .\install.ps1 [-Version "1.0.0"]
 
 param(
@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "contember/vryn-ws"
+$Repo = "notagent/notmux"
 $InstallDir = "$env:LOCALAPPDATA\Programs\NotMux"
 $BinName = "notmux.exe"
 

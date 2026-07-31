@@ -25,7 +25,7 @@ fn check_blocking(app_version: &str) -> Result<Option<ReleaseAsset>> {
         .context("failed to build HTTP client")?;
 
     let http_resp = client
-        .get("https://api.github.com/repos/contember/vryn-ws/releases/latest")
+        .get("https://api.github.com/repos/notagent/notmux/releases/latest")
         .send()
         .context("failed to fetch latest release")?;
 

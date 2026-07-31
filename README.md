@@ -12,19 +12,19 @@ Tabs, splits, detachable windows, command palette, and automatic workspace resto
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/contember/vryn-ws/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/notagent/notmux/main/install.sh | bash
 ```
 
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/contember/vryn-ws/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/notagent/notmux/main/install.sh | bash
 ```
 
 ### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/contember/vryn-ws/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/notagent/notmux/main/install.ps1 | iex
 ```
 
 The install script includes built-in auto-update support. On macOS and Linux, NotMux is installed to `~/.local/bin/notmux`. On Windows, it installs to `%LOCALAPPDATA%\Programs\NotMux` with a Start Menu shortcut.

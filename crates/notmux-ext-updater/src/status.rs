@@ -239,7 +239,7 @@ impl Render for UpdateStatusWidget {
         match info.status() {
             UpdateStatus::Ready { version, .. } => {
                 let release_url = format!(
-                    "https://github.com/contember/vryn-ws/releases/tag/v{}",
+                    "https://github.com/notagent/notmux/releases/tag/v{}",
                     version
                 );
                 h_flex()
