@@ -196,7 +196,7 @@ fn about(_: &About, _cx: &mut App) {
         msg_id2(
             dict,
             set_obj,
-            nsstring(b"Copyright \xC2\xA9 2026 Contember. All rights reserved.\0"),
+            nsstring(b"Copyright \xC2\xA9 2026 notagent. All rights reserved.\0"),
             nsstring(b"Copyright\0"),
         );
 
@@ -218,7 +218,7 @@ fn about(_: &About, _cx: &mut App) {
         }
 
         // Credits as attributed string from HTML (supports clickable link)
-        let html = b"<div style=\"text-align:center; font-family:-apple-system; font-size:11px;\">Created by Contember Ltd.<br><a href=\"https://contember.com\">contember.com</a></div>";
+        let html = b"<div style=\"text-align:center; font-family:-apple-system; font-size:11px;\">Created by notagent<br><a href=\"https://github.com/notagent/notmux\">github.com/notagent/notmux</a></div>";
         let html_data = msg_bytes_len(
             objc_getClass(c"NSData".as_ptr()),
             sel_registerName(c"dataWithBytes:length:".as_ptr()),
