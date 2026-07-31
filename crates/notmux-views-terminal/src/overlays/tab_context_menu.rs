@@ -9,6 +9,10 @@ use notmux_ui::theme::theme;
 /// Event emitted by TabContextMenu
 pub enum TabContextMenuEvent {
     Close,
+    Rename {
+        project_id: String,
+        terminal_id: String,
+    },
     CloseTab {
         project_id: String,
         layout_path: Vec<usize>,
@@ -40,10 +44,13 @@ pub struct TabContextMenu {
     position: Point<Pixels>,
     /// Some(is_pinned) when the pane can be pinned (local project), None otherwise.
     pin_state: Option<bool>,
+    /// Some(terminal_id) when the tab is a terminal (renameable), None otherwise.
+    rename_terminal_id: Option<String>,
     focus_handle: FocusHandle,
 }
 
 impl TabContextMenu {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tab_index: usize,
         num_tabs: usize,
@@ -51,6 +58,7 @@ impl TabContextMenu {
         layout_path: Vec<usize>,
         position: Point<Pixels>,
         pin_state: Option<bool>,
+        rename_terminal_id: Option<String>,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus_handle = cx.focus_handle();
@@ -61,6 +69,7 @@ impl TabContextMenu {
             layout_path,
             position,
             pin_state,
+            rename_terminal_id,
             focus_handle,
         }
     }
@@ -109,6 +118,18 @@ impl Render for TabContextMenu {
             .child(deferred(
                 anchored().position(position).snap_to_window().child(
                     context_menu_panel("tab-context-menu", &t)
+                        // Rename (terminals only)
+                        .children(self.rename_terminal_id.clone().map(|terminal_id| {
+                            menu_item("tab-ctx-rename", "icons/edit.svg", "Rename", &t).on_click(
+                                cx.listener(move |this, _, _window, cx| {
+                                    cx.emit(TabContextMenuEvent::Rename {
+                                        project_id: this.project_id.clone(),
+                                        terminal_id: terminal_id.clone(),
+                                    });
+                                }),
+                            )
+                        }))
+                        .children(self.rename_terminal_id.as_ref().map(|_| menu_separator(&t)))
                         // Pin / Unpin (local projects only)
                         .children(self.pin_state.map(|is_pinned| {
                             menu_item(

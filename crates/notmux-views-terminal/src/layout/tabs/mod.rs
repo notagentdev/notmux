@@ -275,11 +275,38 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             )
     }
 
+    /// If the tab context menu queued a rename for a terminal in `children`,
+    /// open the inline rename editor for it (once). The global is set by the
+    /// menu and delivered here via the request-broker wake in `new`.
+    fn maybe_start_pending_tab_rename(
+        &mut self,
+        children: &[LayoutNode],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = match cx.try_global::<notmux_workspace::requests::PendingTabRename>() {
+            Some(p) if p.project_id == self.project_id => p.terminal_id.clone(),
+            _ => return,
+        };
+        if !children.iter().any(|c| c.terminal_id() == Some(target.as_str())) {
+            return;
+        }
+        cx.remove_global::<notmux_workspace::requests::PendingTabRename>();
+        let osc = self.terminals.lock().get(&target).and_then(|t| t.title());
+        let seed = self
+            .workspace
+            .read(cx)
+            .project(&self.project_id)
+            .map(|p| p.terminal_display_name(&target, osc))
+            .unwrap_or_default();
+        self.start_tab_rename(target, seed, window, cx);
+    }
+
     pub(super) fn render_tabs(
         &mut self,
         children: &[LayoutNode],
         active_tab: usize,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         if let Some(zoomed_idx) = self.find_zoomed_child_index(children, cx) {
@@ -290,7 +317,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .child_containers
                 .entry(child_path.clone())
                 .or_insert_with(|| {
-                    cx.new(|_cx| {
+                    cx.new(|cx| {
                         LayoutContainer::new(
                             self.workspace.clone(),
                             self.request_broker.clone(),
@@ -301,6 +328,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             self.terminals.clone(),
                             self.active_drag.clone(),
                             self.action_dispatcher.clone(),
+                            cx,
                         )
                     })
                 })
@@ -356,7 +384,10 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .absolute()
                 .size_full(),
             )
-            .child(self.render_tab_bar(children, active_tab, false, cx))
+            .child({
+                self.maybe_start_pending_tab_rename(children, window, cx);
+                self.render_tab_bar(children, active_tab, false, cx)
+            })
             .child(div().flex_1().child({
                 let mut child_path = self.layout_path.clone();
                 child_path.push(active_tab);
@@ -365,7 +396,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                     .child_containers
                     .entry(child_path.clone())
                     .or_insert_with(|| {
-                        cx.new(|_cx| {
+                        cx.new(|cx| {
                             LayoutContainer::new(
                                 self.workspace.clone(),
                                 self.request_broker.clone(),
@@ -376,6 +407,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                                 self.terminals.clone(),
                                 self.active_drag.clone(),
                                 self.action_dispatcher.clone(),
+                                cx,
                             )
                         })
                     })
@@ -387,7 +419,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
 
     pub(super) fn render_standalone_tab_bar(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let node = {
@@ -404,6 +436,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             _ => &[],
         };
 
+        self.maybe_start_pending_tab_rename(children, window, cx);
         self.render_tab_bar(children, 0, true, cx)
     }
 

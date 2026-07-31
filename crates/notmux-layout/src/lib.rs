@@ -95,6 +95,14 @@ impl LayoutNode {
         }
     }
 
+    /// The terminal id of this leaf, if it is a `Terminal` with an assigned id.
+    pub fn terminal_id(&self) -> Option<&str> {
+        match self {
+            LayoutNode::Terminal { terminal_id, .. } => terminal_id.as_deref(),
+            _ => None,
+        }
+    }
+
     /// Returns true if this subtree contains at least one leaf whose slot_id is pinned.
     pub fn contains_pinned(&self, pinned: &[String]) -> bool {
         match self {

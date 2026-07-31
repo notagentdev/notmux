@@ -1653,6 +1653,10 @@ impl OverlayManager {
                 .map(|slot| ws.is_pinned(&project_id, &slot))
         };
 
+        // Some(terminal_id) when the tab is a terminal — enables the Rename entry.
+        let rename_terminal_id =
+            Self::tab_terminal_id(self.workspace.read(cx), &project_id, &layout_path, tab_index);
+
         let menu = cx.new(|cx| {
             TabContextMenu::new(
                 tab_index,
@@ -1661,6 +1665,7 @@ impl OverlayManager {
                 layout_path,
                 position,
                 pin_state,
+                rename_terminal_id,
                 cx,
             )
         });
@@ -1670,6 +1675,19 @@ impl OverlayManager {
             |this, _, event: &TabContextMenuEvent, cx| match event {
                 TabContextMenuEvent::Close => {
                     this.hide_tab_context_menu(cx);
+                }
+                TabContextMenuEvent::Rename {
+                    project_id,
+                    terminal_id,
+                } => {
+                    this.hide_tab_context_menu(cx);
+                    cx.set_global(notmux_workspace::requests::PendingTabRename {
+                        project_id: project_id.clone(),
+                        terminal_id: terminal_id.clone(),
+                    });
+                    // Wake the layout containers so the one rendering this tab
+                    // picks up the pending rename and opens its inline editor.
+                    this.request_broker.update(cx, |_broker, cx| cx.notify());
                 }
                 TabContextMenuEvent::CloseTab {
                     project_id,
@@ -1750,6 +1768,25 @@ impl OverlayManager {
             .get_at_path(&child_path)
             .and_then(|n| n.slot_id())
             .or_else(|| layout.get_at_path(layout_path).and_then(|n| n.slot_id()))
+            .map(String::from)
+    }
+
+    /// Resolve the terminal id of the tab a context menu points at, if that tab
+    /// is a terminal (editors/browsers return None). Mirrors `tab_slot_id`'s
+    /// tab-bar vs. standalone-bar path handling.
+    fn tab_terminal_id(
+        ws: &Workspace,
+        project_id: &str,
+        layout_path: &[usize],
+        tab_index: usize,
+    ) -> Option<String> {
+        let layout = ws.project(project_id)?.layout.as_ref()?;
+        let mut child_path = layout_path.to_vec();
+        child_path.push(tab_index);
+        layout
+            .get_at_path(&child_path)
+            .and_then(|n| n.terminal_id())
+            .or_else(|| layout.get_at_path(layout_path).and_then(|n| n.terminal_id()))
             .map(String::from)
     }
 

@@ -250,7 +250,7 @@ impl ProjectColumn {
             let active_drag = self.active_drag.clone();
             let action_dispatcher = self.action_dispatcher.clone();
 
-            self.layout_container = Some(cx.new(move |_cx| {
+            self.layout_container = Some(cx.new(move |cx| {
                 LayoutContainer::new(
                     workspace,
                     request_broker,
@@ -261,6 +261,7 @@ impl ProjectColumn {
                     terminals,
                     active_drag,
                     action_dispatcher,
+                    cx,
                 )
             }));
         } else if let Some(container) = &self.layout_container {

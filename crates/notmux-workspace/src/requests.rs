@@ -42,6 +42,16 @@ pub struct PendingEditorGoto {
 
 impl gpui::Global for PendingEditorGoto {}
 
+/// One-shot handoff to open the inline tab-rename editor for a terminal, set
+/// when the user picks "Rename" from the tab context menu and consumed by the
+/// `LayoutContainer` that renders that terminal's tab bar.
+pub struct PendingTabRename {
+    pub project_id: String,
+    pub terminal_id: String,
+}
+
+impl gpui::Global for PendingTabRename {}
+
 /// Request to show context menu at a position
 #[derive(Clone, Debug)]
 pub struct ContextMenuRequest {

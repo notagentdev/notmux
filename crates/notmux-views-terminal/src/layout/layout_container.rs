@@ -64,7 +64,21 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         terminals: TerminalsRegistry,
         active_drag: ActiveDrag,
         action_dispatcher: Option<D>,
+        cx: &mut Context<Self>,
     ) -> Self {
+        // A pending tab-rename is delivered via a global set by the tab context
+        // menu; the broker bump wakes every container so the one rendering that
+        // terminal's tab bar can pick it up. Only re-render when one is pending
+        // to avoid churn on the broker's other (frequent) notifications.
+        cx.observe(&request_broker, |_this, _broker, cx| {
+            if cx
+                .try_global::<notmux_workspace::requests::PendingTabRename>()
+                .is_some()
+            {
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
             workspace,
             request_broker,
@@ -613,7 +627,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .child_containers
                 .entry(child_path.clone())
                 .or_insert_with(|| {
-                    cx.new(|_cx| {
+                    cx.new(|cx| {
                         LayoutContainer::new(
                             self.workspace.clone(),
                             self.request_broker.clone(),
@@ -624,6 +638,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             self.terminals.clone(),
                             self.active_drag.clone(),
                             self.action_dispatcher.clone(),
+                            cx,
                         )
                     })
                 })
@@ -690,7 +705,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .child_containers
                 .entry(child_path.clone())
                 .or_insert_with(|| {
-                    cx.new(|_cx| {
+                    cx.new(|cx| {
                         LayoutContainer::new(
                             self.workspace.clone(),
                             self.request_broker.clone(),
@@ -701,6 +716,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             self.terminals.clone(),
                             self.active_drag.clone(),
                             self.action_dispatcher.clone(),
+                            cx,
                         )
                     })
                 })
