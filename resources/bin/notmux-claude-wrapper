@@ -5,8 +5,6 @@
 # remote server is reachable), this wrapper intercepts `claude` invocations to
 # inject --settings flags so that Claude Code hooks fire back into notmux for
 # notifications/status. Outside notmux, it passes through unchanged.
-#
-# Modeled on the reference implementation's the reference implementation, adapted for notmux's HTTP-based API.
 
 # ── Find the real claude binary, skipping this wrapper ─────────────────────
 find_real_claude() {

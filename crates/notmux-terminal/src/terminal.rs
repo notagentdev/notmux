@@ -3376,7 +3376,7 @@ mod tests {
         // First URL wraps across two lines (TUI-style padding),
         // second URL appears whole on a later line.
         // This reproduces the real scenario from PR creation output.
-        let url = "https://github.com/contember/webmaster/pull/381";
+        let url = "https://github.com/acme-corp/webmaster/pull/381";
         let links = detect_urls_in(
             &format!(
                 "Summary\r\n\
@@ -3477,13 +3477,13 @@ mod tests {
         // Git push output: URL on a line that doesn't fill the terminal width.
         // The "remote:" on the next line must NOT be merged as a continuation.
         let links = detect_urls_in(
-            "remote:       https://github.com/contember/dotaz/pull/new/fixes\r\nremote:\r\n",
+            "remote:       https://github.com/acme-corp/dotaz/pull/new/fixes\r\nremote:\r\n",
             80,
         );
         assert_eq!(links.len(), 1, "Should detect exactly one URL: {:?}", links);
         assert_eq!(
             links[0].text,
-            "https://github.com/contember/dotaz/pull/new/fixes"
+            "https://github.com/acme-corp/dotaz/pull/new/fixes"
         );
     }
 
@@ -3492,7 +3492,7 @@ mod tests {
         // Even when the URL line nearly fills the terminal, a continuation
         // ending with ':' (label pattern) must not be merged.
         let links = detect_urls_in(
-            "https://github.com/contember/dotaz/pull/new/fixes\r\nremote:\r\n",
+            "https://github.com/acme-corp/dotaz/pull/new/fixes\r\nremote:\r\n",
             52, // URL is 50 chars, nearly fills 52-col terminal
         );
         assert_eq!(
@@ -3503,7 +3503,7 @@ mod tests {
         );
         assert_eq!(
             links[0].text,
-            "https://github.com/contember/dotaz/pull/new/fixes"
+            "https://github.com/acme-corp/dotaz/pull/new/fixes"
         );
     }
 
@@ -3514,12 +3514,12 @@ mod tests {
         // continuation contains '/' so it should still be recognised as a URL
         // continuation.
         let links = detect_urls_in(
-            "    - #61 https://github.com/contember/npi-infrastru\r\n    cture/pull/61 \u{2014} S3 bucket\r\n",
+            "    - #61 https://github.com/acme-corp/npi-infrastru\r\n    cture/pull/61 \u{2014} S3 bucket\r\n",
             55,
         );
         let url_links: Vec<&DetectedLink> = links
             .iter()
-            .filter(|l| l.text == "https://github.com/contember/npi-infrastructure/pull/61")
+            .filter(|l| l.text == "https://github.com/acme-corp/npi-infrastructure/pull/61")
             .collect();
         assert!(
             !url_links.is_empty(),
@@ -3535,12 +3535,12 @@ mod tests {
         // of the TUI's visible content.  Phase 2 should still extend.
         // Terminal is 55 cols, but TUI content only uses ~42 cols.
         let links = detect_urls_in(
-            "\u{2514}  https://github.com/NPI-Cloud/npi-inf\r\n   rastructure/pull/64\r\n",
+            "\u{2514}  https://github.com/acmecloud/npi-inf\r\n   rastructure/pull/64\r\n",
             55,
         );
         let url_links: Vec<&DetectedLink> = links
             .iter()
-            .filter(|l| l.text == "https://github.com/NPI-Cloud/npi-infrastructure/pull/64")
+            .filter(|l| l.text == "https://github.com/acmecloud/npi-infrastructure/pull/64")
             .collect();
         assert!(
             url_links.len() >= 2,
@@ -3555,7 +3555,7 @@ mod tests {
         // The "-" is a url_char but it's a list marker, not a URL
         // continuation.  Must not extend.
         let links = detect_urls_in(
-            "  https://github.com/contember/dotaz/pull/2\r\n  - Format check passes\r\n",
+            "  https://github.com/acme-corp/dotaz/pull/2\r\n  - Format check passes\r\n",
             55,
         );
         assert_eq!(
@@ -3564,7 +3564,7 @@ mod tests {
             "Should not extend into list marker: {:?}",
             links
         );
-        assert_eq!(links[0].text, "https://github.com/contember/dotaz/pull/2");
+        assert_eq!(links[0].text, "https://github.com/acme-corp/dotaz/pull/2");
     }
 
     #[test]
@@ -3573,12 +3573,12 @@ mod tests {
         // the following line must NOT be absorbed as another extension.
         // Simulates prose: "...npi-inf +\nrastructure/pull/65)\n2. https://..."
         let links = detect_urls_in(
-            "  https://github.com/NPI-Cloud/npi-inf\r\n  rastructure/pull/65)\r\n  2. next item\r\n",
+            "  https://github.com/acmecloud/npi-inf\r\n  rastructure/pull/65)\r\n  2. next item\r\n",
             42,
         );
         let url_links: Vec<&DetectedLink> = links
             .iter()
-            .filter(|l| l.text.starts_with("https://github.com/NPI-Cloud/npi-inf"))
+            .filter(|l| l.text.starts_with("https://github.com/acmecloud/npi-inf"))
             .collect();
         // Should have 2 segments (line 0 + line 1), NOT 3
         assert_eq!(
@@ -3589,7 +3589,7 @@ mod tests {
         );
         assert_eq!(
             url_links[0].text,
-            "https://github.com/NPI-Cloud/npi-infrastructure/pull/65"
+            "https://github.com/acmecloud/npi-infrastructure/pull/65"
         );
     }
 
@@ -3598,13 +3598,13 @@ mod tests {
         // Numbered list where each item has a URL.  The `2` from "2. https://..."
         // must NOT be absorbed as a continuation of the first URL.
         let links = detect_urls_in(
-            "1. https://github.com/contember/dotaz/pull/2\r\n2. https://github.com/NPI-Cloud/npi-infrastr\r\n   ucture/pull/65\r\n",
+            "1. https://github.com/acme-corp/dotaz/pull/2\r\n2. https://github.com/acmecloud/npi-infrastr\r\n   ucture/pull/65\r\n",
             46,
         );
         // First URL should be exactly pull/2, not pull/22
         let first: Vec<&DetectedLink> = links
             .iter()
-            .filter(|l| l.text == "https://github.com/contember/dotaz/pull/2")
+            .filter(|l| l.text == "https://github.com/acme-corp/dotaz/pull/2")
             .collect();
         assert!(
             !first.is_empty(),
@@ -3629,11 +3629,11 @@ mod tests {
         // with prose text.  "next" is a url_char word but must NOT be
         // absorbed as URL continuation.
         let links = detect_urls_in(
-            "- https://github.com/contember/dotaz/pull/2\r\n- next item without URL\r\n",
+            "- https://github.com/acme-corp/dotaz/pull/2\r\n- next item without URL\r\n",
             46,
         );
         assert_eq!(links.len(), 1, "Should not extend into 'next': {:?}", links);
-        assert_eq!(links[0].text, "https://github.com/contember/dotaz/pull/2");
+        assert_eq!(links[0].text, "https://github.com/acme-corp/dotaz/pull/2");
     }
 
     #[test]
