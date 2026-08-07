@@ -232,13 +232,19 @@ Custom themes (notagent JSON format) live in `~/.notagent/agent/themes/*.json` a
 
 ## Dependencies
 
-- **GPUI** + **gpui-component** - UI framework
+- **GPUI** (by [Zed](https://zed.dev)) + **gpui-component** - UI framework
 - **alacritty_terminal** - Terminal emulation
 - **portable-pty** - PTY management
 - **smol** - Async runtime
 - **tokio** + **axum** - Remote control server
 - **syntect** - Syntax highlighting
 - **serde_yaml** - Service config parsing
+
+## Acknowledgments
+
+- NotMux is built on an [Okena](https://github.com/contember/okena) core (MIT) by Contember.
+- Thanks to [Zed](https://zed.dev) for [GPUI](https://www.gpui.rs), the UI framework NotMux is built on.
+- The embedded browser control's scriptable API is ported from [agent-browser](https://github.com/vercel-labs/agent-browser) by [Vercel Labs](https://github.com/vercel-labs) — thanks!
 
 ## License
 
