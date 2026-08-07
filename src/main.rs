@@ -70,18 +70,29 @@ use crate::views::panels::toast::{Toast, ToastManager};
 use crate::workspace::persistence;
 use crate::workspace::state::GlobalWorkspace;
 
-/// Sets the macOS Dock icon at runtime (same approach as the notagent
-/// reference).
+/// Sets the macOS Dock icon at runtime — dev builds only.
 ///
 /// The dev build runs as a bare binary (no `.app` bundle), so the Dock would
 /// otherwise show a generic executable icon. The icon is embedded in the
-/// binary so it never depends on the working directory or an installed bundle.
+/// binary so it never depends on the working directory. An installed `.app`
+/// already ships the correct icon in its bundle (`Assets.car` / `.icns`), which
+/// macOS renders natively, so we must NOT override it there — doing so would
+/// replace the correct bundle icon with a raw image. Hence the bundle guard.
 #[cfg(target_os = "macos")]
 fn set_dock_icon() {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
 
-    const ICON: &[u8] = include_bytes!("../assets/notagent_dark_anthracite.icns");
+    // Only override for the bare dev binary; let installed bundles use their
+    // own icon.
+    let is_bundle = std::env::current_exe()
+        .map(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
+        .unwrap_or(false);
+    if is_bundle {
+        return;
+    }
+
+    const ICON: &[u8] = include_bytes!("../assets/notmux.icns");
 
     // SAFETY: Standard AppKit messaging on the main thread. AppKit retains the
     // image in `setApplicationIconImage:`; the one-time +1 on the NSImage at
