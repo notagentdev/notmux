@@ -98,6 +98,7 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
         transcript_path,
         pid,
         ended: false,
+        was_running_at_quit: None,
         updated_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

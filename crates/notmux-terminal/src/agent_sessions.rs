@@ -34,7 +34,11 @@ pub struct AgentSessionRecord {
     /// ended sessions are not auto-resumed.
     #[serde(default)]
     pub ended: bool,
-    /// Unix seconds of the last update.
+                    /// Whether the login shell still had a running child when NotMux captured
+                    /// its quit-time state. None preserves the legacy restore behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub was_running_at_quit: Option<bool>,
+                    /// Unix seconds of the last update.
     pub updated_at: u64,
 }
 
@@ -97,7 +101,15 @@ pub fn record(surface_id: &str, rec: AgentSessionRecord) -> Result<(), String> {
     store.insert(surface_id.to_string(), rec);
     save_store(store)
 }
-
+/// Update quit-time running state without creating or otherwise changing a record.
+pub fn set_was_running_at_quit(surface_id: &str, was_running: bool) -> Result<(), String> {
+    let mut store = load_store();
+    let Some(rec) = store.get_mut(surface_id) else {
+        return Ok(());
+    };
+    rec.was_running_at_quit = Some(was_running);
+    save_store(store)
+}
 /// Mark the session on a surface as ended (agent exited normally). A kind
 /// mismatch is ignored so a stale hook from another agent can't clear a newer
 /// record.
@@ -193,7 +205,7 @@ fn pid_alive(_pid: u32) -> bool {
 /// and for claude the transcript file must still exist (claude sessions
 /// without their transcript JSONL cannot be resumed).
 pub fn is_restorable(rec: &AgentSessionRecord) -> bool {
-    if rec.ended {
+    if rec.ended || rec.was_running_at_quit == Some(false) {
         return false;
     }
     if rec.session_id.trim().is_empty() {
@@ -267,6 +279,7 @@ mod tests {
             transcript_path: None,
             pid: None,
             ended: false,
+            was_running_at_quit: None,
             updated_at: now_secs(),
         }
     }
@@ -331,20 +344,30 @@ mod tests {
 
     #[test]
     fn restorable_rules() {
-        // Basic record is restorable.
+        // Legacy records without quit-time state preserve the previous behavior.
         assert!(is_restorable(&rec("codex", "abc", None)));
-        // Ended is not.
+        // A command that was still running at quit remains restorable.
         let mut r = rec("codex", "abc", None);
+        r.was_running_at_quit = Some(true);
+        assert!(is_restorable(&r));
+        // A command that had already returned to the shell is not auto-resumed.
+        r.was_running_at_quit = Some(false);
+        assert!(!is_restorable(&r));
+        // Ended is not, regardless of the quit-time state.
+        let mut r = rec("codex", "abc", None);
+        r.was_running_at_quit = Some(true);
         r.ended = true;
         assert!(!is_restorable(&r));
         // Empty session id is not.
         assert!(!is_restorable(&rec("codex", " ", None)));
-        // Live pid (our own) is not.
+        // Live pid (our own) is not, even if it was running at quit.
         let mut r = rec("codex", "abc", None);
+        r.was_running_at_quit = Some(true);
         r.pid = Some(std::process::id());
         assert!(!is_restorable(&r));
-        // Dead pid is fine — pid 1 exists but is not ours… use an unlikely-alive pid.
+        // Dead pid is fine when the command was running at quit.
         let mut r = rec("codex", "abc", None);
+        r.was_running_at_quit = Some(true);
         r.pid = Some(0);
         assert!(is_restorable(&r));
         // Claude with a missing transcript is not restorable.
@@ -355,6 +378,18 @@ mod tests {
         assert!(is_restorable(&rec("claude", "abc", None)));
     }
 
+    #[test]
+    fn legacy_record_without_running_state_deserializes_as_unknown() {
+        let record: AgentSessionRecord = serde_json::from_value(serde_json::json!({
+            "kind": "codex",
+            "session_id": "legacy",
+            "ended": false,
+            "updated_at": now_secs()
+        }))
+        .unwrap();
+        assert_eq!(record.was_running_at_quit, None);
+        assert!(is_restorable(&record));
+    }
     #[test]
     fn store_round_trip_and_prune() {
         let dir = std::env::temp_dir().join(format!(
@@ -374,12 +409,19 @@ mod tests {
         // The save that wrote t2 prunes on write, but t2 itself was just
         // inserted with updated_at=1, so the *next* write drops it.
         record("t3", rec("pi", "s3", None)).unwrap();
-
+        let original_t3 = load_store().get("t3").cloned().unwrap();
+        set_was_running_at_quit("t3", true).unwrap();
+        // Snapshot updates do not create records for ordinary shell terminals.
+        set_was_running_at_quit("missing", false).unwrap();
         let store = load_store();
         assert_eq!(store.get("t1").unwrap().session_id, "s1");
         assert!(store.get("t2").is_none(), "stale record should be pruned");
-        assert!(store.get("t3").is_some());
-
+        let t3 = store.get("t3").unwrap();
+        assert_eq!(t3.was_running_at_quit, Some(true));
+        assert_eq!(t3.kind, original_t3.kind);
+        assert_eq!(t3.session_id, original_t3.session_id);
+        assert_eq!(t3.updated_at, original_t3.updated_at);
+        assert!(store.get("missing").is_none());
         mark_ended("t1", "claude").unwrap();
         assert!(load_store().get("t1").unwrap().ended);
         // Kind mismatch leaves the record alone.
