@@ -318,8 +318,10 @@ impl Element for TerminalElement {
         let cell_size_changed = (cell_width_f - current_size.cell_width).abs() > 0.001
             || (line_height_f - current_size.cell_height).abs() > 0.001;
 
-        if cols_rows_changed && self.terminal.is_resize_owner_local() {
-            let new_size = notmux_terminal::terminal::TerminalSize {
+        if (cols_rows_changed || self.terminal.needs_pty_resize())
+                && self.terminal.is_resize_owner_local()
+            {
+                let new_size = notmux_terminal::terminal::TerminalSize {
                 cols: new_cols,
                 rows: new_rows,
                 cell_width: cell_width_f,

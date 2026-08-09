@@ -376,6 +376,7 @@ fn parse_path_line_col(s: &str) -> (String, Option<u32>, Option<u32>) {
 /// Consolidated resize-related state, protected by a single mutex
 pub struct ResizeState {
     pub size: TerminalSize,
+    needs_pty_resize: bool,
     last_pty_resize: std::time::Instant,
     pending_pty_resize: Option<(u16, u16)>,
     /// True when a background flush timer is scheduled to send the pending resize.
@@ -506,10 +507,11 @@ impl Terminal {
             processor: Mutex::new(Processor::new()),
             terminal_id,
             resize_state: Arc::new(Mutex::new(ResizeState {
-                size,
-                // Use a time in the past so the first resize from paint() always
-                // passes the debounce check and sends SIGWINCH to the PTY immediately
-                last_pty_resize: std::time::Instant::now() - std::time::Duration::from_secs(1),
+             size,
+             needs_pty_resize: true,
+             // Use a time in the past so the first resize from paint() always
+             // passes the debounce check and sends SIGWINCH to the PTY immediately
+             last_pty_resize: std::time::Instant::now() - std::time::Duration::from_secs(1),
                 flush_timer_active: false,
                 pending_pty_resize: None,
                 last_local_resize: std::time::Instant::now() - std::time::Duration::from_secs(1),
@@ -1024,10 +1026,11 @@ impl Terminal {
 
         // Always update local size immediately (optimistic UI)
         {
-            let mut rs = self.resize_state.lock();
-            rs.size = new_size;
-            rs.last_local_resize = std::time::Instant::now();
-        }
+             let mut rs = self.resize_state.lock();
+             rs.size = new_size;
+             rs.needs_pty_resize = false;
+             rs.last_local_resize = std::time::Instant::now();
+            }
 
         // Resize terminal grid immediately (independent mutex)
         let mut term = self.term.lock();
@@ -1074,7 +1077,10 @@ impl Terminal {
         }
     }
 
-    /// Resize only the local alacritty grid, without sending resize to PTY/transport.
+             pub fn needs_pty_resize(&self) -> bool {
+                self.resize_state.lock().needs_pty_resize
+             }
+                 /// Resize only the local alacritty grid, without sending resize to PTY/transport.
     /// Used by remote clients to pre-resize the grid to match server dimensions before snapshot.
     ///
     /// Skips the resize if the client recently performed a local resize (within 200ms)
@@ -2769,7 +2775,7 @@ mod tests {
     }
 
     #[test]
-    fn resize_grid_only_does_not_call_transport() {
+    fn first_resize_after_grid_only_calls_transport() {
         use std::sync::atomic::{AtomicBool, Ordering};
         struct SpyTransport {
             resize_called: AtomicBool,
@@ -2796,9 +2802,17 @@ mod tests {
 
         terminal.resize_grid_only(120, 40);
         assert!(!transport.resize_called.load(Ordering::Relaxed));
+        assert!(terminal.needs_pty_resize());
         assert_eq!(terminal.resize_state.lock().size.cols, 120);
         assert_eq!(terminal.resize_state.lock().size.rows, 40);
-    }
+        terminal.resize(TerminalSize {
+            cols: 120,
+            rows: 40,
+            ..TerminalSize::default()
+        });
+        assert!(transport.resize_called.load(Ordering::Relaxed));
+        assert!(!terminal.needs_pty_resize());
+        }
 
     #[test]
     fn selection_state_preserves_negative_scrollback_rows() {
