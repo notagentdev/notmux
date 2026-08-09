@@ -55,6 +55,13 @@ pub fn sidebar_color_indicator(id: impl Into<ElementId>, child: impl IntoElement
         .hover(|s| s.opacity(0.7))
         .child(child)
 }
+pub fn project_folder_icon_color(folder_color: notmux_core::theme::FolderColor, t: &ThemeColors) -> u32 {
+    if folder_color == notmux_core::theme::FolderColor::Default {
+        t.text_secondary
+    } else {
+        t.get_folder_color(folder_color)
+    }
+}
 pub fn folder_icon(color: u32) -> impl IntoElement {
     svg()
         .path("icons/folder.svg")
@@ -262,4 +269,20 @@ pub fn sidebar_name_or_badge(
 /// Empty spacer matching expand arrow dimensions (12x16).
 pub fn sidebar_expand_spacer() -> Div {
     div().flex_shrink_0().w(px(16.0)).h(px(20.0))
+}
+#[cfg(test)]
+mod tests {
+    use super::project_folder_icon_color;
+    use notmux_core::theme::{FolderColor, LIGHT_THEME};
+    #[test]
+    fn default_folder_icon_uses_neutral_theme_color() {
+        assert_eq!(
+            project_folder_icon_color(FolderColor::Default, &LIGHT_THEME),
+            LIGHT_THEME.text_secondary,
+        );
+        assert_eq!(
+            project_folder_icon_color(FolderColor::Blue, &LIGHT_THEME),
+            LIGHT_THEME.folder_blue,
+        );
+    }
 }

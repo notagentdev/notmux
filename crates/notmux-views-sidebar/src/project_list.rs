@@ -89,7 +89,7 @@ impl Sidebar {
             // 2. Color dot
             .child(match style {
                 ProjectRowStyle::Project => {
-                    let folder_color = t.get_folder_color(project.folder_color);
+                    let folder_color = project_folder_icon_color(project.folder_color, &t);
                     let pid = project.id.clone();
                     sidebar_color_indicator(
                         ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
@@ -105,7 +105,7 @@ impl Sidebar {
                     .into_any_element()
                 }
                 ProjectRowStyle::Worktree { is_orphan, .. } => {
-                    let folder_color = t.get_folder_color(project.folder_color);
+                    let folder_color = project_folder_icon_color(project.folder_color, &t);
                     let dot_color = if *is_orphan { t.warning } else { folder_color };
                     let pid = project.id.clone();
                     sidebar_color_indicator(
@@ -122,7 +122,7 @@ impl Sidebar {
                     .into_any_element()
                 }
                 ProjectRowStyle::GroupChild => {
-                    let folder_color = t.get_folder_color(project.folder_color);
+                    let folder_color = project_folder_icon_color(project.folder_color, &t);
                     let pid = project.id.clone();
                     sidebar_color_indicator(
                         ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
@@ -1188,7 +1188,7 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             })),
         )
         .child({
-            let folder_color = t.get_folder_color(project.folder_color);
+            let folder_color = project_folder_icon_color(project.folder_color, &t);
             let project_id = project.id.clone();
             sidebar_color_indicator(
                 ElementId::Name(format!("{}-icon-{}", id_prefix, project.id).into()),
