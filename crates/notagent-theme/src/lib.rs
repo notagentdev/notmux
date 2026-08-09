@@ -28,7 +28,8 @@ pub const ALUCARD_THEME_JSON: &str = include_str!("../themes/alucard.json");
 pub const ANYSPHERE_THEME_JSON: &str = include_str!("../themes/anysphere.json");
 /// Nord Midnight (a darker Nord variant).
 pub const NORD_MIDNIGHT_THEME_JSON: &str = include_str!("../themes/nord-midnight.json");
-
+/// Nord Light (a light Nord variant).
+pub const NORD_LIGHT_THEME_JSON: &str = include_str!("../themes/nord-light.json");
 /// Names of all built-in themes, in display order.
 pub const BUILTIN_THEMES: &[&str] = &[
     "dark",
@@ -40,6 +41,7 @@ pub const BUILTIN_THEMES: &[&str] = &[
     "alucard",
     "anysphere",
     "nord-midnight",
+    "nord-light",
     "poimandres-dark",
     "poimandres-light",
 ];
@@ -844,7 +846,9 @@ pub fn load_theme_json(name: &str) -> Result<ThemeJson, String> {
     if name == "nord-midnight" {
         return serde_json::from_str(NORD_MIDNIGHT_THEME_JSON).map_err(|e| e.to_string());
     }
-
+    if name == "nord-light" {
+        return serde_json::from_str(NORD_LIGHT_THEME_JSON).map_err(|e| e.to_string());
+    }
     let custom_themes_dir = get_custom_themes_dir();
     let theme_path = custom_themes_dir.join(format!("{}.json", name));
     if !theme_path.exists() {
@@ -1016,6 +1020,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_nord_light_loads_with_expected_palette() {
+        let json = load_theme_json("nord-light").expect("Nord Light JSON should load");
+        assert_eq!(json.name, "nord-light");
+        assert_eq!(
+            json.export.as_ref().and_then(|export| export.page_bg.clone()),
+            Some(ColorValue::String("#eceff4".to_string()))
+        );
+
+        let theme = Theme::from_json(json, ColorMode::TrueColor, Some("nord-light".to_string()))
+            .expect("Nord Light colors should resolve");
+        assert_eq!(theme.get_fg_ansi(ThemeColor::Accent), "\x1b[38;2;94;129;172m");
+        assert_eq!(theme.get_fg_ansi(ThemeColor::Text), "\x1b[38;2;46;52;64m");
+        assert_eq!(theme.get_bg_ansi(ThemeBg::SelectedBg), "\x1b[48;2;216;222;233m");
+    }
     #[test]
     fn test_theme_formatting() {
         let dark_json: ThemeJson = serde_json::from_str(DARK_THEME_JSON).unwrap();

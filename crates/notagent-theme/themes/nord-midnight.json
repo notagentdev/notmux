@@ -58,8 +58,8 @@
 		"mdListBullet": "blue",
 
 		"toolDiffAdded": "green",
-		"toolDiffRemoved": "red",
-		"toolDiffContext": "gray",
+			"toolDiffRemoved": "red",
+			"toolDiffContext": "#4c566a",
 
 		"syntaxComment": "#616e88",
 		"syntaxKeyword": "#81a1c1",
