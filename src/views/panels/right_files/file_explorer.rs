@@ -15,10 +15,11 @@ use notmux_ui::tokens::ui_text_md;
 use notmux_ui::vscode_icon::vscode_file_icon_sized_with_options;
 use notmux_workspace::request_broker::RequestBroker;
 use notmux_workspace::requests::{ExplorerKind, OverlayRequest};
+use notmux_workspace::state::Workspace;
+use notmux_views_sidebar::{ExplorerInputCancel, ExplorerInputConfirm};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 
-gpui::actions!(file_explorer, [ExplorerInputConfirm, ExplorerInputCancel]);
+use std::path::{Path, PathBuf};
 
 /// Drag payload for explorer entries, dropped e.g. into the chat composer to
 /// reference the file.
@@ -71,10 +72,11 @@ struct ActiveInput {
 pub struct FileExplorer {
     project_id: String,
     project_path: PathBuf,
-    /// Which host view renders this instance — carried in the context-menu
-    /// request so actions come back to the explorer the user clicked.
+                /// Which host view renders this instance — carried in the context-menu
+                /// request so actions come back to the explorer the user clicked.
     host: notmux_workspace::requests::ExplorerHost,
     request_broker: Entity<RequestBroker>,
+    workspace: Option<Entity<Workspace>>,
 
     /// Entries per directory path. Lazy-populated on expand.
     loaded_children: HashMap<PathBuf, Vec<DirEntry>>,
@@ -112,11 +114,39 @@ impl FileExplorer {
         request_broker: Entity<RequestBroker>,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::new_inner(project_id, project_path, host, request_broker, None, cx)
+    }
+    pub fn new_with_workspace(
+        project_id: String,
+        project_path: PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
+        request_broker: Entity<RequestBroker>,
+        workspace: Entity<Workspace>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::new_inner(
+            project_id,
+            project_path,
+            host,
+            request_broker,
+            Some(workspace),
+            cx,
+        )
+    }
+    fn new_inner(
+        project_id: String,
+        project_path: PathBuf,
+        host: notmux_workspace::requests::ExplorerHost,
+        request_broker: Entity<RequestBroker>,
+        workspace: Option<Entity<Workspace>>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut this = Self {
             project_id,
             project_path: project_path.clone(),
             host,
             request_broker,
+            workspace,
             loaded_children: HashMap::new(),
             expanded_paths: HashSet::new(),
             loading_paths: HashSet::new(),
@@ -322,8 +352,20 @@ impl FileExplorer {
     }
 
     // ===== inline input (rename / new file / new folder) =====
-
+    fn begin_input(&self, cx: &mut Context<Self>) {
+        if self.active_input.is_none()
+            && let Some(workspace) = &self.workspace
+        {
+            workspace.update(cx, |ws, cx| ws.clear_focused_terminal(cx));
+        }
+    }
+    fn finish_input(&self, cx: &mut Context<Self>) {
+        if let Some(workspace) = &self.workspace {
+            workspace.update(cx, |ws, cx| ws.restore_focused_terminal(cx));
+        }
+    }
     pub fn start_rename(&mut self, target: PathBuf, cx: &mut Context<Self>) {
+        self.begin_input(cx);
         let current_name = target
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -346,6 +388,7 @@ impl FileExplorer {
     }
 
     pub fn start_new_file(&mut self, parent: PathBuf, cx: &mut Context<Self>) {
+        self.begin_input(cx);
         self.ensure_expanded(&parent, cx);
         let input = cx.new(|cx| SimpleInputState::new(cx).placeholder("File name..."));
         self.active_input = Some(ActiveInput {
@@ -357,6 +400,7 @@ impl FileExplorer {
     }
 
     pub fn start_new_folder(&mut self, parent: PathBuf, cx: &mut Context<Self>) {
+        self.begin_input(cx);
         self.ensure_expanded(&parent, cx);
         let input = cx.new(|cx| SimpleInputState::new(cx).placeholder("Folder name..."));
         self.active_input = Some(ActiveInput {
@@ -382,8 +426,8 @@ impl FileExplorer {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.active_input.is_some() {
-            self.active_input = None;
+        if self.active_input.take().is_some() {
+            self.finish_input(cx);
             cx.notify();
         }
     }
@@ -397,6 +441,7 @@ impl FileExplorer {
         let Some(active) = self.active_input.take() else {
             return;
         };
+        self.finish_input(cx);
         let raw = active.input.read(cx).value().trim().to_string();
         if raw.is_empty() {
             cx.notify();
@@ -545,16 +590,14 @@ impl Render for FileExplorer {
 
 #[derive(Clone)]
 struct Row {
-    entry: Option<DirEntry>, // None → ghost input row
+    entry: Option<DirEntry>,
     level: usize,
     is_expanded: bool,
     ghost_is_folder: bool,
 }
-
-/// Precompute the per-directory git-status rollup once per status refresh
-/// (render used to scan the whole status map for every visible directory
-/// row, every frame). Semantics: any non-added change under a dir →
-/// Modified; only added/untracked children → Added.
+fn row_indent(level: usize) -> f32 {
+    8.0 + (level as f32) * 20.0
+}
 fn compute_dir_rollups(
     status_by_relpath: &HashMap<String, FileStatus>,
 ) -> HashMap<String, FileStatus> {
@@ -639,7 +682,7 @@ impl FileExplorer {
             return self.render_ghost_row(row, t, cx).into_any_element();
         };
 
-        let indent_px = 8.0 + (row.level as f32) * 20.0;
+        let indent_px = row_indent(row.level);
         let abs_path = entry.path.clone();
         let is_dir = entry.is_dir;
         let rel = self.rel_path(&abs_path).unwrap_or_default();
@@ -887,7 +930,7 @@ impl FileExplorer {
         t: &notmux_core::theme::ThemeColors,
         _cx: &Context<Self>,
     ) -> Div {
-        let indent_px = 8.0 + ((row.level + 1) as f32) * 20.0;
+        let indent_px = row_indent(row.level);
         let icon = if row.ghost_is_folder {
             "icons/folder.svg"
         } else {
@@ -923,6 +966,68 @@ impl FileExplorer {
                     ),
             )
             .child(div().flex_1().min_w_0().child(SimpleInput::new(&input)))
-    }
-}
+            }
+            }
+            #[cfg(test)]
+            mod tests {
+                use super::{FileExplorer, row_indent};
+                    use gpui::{App, AppContext as _, ScrollHandle};
+                    use notmux_workspace::request_broker::RequestBroker;
+                    use std::collections::{HashMap, HashSet};
+                fn init_test_theme(cx: &mut App) {
+                        let theme = notmux_theme::load_gpui_theme(crate::theme::DEFAULT_THEME_NAME)
+                            .expect("default theme must load");
+                        cx.set_global(theme);
+                        cx.set_global(notmux_ui::theme::GlobalThemeProvider(crate::theme::theme));
+                    }
+                    #[gpui::test]
+                        fn inline_input_uses_registered_enter_action(cx: &mut gpui::TestAppContext) {
+                            let root = std::env::temp_dir().join(format!(
+                                "notmux-file-explorer-{}",
+                                uuid::Uuid::new_v4()
+                            ));
+                            let window = cx.update(|cx| {
+                                init_test_theme(cx);
+                                crate::keybindings::register_keybindings(cx);
+                                let broker = cx.new(|_| RequestBroker::new());
+                                let project_root = root.clone();
+                                cx.open_window(Default::default(), move |_, cx| {
+                                    cx.new(|cx| FileExplorer {
+                                        project_id: "test-project".to_string(),
+                                            project_path: project_root.clone(),
+                                            host: notmux_workspace::requests::ExplorerHost::FilesTab,
+                                            request_broker: broker,
+                                            workspace: None,
+                                            loaded_children: HashMap::from([(project_root, Vec::new())]),
+                                        expanded_paths: HashSet::new(),
+                                        loading_paths: HashSet::new(),
+                                        working_tree_status: None,
+                                        git_status_by_relpath: HashMap::new(),
+                                        dir_rollups: HashMap::new(),
+                                        untracked_relpaths: HashSet::new(),
+                                        staged_relpaths: HashSet::new(),
+                                        conflict_relpaths: HashSet::new(),
+                                        scroll_handle: ScrollHandle::new(),
+                                        active_input: None,
+                                        monochrome_icons: false,
+                                        show_hidden: true,
+                                        context_menu_target: None,
+                                    })
+                                })
+                                .expect("open file explorer test window")
+                            });
+
+                            window
+                                .update(cx, |explorer, _, cx| explorer.start_new_file(root, cx))
+                                .unwrap();
+                            cx.run_until_parked();
+                            cx.simulate_keystrokes(*window, "enter");
+                            window
+                                .update(cx, |explorer, _, _| assert!(explorer.active_input.is_none()))
+                                .unwrap();
+
+                            assert_eq!(row_indent(0), 8.0);
+                            assert_eq!(row_indent(2), 48.0);
+                        }
+            }
 

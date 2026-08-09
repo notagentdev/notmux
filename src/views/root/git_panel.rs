@@ -593,16 +593,18 @@ impl RootView {
     fn render_right_explorer(&mut self, pid: &str, path: &str, cx: &mut Context<Self>) -> AnyElement {
         if !self.right_explorers.contains_key(pid) {
             let broker = self.request_broker.clone();
+            let workspace = self.workspace.clone();
             let explorer = cx.new({
                 let pid = pid.to_string();
                 let path = path.to_string();
                 move |cx| {
-                    crate::views::panels::right_files::file_explorer::FileExplorer::new(
-                        pid,
-                        std::path::PathBuf::from(&path),
-                        notmux_workspace::requests::ExplorerHost::FilesTab,
-                        broker,
-                        cx,
+                    crate::views::panels::right_files::file_explorer::FileExplorer::new_with_workspace(
+                      pid,
+                      std::path::PathBuf::from(&path),
+                      notmux_workspace::requests::ExplorerHost::FilesTab,
+                      broker,
+                      workspace,
+                      cx,
                     )
                 }
             });

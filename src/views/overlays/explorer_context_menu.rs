@@ -86,6 +86,7 @@ impl Render for ExplorerContextMenu {
         let path = self.path.clone();
         let parent = self.parent_dir.clone();
         let is_dir = kind == ExplorerKind::Folder;
+        let rename_label = if is_dir { "Rename Folder" } else { "Rename File" };
         let has_clipboard = self.has_clipboard;
         let position = self.position;
 
@@ -185,7 +186,7 @@ impl Render for ExplorerContextMenu {
         if matches!(kind, ExplorerKind::File | ExplorerKind::Folder) {
             panel = panel
                 .child(
-                    menu_item("ecm-rename", "icons/edit.svg", "Rename", &t).on_click(cx.listener(
+                    menu_item("ecm-rename", "icons/edit.svg", rename_label, &t).on_click(cx.listener(
                         {
                             let p = path.clone();
                             move |_this, _, _window, cx| {
