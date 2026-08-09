@@ -63,6 +63,15 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
     }
 
     if action == "end" {
+        // Claude Code (≥2.1.x) fires SessionEnd on terminal disconnect too:
+        // quitting the app tears down the PTY, claude gets SIGHUP and reports
+        // reason "other". Only an intentional user exit may mark the record
+        // ended — a disconnected session must stay restorable for auto-resume.
+        if let Some(reason) = read_stdin_json().as_ref().and_then(end_reason)
+            && !is_intentional_end_reason(&reason)
+        {
+            return 0;
+        }
         if let Err(e) = agent_sessions::mark_ended(&surface_id, &kind) {
             log::warn!("agent-session end: {e}");
         }
@@ -101,9 +110,29 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
     0
 }
 
+/// The normalized `reason` of a SessionEnd hook payload, if present.
+fn end_reason(payload: &serde_json::Value) -> Option<String> {
+    payload
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+}
+/// SessionEnd reasons that represent an intentional user exit (claude's
+/// documented reasons minus the "other" catch-all, which covers SIGHUP /
+/// terminal disconnect). Payloads without a reason always mark ended, so
+/// agents that don't send one keep their previous behavior.
+fn is_intentional_end_reason(reason: &str) -> bool {
+    matches!(reason, "clear" | "logout" | "prompt_input_exit" | "exit")
+}
 /// Read stdin to EOF and parse as JSON. Hooks pipe the payload; callers that
-/// pass flags instead close stdin immediately, so this returns quickly.
+/// pass flags instead close stdin immediately, so this returns quickly. A
+/// TTY stdin (manual CLI invocation) is skipped so the call never blocks.
 fn read_stdin_json() -> Option<serde_json::Value> {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() {
+        return None;
+    }
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input).ok()?;
     let trimmed = input.trim();
@@ -188,5 +217,22 @@ mod tests {
     fn empty_strings_are_skipped() {
         let payload = serde_json::json!({ "session_id": "  ", "conversation_id": "real" });
         assert_eq!(first_string(&payload, SESSION_ID_KEYS).unwrap(), "real");
+    }
+    #[test]
+    fn end_reason_normalizes_payload() {
+        let payload = serde_json::json!({ "reason": "  Other " });
+        assert_eq!(end_reason(&payload).unwrap(), "other");
+        assert!(end_reason(&serde_json::json!({ "reason": "" })).is_none());
+        assert!(end_reason(&serde_json::json!({})).is_none());
+    }
+    #[test]
+    fn disconnect_reasons_are_not_intentional_exits() {
+        // "other" is what claude sends on SIGHUP when the app quits — the
+        // session must stay restorable.
+        assert!(!is_intentional_end_reason("other"));
+        assert!(is_intentional_end_reason("clear"));
+        assert!(is_intentional_end_reason("logout"));
+        assert!(is_intentional_end_reason("prompt_input_exit"));
+        assert!(is_intentional_end_reason("exit"));
     }
 }
