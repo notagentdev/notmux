@@ -32,6 +32,17 @@ pub enum DragState {
         initial_widths: HashMap<String, f32>,
         min_col_width: f32,
     },
+    /// Resizing a split of the pinned-view project arrangement (the
+    /// project-container layer — same math as `Split`, one level up)
+    PinnedSplit {
+        layout_path: Vec<usize>,
+        left_child: usize,
+        right_child: usize,
+        direction: SplitDirection,
+        container_bounds: Bounds<Pixels>,
+        initial_mouse_pos: Point<Pixels>,
+        initial_sizes: Vec<f32>,
+    },
     /// Resizing sidebar width
     Sidebar,
     /// Resizing per-project service panel height
@@ -205,6 +216,57 @@ pub fn compute_resize(
 
             workspace.update(cx, |ws, cx| {
                 ws.update_project_widths(new_widths, cx);
+            });
+        }
+        DragState::PinnedSplit {
+            layout_path,
+            left_child,
+            right_child,
+            direction,
+            container_bounds,
+            initial_mouse_pos,
+            initial_sizes,
+        } => {
+            let bounds = *container_bounds;
+            let is_horizontal = *direction == SplitDirection::Horizontal;
+            let left_child = *left_child;
+            let right_child = *right_child;
+
+            let container_size = if is_horizontal {
+                f32::from(bounds.size.height)
+            } else {
+                f32::from(bounds.size.width)
+            };
+            if container_size <= 0.0 {
+                return;
+            }
+            if left_child >= initial_sizes.len() || right_child >= initial_sizes.len() {
+                return;
+            }
+
+            let combined_size = initial_sizes[left_child] + initial_sizes[right_child];
+            let delta = if is_horizontal {
+                f32::from(mouse_pos.y) - f32::from(initial_mouse_pos.y)
+            } else {
+                f32::from(mouse_pos.x) - f32::from(initial_mouse_pos.x)
+            };
+            let scale: f32 = initial_sizes.iter().sum();
+            let scale = if scale > 0.0 { scale } else { 100.0 };
+            let delta_percent = delta / container_size * scale;
+
+            let min_size = scale * 0.05;
+            let combined_size = combined_size.max(2.0 * min_size);
+            let max_size = combined_size - min_size;
+            let left_size = (initial_sizes[left_child] + delta_percent).clamp(min_size, max_size);
+            let right_size = combined_size - left_size;
+
+            let mut new_sizes = initial_sizes.clone();
+            new_sizes[left_child] = left_size;
+            new_sizes[right_child] = right_size;
+
+            let layout_path = layout_path.clone();
+            workspace.update(cx, |ws, cx| {
+                ws.update_pinned_split_sizes_ui_only(&layout_path, new_sizes, cx);
             });
         }
         DragState::Sidebar

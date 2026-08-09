@@ -14,7 +14,7 @@ use gpui::*;
 use std::collections::HashMap;
 use notmux_core::theme::FolderColor;
 
-pub use notmux_layout::{LayoutNode, SplitDirection};
+pub use notmux_layout::{LayoutNode, PinnedNode, SplitDirection};
 pub use notmux_state::{
     DropZone, FocusedTerminalState, FolderData, HookTerminalEntry, HookTerminalStatus,
     PendingWorktreeClose, ProjectData, WorkspaceData, WorktreeMetadata,
@@ -433,6 +433,21 @@ impl Workspace {
                     result.push(p);
                 }
             }
+            // The pinned view has its own arrangement tree (columns split and
+            // tabbed independently of `project_order`) — traversal order of
+            // that tree is the canonical column order. Projects the tree
+            // doesn't know yet stay appended in their base order.
+            if let Some(tree) = &self.data.pinned_arrangement {
+                let order = tree.collect_project_ids();
+                let mut ordered: Vec<&ProjectData> = Vec::with_capacity(result.len());
+                for id in &order {
+                    if let Some(pos) = result.iter().position(|p| &p.id == id) {
+                        ordered.push(result.remove(pos));
+                    }
+                }
+                ordered.extend(result);
+                return ordered;
+            }
             return result;
         }
         compute_visible_projects(
@@ -735,6 +750,7 @@ mod workspace_tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         }
     }
 
@@ -1464,6 +1480,7 @@ mod gpui_tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         }
     }
 

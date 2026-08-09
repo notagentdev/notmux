@@ -5,7 +5,7 @@ use crate::transient::FocusedTerminalState;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use notmux_core::theme::FolderColor;
-use notmux_layout::LayoutNode;
+use notmux_layout::{LayoutNode, PinnedNode};
 use notmux_terminal::shell_config::ShellType;
 
 /// A folder that groups projects in the sidebar
@@ -53,6 +53,12 @@ pub struct WorkspaceData {
     /// When true, the main view shows all projects with pinned panes side by side.
     #[serde(default)]
     pub pinned_view_active: bool,
+    /// Arrangement tree of the pinned view — whole project columns as leaves,
+    /// split/tabbed exactly like the pane layer below, but independent of
+    /// `project_order` (rearranging the dashboard never reshuffles the
+    /// sidebar). None until something is pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_arrangement: Option<PinnedNode>,
 }
 
 impl WorkspaceData {
@@ -120,6 +126,9 @@ impl WorkspaceData {
                 .cloned()
                 .collect(),
             pinned_view_active: self.pinned_view_active,
+            // Remote projects can't be pinned, so the arrangement only ever
+            // holds local ids — safe to keep as-is.
+            pinned_arrangement: self.pinned_arrangement.clone(),
         }
     }
 }

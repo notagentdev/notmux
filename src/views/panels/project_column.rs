@@ -3,7 +3,7 @@ use crate::git;
 use crate::git::watcher::GitStatusWatcher;
 use crate::services::manager::ServiceManager;
 use crate::terminal::backend::TerminalBackend;
-use crate::theme::{ThemeColors, theme};
+use crate::theme::{ThemeColors, theme, with_alpha};
 use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
 use crate::views::layout::layout_container::LayoutContainer;
 use crate::views::layout::split_pane::ActiveDrag;
@@ -13,6 +13,8 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use notmux_views_git::git_header::GitHeader;
 
@@ -36,6 +38,51 @@ impl Global for ColumnTitleReserves {}
 
 pub fn set_column_title_reserves(left: f32, right: f32, cx: &mut App) {
     cx.set_global(ColumnTitleReserves { left, right });
+}
+
+/// Drag payload for reordering whole project columns in the pinned view.
+/// Its own payload type is the isolation layer above the pane drag layer:
+/// `drag_over`/`on_drop` dispatch by type, so the pane drop containers inside
+/// a project never react to a column drag — and column drop spots never react
+/// to a pane drag.
+#[derive(Clone)]
+pub struct PinnedColumnDrag {
+    pub project_id: String,
+    pub project_name: String,
+}
+
+/// Ghost view rendered while dragging a pinned-view column (orange accent —
+/// the column layer's drop color, distinct from the panes' accent).
+pub struct PinnedColumnDragView {
+    pub name: String,
+}
+
+impl Render for PinnedColumnDragView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = theme(cx);
+        div()
+            .px(px(12.0))
+            .py(px(6.0))
+            .bg(with_alpha(t.bg_primary, 0.95))
+            .border_1()
+            .border_color(rgb(t.folder_orange))
+            .rounded(px(6.0))
+            .shadow_xl()
+            .text_size(ui_text_md(cx))
+            .text_color(rgb(t.text_primary))
+            .font_weight(FontWeight::MEDIUM)
+            .child(
+                h_flex()
+                    .gap(px(6.0))
+                    .child(
+                        svg()
+                            .path("icons/pinned.svg")
+                            .size(px(12.0))
+                            .text_color(rgb(t.folder_orange)),
+                    )
+                    .child(self.name.clone()),
+            )
+    }
 }
 
 /// A single project column with header and layout
@@ -737,7 +784,15 @@ impl Render for ProjectColumn {
                 // (same latch pattern as the tab strip: mouse-down arms, the
                 // next mouse-move starts the OS window move, so a plain click
                 // stays a click).
-                let title_bar = {
+                let title_bar = if self
+                    .workspace
+                    .read(cx)
+                    .pinned_project_in_tab_group(&self.project_id)
+                {
+                    // Inside a project-level tab group the shared tab strip
+                    // replaces the column's own title bar.
+                    None
+                } else {
                     let pinned_view = self.workspace.read(cx).data.pinned_view_active;
                     // Colored projects color the leading icon (not the bar
                     // background): the pin in the pinned view, the folder icon
@@ -772,62 +827,43 @@ impl Render for ProjectColumn {
                             if is_last { r.right } else { 0.0 },
                         )
                     };
-                    Some(
-                        div()
-                            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
-                            .pl(px(12.0 + chrome_left))
-                            .pr(px(12.0 + chrome_right))
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.0))
-                            .bg(rgb(t.bg_header))
-                            .border_b_1()
-                            .border_color(rgb(t.border))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, _, _| this.title_should_move = true),
-                            )
-                            .on_mouse_up(
-                                MouseButton::Left,
-                                cx.listener(|this, _, _, _| this.title_should_move = false),
-                            )
-                            .on_mouse_move(cx.listener(|this, _, window, _| {
-                                if this.title_should_move {
-                                    this.title_should_move = false;
-                                    window.start_window_move();
-                                }
-                            }))
-                            .child(
-                                svg()
-                                    .path(if pinned_view {
-                                        "icons/pinned.svg"
-                                    } else {
-                                        "icons/folder.svg"
-                                    })
-                                    .size(px(12.0))
-                                    .text_color(icon_color),
-                            )
-                            .child(
-                                div()
-                                    .text_size(ui_text_md(cx))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(rgb(t.text_primary))
-                                    .text_ellipsis()
-                                    .child(project.name.clone()),
-                            )
-                            .when(pinned_view, |bar| {
-                                let workspace = self.workspace.clone();
-                                let project_id = self.project_id.clone();
-                                let bg_hover = t.bg_hover;
-                                bar.child(
-                                    div()
+                    if pinned_view {
+                        // Pinned mode: the strip renders the container as a
+                        // single TAB (mirror of a standalone pane tab bar) —
+                        // only the tab chip drags the container; the empty
+                        // rest of the strip moves the window, but only when
+                        // the strip sits at the window's top edge.
+                        let strip_bounds: Rc<RefCell<Bounds<Pixels>>> =
+                            Rc::new(RefCell::new(Bounds {
+                                origin: point(px(0.0), px(9999.0)),
+                                size: Size::default(),
+                            }));
+
+                        // Unpin lives INSIDE the tab (hover-revealed end slot,
+                        // the pane-tab pattern) — not at the strip's end.
+                        let chip_group =
+                            SharedString::from(format!("col-tab-{}", self.project_id));
+                        let end_slot = {
+                            let workspace = self.workspace.clone();
+                            let project_id = self.project_id.clone();
+                            let bg_hover = t.bg_hover;
+                            h_flex()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .right_0()
+                                .items_center()
+                                .pr(px(3.0))
+                                .pl(px(12.0))
+                                .bg(rgb(t.bg_secondary))
+                                .opacity(0.0)
+                                .group_hover(chip_group.clone(), |s| s.opacity(1.0))
+                                .child(
+                                    h_flex()
                                         .id("unpin-all-project")
-                                        .ml_auto()
-                                        .flex_shrink_0()
-                                        .flex()
-                                        .w(px(20.0))
-                                        .h(px(20.0))
+                                        .flex_none()
+                                        .w(px(18.0))
+                                        .h(px(18.0))
                                         .justify_center()
                                         .items_center()
                                         .rounded(px(4.0))
@@ -849,8 +885,181 @@ impl Render for ProjectColumn {
                                             });
                                         }),
                                 )
-                            }),
-                    )
+                        };
+
+                        let chip = div()
+                            .id(ElementId::Name(
+                                format!("column-title-tab-{}", self.project_id).into(),
+                            ))
+                            .group(chip_group.clone())
+                            .cursor_pointer()
+                            .relative()
+                            .flex_shrink_0()
+                            .max_w(px(220.0))
+                            .h(px(22.0))
+                            .rounded(px(6.0))
+                            .overflow_hidden()
+                            .border_1()
+                            .bg(rgb(t.bg_secondary))
+                            .border_color(rgb(t.border))
+                            .text_size(ui_text_md(cx))
+                            .text_color(rgb(t.text_primary))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .px(px(8.0))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .overflow_hidden()
+                                    .child(
+                                        svg()
+                                            .path("icons/pinned.svg")
+                                            .size(px(12.0))
+                                            .flex_shrink_0()
+                                            .text_color(icon_color),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .overflow_hidden()
+                                            .text_ellipsis()
+                                            .child(project.name.clone()),
+                                    )
+                                    .child(end_slot),
+                            )
+                            .on_drag(
+                                PinnedColumnDrag {
+                                    project_id: self.project_id.clone(),
+                                    project_name: project.name.clone(),
+                                },
+                                move |drag, _position, _window, cx| {
+                                    cx.new(|_| PinnedColumnDragView {
+                                        name: drag.project_name.clone(),
+                                    })
+                                },
+                            )
+                            .on_click(cx.listener({
+                                let project_id = self.project_id.clone();
+                                let slot = project
+                                    .pinned_layout
+                                    .as_ref()
+                                    .and_then(|l| l.collect_slot_ids().into_iter().next());
+                                move |this, _, _window, cx| {
+                                    if let Some(ref slot) = slot {
+                                        this.workspace.update(cx, |ws, cx| {
+                                            ws.focus_pane_by_slot(&project_id, slot, cx);
+                                        });
+                                    }
+                                }
+                            }));
+
+                        let filler = div()
+                            .id(ElementId::Name(
+                                format!("column-title-filler-{}", self.project_id).into(),
+                            ))
+                            .flex_1()
+                            .h_full()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener({
+                                    let strip_bounds = strip_bounds.clone();
+                                    move |this, _, _, _| {
+                                        if strip_bounds.borrow().origin.y < px(6.0) {
+                                            this.title_should_move = true;
+                                        }
+                                    }
+                                }),
+                            )
+                            .on_mouse_up(
+                                MouseButton::Left,
+                                cx.listener(|this, _, _, _| this.title_should_move = false),
+                            )
+                            .on_mouse_move(cx.listener(|this, _, window, _| {
+                                if this.title_should_move {
+                                    this.title_should_move = false;
+                                    window.start_window_move();
+                                }
+                            }));
+
+                        Some(
+                            div()
+                                .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                                .pl(px(6.0 + chrome_left))
+                                .pr(px(6.0 + chrome_right))
+                                .flex_shrink_0()
+                                .relative()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .bg(rgb(t.bg_header))
+                                .border_b_1()
+                                .border_color(rgb(t.border))
+                                .child(
+                                    canvas(
+                                        {
+                                            let strip_bounds = strip_bounds.clone();
+                                            move |bounds, _window, _cx| {
+                                                *strip_bounds.borrow_mut() = bounds;
+                                            }
+                                        },
+                                        |_bounds, _prepaint, _window, _cx| {},
+                                    )
+                                    .absolute()
+                                    .size_full(),
+                                )
+                                .child(chip)
+                                .child(filler)
+                                .into_any_element(),
+                        )
+                    } else {
+                        Some(
+                            div()
+                                .id(ElementId::Name(
+                                    format!("column-title-{}", self.project_id).into(),
+                                ))
+                                .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                                .pl(px(12.0 + chrome_left))
+                                .pr(px(12.0 + chrome_right))
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .bg(rgb(t.bg_header))
+                                .border_b_1()
+                                .border_color(rgb(t.border))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, _| this.title_should_move = true),
+                                )
+                                .on_mouse_up(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, _| this.title_should_move = false),
+                                )
+                                .on_mouse_move(cx.listener(|this, _, window, _| {
+                                    if this.title_should_move {
+                                        this.title_should_move = false;
+                                        window.start_window_move();
+                                    }
+                                }))
+                                .child(
+                                    svg()
+                                        .path("icons/folder.svg")
+                                        .size(px(12.0))
+                                        .text_color(icon_color),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(ui_text_md(cx))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(t.text_primary))
+                                        .text_ellipsis()
+                                        .child(project.name.clone()),
+                                )
+                                .into_any_element(),
+                        )
+                    }
                 };
 
                 div()

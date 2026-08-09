@@ -540,6 +540,7 @@ pub fn default_workspace() -> WorkspaceData {
         focused_terminal: None,
         folders: Vec::new(),
         pinned_view_active: false,
+        pinned_arrangement: None,
     }
 }
 
@@ -586,6 +587,7 @@ mod tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         }
     }
 
@@ -800,6 +802,7 @@ mod tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         };
         let migrated = migrate_workspace(data);
         assert_eq!(migrated.version, 1);
@@ -819,6 +822,7 @@ mod tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         };
         let migrated = migrate_workspace(data);
         assert_eq!(migrated.version, WORKSPACE_VERSION);

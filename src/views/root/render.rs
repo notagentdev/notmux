@@ -13,6 +13,12 @@ use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
 use crate::views::layout::split_pane::{
     DragState, compute_resize, render_project_divider, render_sidebar_divider,
 };
+use crate::views::panels::project_column::{PinnedColumnDrag, PinnedColumnDragView};
+use crate::workspace::state::{DropZone, PinnedNode, SplitDirection};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::rc::Rc;
+use notmux_views_terminal::elements::resize_handle::ResizeHandle;
 use crate::workspace::requests::OverlayRequest;
 use gpui::prelude::*;
 use gpui::*;
@@ -218,6 +224,21 @@ impl RootView {
 
         // Sync project columns to handle newly added projects
         self.sync_project_columns(cx);
+
+        // Pinned view: the project containers arrange as their own layout
+        // tree (splits both ways + project-level tab groups) — the isolated
+        // drag-and-drop layer one level above the panes.
+        let pinned_tree = {
+            let ws = self.workspace.read(cx);
+            if ws.data.pinned_view_active {
+                ws.data.pinned_arrangement.clone()
+            } else {
+                None
+            }
+        };
+        if let Some(tree) = pinned_tree {
+            return self.render_pinned_arrangement(&tree, cx);
+        }
 
         let visible_projects: Vec<_> = {
             let workspace = self.workspace.read(cx);
@@ -495,6 +516,616 @@ impl RootView {
             })
             .into_any_element()
     }
+
+    /// Pinned view root: render the project-container arrangement tree.
+    /// This is the isolated drag layer above the panes — same recursive
+    /// split/tabs model, whole projects as leaves, drop spots in orange.
+    fn render_pinned_arrangement(
+        &mut self,
+        tree: &PinnedNode,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // Evict bounds of split nodes that no longer exist
+        let mut valid: HashSet<Vec<usize>> = HashSet::new();
+        collect_pinned_split_paths(tree, &mut Vec::new(), &mut valid);
+        self.pinned_split_bounds.retain(|p, _| valid.contains(p));
+
+        div()
+            .id("pinned-arrangement")
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .child(self.render_pinned_node(tree, Vec::new(), cx))
+            .into_any_element()
+    }
+
+    fn render_pinned_node(
+        &mut self,
+        node: &PinnedNode,
+        path: Vec<usize>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match node {
+            PinnedNode::Project { project_id } => self.render_pinned_leaf(project_id, cx),
+            PinnedNode::Split {
+                direction,
+                sizes,
+                children,
+            } => self.render_pinned_split(*direction, sizes, children, path, cx),
+            PinnedNode::Tabs {
+                children,
+                active_tab,
+            } => self.render_pinned_tabs(children, *active_tab, path, cx),
+        }
+    }
+
+    /// A project-container leaf: the project column plus the 5-zone drop
+    /// overlay of the container layer (structure copied from the pane layer).
+    fn render_pinned_leaf(&mut self, project_id: &str, cx: &mut Context<Self>) -> AnyElement {
+        let Some(col) = self.project_columns.get(project_id).cloned() else {
+            return div().into_any_element();
+        };
+        div()
+            .id(ElementId::Name(format!("pinned-leaf-{}", project_id).into()))
+            .relative()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .child(AnyView::from(col).cached(StyleRefinement::default().size_full()))
+            .child(self.render_pinned_drop_zones(project_id, cx))
+            .into_any_element()
+    }
+
+    /// The container layer's drop zones — top/bottom/left/right/center,
+    /// highlighted in orange, typed to `PinnedColumnDrag` so the pane drop
+    /// containers inside the project never react (and vice versa).
+    fn render_pinned_drop_zones(
+        &self,
+        project_id: &str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme(cx);
+        let highlight = with_alpha(t.folder_orange, 0.3);
+        let pid = project_id.to_string();
+        let active_drag = self.active_drag.clone();
+
+        let make_zone = |zone: DropZone| -> Stateful<Div> {
+            let zone_id = format!("pinned-drop-{}-{:?}", pid, zone);
+            let pid_for_hover = pid.clone();
+            let pid_for_drop = pid.clone();
+            let active_drag_for_hover = active_drag.clone();
+            let active_drag_for_drop = active_drag.clone();
+            div()
+                .id(ElementId::Name(zone_id.into()))
+                .drag_over::<PinnedColumnDrag>(move |style, drag, _, _| {
+                    if active_drag_for_hover.borrow().is_some() {
+                        return style;
+                    }
+                    // No highlight on the dragged container itself
+                    if drag.project_id == pid_for_hover {
+                        return style;
+                    }
+                    style.bg(highlight)
+                })
+                .on_drop(cx.listener(move |this, drag: &PinnedColumnDrag, _window, cx| {
+                    if active_drag_for_drop.borrow().is_some() {
+                        return;
+                    }
+                    if drag.project_id == pid_for_drop {
+                        return;
+                    }
+                    this.workspace.update(cx, |ws, cx| {
+                        ws.move_pinned_project_zone(&drag.project_id, &pid_for_drop, zone, cx);
+                    });
+                }))
+        };
+
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .flex_row()
+            .child(make_zone(DropZone::Left).w(relative(0.25)).h_full())
+            .child(
+                div()
+                    .w(relative(0.50))
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(make_zone(DropZone::Top).w_full().h(relative(0.25)))
+                    .child(make_zone(DropZone::Center).w_full().h(relative(0.50)))
+                    .child(make_zone(DropZone::Bottom).w_full().h(relative(0.25))),
+            )
+            .child(make_zone(DropZone::Right).w(relative(0.25)).h_full())
+    }
+
+    fn render_pinned_split(
+        &mut self,
+        direction: SplitDirection,
+        sizes: &[f32],
+        children: &[PinnedNode],
+        path: Vec<usize>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_horizontal = direction == SplitDirection::Horizontal;
+        let bounds_ref = self
+            .pinned_split_bounds
+            .entry(path.clone())
+            .or_insert_with(|| {
+                Rc::new(RefCell::new(Bounds {
+                    origin: Point::default(),
+                    size: Size {
+                        width: px(800.0),
+                        height: px(600.0),
+                    },
+                }))
+            })
+            .clone();
+
+        let total: f32 = sizes.iter().sum();
+        let mut elements: Vec<AnyElement> = Vec::new();
+        for (i, child) in children.iter().enumerate() {
+            if i > 0 {
+                elements.push(
+                    self.render_pinned_split_divider(
+                        i - 1,
+                        i,
+                        direction,
+                        path.clone(),
+                        bounds_ref.clone(),
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+            let size = sizes
+                .get(i)
+                .copied()
+                .unwrap_or(100.0 / children.len() as f32);
+            let frac = if total > 0.0 {
+                size / total
+            } else {
+                1.0 / children.len() as f32
+            };
+            let mut child_path = path.clone();
+            child_path.push(i);
+            elements.push(
+                div()
+                    .flex_basis(relative(frac))
+                    .min_w_0()
+                    .min_h_0()
+                    .child(self.render_pinned_node(child, child_path, cx))
+                    .into_any_element(),
+            );
+        }
+
+        div()
+            .id(ElementId::Name(format!("pinned-split-{:?}", path).into()))
+            .relative()
+            .child(
+                canvas(
+                    {
+                        let bounds_ref = bounds_ref.clone();
+                        move |bounds, _window, _cx| {
+                            *bounds_ref.borrow_mut() = bounds;
+                        }
+                    },
+                    |_bounds, _prepaint, _window, _cx| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .flex()
+            .when(is_horizontal, |d| d.flex_col())
+            .flex_nowrap()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .children(elements)
+            .into_any_element()
+    }
+
+    fn render_pinned_split_divider(
+        &self,
+        left_child: usize,
+        right_child: usize,
+        direction: SplitDirection,
+        path: Vec<usize>,
+        bounds: Rc<RefCell<Bounds<Pixels>>>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let t = theme(cx);
+        let active_drag = self.active_drag.clone();
+        let workspace = self.workspace.clone();
+
+        ResizeHandle::new(
+            direction == SplitDirection::Horizontal,
+            t.border,
+            t.border_active,
+            move |mouse_pos, cx| {
+                let b = *bounds.borrow();
+                let initial_sizes = workspace
+                    .read(cx)
+                    .data()
+                    .pinned_arrangement
+                    .as_ref()
+                    .and_then(|tree| tree.get_at_path(&path))
+                    .and_then(|n| match n {
+                        PinnedNode::Split { sizes, .. } => Some(sizes.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                *active_drag.borrow_mut() = Some(DragState::PinnedSplit {
+                    layout_path: path.clone(),
+                    left_child,
+                    right_child,
+                    direction,
+                    container_bounds: b,
+                    initial_mouse_pos: mouse_pos,
+                    initial_sizes,
+                });
+            },
+        )
+    }
+
+    /// A project-level tab group: the tab strip replaces the member columns'
+    /// title bars; only the active container renders below it. Tabs drag and
+    /// drop with the container payload — orange indicators, exactly like the
+    /// pane tab strip one level down.
+    fn render_pinned_tabs(
+        &mut self,
+        children: &[PinnedNode],
+        active_tab: usize,
+        path: Vec<usize>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active_tab = active_tab.min(children.len().saturating_sub(1));
+        let strip = self.render_pinned_tab_strip(children, active_tab, &path, cx);
+        let mut child_path = path.clone();
+        child_path.push(active_tab);
+        let body = match children.get(active_tab) {
+            Some(child) => self.render_pinned_node(child, child_path, cx),
+            None => div().into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .child(strip)
+            .child(div().flex_1().min_h_0().min_w_0().child(body))
+            .into_any_element()
+    }
+
+    fn render_pinned_tab_strip(
+        &self,
+        children: &[PinnedNode],
+        active_tab: usize,
+        path: &[usize],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = theme(cx);
+
+        // Snapshot per-tab display data in one workspace read
+        struct TabInfo {
+            label: String,
+            icon_color: u32,
+            /// Draggable single-project tabs carry their project id
+            leaf_project: Option<String>,
+        }
+        let tabs: Vec<TabInfo> = {
+            let ws = self.workspace.read(cx);
+            children
+                .iter()
+                .map(|child| {
+                    let ids = child.collect_project_ids();
+                    let names: Vec<String> = ids
+                        .iter()
+                        .filter_map(|id| ws.project(id).map(|p| p.name.clone()))
+                        .collect();
+                    let icon_color = ids
+                        .first()
+                        .and_then(|id| ws.project(id))
+                        .map(|p| {
+                            let color = ws.effective_folder_color(p);
+                            if color != crate::theme::FolderColor::Default {
+                                t.get_folder_color(color)
+                            } else {
+                                t.text_secondary
+                            }
+                        })
+                        .unwrap_or(t.text_secondary);
+                    let leaf_project = match child {
+                        PinnedNode::Project { project_id } => Some(project_id.clone()),
+                        _ => None,
+                    };
+                    TabInfo {
+                        label: names.join(" / "),
+                        icon_color,
+                        leaf_project,
+                    }
+                })
+                .collect()
+        };
+
+        let tab_elements: Vec<AnyElement> = tabs
+            .into_iter()
+            .enumerate()
+            .map(|(i, info)| {
+                let is_active = i == active_tab;
+                let path_for_click = path.to_vec();
+                let path_for_drop = path.to_vec();
+                let active_drag_for_hover = self.active_drag.clone();
+                let active_drag_for_drop = self.active_drag.clone();
+                let leaf_for_hover = info.leaf_project.clone();
+                let tab_group = SharedString::from(format!("pinned-tab-{}-{:?}", i, path));
+
+                // Hover-revealed unpin inside the tab (pane-tab end slot),
+                // for single-project tabs only.
+                let end_slot = info.leaf_project.clone().map(|unpin_project| {
+                    let cover_bg = if is_active { t.bg_secondary } else { t.bg_hover };
+                    let bg_hover = t.bg_hover;
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .right_0()
+                        .flex()
+                        .items_center()
+                        .pr(px(3.0))
+                        .pl(px(12.0))
+                        .bg(rgb(cover_bg))
+                        .opacity(0.0)
+                        .group_hover(tab_group.clone(), |s| s.opacity(1.0))
+                        .child(
+                            div()
+                                .id(ElementId::Name(
+                                    format!("pinned-tab-unpin-{}-{:?}", i, path).into(),
+                                ))
+                                .flex_none()
+                                .w(px(18.0))
+                                .h(px(18.0))
+                                .flex()
+                                .justify_center()
+                                .items_center()
+                                .rounded(px(4.0))
+                                .cursor_pointer()
+                                .hover(move |s| s.bg(rgb(bg_hover)))
+                                .child(
+                                    svg()
+                                        .path("icons/unpin.svg")
+                                        .size(px(12.0))
+                                        .text_color(rgb(t.text_muted)),
+                                )
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                    cx.stop_propagation();
+                                })
+                                .on_click(cx.listener(move |this, _, _window, cx| {
+                                    cx.stop_propagation();
+                                    this.workspace.update(cx, |ws, cx| {
+                                        ws.unpin_all_in_project(&unpin_project, cx);
+                                    });
+                                })),
+                        )
+                });
+
+                let tab = div()
+                    .id(ElementId::Name(
+                        format!("pinned-tab-{}-{:?}", i, path).into(),
+                    ))
+                    .group(tab_group.clone())
+                    .cursor_pointer()
+                    .relative()
+                    .flex_shrink_0()
+                    .max_w(px(220.0))
+                    .h(px(22.0))
+                    .mx(px(2.0))
+                    .rounded(px(6.0))
+                    .overflow_hidden()
+                    .border_1()
+                    .text_size(ui_text_md(cx))
+                    .when(is_active, |d| {
+                        d.bg(rgb(t.bg_secondary))
+                            .border_color(rgb(t.border))
+                            .text_color(rgb(t.text_primary))
+                    })
+                    .when(!is_active, |d| {
+                        d.border_color(with_alpha(t.border, 0.0))
+                            .text_color(rgb(t.text_secondary))
+                            .hover(|s| s.bg(rgb(t.bg_hover)))
+                    })
+                    .child(
+                        div()
+                            .h_full()
+                            .w_full()
+                            .px(px(8.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .overflow_hidden()
+                            .child(
+                                svg()
+                                    .path("icons/pinned.svg")
+                                    .size(px(12.0))
+                                    .flex_shrink_0()
+                                    .text_color(rgb(info.icon_color)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(info.label.clone()),
+                            )
+                            .children(end_slot),
+                    )
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.set_pinned_active_tab(&path_for_click, i, cx);
+                        });
+                    }))
+                    // Drop spot of the container layer: insert at this tab's
+                    // position (orange, exactly like the pane tab strip)
+                    .drag_over::<PinnedColumnDrag>(move |style, drag: &PinnedColumnDrag, _, _| {
+                        if active_drag_for_hover.borrow().is_some() {
+                            return style;
+                        }
+                        if leaf_for_hover.as_deref() == Some(drag.project_id.as_str()) {
+                            return style;
+                        }
+                        style
+                            .border_l(px(3.0))
+                            .border_color(rgb(t.folder_orange))
+                            .bg(with_alpha(t.folder_orange, 0.15))
+                    })
+                    .on_drop(cx.listener(move |this, drag: &PinnedColumnDrag, _window, cx| {
+                        if active_drag_for_drop.borrow().is_some() {
+                            return;
+                        }
+                        this.workspace.update(cx, |ws, cx| {
+                            ws.move_pinned_project_to_tab_group(
+                                &drag.project_id,
+                                &path_for_drop,
+                                Some(i),
+                                cx,
+                            );
+                        });
+                    }));
+
+                // Single-project tabs drag as whole containers
+                let tab = if let Some(project_id) = info.leaf_project {
+                    let project_name = info.label.clone();
+                    tab.on_drag(
+                        PinnedColumnDrag {
+                            project_id,
+                            project_name,
+                        },
+                        move |drag, _position, _window, cx| {
+                            cx.new(|_| PinnedColumnDragView {
+                                name: drag.project_name.clone(),
+                            })
+                        },
+                    )
+                } else {
+                    tab
+                };
+                tab.into_any_element()
+            })
+            .collect();
+
+        // End filler: drop appends to the group; the empty strip area also
+        // moves the window — but only when the strip sits at the window's
+        // top edge (mirror of the pane tab strips).
+        let strip_bounds: Rc<RefCell<Bounds<Pixels>>> = Rc::new(RefCell::new(Bounds {
+            origin: point(px(0.0), px(9999.0)),
+            size: Size::default(),
+        }));
+        let path_for_end = path.to_vec();
+        let active_drag_for_end_hover = self.active_drag.clone();
+        let active_drag_for_end_drop = self.active_drag.clone();
+        let end_zone = div()
+            .id(ElementId::Name(format!("pinned-tab-end-{:?}", path).into()))
+            .flex_1()
+            .h_full()
+            .min_w(px(20.0))
+            .drag_over::<PinnedColumnDrag>(move |style, _: &PinnedColumnDrag, _, _| {
+                if active_drag_for_end_hover.borrow().is_some() {
+                    return style;
+                }
+                style
+                    .border_l(px(3.0))
+                    .border_color(rgb(t.folder_orange))
+                    .bg(with_alpha(t.folder_orange, 0.1))
+            })
+            .on_drop(cx.listener(move |this, drag: &PinnedColumnDrag, _window, cx| {
+                if active_drag_for_end_drop.borrow().is_some() {
+                    return;
+                }
+                this.workspace.update(cx, |ws, cx| {
+                    ws.move_pinned_project_to_tab_group(&drag.project_id, &path_for_end, None, cx);
+                });
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener({
+                    let strip_bounds = strip_bounds.clone();
+                    move |this, _, _, _| {
+                        if strip_bounds.borrow().origin.y < px(6.0) {
+                            this.title_should_move = true;
+                        }
+                    }
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.title_should_move = false),
+            )
+            .on_mouse_move(cx.listener(|this, _, window, _| {
+                if this.title_should_move {
+                    this.title_should_move = false;
+                    window.start_window_move();
+                }
+            }));
+
+        div()
+            .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+            .flex_shrink_0()
+            .relative()
+            .px(px(6.0))
+            .flex()
+            .items_center()
+            .bg(rgb(t.bg_header))
+            .border_b_1()
+            .border_color(rgb(t.border))
+            .child(
+                canvas(
+                    {
+                        let strip_bounds = strip_bounds.clone();
+                        move |bounds, _window, _cx| {
+                            *strip_bounds.borrow_mut() = bounds;
+                        }
+                    },
+                    |_bounds, _prepaint, _window, _cx| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .children(tab_elements)
+            .child(end_zone)
+            .into_any_element()
+    }
+}
+
+/// Collect the tree paths of all Split nodes (for bounds-map eviction).
+fn collect_pinned_split_paths(
+    node: &PinnedNode,
+    path: &mut Vec<usize>,
+    out: &mut HashSet<Vec<usize>>,
+) {
+    match node {
+        PinnedNode::Split { children, .. } => {
+            out.insert(path.clone());
+            for (i, child) in children.iter().enumerate() {
+                path.push(i);
+                collect_pinned_split_paths(child, path, out);
+                path.pop();
+            }
+        }
+        PinnedNode::Tabs { children, .. } => {
+            for (i, child) in children.iter().enumerate() {
+                path.push(i);
+                collect_pinned_split_paths(child, path, out);
+                path.pop();
+            }
+        }
+        PinnedNode::Project { .. } => {}
+    }
 }
 
 impl Render for RootView {
@@ -675,8 +1306,11 @@ impl Render for RootView {
                         }
                         window.on_mouse_event(move |e: &MouseUpEvent, phase, _window, cx| {
                             if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
-                                let was_split_drag =
-                                    matches!(*active_drag.borrow(), Some(DragState::Split { .. }));
+                                let was_split_drag = matches!(
+                                    *active_drag.borrow(),
+                                    Some(DragState::Split { .. })
+                                        | Some(DragState::PinnedSplit { .. })
+                                );
                                 let was_dragging = active_drag.borrow().is_some();
                                 *active_drag.borrow_mut() = None;
 

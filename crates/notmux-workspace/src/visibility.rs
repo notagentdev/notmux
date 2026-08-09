@@ -246,6 +246,7 @@ mod tests {
             focus_project_individual: false,
             focused_terminal: None,
             pinned_view_active: false,
+            pinned_arrangement: None,
         }
     }
 

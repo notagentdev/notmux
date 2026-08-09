@@ -89,6 +89,9 @@ pub struct RootView {
     projects_scroll_handle: ScrollHandle,
     /// Persistent container bounds for projects grid (used to compute pixel widths)
     projects_grid_bounds: Rc<RefCell<Bounds<Pixels>>>,
+    /// Persistent bounds per split node of the pinned arrangement (keyed by
+    /// tree path) — used by the divider drags of the project-container layer.
+    pinned_split_bounds: HashMap<Vec<usize>, Rc<RefCell<Bounds<Pixels>>>>,
     /// Horizontal scrollbar drag state
     hscroll_dragging: bool,
     hscroll_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
@@ -288,6 +291,7 @@ impl RootView {
                     height: px(600.0),
                 },
             })),
+            pinned_split_bounds: HashMap::new(),
             hscroll_dragging: false,
             hscroll_bounds: Rc::new(RefCell::new(None)),
             service_manager: None,

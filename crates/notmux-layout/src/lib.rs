@@ -11,6 +11,9 @@ use notmux_terminal::shell_config::ShellType;
 
 pub use notmux_core::types::SplitDirection;
 
+mod pinned;
+pub use pinned::PinnedNode;
+
 fn default_zoom_level() -> f32 {
     1.0
 }
