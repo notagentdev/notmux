@@ -56,6 +56,29 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         }
     }
 
+    /// Manual agent resume (command palette / context menu): types the
+    /// recorded resume command for this pane's slot, if a restorable session
+    /// exists and its agent process is not currently running.
+    pub(super) fn handle_resume_agent_session(&mut self, cx: &mut Context<Self>) {
+        if self.backend.is_remote() {
+            return;
+        }
+        let Some(terminal_id) = self.terminal_id.clone() else {
+            return;
+        };
+        match notmux_terminal::agent_sessions::manual_resume_input(&self.slot_id) {
+            Some(input) => {
+                self.backend
+                    .transport()
+                    .send_input(&terminal_id, input.as_bytes());
+            }
+            None => crate::toast_error(
+                "No resumable agent session in this terminal".to_string(),
+                cx,
+            ),
+        }
+    }
+
     pub(super) fn handle_copy(&mut self, cx: &mut Context<Self>) {
         if let Some(ref terminal) = self.terminal
             && let Some(text) = terminal.get_selected_text()

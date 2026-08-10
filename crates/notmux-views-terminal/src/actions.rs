@@ -36,5 +36,6 @@ gpui::actions!(
         ScrollUp,
         ScrollDown,
         FocusNextNotification,
+        ResumeAgentSession,
         ]
         );

@@ -192,6 +192,13 @@ pub enum OverlayManagerEvent {
     TerminalClear { terminal_id: String },
     /// Terminal context menu: select all
     TerminalSelectAll { terminal_id: String },
+
+    /// Context menu requested a manual agent-session resume for a pane.
+    TerminalResumeAgent {
+        project_id: String,
+        layout_path: Vec<usize>,
+        terminal_id: String,
+    },
     /// Terminal context menu: split
     TerminalSplit {
         project_id: String,
@@ -1154,6 +1161,18 @@ impl OverlayManager {
                 TerminalContextMenuEvent::SelectAll { terminal_id } => {
                     this.hide_terminal_context_menu(cx);
                     cx.emit(OverlayManagerEvent::TerminalSelectAll {
+                        terminal_id: terminal_id.clone(),
+                    });
+                }
+                TerminalContextMenuEvent::ResumeAgent {
+                    project_id,
+                    layout_path,
+                    terminal_id,
+                } => {
+                    this.hide_terminal_context_menu(cx);
+                    cx.emit(OverlayManagerEvent::TerminalResumeAgent {
+                        project_id: project_id.clone(),
+                        layout_path: layout_path.clone(),
                         terminal_id: terminal_id.clone(),
                     });
                 }

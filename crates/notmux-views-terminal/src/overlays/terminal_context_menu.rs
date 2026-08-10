@@ -43,6 +43,12 @@ pub enum TerminalContextMenuEvent {
         project_id: String,
         layout_path: Vec<usize>,
     },
+    /// Type the recorded agent resume command into this pane's terminal.
+    ResumeAgent {
+        project_id: String,
+        layout_path: Vec<usize>,
+        terminal_id: String,
+    },
 }
 
 /// Context menu for terminal content
@@ -202,6 +208,22 @@ impl Render for TerminalContextMenu {
                                         terminal_id: this.terminal_id.clone(),
                                     });
                                 })),
+                        )
+                        // Resume Agent Session
+                        .child(
+                            menu_item(
+                                "ctx-resume-agent",
+                                "icons/history.svg",
+                                "Resume Agent Session",
+                                &t,
+                            )
+                            .on_click(cx.listener(|this, _, _window, cx| {
+                                cx.emit(TerminalContextMenuEvent::ResumeAgent {
+                                    project_id: this.project_id.clone(),
+                                    layout_path: this.layout_path.clone(),
+                                    terminal_id: this.terminal_id.clone(),
+                                });
+                            })),
                         )
                         .child(menu_separator(&t))
                         // Split Horizontal

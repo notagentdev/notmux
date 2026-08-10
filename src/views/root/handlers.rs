@@ -315,6 +315,39 @@ impl RootView {
                 }
                 cx.notify();
             }
+            OverlayManagerEvent::TerminalResumeAgent {
+                project_id,
+                layout_path,
+                terminal_id,
+            } => {
+                // Records key on the pane's layout slot id; resolve it from
+                // the view layout at the menu's pane path (UI paths address
+                // the tree the current view renders).
+                let slot_id = self
+                    .workspace
+                    .read(cx)
+                    .view_layout(project_id)
+                    .and_then(|layout| layout.get_at_path(layout_path))
+                    .and_then(|node| match node {
+                        LayoutNode::Terminal { slot_id, .. } => Some(slot_id.clone()),
+                        _ => None,
+                    });
+                let input = slot_id
+                    .as_deref()
+                    .and_then(notmux_terminal::agent_sessions::manual_resume_input);
+                match input {
+                    Some(input) => {
+                        let terminals = self.terminals.lock();
+                        if let Some(terminal) = terminals.get(terminal_id) {
+                            terminal.send_input(&input);
+                        }
+                    }
+                    None => notmux_views_terminal::toast_error(
+                        "No resumable agent session in this terminal".to_string(),
+                        cx,
+                    ),
+                }
+            }
             OverlayManagerEvent::TerminalSplit {
                 project_id,
                 layout_path,

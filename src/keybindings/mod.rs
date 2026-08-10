@@ -51,9 +51,9 @@ actions!(
 pub use notmux_views_terminal::actions::{
     AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextNotification,
     FocusNextTerminal, FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal,
-    FullscreenPrevTerminal, MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search,
-    SearchNext, SearchPrev, SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical,
-    ToggleFullscreen, ZoomIn, ZoomOut,
+    FullscreenPrevTerminal, MinimizeTerminal, Paste, ResetZoom, ResumeAgentSession, ScrollDown,
+    ScrollUp, Search, SearchNext, SearchPrev, SendBacktab, SendEscape, SendTab, SplitHorizontal,
+    SplitVertical, ToggleFullscreen, ZoomIn, ZoomOut,
 };
 
 // Sidebar-specific actions (defined in notmux-views-sidebar crate)

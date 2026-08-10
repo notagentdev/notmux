@@ -4,9 +4,9 @@ use crate::ActionDispatch;
 use crate::actions::{
     AddTab, CloseSearch, CloseTerminal, Copy, FocusDown, FocusLeft, FocusNextTerminal,
     FocusPrevTerminal, FocusRight, FocusUp, FullscreenNextTerminal, FullscreenPrevTerminal,
-    MinimizeTerminal, Paste, ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev,
-    SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical, ToggleFullscreen, ZoomIn,
-    ZoomOut,
+    MinimizeTerminal, Paste, ResetZoom, ResumeAgentSession, ScrollDown, ScrollUp, Search,
+    SearchNext, SearchPrev, SendBacktab, SendEscape, SendTab, SplitHorizontal, SplitVertical,
+    ToggleFullscreen, ZoomIn, ZoomOut,
 };
 use crate::layout::navigation::NavigationDirection;
 use crate::terminal_view_settings;
@@ -224,6 +224,9 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             }))
             .on_action(cx.listener(|this, _: &MinimizeTerminal, _window, cx| {
                 this.handle_minimize(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ResumeAgentSession, _window, cx| {
+                this.handle_resume_agent_session(cx);
             }))
             .on_action(cx.listener(|this, _: &Copy, _window, cx| {
                 this.handle_copy(cx);

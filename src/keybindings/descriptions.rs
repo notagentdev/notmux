@@ -7,7 +7,8 @@ use super::{
     FocusNextTerminal, FocusPrevTerminal, FocusRight, FocusSidebar, FocusUp, FullscreenNextTerminal,
     FullscreenPrevTerminal, InstallUpdate, MinimizeTerminal, NewProject, OpenBrowser,
     OpenSettingsFile, Paste,
-    ResetZoom, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev, SendEscape, ShowCommandPalette,
+    ResetZoom, ResumeAgentSession, ScrollDown, ScrollUp, Search, SearchNext, SearchPrev,
+    SendEscape, ShowCommandPalette,
     ShowContentSearch, ShowDiffViewer, ShowFileSearch, ShowHookLog, ShowKeybindings,
     ShowProjectSwitcher, ShowSessionManager, ShowSettings, ShowThemeSelector, SplitHorizontal,
     SplitVertical, StartAllServices, StopAllServices, ToggleFileExplorer, ToggleFullscreen,
@@ -151,6 +152,15 @@ pub fn get_action_descriptions() -> HashMap<&'static str, ActionDescription> {
             description: "Minimize/detach the terminal",
             category: "Terminal",
             factory: || Box::new(MinimizeTerminal),
+        },
+    );
+    map.insert(
+        "ResumeAgentSession",
+        ActionDescription {
+            name: "Resume Agent Session",
+            description: "Type the recorded agent resume command (claude, codex, …) into the current terminal",
+            category: "Terminal",
+            factory: || Box::new(ResumeAgentSession),
         },
     );
     map.insert(
