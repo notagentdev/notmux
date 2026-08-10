@@ -1488,6 +1488,9 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn terminal_env_expands_path_placeholder() {
+        // The shim dir derives from NOTMUX_CONFIG_DIR, which store tests
+        // mutate — serialize against them.
+        let _guard = crate::test_env_lock();
         let mut user = HashMap::new();
         user.insert("PATH".to_string(), "/custom/bin:$PATH".to_string());
 

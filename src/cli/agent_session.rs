@@ -1,11 +1,16 @@
 //! `notmux agent-session` — invoked by agent lifecycle hooks to persist
 //! restorable session records (see `notmux_terminal::agent_sessions`).
 //!
-//! `record` reads the agent's hook payload from stdin (JSON) and/or explicit
-//! flags and stores `{kind, session_id, cwd, …}` keyed by the surrounding
-//! terminal's `NOTMUX_SURFACE_ID`. `end` marks the session ended so it is not
-//! auto-resumed. Both are silent no-ops outside a notmux terminal.
+//! `record` (session start) reads the agent's hook payload from stdin (JSON)
+//! and/or explicit flags and stores a *pending* session keyed by the
+//! surrounding terminal's slot id. `confirm` (turn completed) promotes the
+//! pending session to the slot's confirmed, restorable session — a session
+//! earns restorability with its first finished turn, so a resume that dies
+//! before any turn can never displace the previous session. `end` marks an
+//! intentional exit so the session is not auto-resumed. All are silent
+//! no-ops outside a notmux terminal.
 
+use notmux_terminal::agent_launch;
 use notmux_terminal::agent_sessions::{self, AgentSessionRecord};
 use std::io::Read;
 
@@ -16,8 +21,8 @@ const CWD_KEYS: &[&str] = &["cwd", "workspace_root", "working_directory"];
 
 pub fn cli_agent_session(args: &[String]) -> i32 {
     let action = args.first().map(|s| s.as_str()).unwrap_or("");
-    if !matches!(action, "record" | "end") {
-        eprintln!("Usage: notmux agent-session <record|end> --kind <agent> [--session-id <id>] [--cwd <dir>] [--transcript-path <p>] [--pid <pid>]");
+    if !matches!(action, "record" | "confirm" | "end") {
+        eprintln!("Usage: notmux agent-session <record|confirm|end> --kind <agent> [--session-id <id>] [--cwd <dir>] [--transcript-path <p>] [--pid <pid>]");
         return 1;
     }
 
@@ -61,15 +66,22 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
     if kind.trim().is_empty() {
         return 0;
     }
+    let kind = kind.trim().to_string();
 
     if action == "end" {
-        // Claude Code (≥2.1.x) fires SessionEnd on terminal disconnect too:
-        // quitting the app tears down the PTY, claude gets SIGHUP and reports
-        // reason "other". Only an intentional user exit may mark the record
-        // ended — a disconnected session must stay restorable for auto-resume.
-        if let Some(reason) = read_stdin_json().as_ref().and_then(end_reason)
-            && !is_intentional_end_reason(&reason)
-        {
+        // Only an intentional user exit may mark the record ended — a
+        // disconnected session must stay restorable for auto-resume. Claude
+        // (≥2.1.x) fires SessionEnd on terminal disconnect with reason
+        // "other"; agents may fire end events without a reason on
+        // disconnect, so a missing reason only counts as intentional for
+        // kinds whose sole end signal IS an intentional delete (opencode's
+        // `session.deleted`).
+        let reason = read_stdin_json().as_ref().and_then(end_reason);
+        let intentional = match reason.as_deref() {
+            Some(reason) => is_intentional_end_reason(reason),
+            None => kind == "opencode",
+        };
+        if !intentional {
             return 0;
         }
         if let Err(e) = agent_sessions::mark_ended(&surface_id, &kind) {
@@ -87,25 +99,45 @@ pub fn cli_agent_session(args: &[String]) -> i32 {
         transcript_path = transcript_path.or_else(|| first_string(&payload, TRANSCRIPT_KEYS));
     }
 
-    let Some(session_id) = session_id.filter(|s| !s.trim().is_empty()) else {
+    // `confirm` may arrive without a session id (promote whatever is
+    // pending); `record` without one is meaningless.
+    let session_id = session_id.map(|s| s.trim().to_string()).unwrap_or_default();
+    if action == "record" && session_id.is_empty() {
         return 0;
-    };
+    }
+
+    // Preserve the agent's launch flags (model/profile/permission mode) from
+    // its live argv so the resume command relaunches it the same way. The
+    // argv must actually look like this agent — the pid could have been
+    // reused by an unrelated process.
+    let launch_args = pid
+        .and_then(agent_launch::capture_process_argv)
+        .and_then(|argv| {
+            let tail = agent_launch::agent_argv_tail(&kind, &argv)?;
+            agent_launch::preserved_launch_args(&kind, tail)
+        })
+        .unwrap_or_default();
 
     let record = AgentSessionRecord {
-        kind: kind.trim().to_string(),
-        session_id: session_id.trim().to_string(),
+        kind,
+        session_id,
         cwd,
         transcript_path,
         pid,
         ended: false,
-        was_running_at_quit: None,
+        exited_this_run: false,
+        launch_args,
         updated_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
-    if let Err(e) = agent_sessions::record(&surface_id, record) {
-        eprintln!("agent-session record: {e}");
+    let result = match action {
+        "record" => agent_sessions::record(&surface_id, record),
+        _ => agent_sessions::confirm(&surface_id, record),
+    };
+    if let Err(e) = result {
+        eprintln!("agent-session {action}: {e}");
         return 1;
     }
     0
@@ -121,10 +153,9 @@ fn end_reason(payload: &serde_json::Value) -> Option<String> {
 }
 /// SessionEnd reasons that represent an intentional user exit (claude's
 /// documented reasons minus the "other" catch-all, which covers SIGHUP /
-/// terminal disconnect). Payloads without a reason always mark ended, so
-/// agents that don't send one keep their previous behavior.
+/// terminal disconnect).
 fn is_intentional_end_reason(reason: &str) -> bool {
-    matches!(reason, "clear" | "logout" | "prompt_input_exit" | "exit")
+    matches!(reason, "clear" | "logout" | "prompt_input_exit" | "exit" | "deleted")
 }
 /// Read stdin to EOF and parse as JSON. Hooks pipe the payload; callers that
 /// pass flags instead close stdin immediately, so this returns quickly. A
@@ -235,5 +266,6 @@ mod tests {
         assert!(is_intentional_end_reason("logout"));
         assert!(is_intentional_end_reason("prompt_input_exit"));
         assert!(is_intentional_end_reason("exit"));
+        assert!(is_intentional_end_reason("deleted"));
     }
 }

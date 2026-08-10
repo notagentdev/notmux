@@ -1,5 +1,17 @@
+pub mod agent_launch;
 pub mod agent_sessions;
 pub mod backend;
+
+/// Serializes tests that read or mutate process-global environment state
+/// (`NOTMUX_CONFIG_DIR` and the paths derived from it) — Rust runs tests in
+/// threads, and `set_var` races against readers in other tests.
+#[cfg(test)]
+pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
 pub mod input;
 pub mod process;
 pub mod pty_manager;

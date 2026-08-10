@@ -234,8 +234,12 @@ pub fn install_claude() -> Result<(), String> {
     // conversation (e.g. `notmux notify` token errors under "Ran 2 stop
     // hooks"), and silence + success is the supported way to keep hooks
     // invisible there.
+    // Stop also confirms the session: the first completed turn is what makes
+    // a recorded session restorable (`agent-session confirm` promotes the
+    // pending SessionStart record). `confirm` reads the payload from stdin,
+    // so it runs first in the group.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind claude --pid \"$PPID\"; \"{exe}\" notify --title \"Claude Code\" --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     // Submitting a prompt marks the agent as working (drives the sidebar spinner)
     // and clears any stale turn-complete notification.
@@ -396,8 +400,12 @@ pub fn install_codex() -> Result<(), String> {
     let exe = notmux_binary();
     // ASCII-only, guarded, fire-and-forget (codex blocks on hooks). The exact
     // bytes here feed the trust hash below, so keep them in sync.
+    // Stop also confirms the session (turn evidence → restorable). Codex may
+    // close the stdin pipe before a backgrounded child reads it, so the
+    // payload is captured synchronously and handed to the backgrounded
+    // confirm — same pattern as session_start below.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Turn complete\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+        "payload=$(cat); [ -n \"$NOTMUX_SURFACE_ID\" ] && ( printf %s \"$payload\" | nohup \"{exe}\" agent-session confirm --kind codex --pid \"$PPID\" >/dev/null 2>&1 & nohup \"{exe}\" notify --title Codex --body \"Turn complete\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" agent-status working >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
@@ -594,8 +602,10 @@ pub fn install_notagent() -> Result<(), String> {
         return Ok(());
     }
     let exe = notmux_binary();
+    // Stop also confirms the session (turn evidence → restorable); confirm
+    // reads the payload from stdin, so it runs first in the group.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Turn complete\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind notagent --pid \"$PPID\"; \"{exe}\" notify --title notagent --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
@@ -872,7 +882,7 @@ pub fn install_opencode() -> Result<(), String> {
     }
     let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
     let plugin = format!(
-        r#"// {OPENCODE_PLUGIN_MARKER} v2
+        r#"// {OPENCODE_PLUGIN_MARKER} v3
 // Bridges OpenCode lifecycle events to notmux (bell + agent status).
 // Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
 import {{ spawnSync }} from "node:child_process";
@@ -904,11 +914,13 @@ function sessionIdFor(event, props) {{
   return null;
 }}
 
-function recordSession(event, props) {{
+// "record" marks a freshly created session as pending; "confirm" (turn
+// evidence, fired on idle) is what makes it restorable for auto-resume.
+function sessionAction(action, event, props) {{
   const id = sessionIdFor(event, props);
   if (!id) return;
   send([
-    "agent-session", "record", "--kind", "opencode",
+    "agent-session", action, "--kind", "opencode",
     "--session-id", id,
     "--cwd", process.cwd(),
     "--pid", String(process.pid),
@@ -922,7 +934,7 @@ export const NotmuxBridge = async () => ({{
     // No prompt-submit/"working" mapping: message.updated re-fires for the
     // user message at turn end and would undo the turn-complete bell.
     if (type === "session.created") {{
-      recordSession(event, props);
+      sessionAction("record", event, props);
       return;
     }}
     if (type === "session.deleted") {{
@@ -933,7 +945,7 @@ export const NotmuxBridge = async () => ({{
       type === "session.idle" ||
       (type === "session.status" && props.status && props.status.type === "idle")
     ) {{
-      recordSession(event, props);
+      sessionAction("confirm", event, props);
       send(["notify", "--title", "OpenCode", "--body", "Turn complete"]);
       return;
     }}
@@ -1007,7 +1019,7 @@ pub fn install_pi() -> Result<(), String> {
     }
     let exe = serde_json::to_string(&notmux_binary()).unwrap_or_else(|_| "\"notmux\"".to_string());
     let extension = format!(
-        r#"// {PI_EXTENSION_MARKER} v2
+        r#"// {PI_EXTENSION_MARKER} v3
 // Bridges Pi lifecycle events to notmux (bell + agent status).
 // Installed by notmux. DO NOT EDIT MANUALLY — notmux rewrites this file.
 import {{ spawn }} from "node:child_process";
@@ -1032,8 +1044,10 @@ const SIDE_EFFECTING = new Set([
 ]);
 
 // Session restore: persist the current session id (resumable via
-// `pi --session <id>`) keyed by this pane's surface id.
-function recordSession(pi: any) {{
+// `pi --session <id>`) keyed by this pane's surface id. "record" marks the
+// session pending; "confirm" (turn evidence, fired on agent_end) is what
+// makes it restorable for auto-resume.
+function sessionAction(pi: any, action: string) {{
   try {{
     const id =
       pi && pi.sessionManager && typeof pi.sessionManager.getSessionId === "function"
@@ -1041,7 +1055,7 @@ function recordSession(pi: any) {{
         : null;
     if (typeof id === "string" && id.length > 0) {{
       send([
-        "agent-session", "record", "--kind", "pi",
+        "agent-session", action, "--kind", "pi",
         "--session-id", id,
         "--cwd", process.cwd(),
         "--pid", String(process.pid),
@@ -1053,7 +1067,7 @@ function recordSession(pi: any) {{
 export default function notmuxPiBridge(pi: any) {{
   pi.on("before_agent_start", async () => {{
     send(["agent-status", "working"]);
-    recordSession(pi);
+    sessionAction(pi, "record");
   }});
   pi.on("tool_execution_start", async (event: any) => {{
     const tool = String(
@@ -1066,7 +1080,7 @@ export default function notmuxPiBridge(pi: any) {{
   }});
   pi.on("agent_end", async () => {{
     send(["notify", "--title", "Pi", "--body", "Turn complete"]);
-    recordSession(pi);
+    sessionAction(pi, "confirm");
   }});
 }}
 "#
@@ -1131,8 +1145,10 @@ pub fn install_cursor() -> Result<(), String> {
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session record --kind cursor --pid \"$PPID\"; \"{exe}\" agent-status working; }} >/dev/null 2>&1 || true"
     );
+    // stop = turn evidence → confirm (promotes/creates the restorable
+    // record); beforeSubmitPrompt keeps recording the pending session.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session record --kind cursor --pid \"$PPID\"; \"{exe}\" notify --title Cursor --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind cursor --pid \"$PPID\"; \"{exe}\" notify --title Cursor --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let approval_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
@@ -1217,8 +1233,10 @@ pub fn install_antigravity() -> Result<(), String> {
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
     );
+    // Stop also confirms the session (turn evidence → restorable); confirm
+    // reads the payload from stdin, so it runs first in the group.
     let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Turn complete\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind antigravity --pid \"$PPID\"; \"{exe}\" notify --title Antigravity --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let attention_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" >/dev/null 2>&1 || true"

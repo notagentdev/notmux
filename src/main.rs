@@ -385,6 +385,10 @@ fn main() {
         std::process::exit(exit_code);
     }
 
+    // Agent sessions updated at/after this instant ran during THIS app run —
+    // the quit-time exited check in save_all_snapshots depends on it.
+    notmux_terminal::agent_sessions::init_app_start_epoch();
+
     // Set up file logging: rotate previous log, write to both stderr and file
     let log_target = (|| -> Option<env_logger::fmt::Target> {
         let config_dir = persistence::get_config_dir();
