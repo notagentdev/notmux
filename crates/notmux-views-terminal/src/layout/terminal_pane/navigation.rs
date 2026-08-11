@@ -86,27 +86,40 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         });
     }
 
+    /// Stops the "agent working" spinner after the user interrupted a turn.
+    ///
+    /// Claude Code and friends fire no Stop/turn-complete hook on an interrupt,
+    /// so the spinner would otherwise rotate forever. Clear it optimistically;
+    /// the next turn re-sets it via the UserPromptSubmit hook.
+    pub(super) fn clear_agent_working_on_interrupt(&mut self, cx: &mut Context<Self>) {
+        let Some(ref terminal) = self.terminal else {
+            return;
+        };
+        if !terminal.agent_working() {
+            return;
+        }
+        terminal.set_agent_working(false);
+        // Notify the workspace so the sidebar/tab spinners (separate entities)
+        // re-render and stop — the terminal's own state change doesn't reach
+        // them otherwise.
+        self.workspace.update(cx, |_ws, cx| cx.notify());
+    }
+
     pub(super) fn handle_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        // Ctrl-C interrupts a working agent. Esc does too but never reaches
+        // this listener: GPUI matches keybindings before running `on_key_down`,
+        // and the `TerminalPane` binding routes Esc to the `SendEscape` action,
+        // which clears the spinner itself.
+        let ks = &event.keystroke;
+        if ks.key == "escape" || (ks.key.eq_ignore_ascii_case("c") && ks.modifiers.control) {
+            self.clear_agent_working_on_interrupt(cx);
+        }
+
         if let Some(ref terminal) = self.terminal {
             // Typing into the pane dismisses its pending notification /
             // needs-input badge — the user is now interacting with this agent
             // (matches the click path in `handle_mouse_down`).
             terminal.clear_notification();
-
-            // Esc / Ctrl-C interrupt a working agent. Claude Code and friends do
-            // not fire a Stop/turn-complete hook on interrupt, so the "working"
-            // spinner would otherwise rotate forever. Clear it optimistically;
-            // the next agent turn re-sets it via the UserPromptSubmit hook.
-            let ks = &event.keystroke;
-            let is_interrupt =
-                ks.key == "escape" || (ks.key.eq_ignore_ascii_case("c") && ks.modifiers.control);
-            if is_interrupt && terminal.agent_working() {
-                terminal.set_agent_working(false);
-                // Notify the workspace so the sidebar/tab spinners (separate
-                // entities) re-render and stop — the terminal's own state
-                // change doesn't reach them otherwise.
-                self.workspace.update(cx, |_ws, cx| cx.notify());
-            }
 
             if is_paste_shortcut(event) {
                 terminal.claim_resize_local();

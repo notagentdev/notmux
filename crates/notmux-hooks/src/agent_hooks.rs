@@ -281,16 +281,19 @@ pub fn install_claude() -> Result<(), String> {
         "SessionEnd".to_string(),
         serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": session_end_cmd }] }]),
     );
-    // Approval prompts: Claude's `Notification` event fires for both permission
-    // requests and the ~60s idle ping. Filter on the hook's stdin JSON (the
-    // `notification_type` field, with a message-text fallback for older
-    // versions) so only approvals ring the bell — the idle ping stays ignored.
-    let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission' && \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\" >/dev/null 2>&1 || true"
+    // Claude's `Notification` event fires for both permission requests and the
+    // ~60s idle ping. Read the stdin payload once, then branch on the
+    // `notification_type` field (with a message-text fallback for older
+    // versions): approvals ring the bell, the idle ping only stops the working
+    // spinner and stays silent. The idle ping is what recovers a turn the user
+    // interrupted with Esc — Claude fires no `Stop` hook for those, so the
+    // spinner would otherwise rotate until the next prompt.
+    let notification_cmd = format!(
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ nm_payload=$(cat); if printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission'; then \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\"; elif printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"idle_prompt\"'; then \"{exe}\" agent-status idle; fi; }} >/dev/null 2>&1 || true"
     );
     hooks_obj.insert(
         "Notification".to_string(),
-        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": approval_cmd }] }]),
+        serde_json::json!([{ "matcher": "", "hooks": [{ "type": "command", "command": notification_cmd }] }]),
     );
     // Recovery from a stale "Approval needed" badge any tool starting means the user already approved
     // / answered and Claude is working again, so restore the spinner and clear

@@ -290,10 +290,15 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
                     terminal.send_bytes(b"\x1b[Z");
                 }
             }))
-            .on_action(cx.listener(|this, _: &SendEscape, _window, _cx| {
+            .on_action(cx.listener(|this, _: &SendEscape, _window, cx| {
                 if let Some(ref terminal) = this.terminal {
                     terminal.send_bytes(b"\x1b");
                 }
+                // Esc never reaches `handle_key`: GPUI matches keybindings
+                // before running `on_key_down` listeners, and an action stops
+                // propagation in the bubble phase. So the interrupt clear for
+                // a working agent has to live here, not in the key handler.
+                this.clear_agent_working_on_interrupt(cx);
             }))
             .on_action(cx.listener(|this, _: &ZoomIn, _window, cx| {
                 let current = this
