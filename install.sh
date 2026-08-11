@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="notagent/notmux"
+REPO="notagentdev/notmux"
 BOLD="\033[1m"
 DIM="\033[2m"
 GREEN="\033[32m"

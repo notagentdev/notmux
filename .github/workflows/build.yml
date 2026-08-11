@@ -300,7 +300,7 @@ jobs:
         with:
           app-id: ${{ secrets.NOTAGENT_BOT_APP_ID }}
           private-key: ${{ secrets.NOTAGENT_BOT_APP_PRIVATE_KEY }}
-          owner: notagent
+          owner: notagentdev
           repositories: homebrew-notmux
 
       - name: Update Homebrew tap
@@ -314,7 +314,7 @@ jobs:
           X64_SHA=$(sha256sum notmux-macos-x64.zip | cut -d' ' -f1)
 
           # Clone the tap repo
-          git clone https://x-access-token:${GH_TOKEN}@github.com/notagent/homebrew-notmux.git /tmp/homebrew-notmux
+          git clone https://x-access-token:${GH_TOKEN}@github.com/notagentdev/homebrew-notmux.git /tmp/homebrew-notmux
 
           # Update cask
           sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/homebrew-notmux/Casks/notmux.rb

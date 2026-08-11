@@ -1,6 +1,6 @@
 # NotMux Windows Installer
-# Usage: irm https://raw.githubusercontent.com/notagent/notmux/main/install.ps1 | iex
-# Or: .\install.ps1 [-Version "1.0.0"]
+# Usage: irm https://raw.githubusercontent.com/notagentdev/notmux/main/install.ps1 | iex
+# Or: .\install.ps1 [-Version "0.1.0"]
 
 param(
     [string]$Version
@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "notagent/notmux"
+$Repo = "notagentdev/notmux"
 $InstallDir = "$env:LOCALAPPDATA\Programs\NotMux"
 $BinName = "notmux.exe"
 
