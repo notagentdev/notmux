@@ -254,10 +254,13 @@ jobs:
           path: dist/
           retention-days: 7
 
-  # Create release when a tag is pushed
+  # Create release when a tag is pushed.
+  # Mobile is best-effort: the job still waits for build-mobile so its APKs and
+  # the iOS zip can be attached when they exist, but a broken Flutter build must
+  # not block the desktop release. Only build must succeed.
   release:
     needs: [build, build-mobile]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -272,7 +275,12 @@ jobs:
           path: artifacts
 
       - name: Prepare release assets
+        env:
+          MOBILE_RESULT: ${{ needs.build-mobile.result }}
         run: |
+          if [[ "$MOBILE_RESULT" != "success" ]]; then
+            echo "::warning::build-mobile was '$MOBILE_RESULT' — releasing desktop artifacts only, no APK/iOS assets"
+          fi
           cd artifacts
           for dir in */; do
             name="${dir%/}"
