@@ -339,6 +339,20 @@ jobs:
           git commit -m "chore: update cask to v${VERSION}"
           git push origin main
 
+      - name: Extract release notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > RELEASE_BODY.md
+          if [[ ! -s RELEASE_BODY.md ]]; then
+            echo "::warning::CHANGELOG.md has no section for v$VERSION - falling back to a minimal body"
+            printf 'Release v%s.\n' "$VERSION" > RELEASE_BODY.md
+          fi
+          cat RELEASE_BODY.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -347,4 +361,5 @@ jobs:
             *.zip
             *.dmg
             *.apk
-          generate_release_notes: true
+          body_path: RELEASE_BODY.md
+          generate_release_notes: false
