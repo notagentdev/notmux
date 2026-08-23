@@ -6,8 +6,7 @@
 //! restore, a freshly respawned terminal whose slot has a restorable record
 //! gets the agent's resume command typed into its shell.
 //!
-//! Evidence model (mirrors the reference implementation, see `RestorableAgentSession.swift` /
-//! `the reference implementation` hook handlers): a session *earns* restorability. A
+//! Evidence model — a session *earns* restorability. A
 //! session start writes a `pending` record; the first completed turn
 //! promotes it to `confirmed`. Restorability is recomputed from evidence at
 //! restore time (claude: the transcript file must exist) — never from a
@@ -312,8 +311,7 @@ fn shell_single_quoted(value: &str) -> String {
 /// The bare resume argv for an agent kind (executable + args), without cwd
 /// handling or preserved launch args. Executables stay bare names on purpose:
 /// `claude`/`codex` must resolve through the notmux PATH shims so hooks are
-/// re-injected on the resumed session (the reference implementation routes through wrapper tokens for
-/// the same reason, `AgentResumeArgv.swift`).
+/// re-injected on the resumed session — an absolute path would bypass them.
 pub fn resume_argv(kind: &str, session_id: &str) -> Option<Vec<String>> {
     let id = session_id.trim();
     if id.is_empty() {
@@ -427,7 +425,7 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-// ── Claude sibling-transcript repair (the reference implementation `resolvedClaudeWorkflowRecord`) ──
+// ── Claude sibling-transcript repair ───────────────────────────────────────
 
 /// Claude's project-directory encoding: `/` and `.` both become `-`.
 fn encode_claude_project_dir(path: &str) -> String {
@@ -445,8 +443,8 @@ fn claude_config_root() -> Option<PathBuf> {
 
 /// Resolve a claude record whose transcript is missing to the single sibling
 /// transcript of its session, or `None` when it cannot be repaired. Anchored
-/// like the reference implementation: a candidate project dir must contain the dead session's
-/// workflow container directory (`<project>/<session-id>/`), and the repair
+/// on the container directory: a candidate project dir must contain the dead
+/// session's workflow container directory (`<project>/<session-id>/`), and the repair
 /// only fires when exactly one other non-empty transcript exists there —
 /// never guess among many.
 pub fn resolve_claude_record(rec: AgentSessionRecord) -> Option<AgentSessionRecord> {

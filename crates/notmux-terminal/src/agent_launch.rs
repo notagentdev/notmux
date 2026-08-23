@@ -3,15 +3,11 @@
 //! When an agent session is recorded, the surrounding `notmux agent-session
 //! record` call captures the agent process's argv and stores the *restorable*
 //! subset (model/profile/permission flags) so the resume command relaunches
-//! the agent the way the user started it. Policies for claude, codex, cursor,
-//! opencode, pi and antigravity are ported verbatim from the reference implementation
-//! (`the reference implementation
-//! AgentLaunchSanitizer*.swift`); the notagent policy is derived from
-//! notagent's own CLI (`notagent_main/src/cli.rs` — no the reference implementation counterpart).
+//! the agent the way the user started it. Each agent kind carries its own
+//! policy, derived from that agent's CLI surface: which options take a value,
+//! which are worth restoring, and which must never be replayed.
 
-/// One agent kind's argument-preservation policy (the reference implementation `Policy` shape, minus
-/// the fields no ported policy uses: optional-value choices, greedy optional
-/// values, prompt boundaries, positional preservation).
+/// One agent kind's argument-preservation policy.
 struct Policy {
     /// Options that consume the following token as a value.
     value_options: &'static [&'static str],
@@ -55,7 +51,7 @@ impl Policy {
     }
 }
 
-// ── Policies (the reference implementation AgentLaunchSanitizerPrimaryPolicies.swift, verbatim) ─────
+// ── Policies ───────────────────────────────────────────────────────────────
 
 static CLAUDE_POLICY: Policy = Policy {
     value_options: &[
@@ -220,7 +216,7 @@ static OPENCODE_POLICY: Policy = Policy {
     skip_claude_hook_settings: false,
 };
 
-/// Derived from notagent's CLI (`notagent_main/src/cli.rs:15-74`), not the reference implementation:
+/// Derived from notagent's CLI (`notagent_main/src/cli.rs:15-74`):
 /// keep `--agent`/`--aid` (model rides on the agent profile), `--yolo`,
 /// `--verbose`; drop session/one-shot plumbing. notagent has no `--model`
 /// flag. Subcommand launches never fire SessionStart, so an unknown
@@ -248,7 +244,7 @@ static NOTAGENT_POLICY: Policy = Policy {
 };
 
 // Runtime/interpreter flags that may appear in captured argv but are not
-// portable session options (the reference implementation `runtimeOnlyOptionWidths`).
+// portable session options.
 fn runtime_only_option_width(arg: &str) -> Option<usize> {
     if arg == "--use-system-ca" {
         return Some(1);
@@ -258,9 +254,9 @@ fn runtime_only_option_width(arg: &str) -> Option<usize> {
         .map(|_| 1)
 }
 
-/// The executable names an agent kind runs as (the reference implementation detect rules for
-/// antigravity/pi; the remaining names are the binaries our own resume
-/// commands invoke). Used to validate a captured argv before its flags are
+/// The executable names an agent kind runs as — the binaries our own resume
+/// commands invoke, plus the alternates antigravity and pi ship under. Used to
+/// validate a captured argv before its flags are
 /// preserved — the recorded pid may have been reused by an unrelated
 /// process by the time it is read.
 fn kind_executable_names(kind: &str) -> &'static [&'static str] {
@@ -315,9 +311,8 @@ pub fn preserved_launch_args(kind: &str, tail: &[String]) -> Option<Vec<String>>
 }
 
 /// codex shows a blocking "Update available!" picker on promptless startup —
-/// exactly the shape of `codex resume <id>` — so the reference implementation suppresses the check
-/// per-process unless the preserved args already set it explicitly
-/// (`AgentResumeArgv.codexUpdateCheckSuppressionOverride`).
+/// exactly the shape of `codex resume <id>` — so the check is suppressed
+/// per-process unless the preserved args already set it explicitly.
 pub fn codex_resume_config_overrides(preserved: &[String]) -> Vec<String> {
     if has_explicit_update_check_override(preserved) {
         return Vec::new();
@@ -350,8 +345,8 @@ fn strip_leading<'a>(tail: &'a [String], word: &str) -> &'a [String] {
     }
 }
 
-/// opencode's bun bundle re-execs itself with internal arguments
-/// (the reference implementation strips `tui-settings` and the `$bunfs` worker path).
+/// opencode's bun bundle re-execs itself with internal arguments; strip
+/// `tui-settings` and the `$bunfs` worker path so they never reach a resume.
 fn strip_opencode_internal(tail: &[String]) -> &[String] {
     let mut t = tail;
     while let Some(first) = t.first() {
@@ -366,7 +361,7 @@ fn strip_opencode_internal(tail: &[String]) -> &[String] {
     t
 }
 
-// ── Core scan (the reference implementation `preserveOptions`) ──────────────────────────────────────
+// ── Core scan ──────────────────────────────────────────────────────────────
 
 fn preserve_options(args: &[String], policy: &Policy) -> Option<Vec<String>> {
     let mut result: Vec<String> = Vec::new();
@@ -484,8 +479,8 @@ fn looks_like_optional_value(value: &str, following: Option<&str>) -> bool {
 //
 // The claude wrapper shim injects `--settings {hooks…, preferredNotifChannel}`
 // (with the user's own --settings deep-merged in). The wrapper re-injects on
-// resume, so the captured copy must be stripped back to the user's part —
-// port of the reference implementation `claudeHookSettingsReplacement`, with our marker.
+// resume, so the captured copy must be stripped back to the user's part,
+// identified by our marker.
 
 /// `None` — not our settings, handle normally. `Some(vec![])` — drop.
 /// `Some(parts)` — replace with the user's remaining settings.

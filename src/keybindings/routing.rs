@@ -1,14 +1,12 @@
 //! Key routing between NotMux and the program inside the focused terminal.
 //!
-//! Mirrors how the reference implementation decides this (`Sources/AppDelegate.swift:17483` in
-//! `the reference implementation`): while a terminal owns the focus, the app only claims
-//! keystrokes that carry the platform's app modifier — every other keystroke
-//! goes straight to the terminal. There is no detection of which keys the
-//! running agent wants; the terminal simply has first claim, so an agent's
-//! Ctrl-chords, Esc and bare keys reach it by default.
+//! The rule: while a terminal owns the focus, the app only claims keystrokes
+//! that carry the platform's app modifier — every other keystroke goes straight
+//! to the terminal. There is no detection of which keys the running agent
+//! wants; the terminal simply has first claim, so an agent's Ctrl-chords, Esc
+//! and bare keys reach it by default.
 //!
-//! On macOS the app modifier is Cmd, exactly as in the reference implementation Linux and Windows have
-//! no free equivalent — Ctrl belongs to the shell there — so NotMux follows the
+//! On macOS the app modifier is Cmd. Linux and Windows have no free equivalent — Ctrl belongs to the shell there — so NotMux follows the
 //! terminal-emulator convention on those platforms and treats Ctrl+Shift (and
 //! Ctrl+Alt) as the app modifier, the way GNOME Terminal, Konsole and Windows
 //! Terminal do.
@@ -26,8 +24,8 @@ pub enum Routing {
 }
 
 /// Keystrokes the app keeps even without the app modifier, because a terminal
-/// cannot make use of them anyway. This is the equivalent of the reference implementation's narrow
-/// exception list in `the reference implementation`.
+/// cannot make use of them anyway. Deliberately kept short — every entry here
+/// is a key taken away from the program inside the terminal.
 const APP_OWNED_KEYSTROKES: &[&str] = &[
     // No legacy terminal encoding exists for these.
     "ctrl-tab",
