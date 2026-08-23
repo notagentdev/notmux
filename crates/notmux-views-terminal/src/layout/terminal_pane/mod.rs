@@ -137,6 +137,15 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             pane.create_new_terminal(cx);
         }
 
+        // Seed the bell edge-detector from the terminal's current state. The
+        // `Terminal` outlives its pane (it lives in the shared registry, keyed
+        // by terminal id) and a finished agent keeps `has_bell` set until its
+        // next prompt, while panes are rebuilt whenever layout paths shift
+        // (e.g. `add_terminal` wraps the whole tree in a new split). Starting
+        // at `false` would read as a rising edge on the first render and
+        // re-fire the flash ring on every already-notified terminal.
+        pane.had_bell = pane.terminal.as_ref().is_some_and(|t| t.has_bell());
+
         if pane
             .terminal_id
             .as_deref()
