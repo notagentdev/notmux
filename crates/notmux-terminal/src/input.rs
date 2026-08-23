@@ -57,6 +57,26 @@ pub fn key_to_bytes_with_options(
         }
     }
 
+    // Ctrl with punctuation produces the remaining C0 controls. Without this,
+    // Ctrl+[ would fall through to the single-character fallback below and type
+    // a literal "[" instead of sending Esc — which is what agents and anything
+    // vim-flavoured actually read it as.
+    if mods.control && !mods.alt && !mods.platform {
+        let control_byte = match event.key.as_str() {
+            "[" => Some(0x1b),
+            "\\" => Some(0x1c),
+            "]" => Some(0x1d),
+            "^" | "6" => Some(0x1e),
+            "_" | "/" | "-" => Some(0x1f),
+            "@" | "2" | "space" => Some(0x00),
+            "?" => Some(0x7f),
+            _ => None,
+        };
+        if let Some(byte) = control_byte {
+            return Some(vec![byte]);
+        }
+    }
+
     // Handle Tab with modifiers
     if event.key.as_str() == "tab" {
         if mods.shift {
@@ -220,6 +240,46 @@ mod tests {
                 ..Default::default()
             },
         }
+    }
+
+    fn ctrl_event(key: &str) -> KeyEvent {
+        KeyEvent {
+            key: key.to_string(),
+            key_char: None,
+            modifiers: KeyModifiers {
+                control: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn ctrl_bracket_sends_escape() {
+        assert_eq!(key_to_bytes(&ctrl_event("["), false), Some(vec![0x1b]));
+    }
+
+    #[test]
+    fn ctrl_punctuation_sends_c0_controls() {
+        for (key, byte) in [
+            ("\\", 0x1cu8),
+            ("]", 0x1d),
+            ("6", 0x1e),
+            ("-", 0x1f),
+            ("space", 0x00),
+            ("?", 0x7f),
+        ] {
+            assert_eq!(
+                key_to_bytes(&ctrl_event(key), false),
+                Some(vec![byte]),
+                "ctrl-{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_letters_still_send_their_control_char() {
+        assert_eq!(key_to_bytes(&ctrl_event("c"), false), Some(vec![0x03]));
+        assert_eq!(key_to_bytes(&ctrl_event("d"), false), Some(vec![0x04]));
     }
 
     #[test]

@@ -2,7 +2,32 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use super::routing::{Routing, route};
 use super::types::{KeybindingConflict, KeybindingEntry};
+
+/// Linux and Windows reserve Ctrl for the shell, so the plain-Ctrl defaults move
+/// to the terminal-emulator convention of Ctrl+Shift — or to Ctrl+Alt where the
+/// Ctrl+Shift slot already belongs to another action. macOS keeps Cmd and drops
+/// these duplicates entirely.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+const NON_MAC_REMAP: &[(&str, &str)] = &[
+    ("ctrl-b", "ctrl-alt-b"),               // ctrl-shift-b: toggle sidebar auto-hide
+    ("ctrl-1", "ctrl-shift-1"),
+    ("ctrl-k ctrl-s", "ctrl-shift-k ctrl-shift-s"),
+    ("ctrl-k ctrl-w", "ctrl-shift-k ctrl-shift-w"),
+    ("ctrl-k ctrl-t", "ctrl-shift-k ctrl-shift-t"),
+    ("ctrl-,", "ctrl-shift-,"),
+    ("ctrl-p", "ctrl-alt-p"),               // ctrl-shift-p: command palette
+    ("ctrl-e", "ctrl-alt-e"),               // ctrl-shift-e: toggle file explorer
+    ("ctrl-`", "ctrl-shift-`"),
+    ("ctrl-]", "ctrl-shift-]"),
+    ("ctrl-[", "ctrl-shift-["),
+    ("ctrl-d", "ctrl-alt-d"),               // ctrl-shift-d: split vertical
+    ("ctrl-f", "ctrl-alt-f"),               // ctrl-shift-f: search file contents
+    ("ctrl-=", "ctrl-shift-="),
+    ("ctrl--", "ctrl-shift--"),
+    ("ctrl-0", "ctrl-shift-0"),
+];
 
 /// Complete keybinding configuration
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -299,9 +324,42 @@ impl KeybindingConfig {
             ],
         );
 
-        Self {
+        let mut config = Self {
             version: 1,
             bindings,
+        };
+        config.apply_terminal_key_policy();
+        config
+    }
+
+    /// Make the defaults fit the platform's app modifier.
+    ///
+    /// The terminal owns every keystroke that is not an app shortcut (see
+    /// `super::routing`), so a Ctrl duplicate of a Cmd binding is dead weight on
+    /// macOS and has to move out of the shell's way on Linux and Windows.
+    fn apply_terminal_key_policy(&mut self) {
+        for entries in self.bindings.values_mut() {
+            if cfg!(target_os = "macos") {
+                // Keep an action's Cmd bindings and the narrow exceptions; drop
+                // the Ctrl duplicates that the terminal needs for itself.
+                let keeps_a_binding = entries
+                    .iter()
+                    .any(|e| route(&e.keystroke, e.context.as_deref()) == Routing::App);
+                if keeps_a_binding {
+                    entries
+                        .retain(|e| route(&e.keystroke, e.context.as_deref()) == Routing::App);
+                }
+            } else {
+                for entry in entries.iter_mut() {
+                    if let Some(remapped) = NON_MAC_REMAP
+                        .iter()
+                        .find(|(from, _)| *from == entry.keystroke)
+                        .map(|(_, to)| *to)
+                    {
+                        entry.keystroke = remapped.to_string();
+                    }
+                }
+            }
         }
     }
 
@@ -473,6 +531,36 @@ pub fn save_keybindings(config: &KeybindingConfig) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shipped defaults must never fight the program inside a terminal:
+    /// every one of them has to carry the platform's app modifier (or be one of
+    /// the narrow exceptions), so nothing has to be stolen from the shell.
+    #[test]
+    fn defaults_never_take_a_key_the_terminal_needs() {
+        let config = KeybindingConfig::defaults();
+        for (action, entries) in &config.bindings {
+            for entry in entries {
+                assert_eq!(
+                    route(&entry.keystroke, entry.context.as_deref()),
+                    Routing::App,
+                    "default binding '{}' for {action} would be taken from the terminal",
+                    entry.keystroke
+                );
+            }
+        }
+    }
+
+    /// Pruning the Ctrl duplicates on macOS must not leave an action unreachable.
+    #[test]
+    fn every_action_keeps_at_least_one_binding() {
+        let config = KeybindingConfig::defaults();
+        for (action, entries) in &config.bindings {
+            assert!(
+                entries.iter().any(|e| e.enabled),
+                "{action} lost all of its bindings"
+            );
+        }
+    }
 
     #[test]
     fn test_default_config_has_no_conflicts() {

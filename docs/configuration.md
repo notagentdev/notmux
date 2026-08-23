@@ -23,7 +23,7 @@ The directory contains:
 
 ## settings.json
 
-The main configuration file. NotMux creates it with defaults on first launch. You can edit it by hand or use the in-app settings panel (`Cmd+,` / `Ctrl+,`). To open the raw file, press `Cmd+Alt+,` / `Ctrl+Alt+,`.
+The main configuration file. NotMux creates it with defaults on first launch. You can edit it by hand or use the in-app settings panel (`Cmd+,` / `Ctrl+Shift+,`). To open the raw file, press `Cmd+Alt+,` / `Ctrl+Alt+,`.
 
 If the file contains invalid JSON, NotMux recovers as many fields as possible and falls back to defaults for the rest.
 
@@ -180,7 +180,7 @@ Controls default behavior when creating and closing git worktrees:
 
 Custom keybindings override the defaults. The file maps action names to an array of binding entries. Each entry has a `keystroke`, an optional `context`, and an `enabled` flag.
 
-NotMux generates this file with defaults if it does not exist. You can view and edit bindings in-app with `Cmd+K Cmd+S` / `Ctrl+K Ctrl+S`.
+NotMux generates this file with defaults if it does not exist. You can view and edit bindings in-app with `Cmd+K Cmd+S` / `Ctrl+Shift+K Ctrl+Shift+S`.
 
 ### Format
 
@@ -209,6 +209,27 @@ Keystrokes use modifiers joined by `-`:
 
 Examples: `"cmd-shift-d"`, `"ctrl-alt-left"`, `"shift-pageup"`, `"cmd-k cmd-t"`
 
+### Who Gets the Key: NotMux or the Terminal
+
+While a terminal pane has focus, NotMux only claims keystrokes that carry the
+**app modifier** — `cmd` on macOS, `ctrl-shift` or `ctrl-alt` on Linux and
+Windows. Every other keystroke is handed to the program running inside the
+terminal, untouched.
+
+That is why the defaults look different per platform: `Ctrl+D` has to stay EOF,
+`Ctrl+[` has to stay Esc, and `Ctrl+K` has to stay kill-line, so on Linux and
+Windows the app bindings live on `Ctrl+Shift` and `Ctrl+Alt` the way they do in
+GNOME Terminal, Konsole and Windows Terminal.
+
+The rule applies to your own bindings too. A binding without the app modifier
+still works everywhere else — in the sidebar, the file explorer, a dialog — it
+just will not fire while you are typing in a terminal. Bindings scoped to a
+context other than `TerminalPane` are never affected.
+
+A short list of keystrokes stays with the app regardless, because a terminal has
+no use for them: `ctrl-tab`, `ctrl-shift-tab`, `shift-pageup`, `shift-pagedown`
+and `shift-escape`.
+
 ### Context Scoping
 
 Bindings without a `context` are global. Adding a context limits the binding to when that UI element is focused:
@@ -229,7 +250,7 @@ Bindings without a `context` are global. Adding a context limits the binding to 
     ],
     "SplitHorizontal": [
       { "keystroke": "cmd-shift-d", "context": "TerminalPane" },
-      { "keystroke": "ctrl-d", "context": "TerminalPane" }
+      { "keystroke": "ctrl-alt-d", "context": "TerminalPane" }
     ],
     "Copy": [
       { "keystroke": "cmd-c", "context": "TerminalPane" },
@@ -252,7 +273,7 @@ Set `enabled` to `false` to disable a specific binding without removing it:
   "bindings": {
     "ToggleSidebar": [
       { "keystroke": "cmd-b", "enabled": false },
-      { "keystroke": "ctrl-b" }
+      { "keystroke": "ctrl-alt-b" }
     ]
   }
 }
@@ -262,33 +283,33 @@ Set `enabled` to `false` to disable a specific binding without removing it:
 
 | Action | Default Key (macOS / Linux) | Description |
 |--------|----------------------------|-------------|
-| `ToggleSidebar` | `Cmd+B` / `Ctrl+B` | Show or hide the sidebar |
+| `ToggleSidebar` | `Cmd+B` / `Ctrl+Alt+B` | Show or hide the sidebar |
 | `ToggleSidebarAutoHide` | `Cmd+Shift+B` / `Ctrl+Shift+B` | Toggle sidebar auto-hide |
-| `FocusSidebar` | `Cmd+1` / `Ctrl+1` | Focus the sidebar |
+| `FocusSidebar` | `Cmd+1` / `Ctrl+Shift+1` | Focus the sidebar |
 | `ClearFocus` | `Cmd+0` / `Ctrl+0` | Clear focus |
 | `ShowCommandPalette` | `Cmd+Shift+P` / `Ctrl+Shift+P` | Open command palette |
-| `ShowSettings` | `Cmd+,` / `Ctrl+,` | Open settings panel |
+| `ShowSettings` | `Cmd+,` / `Ctrl+Shift+,` | Open settings panel |
 | `OpenSettingsFile` | `Cmd+Alt+,` / `Ctrl+Alt+,` | Open settings JSON file |
-| `ShowKeybindings` | `Cmd+K Cmd+S` / `Ctrl+K Ctrl+S` | Show keybindings overlay |
-| `ShowThemeSelector` | `Cmd+K Cmd+T` / `Ctrl+K Ctrl+T` | Open theme selector |
-| `ShowSessionManager` | `Cmd+K Cmd+W` / `Ctrl+K Ctrl+W` | Open session manager |
-| `ShowFileSearch` | `Cmd+P` / `Ctrl+P` | File search |
-| `ShowProjectSwitcher` | `Cmd+E` / `Ctrl+E` | Switch between projects |
+| `ShowKeybindings` | `Cmd+K Cmd+S` / `Ctrl+Shift+K Ctrl+Shift+S` | Show keybindings overlay |
+| `ShowThemeSelector` | `Cmd+K Cmd+T` / `Ctrl+Shift+K Ctrl+Shift+T` | Open theme selector |
+| `ShowSessionManager` | `Cmd+K Cmd+W` / `Ctrl+Shift+K Ctrl+Shift+W` | Open session manager |
+| `ShowFileSearch` | `Cmd+P` / `Ctrl+Alt+P` | File search |
+| `ShowProjectSwitcher` | `Cmd+E` / `Ctrl+Alt+E` | Switch between projects |
 | `SplitVertical` | `Cmd+D` / `Ctrl+Shift+D` | Split terminal vertically |
-| `SplitHorizontal` | `Cmd+Shift+D` / `Ctrl+D` | Split terminal horizontally |
+| `SplitHorizontal` | `Cmd+Shift+D` / `Ctrl+Alt+D` | Split terminal horizontally |
 | `AddTab` | `Cmd+T` / `Ctrl+Shift+T` | Add a new tab |
 | `CloseTerminal` | `Cmd+W` / `Ctrl+Shift+W` | Close the focused terminal |
 | `Copy` | `Cmd+C` / `Ctrl+Shift+C` | Copy selection |
 | `Paste` | `Cmd+V` / `Ctrl+Shift+V` | Paste from clipboard |
-| `Search` | `Cmd+F` / `Ctrl+F` | Search in terminal |
+| `Search` | `Cmd+F` / `Ctrl+Alt+F` | Search in terminal |
 | `ScrollUp` / `ScrollDown` | `Shift+PgUp` / `Shift+PgDn` | Scroll terminal output |
-| `ZoomIn` / `ZoomOut` | `Cmd+=` / `Cmd+-` | Zoom terminal font |
-| `ResetZoom` | `Cmd+0` (in terminal) | Reset terminal zoom |
+| `ZoomIn` / `ZoomOut` | `Cmd+=` / `Cmd+-` (`Ctrl+Shift+=` / `Ctrl+Shift+-`) | Zoom terminal font |
+| `ResetZoom` | `Cmd+0` / `Ctrl+Shift+0` (in terminal) | Reset terminal zoom |
 | `FocusNextTerminal` | `Cmd+Shift+]` / `Ctrl+Tab` | Focus next terminal |
 | `FocusPrevTerminal` | `Cmd+Shift+[` / `Ctrl+Shift+Tab` | Focus previous terminal |
 | `FocusLeft/Right/Up/Down` | `Cmd+Alt+Arrow` | Directional focus navigation |
 | `ToggleFullscreen` | `Shift+Escape` (in terminal) | Toggle terminal fullscreen |
-| `TogglePaneSwitcher` | `` Cmd+` `` / `` Ctrl+` `` | Quick pane switcher |
+| `TogglePaneSwitcher` | `` Cmd+` `` / `` Ctrl+Shift+` `` | Quick pane switcher |
 
 NotMux warns on startup if it detects conflicting keybindings (same keystroke and context assigned to different actions).
 

@@ -187,24 +187,32 @@ cargo run
 
 | Action | macOS | Linux/Windows |
 |--------|-------|---------------|
-| New terminal | Cmd+T | Ctrl+T |
-| Close terminal | Cmd+W | Ctrl+W |
-| Split horizontal | Cmd+D | Ctrl+D |
-| Split vertical | Cmd+Shift+D | Ctrl+Shift+D |
-| Navigate panes | Cmd+Alt+Arrow | Ctrl+Alt+Arrow |
+| New terminal | Cmd+T | Ctrl+Shift+T |
+| Close terminal | Cmd+W | Ctrl+Shift+W |
+| Split vertical | Cmd+D | Ctrl+Shift+D |
+| Split horizontal | Cmd+Shift+D | Ctrl+Alt+D |
+| Navigate panes | Cmd+Alt+Arrow | Super+Alt+Arrow |
 | Next/prev terminal | Cmd+Shift+]/[ | Ctrl+Tab / Ctrl+Shift+Tab |
 | Fullscreen terminal | Shift+Escape | Shift+Escape |
 | Command palette | Cmd+Shift+P | Ctrl+Shift+P |
-| File search | Cmd+P | Ctrl+P |
-| Find | Cmd+F | Ctrl+F |
-| Copy | Cmd+C | Ctrl+C |
-| Paste | Cmd+V | Ctrl+V |
-| Zoom in/out | Cmd++/- | Ctrl++/- |
-| Reset zoom | Cmd+0 | Ctrl+0 |
-| Toggle sidebar | Cmd+B | Ctrl+B |
-| Settings | Cmd+, | Ctrl+, |
+| File search | Cmd+P | Ctrl+Alt+P |
+| Find | Cmd+F | Ctrl+Alt+F |
+| Copy | Cmd+C | Ctrl+Shift+C |
+| Paste | Cmd+V | Ctrl+Shift+V |
+| Zoom in/out | Cmd++/- | Ctrl+Shift++/- |
+| Reset zoom | Cmd+0 | Ctrl+Shift+0 |
+| Toggle sidebar | Cmd+B | Ctrl+Alt+B |
+| Settings | Cmd+, | Ctrl+Shift+, |
 
 All shortcuts are customizable via `~/.config/notmux/keybindings.json`.
+
+**The terminal keeps its keys.** While a terminal pane has focus, only keystrokes
+carrying the app modifier trigger a NotMux action — Cmd on macOS, Ctrl+Shift or
+Ctrl+Alt on Linux and Windows. Everything else goes to the program running
+inside the terminal, so Ctrl+D stays EOF, Ctrl+[ stays Esc, and an agent's own
+shortcuts keep working instead of being swallowed by the multiplexer. The only
+exceptions are keys a terminal cannot use anyway: Ctrl+Tab, Shift+PgUp/PgDn and
+Shift+Escape.
 
 ## Configuration
 

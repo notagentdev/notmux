@@ -1,5 +1,6 @@
 mod config;
 mod descriptions;
+mod routing;
 mod types;
 
 use gpui::*;
@@ -7,6 +8,7 @@ use parking_lot::RwLock;
 
 pub use config::{KeybindingConfig, get_keybindings_path, load_keybindings, save_keybindings};
 pub use descriptions::get_action_descriptions;
+pub use routing::Routing;
 #[allow(unused_imports)]
 pub use types::{ActionDescription, KeybindingConflict, KeybindingEntry};
 
@@ -350,7 +352,21 @@ fn register_bindings_from_config(cx: &mut App, config: &KeybindingConfig) {
                 continue;
             }
 
-            let context = entry.context.as_deref();
+            // The terminal has first claim on everything that is not an app
+            // shortcut, so an agent's Ctrl-chords and Esc reach it instead of
+            // triggering a NotMux action. See `routing`.
+            let context = match routing::route(&entry.keystroke, entry.context.as_deref()) {
+                Routing::App => entry.context.as_deref(),
+                Routing::AppOutsideTerminal => Some(routing::OUTSIDE_TERMINAL_CONTEXT),
+                Routing::Terminal => {
+                    log::debug!(
+                        "keybinding '{}' for {} belongs to the terminal, not registering",
+                        entry.keystroke,
+                        action
+                    );
+                    continue;
+                }
+            };
 
             // Map action name to action type
             if let Some(binding) = create_keybinding(action, &entry.keystroke, context) {
