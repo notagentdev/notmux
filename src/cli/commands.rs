@@ -484,8 +484,26 @@ pub fn cli_notify(args: &[String]) -> i32 {
         }
     }
 }
-pub fn cli_clear_notification(_args: &[String]) -> i32 {
-    let terminal_id = std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty());
+/// `notmux clear-notification [--terminal-id <id>]` — dismiss a terminal's
+/// badge (a `done` agent reads as idle afterwards). Defaults to the current
+/// terminal.
+pub fn cli_clear_notification(args: &[String]) -> i32 {
+    let mut terminal_id: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--terminal-id" | "--terminal" | "-t" => {
+                i += 1;
+                terminal_id = args.get(i).cloned();
+            }
+            a if !a.starts_with('-') && terminal_id.is_none() => terminal_id = Some(a.to_string()),
+            _ => {}
+        }
+        i += 1;
+    }
+    let terminal_id = terminal_id
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty()));
     let token = match ensure_token() {
         Ok(t) => t,
         Err(e) => {

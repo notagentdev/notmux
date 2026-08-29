@@ -1248,7 +1248,7 @@ pub fn install_antigravity() -> Result<(), String> {
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind antigravity --pid \"$PPID\"; \"{exe}\" notify --title Antigravity --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let attention_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Antigravity --body \"Attention needed\" --state blocked >/dev/null 2>&1 || true"
     );
     // Antigravity has no dedicated approval event — a side-effecting tool
     // starting rings the bell

@@ -528,22 +528,36 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             } else {
                 "Terminal".to_string()
             };
-            let bell = terminal.is_some_and(|t| t.has_bell());
-            let waiting = terminal.is_some_and(|t| t.is_waiting_for_input());
-            let working = terminal.is_some_and(|t| t.agent_working());
+            // The agent lifecycle state is the single source for the row's
+            // visuals; the plain-terminal bell and the shell's
+            // waiting-for-input heuristic only fill in where no agent is.
+            use notmux_core::agent_state::AgentState;
+            let state = terminal.and_then(|t| t.agent_state());
+            let working = state == Some(AgentState::Working);
+            let bell = matches!(state, Some(AgentState::Blocked) | Some(AgentState::Done))
+                || (state.is_none() && terminal.is_some_and(|t| t.has_bell()));
+            let waiting = state.is_none() && terminal.is_some_and(|t| t.is_waiting_for_input());
+            let truncate = |body: &str| {
+                let body = body.trim();
+                if body.len() > 18 {
+                    format!("{}…", &body[..body.char_indices().take(17).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(18)])
+                } else {
+                    body.to_string()
+                }
+            };
             let idle = if bell {
-                terminal
+                // A blocked/done agent without a badge text (screen-detected
+                // state) still gets a label so the row says why it rings.
+                let body = terminal
                     .and_then(|t| t.last_notification())
-                    .map(|n| {
-                        let body = n.body.trim();
-                        if body.is_empty() {
-                            "bell".to_string()
-                        } else if body.len() > 18 {
-                            format!("{}…", &body[..body.char_indices().take(17).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(18)])
-                        } else {
-                            body.to_string()
-                        }
-                    })
+                    .map(|n| n.body)
+                    .filter(|b| !b.trim().is_empty());
+                Some(match (body, state) {
+                    (Some(b), _) => truncate(&b),
+                    (None, Some(AgentState::Blocked)) => "Needs input".to_string(),
+                    (None, Some(AgentState::Done)) => "Done".to_string(),
+                    (None, _) => "bell".to_string(),
+                })
             } else if waiting {
                 terminal.map(|t| t.idle_duration_display())
             } else {
@@ -752,32 +766,34 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
                     move |_window, cx| Tooltip::new(tooltip_text).build(_window, cx)
                 })
             }))
-            // Working spinner — very end of the row, only while the agent
-            // works a turn.
+            // Agent state indicator — very end of the row: the spinner while
+            // the agent works a turn, a muted dot when it is present but
+            // unclassifiable. Blocked/done already ring the bell and carry a
+            // label above, so they draw no extra dot here.
             .children(agent_working.then(|| {
-                div()
-                    .flex_shrink_0()
-                    .w(px(14.0))
-                    .h(px(14.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        svg()
-                            .path("icons/spinner.svg")
-                            .size(px(12.0))
-                            .text_color(rgb(t.text_primary))
-                            .with_animation(
-                                ElementId::Name(format!("term-spinner-{}", terminal_id).into()),
-                                Animation::new(std::time::Duration::from_secs(1)).repeat(),
-                                |svg, delta| {
-                                    svg.with_transformation(Transformation::rotate(percentage(
-                                        delta,
-                                    )))
-                                },
-                            ),
+                sidebar_agent_state_indicator(
+                    notmux_core::agent_state::AgentState::Working,
+                    format!("term-spinner-{}", terminal_id),
+                    &t,
+                )
+            }).flatten())
+            .children(
+                (!agent_working
+                    && self
+                        .terminals
+                        .lock()
+                        .get(terminal_id.as_str())
+                        .and_then(|t| t.agent_state())
+                        == Some(notmux_core::agent_state::AgentState::Unknown))
+                .then(|| {
+                    sidebar_agent_state_indicator(
+                        notmux_core::agent_state::AgentState::Unknown,
+                        format!("term-unknown-{}", terminal_id),
+                        &t,
                     )
-            }))
+                })
+                .flatten(),
+            )
     }
 
     /// A row in the "Editors" group: file icon + basename, click focuses the

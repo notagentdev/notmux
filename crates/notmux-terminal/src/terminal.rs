@@ -1332,12 +1332,38 @@ impl Terminal {
         }
     }
     pub fn clear_notification(&self) {
+        let before = self.agent_state();
+        self.clear_notification_inner();
+        self.report_transition(before, "seen", None);
+    }
+    fn clear_notification_inner(&self) {
         *self.last_notification.lock() = None;
         *self.has_bell.lock() = false;
         self.notification_sticky.store(false, Ordering::Relaxed);
         // Repaint the mounted pane so the ring clears promptly (mirrors the
         // dirty flag set by real PTY output in `process_output_inner`).
         self.dirty.store(true, Ordering::Relaxed);
+    }
+    /// Queue an `agent_events` record when the effective state moved away
+    /// from `before`. Every mutation of the stored state or the badge goes
+    /// through here, which is what makes the event log exhaustive.
+    fn report_transition(
+        &self,
+        before: Option<AgentState>,
+        cause: &'static str,
+        rule: Option<&'static str>,
+    ) {
+        let after = self.agent_state();
+        if before == after {
+            return;
+        }
+        crate::agent_events::push(crate::agent_events::AgentTransition {
+            terminal_id: self.terminal_id.clone(),
+            from: before,
+            to: after,
+            cause,
+            rule,
+        });
     }
     /// Returns `false` when a sticky notification is protecting the badge and
     /// this one was dropped.
@@ -1360,6 +1386,7 @@ impl Terminal {
         {
             return false;
         }
+        let before = self.agent_state();
         self.notification_sticky.store(sticky, Ordering::Relaxed);
         *self.last_notification.lock() = Some(TerminalNotification {
             title,
@@ -1370,6 +1397,7 @@ impl Terminal {
         // Mark dirty so the pane's dirty-check loop repaints the notification
         // ring/overlay even without further PTY output.
         self.dirty.store(true, Ordering::Relaxed);
+        self.report_transition(before, "notification", None);
         true
     }
 
@@ -1400,10 +1428,27 @@ impl Terminal {
     /// Returns whether the stored value changed; callers use that to decide
     /// whether to notify the workspace.
     pub fn set_agent_state(&self, state: Option<AgentState>, source: AgentStateSource) -> bool {
+        let cause = match (state, source) {
+            (None, _) => "exit",
+            (_, AgentStateSource::Hook) => "hook",
+            (_, AgentStateSource::Screen) => "screen",
+        };
+        self.set_agent_state_detailed(state, source, cause, None)
+    }
+    /// [`Terminal::set_agent_state`] with the transition's cause and, for
+    /// screen detection, the rule that fired (both land in the event log).
+    pub fn set_agent_state_detailed(
+        &self,
+        state: Option<AgentState>,
+        source: AgentStateSource,
+        cause: &'static str,
+        rule: Option<&'static str>,
+    ) -> bool {
         let state = match state {
             Some(AgentState::Done) => Some(AgentState::Idle),
             other => other,
         };
+        let before = self.agent_state();
         let mut agent = self.agent.lock();
         let changed = agent.state != state || (state.is_some() && agent.source != Some(source));
         agent.state = state;
@@ -1417,7 +1462,27 @@ impl Terminal {
         if changed {
             self.dirty.store(true, Ordering::Relaxed);
         }
+        self.report_transition(before, cause, rule);
         changed
+    }
+    /// Esc / Ctrl+C in the pane: the turn is over even though no hook says
+    /// so. Lowers an active state to idle and logs it as an interrupt.
+    pub fn interrupt_agent_turn(&self) -> bool {
+        let (state, source) = {
+            let agent = self.agent.lock();
+            (agent.state, agent.source)
+        };
+        match state {
+            Some(AgentState::Working) | Some(AgentState::Blocked) | Some(AgentState::Unknown) => {
+                self.set_agent_state_detailed(
+                    Some(AgentState::Idle),
+                    source.unwrap_or(AgentStateSource::Hook),
+                    "interrupt",
+                    None,
+                )
+            }
+            _ => false,
+        }
     }
     /// Effective lifecycle state: the stored value, except that `Idle` with a
     /// notification nobody has dismissed yet reads as `Done` — the agent
@@ -1473,11 +1538,15 @@ impl Terminal {
     /// Returns whether the effective state changed.
     pub fn mark_interacted(&self) -> bool {
         let before = self.agent_state();
-        self.clear_notification();
-        if self.agent.lock().state == Some(AgentState::Blocked) {
-            let source = self.agent.lock().source.unwrap_or(AgentStateSource::Hook);
-            self.set_agent_state(Some(AgentState::Idle), source);
+        self.clear_notification_inner();
+        {
+            let mut agent = self.agent.lock();
+            if agent.state == Some(AgentState::Blocked) {
+                agent.state = Some(AgentState::Idle);
+                self.dirty.store(true, Ordering::Relaxed);
+            }
         }
+        self.report_transition(before, "seen", None);
         before != self.agent_state()
     }
 

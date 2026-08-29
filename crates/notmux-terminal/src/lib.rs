@@ -1,4 +1,5 @@
 pub mod agent_detect;
+pub mod agent_events;
 pub mod agent_launch;
 pub mod agent_sessions;
 pub mod backend;

@@ -9,6 +9,7 @@ use notmux_ui::theme::sidebar_theme as theme;
 use notmux_ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm};
 use notmux_workspace::state::LayoutNode;
 
+use crate::item_widgets::sidebar_agent_state_indicator;
 use crate::sidebar::Sidebar;
 
 /// Owned snapshot of one pinned pane for rendering.
@@ -18,9 +19,10 @@ struct PinnedRow {
     slot_id: String,
     icon: &'static str,
     label: String,
-    /// True while the pinned terminal's agent is mid-turn — swaps the leading
-    /// icon for a rotating spinner (matches the PROJECTS terminal rows).
-    working: bool,
+    /// Lifecycle state of the pinned terminal's agent, if any — drives the
+    /// trailing indicator (spinner / blocked / done / unknown), matching the
+    /// PROJECTS rows.
+    state: Option<notmux_core::agent_state::AgentState>,
 }
 
 impl Sidebar {
@@ -48,23 +50,23 @@ impl Sidebar {
                 continue;
             };
             for leaf in layout.collect_pinned_leaves(&project.pinned_slots) {
-                let (slot_id, icon, label, working) = match &leaf {
+                let (slot_id, icon, label, state) = match &leaf {
                     LayoutNode::Terminal {
                         slot_id,
                         terminal_id,
                         ..
                     } => {
-                        let (name, working) = terminal_id
+                        let (name, state) = terminal_id
                             .as_ref()
                             .map(|tid| {
                                 let terminals = self.terminals.lock();
                                 let terminal = terminals.get(tid);
                                 let osc = terminal.and_then(|t| t.title());
-                                let working = terminal.is_some_and(|t| t.agent_working());
-                                (project.terminal_display_name(tid, osc), working)
+                                let state = terminal.and_then(|t| t.agent_state());
+                                (project.terminal_display_name(tid, osc), state)
                             })
-                            .unwrap_or_else(|| ("Terminal".to_string(), false));
-                        (slot_id.clone(), "icons/terminal.svg", name, working)
+                            .unwrap_or_else(|| ("Terminal".to_string(), None));
+                        (slot_id.clone(), "icons/terminal.svg", name, state)
                     }
                     LayoutNode::Editor {
                         slot_id, file_path, ..
@@ -75,7 +77,7 @@ impl Sidebar {
                             .filter(|n| !n.is_empty())
                             .unwrap_or("Untitled")
                             .to_string();
-                        (slot_id.clone(), "icons/file.svg", name, false)
+                        (slot_id.clone(), "icons/file.svg", name, None)
                     }
                     LayoutNode::Browser { slot_id, url, .. } => {
                         let name = url
@@ -87,7 +89,7 @@ impl Sidebar {
                             .filter(|h| !h.is_empty())
                             .unwrap_or("Browser")
                             .to_string();
-                        (slot_id.clone(), "icons/globe.svg", name, false)
+                        (slot_id.clone(), "icons/globe.svg", name, None)
                     }
                     _ => continue,
                 };
@@ -97,7 +99,7 @@ impl Sidebar {
                     slot_id,
                     icon,
                     label,
-                    working,
+                    state,
                 });
             }
         }
@@ -160,7 +162,7 @@ impl Sidebar {
         let workspace_for_unpin = self.workspace.clone();
         let project_id = row.project_id;
         let slot_id = row.slot_id;
-        let working = row.working;
+        let state = row.state;
         let icon = row.icon;
 
         // While the pinned view is active, mark the entry whose pane has focus
@@ -263,36 +265,19 @@ impl Sidebar {
                 })
                 .tooltip(|_window, cx| Tooltip::new("Unpin").build(_window, cx)),
             )
-            // Working spinner — very end of the row, only while the pinned
-            // pane's agent works a turn.
-            .when(working, |d| {
-                d.child(
-                    div()
-                        .flex_shrink_0()
-                        .w(px(14.0))
-                        .h(px(14.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            svg()
-                                .path("icons/spinner.svg")
-                                .size(px(12.0))
-                                .text_color(rgb(t.text_primary))
-                                .with_animation(
-                                    ElementId::Name(
-                                        format!("pinned-spinner-{}-{}", project_id, slot_id)
-                                            .into(),
-                                    ),
-                                    Animation::new(std::time::Duration::from_secs(1)).repeat(),
-                                    |svg, delta| {
-                                        svg.with_transformation(Transformation::rotate(
-                                            percentage(delta),
-                                        ))
-                                    },
-                                ),
-                        ),
-                )
-            })
+            // Agent state indicator — very end of the row: spinner while the
+            // pinned pane's agent works, bell-colored dot when it waits on a
+            // decision, success dot when it finished unseen, muted dot when
+            // unclassifiable.
+            .when_some(
+                state.and_then(|s| {
+                    sidebar_agent_state_indicator(
+                        s,
+                        format!("pinned-agent-{}-{}", project_id, slot_id),
+                        &t,
+                    )
+                }),
+                |d, indicator| d.child(indicator),
+            )
     }
 }

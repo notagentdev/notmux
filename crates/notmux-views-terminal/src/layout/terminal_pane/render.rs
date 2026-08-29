@@ -87,7 +87,12 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
 
         let is_focused = focus_handle.is_focused(window);
 
-        let has_bell = self.terminal.as_ref().is_some_and(|t| t.has_bell());
+        // A blocked agent rings even without a badge text (screen-detected
+        // state has no notification behind it).
+        let has_bell = self.terminal.as_ref().is_some_and(|t| {
+            t.has_bell()
+                || t.agent_state() == Some(notmux_core::agent_state::AgentState::Blocked)
+        });
         if is_focused
             && has_bell
             && let Some(ref terminal) = self.terminal

@@ -33,8 +33,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   until the visible screen matches, `notmux agent-explain` shows how the
   state was determined. `notmux terminals` gained a state column and
   `notmux agent-status` accepts `blocked`.
-- Every lifecycle transition is appended to `events.jsonl` as an
-  `agent_state` event.
+- Every effective lifecycle transition is appended to `events.jsonl` as an
+  `agent_state` event with its cause — `hook`, `screen` (plus the rule that
+  fired), `exit`, `notification` (a badge arrived), `seen` (the user
+  dismissed it or answered), or `interrupt` (Esc / Ctrl+C in the pane).
+- On platforms without a child-process probe the agent kind comes from the
+  session store the agents' own hooks write, and a session end recorded
+  there clears the terminal's agent state.
 
 ### Fixed
 

@@ -155,6 +155,28 @@ pub fn known_kinds() -> &'static [&'static str] {
     &["claude", "codex", "gemini", "opencode", "cursor"]
 }
 
+/// Human-readable product name for an agent kind (badge titles).
+pub fn display_name(kind: &str) -> String {
+    match kind {
+        "claude" => "Claude Code".to_string(),
+        "codex" => "Codex".to_string(),
+        "gemini" => "Gemini CLI".to_string(),
+        "opencode" => "OpenCode".to_string(),
+        "cursor" => "Cursor".to_string(),
+        "notagent" => "notagent".to_string(),
+        "pi" => "Pi".to_string(),
+        "antigravity" => "Antigravity".to_string(),
+        "kimi" => "Kimi Code".to_string(),
+        other => {
+            let mut chars = other.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => "Agent".to_string(),
+            }
+        }
+    }
+}
+
 /// Map a child process command line to an agent kind. Looks at the first
 /// few argv tokens because interpreter launches (`node …/cli.js`) put the
 /// agent after the runtime, and at package paths because npm shims name the
@@ -373,7 +395,13 @@ fn build_tables() -> HashMap<&'static str, Vec<Rule>> {
                 region: Region::LastNonEmpty(24),
                 matcher: All(vec![
                     Contains("permission"),
-                    Any(vec![Contains("accept"), Contains("allow"), Contains("reject")]),
+                    Any(vec![
+                        Contains("accept"),
+                        Contains("allow"),
+                        Contains("reject"),
+                        // Key hints spell the verb with the key bracketed.
+                        Regex(r"(?i)\[a\]ccept|\[r\]eject|\[y\]es"),
+                    ]),
                 ]),
             },
             Rule {
@@ -512,6 +540,44 @@ mod tests {
         assert_eq!(d.state, AgentState::Blocked);
         let d = run("gemini", "> Type your message or @path/to/file", None);
         assert_eq!(d.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn opencode_states() {
+        let d = run("opencode", "▣ Build · claude-sonnet\n\nworking…   esc interrupt", None);
+        assert_eq!(d.state, AgentState::Working);
+        assert_eq!(d.rule, Some("opencode.working"));
+        let d = run(
+            "opencode",
+            "Permission required\n\n  bash: rm -rf dist\n\n  [a]ccept   [r]eject   [A]lways",
+            None,
+        );
+        assert_eq!(d.state, AgentState::Blocked);
+        assert_eq!(d.rule, Some("opencode.permission_blocked"));
+        let d = run("opencode", "> \n\n  enter send   ctrl+? help", None);
+        assert_eq!(d.state, AgentState::Idle);
+        assert_eq!(d.rule, Some("opencode.prompt_idle"));
+        assert_eq!(run("opencode", "unrelated screen", None).state, AgentState::Unknown);
+    }
+
+    #[test]
+    fn cursor_states() {
+        let d = run("cursor", "Generating… (esc to interrupt)", None);
+        assert_eq!(d.state, AgentState::Working);
+        assert_eq!(d.rule, Some("cursor.working"));
+        let d = run("cursor", "Run this command?\n\n  npm test\n\n  Yes (y) / No (n)", None);
+        assert_eq!(d.state, AgentState::Blocked);
+        assert_eq!(d.rule, Some("cursor.approval_blocked"));
+        let d = run("cursor", "Done.\n\n› \n  enter to send · / for commands", None);
+        assert_eq!(d.state, AgentState::Idle);
+        assert_eq!(d.rule, Some("cursor.prompt_idle"));
+    }
+
+    #[test]
+    fn display_names() {
+        assert_eq!(display_name("claude"), "Claude Code");
+        assert_eq!(display_name("kimi"), "Kimi Code");
+        assert_eq!(display_name("mystery"), "Mystery");
     }
 
     #[test]

@@ -98,7 +98,7 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
         if !terminal.agent_working() {
             return;
         }
-        terminal.set_agent_working(false);
+        terminal.interrupt_agent_turn();
         // Notify the workspace so the sidebar/tab spinners (separate entities)
         // re-render and stop — the terminal's own state change doesn't reach
         // them otherwise.

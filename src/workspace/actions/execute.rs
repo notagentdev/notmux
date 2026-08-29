@@ -67,34 +67,6 @@ pub fn execute_action(
     result
 }
 
-/// Append an `agent_state` event when a hook-driven action actually moved a
-/// terminal's lifecycle state, so `notmux events --follow` shows the same
-/// transitions the sidebar does.
-fn emit_agent_transition(
-    ws: &Workspace,
-    terminal_id: &str,
-    from: Option<notmux_core::agent_state::AgentState>,
-    to: Option<notmux_core::agent_state::AgentState>,
-) {
-    if from == to {
-        return;
-    }
-    let project_id = ws
-        .find_project_for_terminal(terminal_id)
-        .map(|p| p.id.clone());
-    crate::event_log::emit(
-        "agent_state",
-        serde_json::json!({
-            "terminal_id": terminal_id,
-            "project_id": project_id,
-            "from": from,
-            "to": to,
-            "source": "hook",
-            "rule": serde_json::Value::Null,
-        }),
-    );
-}
-
 fn execute_action_inner(
     action: ActionRequest,
     ws: &mut Workspace,
@@ -978,9 +950,7 @@ fn execute_action_inner(
             };
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
-                    let before = term.agent_state();
                     apply(&term);
-                    emit_agent_transition(ws, &tid, before, term.agent_state());
                     return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
@@ -1013,15 +983,28 @@ fn execute_action_inner(
             use notmux_core::agent_state::{AgentState, AgentStateSource};
             cx.notify();
             cx.refresh_windows();
-            // An explicit state is a hook report and is stored as-is (`done`
-            // normalises to idle). The legacy boolean keeps its old meaning:
-            // `true` starts a turn, `false` only lowers an active state.
+            // An explicit state is a hook report and is stored as-is. `done`
+            // is idle plus an unseen turn-complete badge, so a bare `done`
+            // report raises that badge itself when none is pending — it reads
+            // as done until the user looks at the pane, as documented. The
+            // legacy boolean keeps its old meaning: `true` starts a turn,
+            // `false` only lowers an active state.
             let apply = |term: &Arc<Terminal>| {
                 match state {
                     Some(AgentState::Working) => {
                         term.set_agent_state(Some(AgentState::Working), AgentStateSource::Hook);
                         // Starting a turn clears any stale turn-complete badge.
                         term.clear_notification();
+                    }
+                    Some(AgentState::Done) => {
+                        term.set_agent_state(Some(AgentState::Idle), AgentStateSource::Hook);
+                        if term.last_notification().is_none() {
+                            let title = term
+                                .agent_kind()
+                                .map(|k| notmux_terminal::agent_detect::display_name(&k))
+                                .unwrap_or_else(|| "Agent".to_string());
+                            term.set_notification(title, "Turn complete".to_string());
+                        }
                     }
                     Some(other) => {
                         term.set_agent_state(Some(other), AgentStateSource::Hook);
@@ -1042,9 +1025,7 @@ fn execute_action_inner(
             });
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
-                    let before = term.agent_state();
                     apply(&term);
-                    emit_agent_transition(ws, &tid, before, term.agent_state());
                     return ActionResult::Ok(Some(serde_json::json!({
                         "agent_working": term.agent_working(),
                         "agent_state": term.agent_state(),
