@@ -358,7 +358,23 @@ impl Workspace {
     /// Open the embedded browser in the project's editor area: focuses an
     /// existing browser pane, joins the right-docked editor/browser tab group,
     /// or docks a new pane at the right edge — mirroring `add_editor_right`.
+    /// User action: the new pane is focused (and pinned while the pinned
+    /// view is active). For a request made by a pane — an agent's terminal
+    /// — use [`Self::add_browser_right_for`].
     pub fn add_browser_right(&mut self, project_id: &str, url: &str, cx: &mut Context<Self>) {
+        self.add_browser_right_for(project_id, url, None, cx);
+    }
+
+    /// [`Self::add_browser_right`] on behalf of the pane `caller_slot` (an
+    /// agent's terminal). Placement follows the caller, not the user's
+    /// current view — see [`Self::place_new_browser`].
+    pub fn add_browser_right_for(
+        &mut self,
+        project_id: &str,
+        url: &str,
+        caller_slot: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(layout) = self.project(project_id).and_then(|p| p.layout.clone()) else {
             return;
         };
@@ -414,7 +430,7 @@ impl Workspace {
                         new_path.push(1);
                     }
                 }
-                self.focus_new_pane(project_id, new_path, cx);
+                self.place_new_browser(project_id, new_path, caller_slot, cx);
                 return;
             }
         }
@@ -430,7 +446,55 @@ impl Workspace {
             };
             true
         });
-        self.focus_new_pane(project_id, vec![1], cx);
+        self.place_new_browser(project_id, vec![1], caller_slot, cx);
+    }
+
+    /// Where a browser pane just inserted at `path` goes from here, depending
+    /// on who asked for it. `caller_slot` is the pane that made the request
+    /// (an agent's terminal); `None` is a user action.
+    ///
+    /// - User action: focus it — and, while the pinned view is active, pin it
+    ///   (`focus_new_pane`), so it appears where the user is looking.
+    /// - Pinned view active and the caller is pinned: the pane joins the
+    ///   pinned arrangement right next to the caller *and* stays in the
+    ///   project's own layout, so it shows in both places.
+    /// - Pinned view active and the caller is not pinned: the caller is not
+    ///   on screen; the pane lives in the project's layout only — no pin, no
+    ///   focus — so it does not surface in the pinned view.
+    /// - Normal view: focus it when the caller's project is on screen;
+    ///   otherwise leave it in that project only, so it does not pull focus
+    ///   away from the project the user is looking at.
+    fn place_new_browser(
+        &mut self,
+        project_id: &str,
+        path: Vec<usize>,
+        caller_slot: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(caller) = caller_slot else {
+            self.focus_new_pane(project_id, path, cx);
+            return;
+        };
+        if self.data.pinned_view_active {
+            if self.is_pinned(project_id, caller) {
+                self.adopt_new_pane_into_pinned(
+                    project_id,
+                    &path,
+                    Some(caller),
+                    Some(SplitDirection::Horizontal),
+                    cx,
+                );
+            } else {
+                self.notify_data(cx);
+            }
+            return;
+        }
+        let on_screen = self.visible_projects().iter().any(|p| p.id == project_id);
+        if on_screen {
+            self.focus_new_pane(project_id, path, cx);
+        } else {
+            self.notify_data(cx);
+        }
     }
 
     /// Persist a browser pane's current URL into its layout node so it
@@ -1731,6 +1795,81 @@ mod gpui_tests {
             pinned_view_active: false,
             pinned_arrangement: None,
         }
+    }
+
+    #[gpui::test]
+    fn test_agent_browser_placement_follows_the_caller(cx: &mut gpui::TestAppContext) {
+        // p1 is the project on screen; p2 is not.
+        let data = make_workspace_data(
+            vec![make_project("p1"), make_project("p2")],
+            vec!["p1", "p2"],
+        );
+        let workspace = cx.new(|_cx| Workspace::new(data));
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.set_focused_project_individual(Some("p1".to_string()), cx);
+        });
+
+        // An agent in p2 opens a browser: it lands in p2's layout only —
+        // focus stays where the user is, nothing is pinned, p1 is untouched.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right_for("p2", "https://a.dev", Some("slot-p2"), cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let p2 = ws.project("p2").unwrap();
+            assert_eq!(p2.layout.as_ref().unwrap().collect_browsers().len(), 1);
+            assert!(p2.pinned_slots.is_empty());
+            assert_eq!(ws.focused_project_id().map(String::as_str), Some("p1"));
+            assert!(ws.project("p1").unwrap().layout.as_ref().unwrap().collect_browsers().is_empty());
+        });
+
+        // An agent in the on-screen project: focused like a user action.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right_for("p1", "https://b.dev", Some("slot-p1"), cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            assert_eq!(ws.project("p1").unwrap().layout.as_ref().unwrap().collect_browsers().len(), 1);
+            let focused = ws.focus_manager.focused_terminal_state().unwrap();
+            assert_eq!(focused.project_id, "p1");
+            assert_eq!(focused.layout_path, vec![1]);
+        });
+    }
+
+    #[gpui::test]
+    fn test_agent_browser_in_pinned_view_pins_only_for_a_pinned_caller(cx: &mut gpui::TestAppContext) {
+        let data = make_workspace_data(
+            vec![make_project("p1"), make_project("p2")],
+            vec!["p1", "p2"],
+        );
+        let workspace = cx.new(|_cx| Workspace::new(data));
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.toggle_pin("p1", "slot-p1", cx);
+            ws.enter_pinned_view(cx);
+        });
+
+        // Pinned caller: the browser is pinned as well and still lives in
+        // the project's own layout.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right_for("p1", "https://a.dev", Some("slot-p1"), cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let p1 = ws.project("p1").unwrap();
+            let browsers = p1.layout.as_ref().unwrap().collect_browsers();
+            assert_eq!(browsers.len(), 1);
+            assert!(p1.pinned_slots.contains(&browsers[0].0));
+        });
+
+        // Unpinned caller in a project that is not in the pinned view: the
+        // browser goes into that project only; the pinned view is unchanged.
+        workspace.update(cx, |ws: &mut Workspace, cx| {
+            ws.add_browser_right_for("p2", "https://b.dev", Some("slot-p2"), cx);
+        });
+        workspace.read_with(cx, |ws: &Workspace, _cx| {
+            let p2 = ws.project("p2").unwrap();
+            assert_eq!(p2.layout.as_ref().unwrap().collect_browsers().len(), 1);
+            assert!(p2.pinned_slots.is_empty());
+            assert!(ws.data().pinned_view_active);
+            assert_eq!(ws.project("p1").unwrap().pinned_slots.len(), 2);
+        });
     }
 
     #[gpui::test]

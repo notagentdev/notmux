@@ -533,6 +533,15 @@ pub struct BrowserRequest {
     #[serde(default)]
     pub project_id: Option<String>,
 
+    /// The terminal the request was issued from (the CLI fills it from
+    /// `NOTMUX_TERMINAL_ID`). Scopes defaults to that terminal's project:
+    /// its own browser pane is the implicit target, and `open` creates a
+    /// new pane there — next to the caller in the pinned view when the
+    /// caller is pinned, otherwise only inside that project — instead of in
+    /// whatever project the user is currently looking at.
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+
     /// Element ref from the latest snapshot (e.g. "e3"); required by element
     /// actions (click, fill, type, press, hover, focus, check, uncheck,
     /// select, scroll_into_view, get, is)

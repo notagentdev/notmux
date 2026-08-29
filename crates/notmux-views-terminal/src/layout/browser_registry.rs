@@ -96,9 +96,15 @@ pub fn execute_browser_request(
         return;
     }
 
+    // Who asked? A request from inside a NotMux terminal (an agent) is
+    // scoped to that terminal's project: its own browser panes are the
+    // implicit target, and a new pane is created there — never in whatever
+    // project the user happens to be looking at.
+    let caller = resolve_caller(req.terminal_id.as_deref(), workspace, cx);
+
     // An explicit project on `open` is the request for a *new* pane there.
     if req.action == "open" && req.project_id.is_some() && req.pane.is_none() {
-        open_new_pane(req, workspace, respond, cx);
+        open_new_pane(req, caller, workspace, respond, cx);
         return;
     }
 
@@ -113,13 +119,23 @@ pub fn execute_browser_request(
             }
         }
     } else {
-        match panes.len() {
-            1 => panes[0].2.clone(),
+        let scope = caller.as_ref().map(|c| c.project_id.as_str());
+        let candidates: Vec<&(String, String, Entity<BrowserPane>)> = panes
+            .iter()
+            .filter(|(_, project, _)| scope.is_none_or(|p| p == project))
+            .collect();
+        match candidates.len() {
+            1 => candidates[0].2.clone(),
             0 => {
-                // No pane anywhere: `open` creates one, everything else
+                // No pane in scope: `open` creates one, everything else
                 // needs an existing pane.
                 if req.action == "open" {
-                    open_new_pane(req, workspace, respond, cx);
+                    open_new_pane(req, caller, workspace, respond, cx);
+                } else if scope.is_some() {
+                    respond(Err(
+                        "no browser pane is open in this terminal's project — `notmux browser open <url>` first, or pass `--pane <id>`"
+                            .to_string(),
+                    ));
                 } else {
                     respond(Err(
                         "no browser pane is open — `notmux browser open <url>` first".to_string(),
@@ -128,7 +144,7 @@ pub fn execute_browser_request(
                 return;
             }
             _ => {
-                let listing = panes
+                let listing = candidates
                     .iter()
                     .map(|(slot, project, _)| format!("{slot} ({project})"))
                     .collect::<Vec<_>>()
@@ -148,8 +164,37 @@ pub fn execute_browser_request(
 /// (mirrors the UI's OpenBrowser action). The pane and its webview are
 /// created lazily on the next render, so follow-up commands should
 /// `browser list` / `snapshot` once it is up.
+/// The pane a browser request came from: its project and layout slot.
+struct Caller {
+    project_id: String,
+    slot_id: Option<String>,
+}
+
+/// Resolve `terminal_id` (from the CLI's `NOTMUX_TERMINAL_ID`) to the
+/// project and slot hosting that terminal. `None` when the request did not
+/// come from inside a NotMux terminal or the terminal is gone.
+fn resolve_caller(
+    terminal_id: Option<&str>,
+    workspace: &Entity<Workspace>,
+    cx: &App,
+) -> Option<Caller> {
+    let tid = terminal_id?;
+    let ws = workspace.read(cx);
+    let project = ws.find_project_for_terminal(tid)?;
+    let slot_id = project
+        .layout
+        .as_ref()
+        .and_then(|l| l.find_terminal_path(tid).and_then(|p| l.get_at_path(&p)))
+        .and_then(|n| n.slot_id().map(str::to_string));
+    Some(Caller {
+        project_id: project.id.clone(),
+        slot_id,
+    })
+}
+
 fn open_new_pane(
     req: BrowserRequest,
+    caller: Option<Caller>,
     workspace: &Entity<Workspace>,
     respond: BrowserRespond,
     cx: &mut App,
@@ -158,7 +203,7 @@ fn open_new_pane(
         respond(Err("open requires `url`".to_string()));
         return;
     };
-    let project_id = match req.project_id.clone() {
+    let project_id = match req.project_id.clone().or_else(|| caller.as_ref().map(|c| c.project_id.clone())) {
         Some(id) => id,
         None => {
             let ws = workspace.read(cx);
@@ -192,7 +237,14 @@ fn open_new_pane(
         return;
     }
     let url = super::browser_pane::normalize_url(&url);
-    workspace.update(cx, |ws, cx| ws.add_browser_right(&project_id, &url, cx));
+    // The caller's slot only steers placement inside its own project; an
+    // explicit `--project` elsewhere behaves like a user action there.
+    let caller_slot = caller
+        .filter(|c| c.project_id == project_id)
+        .and_then(|c| c.slot_id);
+    workspace.update(cx, |ws, cx| {
+        ws.add_browser_right_for(&project_id, &url, caller_slot.as_deref(), cx)
+    });
     respond(Ok(serde_json::json!({
         "text": format!(
             "opened a new browser pane in project {project_id} — loading {url}; \

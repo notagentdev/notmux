@@ -112,6 +112,12 @@ fn post_browser(token: &str, body: &str, timeout_secs: u64) -> Result<serde_json
 /// plus whether `--json` output was asked for.
 fn parse_browser_args(args: &[String]) -> Result<(BrowserRequest, bool), String> {
     let mut req = BrowserRequest::default();
+    // Inside a NotMux terminal the request is scoped to that terminal's
+    // project (see `BrowserRequest::terminal_id`); explicit --pane/--project
+    // still win on the server.
+    req.terminal_id = std::env::var("NOTMUX_TERMINAL_ID")
+        .ok()
+        .filter(|s| !s.is_empty());
     let mut json_mode = false;
     let mut positional: Vec<String> = Vec::new();
 
@@ -313,6 +319,9 @@ fn print_browser_help() {
     eprintln!("  list                               List open browser panes (pane, project, URL)");
     eprintln!("  open <url>                         Navigate the pane (creates one if none exists;");
     eprintln!("                                     --project forces a new pane in that project)");
+    eprintln!("                                     Inside a NotMux terminal, pane lookup and new panes are");
+    eprintln!("                                     scoped to that terminal's project (pinned next to a pinned");
+    eprintln!("                                     caller; otherwise only in that project, focus untouched)");
     eprintln!("  back | forward | reload            History navigation");
     eprintln!("  snapshot [--full]                  Page outline with element refs (--full adds content roles)");
     eprintln!("  screenshot                         Save a PNG of the page, print its path (macOS)");

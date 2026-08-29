@@ -36,6 +36,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Every lifecycle transition is appended to `events.jsonl` as an
   `agent_state` event.
 
+### Fixed
+
+- A browser pane opened by an agent (`notmux browser open` from inside a
+  NotMux terminal) now lands in the agent's own project instead of the one
+  the user is looking at: pane lookup and creation are scoped to the calling
+  terminal's project. With the pinned view active, a pinned caller gets the
+  browser pinned right next to it (and it stays in the project layout); an
+  unpinned caller or a project that is not on screen gets the browser in
+  that project only, without pulling focus or pinning it. The CLI sends the
+  calling terminal's id; explicit `--pane`/`--project` still win.
+
 ## [0.1.0] - 2026-08-12
 
 First public release.
