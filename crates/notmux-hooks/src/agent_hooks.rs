@@ -554,168 +554,201 @@ pub fn uninstall_shell() -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve the notagent config dir: `$NOTAGENT_CONFIG` or `~/.notagent`.
-fn notagent_config_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("NOTAGENT_CONFIG")
+/// Resolve the notagent agent dir — where notagent (v2) reads its user-level
+/// `hooks.json` from (`crates/notagent/src/config.rs::get_agent_dir`):
+/// `$NOTAGENT_CODING_AGENT_DIR` (tilde-expanded) or `~/.notagent/agent`.
+fn notagent_agent_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("NOTAGENT_CODING_AGENT_DIR")
         && !dir.is_empty()
     {
+        if let Some(rest) = dir.strip_prefix("~/") {
+            return home_dir().map(|h| h.join(rest));
+        }
         return Some(PathBuf::from(dir));
     }
-    home_dir().map(|h| h.join(".notagent"))
+    home_dir().map(|h| h.join(".notagent").join("agent"))
 }
 
-/// Ensure `hooks_enabled = true` at the top level of a notagent `.notagent.toml`.
-/// notagent's hook system is gated on this global switch — when it's `false`,
-/// no `hooks.json` is read at all.
-fn ensure_notagent_hooks_enabled(existing: &str) -> String {
-    let mut lines: Vec<String> = existing.lines().map(|l| l.to_string()).collect();
-    for line in lines.iter_mut() {
-        let t = line.trim_start();
-        if t.starts_with("hooks_enabled") && t.contains('=') {
-            *line = "hooks_enabled = true".to_string();
-            let mut out = lines.join("\n");
-            out.push('\n');
-            return out;
-        }
+/// Whether a `hooks.json` command is one notmux wrote. Every notmux hook
+/// gates on `$NOTMUX_SURFACE_ID`, whatever binary path it was installed with,
+/// so a build from another target dir still replaces its predecessor.
+fn is_notmux_hook_command(command: &str) -> bool {
+    command.contains("$NOTMUX_SURFACE_ID")
+}
+
+/// A notagent `hooks.json`, split into what we rewrite and what we keep.
+/// notagent accepts a flat array of entries or an object with a `hooks`
+/// array (`core/hooks.rs::load_file`); the object form is preserved on write
+/// so the user's other keys survive. The v1 per-event object layout is
+/// rejected by notagent wholesale, so it is dropped rather than carried
+/// forward as a parse error — it was written by notmux in the first place.
+struct NotagentHooksDoc {
+    entries: Vec<serde_json::Value>,
+    /// The surrounding object (minus `hooks`) when the file used object form.
+    object: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The file held the v1 layout and must be rewritten even if nothing else
+    /// changed.
+    legacy: bool,
+}
+
+fn parse_notagent_hooks(doc: Option<serde_json::Value>) -> NotagentHooksDoc {
+    let (entries, object, legacy) = match doc {
+        Some(serde_json::Value::Array(entries)) => (entries, None, false),
+        Some(serde_json::Value::Object(mut obj)) => match obj.remove("hooks") {
+            Some(serde_json::Value::Array(entries)) => (entries, Some(obj), false),
+            Some(serde_json::Value::Object(_)) => {
+                log::info!("notagent hooks.json uses the legacy per-event layout; rewriting");
+                (Vec::new(), None, true)
+            }
+            _ => (Vec::new(), Some(obj), false),
+        },
+        _ => (Vec::new(), None, false),
+    };
+    NotagentHooksDoc {
+        entries,
+        object,
+        legacy,
     }
-    // Not present: insert as a top-level key before the first `[table]` header
-    // (a bare key appended after a table would be parsed as part of that table).
-    let insert_at = lines
-        .iter()
-        .position(|l| l.trim_start().starts_with('['))
-        .unwrap_or(lines.len());
-    lines.insert(insert_at, "hooks_enabled = true".to_string());
-    let mut out = lines.join("\n");
-    out.push('\n');
-    out
 }
 
-/// Install notagent hooks. notagent uses the same hook format as Claude/Codex,
-/// but hooks are on by default with no trust step — so we simply write our
-/// events into `<config>/hooks.json`. Stdout is suppressed so `notify`'s JSON
-/// output can't be mistaken for a hook decision. Only runs if `~/.notagent`
-/// already exists.
+fn write_notagent_hooks(hooks_path: &PathBuf, doc: NotagentHooksDoc) -> Result<(), String> {
+    let value = match doc.object {
+        Some(mut obj) => {
+            obj.insert("hooks".to_string(), serde_json::Value::Array(doc.entries));
+            serde_json::Value::Object(obj)
+        }
+        None => serde_json::Value::Array(doc.entries),
+    };
+    std::fs::write(hooks_path, serde_json::to_string_pretty(&value).unwrap())
+        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))
+}
+
+/// Install notagent hooks into `<agent dir>/hooks.json`. notagent's hook
+/// contract (`crates/notagent/src/core/hooks.rs`): a flat array of
+/// `{event, matcher?, command, timeout_ms}` entries, no global on/off switch,
+/// commands run through `/bin/sh -c` with the payload on stdin; several
+/// entries per event all run, so our own are replaced by marker and the
+/// user's are kept. Its events follow the Kimi model — `Stop` only on
+/// success, `StopFailure`/`Interrupt` otherwise, `PermissionRequest` paired
+/// with `PermissionResult` — so both needs-input states clear the moment
+/// they resolve. `UserPromptSubmit` and `PreToolUse` are blocking (a
+/// non-zero exit refuses the prompt) and stdout is parsed for a decision, so
+/// every command is fail-open and silenced. notagent has no user-question
+/// tool, hence no "Input needed" hook. `SessionEnd` is deliberately absent:
+/// notagent fires it with reason `quit` on SIGHUP too, so it cannot tell an
+/// intentional exit from a terminal disconnect and would break auto-resume.
+/// Only runs if `~/.notagent` already exists.
 pub fn install_notagent() -> Result<(), String> {
-    let config_dir = notagent_config_dir().ok_or("HOME not set")?;
-    if !config_dir.exists() {
+    let agent_dir = notagent_agent_dir().ok_or("HOME not set")?;
+    // notagent creates the agent dir lazily; its parent (`~/.notagent`) is
+    // what marks an existing setup.
+    let set_up = agent_dir.exists() || agent_dir.parent().is_some_and(|p| p.exists());
+    if !set_up {
         log::info!(
             "notagent not set up ({} missing); skipping",
-            config_dir.display()
+            agent_dir.display()
         );
         return Ok(());
     }
+    std::fs::create_dir_all(&agent_dir)
+        .map_err(|e| format!("Failed to create {}: {e}", agent_dir.display()))?;
+
     let exe = notmux_binary();
-    // Stop also confirms the session (turn evidence → restorable); confirm
-    // reads the payload from stdin, so it runs first in the group.
-    let stop_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind notagent --pid \"$PPID\"; \"{exe}\" notify --title notagent --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
-    );
-    let working_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
-    );
-    let hooks_path = config_dir.join("hooks.json");
-    // Preserve any hooks the user already defined; only replace our two events.
-    let mut doc: serde_json::Value = std::fs::read_to_string(&hooks_path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    let hooks = doc
-        .as_object_mut()
-        .ok_or("hooks.json is not an object")?
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-    let hooks_obj = hooks.as_object_mut().ok_or("hooks is not an object")?;
-    hooks_obj.insert(
-        "Stop".to_string(),
-        serde_json::json!([{ "hooks": [{ "type": "command", "command": stop_cmd, "timeout": 10 }] }]),
-    );
-    hooks_obj.insert(
-        "UserPromptSubmit".to_string(),
-        serde_json::json!([{ "hooks": [{ "type": "command", "command": working_cmd, "timeout": 10 }] }]),
-    );
-    // Session restore: notagent's SessionStart payload carries the
-    // conversation id as `session_id` (resumable via `notagent --cid <id>`).
-    let session_start_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-session record --kind notagent --pid \"$PPID\" >/dev/null 2>&1 || true"
-    );
-    hooks_obj.insert(
-        "SessionStart".to_string(),
-        serde_json::json!([{ "hooks": [{ "type": "command", "command": session_start_cmd, "timeout": 10 }] }]),
-    );
-    // Fires right before notagent shows an interactive approval prompt.
-    // Stdout is suppressed so nothing is mistaken for an allow/deny decision —
-    // the prompt still appears; we only ring the bell.
-    let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Approval needed\" --state blocked >/dev/null 2>&1 || true"
-    );
-    hooks_obj.insert(
-        "PermissionRequest".to_string(),
-        serde_json::json!([{ "hooks": [{ "type": "command", "command": approval_cmd, "timeout": 10 }] }]),
-    );
-    // Follow-up questions: the `followup` tool has no policy operation, so it
-    // never reaches the permission gate and PermissionRequest stays silent for
-    // it. PreToolUse fires right before the question dialog (badge on) and
-    // PostToolUse right after the user answered (spinner + badge cleared) —
-    // both matched exactly on the tool name.
-    let followup_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Input needed\" --state blocked >/dev/null 2>&1 || true"
-    );
-    hooks_obj.insert(
-        "PreToolUse".to_string(),
-        serde_json::json!([{ "matcher": "followup", "hooks": [{ "type": "command", "command": followup_cmd, "timeout": 10 }] }]),
-    );
-    let followup_done_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
-    );
-    hooks_obj.insert(
-        "PostToolUse".to_string(),
-        serde_json::json!([{ "matcher": "followup", "hooks": [{ "type": "command", "command": followup_done_cmd, "timeout": 10 }] }]),
-    );
-    std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap())
-        .map_err(|e| format!("Failed to write {}: {e}", hooks_path.display()))?;
+    let gated = |body: &str| format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && {body} >/dev/null 2>&1 || true");
+    let group = |parts: &[String]| format!("{{ {}; }}", parts.join("; "));
+    let notify = |body: &str| format!("\"{exe}\" notify --title notagent --body \"{body}\"");
+    // Needs-input badges also report the agent as blocked.
+    let notify_blocked =
+        |body: &str| format!("\"{exe}\" notify --title notagent --body \"{body}\" --state blocked");
+    let status = |state: &str| format!("\"{exe}\" agent-status {state}");
+    // `agent-session` reads the payload from stdin, so it runs first in a group.
+    let session = |action: &str| {
+        format!("\"{exe}\" agent-session {action} --kind notagent --pid \"$PPID\"")
+    };
 
-    // Respect the global on/off switch: notagent ignores hooks.json entirely
-    // when `hooks_enabled = false`, so make sure it's enabled.
-    let config_toml = config_dir.join(".notagent.toml");
-    let existing_cfg = std::fs::read_to_string(&config_toml).unwrap_or_default();
-    let updated_cfg = ensure_notagent_hooks_enabled(&existing_cfg);
-    if updated_cfg != existing_cfg {
-        let _ = std::fs::write(&config_toml, updated_cfg);
+    let entries: [(&str, String); 7] = [
+        // notagent currently raises SessionStart only on `/reload`
+        // (`AgentSession::start` has no caller), but the payload carries the
+        // session id whenever it does fire.
+        ("SessionStart", gated(&session("record"))),
+        // A new prompt is the reliable start signal: it records the session
+        // (id in the payload), marks the agent working and clears stale badges.
+        (
+            "UserPromptSubmit",
+            gated(&group(&[session("record"), status("working")])),
+        ),
+        // Turn evidence → restorable.
+        (
+            "Stop",
+            gated(&group(&[session("confirm"), notify("Turn complete")])),
+        ),
+        (
+            "StopFailure",
+            gated(&group(&[session("confirm"), notify("Turn failed")])),
+        ),
+        // User pressed Esc: still a completed exchange, but no badge — just
+        // stop the spinner (`Stop` does not fire on interrupts).
+        (
+            "Interrupt",
+            gated(&group(&[session("confirm"), status("idle")])),
+        ),
+        // Fires only for real interactive prompts, never auto-approvals.
+        ("PermissionRequest", gated(&notify_blocked("Approval needed"))),
+        // Fires right after the approve/deny decision — the immediate badge
+        // clear Claude has no event for.
+        ("PermissionResult", gated(&status("working"))),
+    ];
+
+    let hooks_path = agent_dir.join("hooks.json");
+    let existing = match std::fs::read_to_string(&hooks_path) {
+        Ok(text) if text.trim().is_empty() => None,
+        Ok(text) => Some(serde_json::from_str::<serde_json::Value>(&text).map_err(|e| {
+            format!(
+                "{} is not valid JSON ({e}); not touching it",
+                hooks_path.display()
+            )
+        })?),
+        Err(_) => None,
+    };
+    let mut doc = parse_notagent_hooks(existing);
+    doc.entries.retain(|entry| {
+        !entry
+            .get("command")
+            .and_then(|c| c.as_str())
+            .is_some_and(is_notmux_hook_command)
+    });
+    for (event, command) in entries {
+        doc.entries.push(serde_json::json!({
+            "event": event,
+            "command": command,
+            "timeout_ms": 10_000,
+        }));
     }
-
+    write_notagent_hooks(&hooks_path, doc)?;
     log::info!("Installed notagent hooks -> {}", hooks_path.display());
     Ok(())
 }
 
 /// Remove the notagent hooks written by [`install_notagent`].
 pub fn uninstall_notagent() -> Result<(), String> {
-    let config_dir = notagent_config_dir().ok_or("HOME not set")?;
-    let hooks_path = config_dir.join("hooks.json");
+    let agent_dir = notagent_agent_dir().ok_or("HOME not set")?;
+    let hooks_path = agent_dir.join("hooks.json");
     if let Ok(content) = std::fs::read_to_string(&hooks_path)
-        && let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content)
     {
-        let exe = notmux_binary();
-        if let Some(hooks_obj) = doc.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-            for key in [
-                "Stop",
-                "UserPromptSubmit",
-                "PermissionRequest",
-                "SessionStart",
-                "PreToolUse",
-                "PostToolUse",
-            ] {
-                if hooks_obj
-                    .get(key)
-                    .map(|v| v.to_string().contains(&exe))
-                    .unwrap_or(false)
-                {
-                    hooks_obj.remove(key);
-                }
-            }
+        let mut doc = parse_notagent_hooks(Some(parsed));
+        let before = doc.entries.len();
+        doc.entries.retain(|entry| {
+            !entry
+                .get("command")
+                .and_then(|c| c.as_str())
+                .is_some_and(is_notmux_hook_command)
+        });
+        if doc.legacy || doc.entries.len() != before {
+            write_notagent_hooks(&hooks_path, doc)?;
         }
-        let _ = std::fs::write(&hooks_path, serde_json::to_string_pretty(&doc).unwrap());
     }
-    log::info!("Removed notagent hooks <- {}", config_dir.display());
+    log::info!("Removed notagent hooks <- {}", agent_dir.display());
     Ok(())
 }
 

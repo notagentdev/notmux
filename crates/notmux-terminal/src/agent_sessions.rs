@@ -320,7 +320,7 @@ pub fn resume_argv(kind: &str, session_id: &str) -> Option<Vec<String>> {
     let argv: Vec<&str> = match kind {
         "claude" => vec!["claude", "--resume", id],
         "codex" => vec!["codex", "resume", id],
-        "notagent" => vec!["notagent", "--cid", id],
+        "notagent" => vec!["notagent", "--session", id],
         "opencode" => vec!["opencode", "--session", id],
         "pi" => vec!["pi", "--session", id],
         "cursor" => vec!["cursor-agent", "--resume", id],
@@ -662,7 +662,7 @@ mod tests {
         );
         assert_eq!(
             resume_argv("notagent", "abc").unwrap(),
-            vec!["notagent", "--cid", "abc"]
+            vec!["notagent", "--session", "abc"]
         );
         assert_eq!(
             resume_argv("opencode", "abc").unwrap(),

@@ -216,28 +216,33 @@ static OPENCODE_POLICY: Policy = Policy {
     skip_claude_hook_settings: false,
 };
 
-/// Derived from notagent's CLI (`notagent_main/src/cli.rs:15-74`):
-/// keep `--agent`/`--aid` (model rides on the agent profile), `--yolo`,
-/// `--verbose`; drop session/one-shot plumbing. notagent has no `--model`
-/// flag. Subcommand launches never fire SessionStart, so an unknown
-/// positional simply ends the scan.
+/// Derived from notagent's CLI (`crates/notagent/src/cli/args.rs:182-364`):
+/// keep everything that shapes the agent (`--model`, `--provider`, `--mode`,
+/// `--thinking`, `--auto`/`--yolo`, tool/skill/theme selection, trust
+/// overrides) plus `--session-dir` (the resumed id must be looked up in the
+/// same store); drop the session plumbing the resume command supplies
+/// itself; reject one-shot modes. A positional is the initial prompt (or an
+/// `@file` attachment) — already part of the session, so the scan ends there.
 static NOTAGENT_POLICY: Policy = Policy {
     value_options: &[
-        "--conversation", "--conversation-id", "--cid", "--directory", "-C",
-        "--sandbox", "--agent", "--aid", "--event", "-e",
+        "--mode", "--provider", "--model", "--api-key", "--system-prompt",
+        "--append-system-prompt", "--name", "-n", "--session", "--session-id",
+        "--fork", "--session-dir", "--models", "--tools", "-t",
+        "--exclude-tools", "-xt", "--thinking", "--export", "--skill",
+        "--prompt-template", "--theme", "--tui-mode",
     ],
     optional_value_options: EMPTY,
     variadic_options: EMPTY,
     non_restorable_commands: EMPTY,
     dropped_options: &[
-        "--conversation", "--conversation-id", "--cid", "--directory", "-C",
-        "--sandbox", "--event", "-e",
+        "--session", "--session-id", "--fork", "--continue", "-c", "--resume",
+        "-r", "--no-session",
     ],
-    dropped_option_prefixes: &[
-        "--conversation=", "--conversation-id=", "--cid=", "--directory=",
-        "--sandbox=", "--event=",
+    dropped_option_prefixes: &["--session=", "--session-id=", "--fork="],
+    reject_options: &[
+        "--print", "-p", "--export", "--list-models", "--help", "-h",
+        "--version", "-v",
     ],
-    reject_options: &["--prompt", "-p"],
     resume_subcommand: None,
     preserve_first_positional: false,
     skip_claude_hook_settings: false,
@@ -758,13 +763,20 @@ mod tests {
     }
 
     #[test]
-    fn notagent_keeps_agent_profile_and_yolo() {
-        let tail = args(&["--agent", "scout", "--yolo", "--cid", "old", "-C", "/tmp"]);
+    fn notagent_keeps_model_mode_and_yolo() {
+        let tail = args(&[
+            "--model", "m1", "--mode", "scout", "--yolo", "--session", "old",
+            "--continue", "--session-dir", "/s", "-n", "my session", "ask this",
+        ]);
         assert_eq!(
             preserved_launch_args("notagent", &tail).unwrap(),
-            args(&["--agent", "scout", "--yolo"])
+            args(&[
+                "--model", "m1", "--mode", "scout", "--yolo", "--session-dir", "/s",
+                "-n", "my session",
+            ])
         );
         assert!(preserved_launch_args("notagent", &args(&["-p", "do it"])).is_none());
+        assert!(preserved_launch_args("notagent", &args(&["--export", "out.html"])).is_none());
     }
 
     #[test]
