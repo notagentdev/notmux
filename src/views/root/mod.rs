@@ -373,6 +373,27 @@ impl RootView {
         &self.terminals
     }
 
+    /// Re-list a project's Files-tab explorer. The sidebar hosts its own,
+    /// separate `FileExplorer` type — refreshed via
+    /// `Sidebar::refresh_file_explorer`.
+    fn refresh_right_explorer(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if let Some(fe) = self.right_explorers.get(project_id).cloned() {
+            fe.update(cx, |fe, cx| fe.refresh(cx));
+        }
+    }
+
+    /// Incremental FS patch for a project's Files-tab explorer.
+    fn patch_right_explorer_paths(
+        &mut self,
+        project_id: &str,
+        paths: &[std::path::PathBuf],
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(fe) = self.right_explorers.get(project_id).cloned() {
+            fe.update(cx, |fe, cx| fe.patch_paths(paths, cx));
+        }
+    }
+
     /// Schedule a debounced full git-status refresh for a project. Called
     /// when `.git/` internal events fire; coalesces rebase/checkout storms
     /// into one refresh 500ms after the last event.
@@ -383,6 +404,7 @@ impl RootView {
             let _ = this.update(cx, |this, cx| {
                 let sidebar = this.sidebar.clone();
                 sidebar.update(cx, |sb, cx| sb.refresh_file_explorer(&pid, cx));
+                this.refresh_right_explorer(&pid, cx);
                 if let Some(col) = this.project_columns.get(&pid).cloned() {
                     let gh = col.read(cx).git_header();
                     gh.update(cx, |gh, cx| {
@@ -413,6 +435,11 @@ impl RootView {
                 // freshly cached git status.
                 cx.notify();
             });
+            // The Files tab's explorers keep their own per-file status cache
+            // too, so they need the same nudge.
+            for pid in this.right_explorers.keys().cloned().collect::<Vec<_>>() {
+                this.refresh_right_explorer(&pid, cx);
+            }
         })
         .detach();
 
@@ -432,7 +459,8 @@ impl RootView {
                     return;
                 }
 
-                // File Explorer — incremental
+                // File Explorer — incremental, in both hosts: the sidebar and
+                // the right panel's Files tab render the same directories.
                 {
                     let sidebar = this.sidebar.clone();
                     let files_for_fe = files.clone();
@@ -440,6 +468,7 @@ impl RootView {
                     sidebar.update(cx, |sb, cx| {
                         sb.patch_file_explorer_paths(&pid_for_fe, &files_for_fe, cx);
                     });
+                    this.patch_right_explorer_paths(&pid_for_fe, &files_for_fe, cx);
                 }
 
                 // Git Header — incremental

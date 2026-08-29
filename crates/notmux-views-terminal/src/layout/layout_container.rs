@@ -1,6 +1,7 @@
 //! Recursive layout container that renders terminal/split/tabs nodes
 
 use crate::ActionDispatch;
+use crate::layout::editor_registry::EditorRegistry;
 use crate::layout::pane_drag::{DropZone, PaneDrag};
 use crate::layout::split_pane::{ActiveDrag, render_split_divider};
 use crate::layout::terminal_pane::TerminalPane;
@@ -46,8 +47,10 @@ pub struct LayoutContainer<D: ActionDispatch> {
     /// consumed on the next mouse-move to call `start_window_move` (title-bar
     /// drag, so a plain click doesn't move the window).
     pub(super) title_should_move: bool,
-    /// File viewer entity for an `Editor` leaf (lazily created on first render).
-    file_viewer: Option<Entity<notmux_files::file_viewer::FileViewer>>,
+    /// Live editor viewers of this project, keyed by layout slot id. The
+    /// viewer belongs to the slot, not to this container — see
+    /// [`crate::layout::editor_registry`].
+    pub(super) editors: EditorRegistry,
     /// Browser pane entity for a `Browser` leaf (lazily created on first render).
     browser_pane: Option<Entity<crate::layout::browser_pane::BrowserPane>>,
 }
@@ -62,6 +65,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         layout_path: Vec<usize>,
         backend: Arc<dyn TerminalBackend>,
         terminals: TerminalsRegistry,
+        editors: EditorRegistry,
         active_drag: ActiveDrag,
         action_dispatcher: Option<D>,
         cx: &mut Context<Self>,
@@ -105,7 +109,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
             tab_scroll_handle: ScrollHandle::new(),
             last_scrolled_to_tab: None,
             title_should_move: false,
-            file_viewer: None,
+            editors,
             browser_pane: None,
         }
     }
@@ -114,26 +118,39 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         self.project_path = path;
     }
 
-    /// Lazily build the file viewer for an `Editor` leaf. `diff` puts it into
-    /// the editable diff-editor mode (green additions / red deletions vs HEAD).
-    fn ensure_file_viewer(&mut self, file_path: &str, diff: bool, cx: &mut Context<Self>) {
-        if self.file_viewer.is_none() {
-            // Git bridge, not the terminal bridge: the embedded editor's
-            // syntax palette and surfaces must match the files/diff views.
-            let t = notmux_ui::theme::git_theme(cx);
-            let is_dark = t.is_dark();
-            let fs: Arc<dyn notmux_files::project_fs::ProjectFs> = Arc::new(
-                notmux_files::project_fs::LocalProjectFs::new(std::path::PathBuf::from(
-                    &self.project_path,
-                )),
-            );
-            let path = std::path::PathBuf::from(file_path);
-            self.file_viewer = Some(cx.new(move |cx| {
-                notmux_files::file_viewer::FileViewer::new_embedded(
-                    path, fs, 14.0, is_dark, t, false, cx,
-                )
-            }));
-        }
+    /// The viewer for an `Editor` leaf, built on first use and kept in the
+    /// project's [`EditorRegistry`] so it survives this container being
+    /// rebuilt when layout paths shift. Returns the entity to render.
+    fn ensure_file_viewer(
+        &mut self,
+        slot_id: &str,
+        file_path: &str,
+        diff: bool,
+        cx: &mut Context<Self>,
+    ) -> Entity<notmux_files::file_viewer::FileViewer> {
+        let viewer = match self.editors.get(slot_id) {
+            Some(viewer) => viewer,
+            None => {
+                // Git bridge, not the terminal bridge: the embedded editor's
+                // syntax palette and surfaces must match the files/diff views.
+                let t = notmux_ui::theme::git_theme(cx);
+                let is_dark = t.is_dark();
+                let fs: Arc<dyn notmux_files::project_fs::ProjectFs> = Arc::new(
+                    notmux_files::project_fs::LocalProjectFs::new(std::path::PathBuf::from(
+                        &self.project_path,
+                    )),
+                );
+                let path = std::path::PathBuf::from(file_path);
+                let viewer = cx.new(move |cx| {
+                    notmux_files::file_viewer::FileViewer::new_embedded(
+                        path, fs, 14.0, is_dark, t, false, cx,
+                    )
+                });
+                self.editors.insert(slot_id, viewer.clone());
+                viewer
+            }
+        };
+
         // Consume a pending goto-line handoff (file opened from a search
         // result) once this pane renders the matching file.
         let goto_line = cx
@@ -145,25 +162,26 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         if goto_line.is_some() {
             cx.remove_global::<notmux_workspace::requests::PendingEditorGoto>();
         }
-        if let Some(viewer) = &self.file_viewer {
-            let workspace = self.workspace.clone();
-            let project_id = self.project_id.clone();
-            let path = self.layout_path.clone();
-            viewer.update(cx, |v, cx| {
-                if let Some(line) = goto_line {
-                    v.goto_line(line);
-                    cx.notify();
-                }
-                v.set_diff_mode(diff, cx);
-                // The embedded viewer occludes the pane's own hitboxes, so it
-                // reports clicks back to focus this pane in the workspace.
-                v.set_on_click_embedded(move |_window, cx| {
-                    workspace.update(cx, |ws, cx| {
-                        ws.set_focused_terminal(project_id.clone(), path.clone(), cx);
-                    });
+        let workspace = self.workspace.clone();
+        let project_id = self.project_id.clone();
+        let path = self.layout_path.clone();
+        viewer.update(cx, |v, cx| {
+            if let Some(line) = goto_line {
+                v.goto_line(line);
+                cx.notify();
+            }
+            v.set_diff_mode(diff, cx);
+            // The embedded viewer occludes the pane's own hitboxes, so it
+            // reports clicks back to focus this pane in the workspace. The
+            // viewer outlives this container, so the callback is re-armed on
+            // every render with the current layout path.
+            v.set_on_click_embedded(move |_window, cx| {
+                workspace.update(cx, |ws, cx| {
+                    ws.set_focused_terminal(project_id.clone(), path.clone(), cx);
                 });
             });
-        }
+        });
+        viewer
     }
 
     /// Render an `Editor` leaf: its tab bar (when standalone) plus the file
@@ -176,7 +194,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.ensure_file_viewer(&file_path, diff, cx);
+        let viewer = self.ensure_file_viewer(&slot_id, &file_path, diff, cx);
         let in_tab_group = self.is_in_tab_group(cx);
 
         // `min_w_0` + `overflow_hidden` let the split shrink the pane below the
@@ -214,11 +232,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 .relative()
                 .overflow_hidden()
                 .child(
-                    AnyView::from(
-                        self.file_viewer
-                            .clone()
-                            .expect("ensure_file_viewer sets Some"),
-                    )
+                    AnyView::from(viewer)
                     .cached(StyleRefinement::default().size_full()),
                 )
                 // Same drop zones as a terminal pane — the editor is a drop
@@ -636,6 +650,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             child_path.clone(),
                             self.backend.clone(),
                             self.terminals.clone(),
+                            self.editors.clone(),
                             self.active_drag.clone(),
                             self.action_dispatcher.clone(),
                             cx,
@@ -714,6 +729,7 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                             child_path.clone(),
                             self.backend.clone(),
                             self.terminals.clone(),
+                            self.editors.clone(),
                             self.active_drag.clone(),
                             self.action_dispatcher.clone(),
                             cx,
@@ -799,7 +815,6 @@ impl<D: ActionDispatch + Send + Sync> Render for LayoutContainer<D> {
             }
             Some(LayoutNode::Browser { .. }) => {
                 self.terminal_pane = None;
-                self.file_viewer = None;
                 if !self.child_containers.is_empty() {
                     self.child_containers.clear();
                 }

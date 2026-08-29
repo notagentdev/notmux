@@ -9,7 +9,10 @@
 use std::path::{Path, PathBuf};
 
 /// One entry (file or directory) returned from `list_directory`.
-#[derive(Clone, Debug)]
+///
+/// `PartialEq` lets callers diff a fresh listing against the one they already
+/// show and skip the repaint when nothing changed.
+#[derive(Clone, Debug, PartialEq)]
 pub struct DirEntry {
     pub name: String,
     pub path: PathBuf,

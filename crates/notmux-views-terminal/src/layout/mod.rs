@@ -9,6 +9,7 @@
 pub mod browser_automation;
 pub mod browser_pane;
 pub mod browser_registry;
+pub mod editor_registry;
 pub mod layout_container;
 pub mod navigation;
 pub mod pane_drag;

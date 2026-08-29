@@ -5,6 +5,7 @@ use crate::services::manager::ServiceManager;
 use crate::terminal::backend::TerminalBackend;
 use crate::theme::{ThemeColors, theme, with_alpha};
 use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_sm, ui_text_xl};
+use crate::views::layout::editor_registry::EditorRegistry;
 use crate::views::layout::layout_container::LayoutContainer;
 use crate::views::layout::split_pane::ActiveDrag;
 use crate::workspace::request_broker::RequestBroker;
@@ -96,6 +97,10 @@ pub struct ProjectColumn {
     terminals: TerminalsRegistry,
     /// Stored layout container entity (must be created in new(), not render())
     layout_container: Option<Entity<LayoutContainer<ActionDispatcher>>>,
+    /// Editor viewers of this project, keyed by layout slot id. Held here
+    /// rather than in the panes so an unsaved buffer survives the container
+    /// rebuild that every layout-path change causes.
+    editors: EditorRegistry,
     /// Git status watcher (centralized polling)
     git_watcher: Option<Entity<GitStatusWatcher>>,
     /// Shared drag state for resize operations
@@ -192,6 +197,7 @@ impl ProjectColumn {
             git_header,
             service_panel,
             hook_panel,
+            editors: EditorRegistry::new(),
             title_should_move: false,
         }
     }
@@ -294,6 +300,7 @@ impl ProjectColumn {
             let project_id = self.project_id.clone();
             let backend = self.backend.clone();
             let terminals = self.terminals.clone();
+            let editors = self.editors.clone();
             let active_drag = self.active_drag.clone();
             let action_dispatcher = self.action_dispatcher.clone();
 
@@ -306,6 +313,7 @@ impl ProjectColumn {
                     vec![],
                     backend,
                     terminals,
+                    editors,
                     active_drag,
                     action_dispatcher,
                     cx,
@@ -317,6 +325,20 @@ impl ProjectColumn {
                 c.set_project_path(project_path);
             });
         }
+    }
+
+    /// Drop viewers whose editor is gone from the project. Both trees count:
+    /// the pinned arrangement holds the same slots and is what renders while
+    /// the pinned view is active.
+    fn prune_editor_viewers(&self, project: &ProjectData) {
+        let mut live: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for layout in [project.layout.as_ref(), project.pinned_layout.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            live.extend(layout.collect_slot_ids());
+        }
+        self.editors.retain_slots(&live);
     }
 
     fn get_project<'a>(&self, workspace: &'a Workspace) -> Option<&'a ProjectData> {
@@ -747,6 +769,7 @@ impl Render for ProjectColumn {
                 // Content: layout, creating state, or empty bookmark state
                 let content = if has_layout {
                     self.ensure_layout_container(project.path.clone(), cx);
+                    self.prune_editor_viewers(&project);
 
                     div()
                         .id("project-column-content")

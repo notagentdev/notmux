@@ -82,6 +82,10 @@ pub struct FileExplorer {
     loaded_children: HashMap<PathBuf, Vec<DirEntry>>,
     expanded_paths: HashSet<PathBuf>,
     loading_paths: HashSet<PathBuf>,
+    /// Directories that changed again while their listing was still in
+    /// flight. The result that lands is older than the change, so the
+    /// directory is re-listed once instead of showing stale entries.
+    stale_paths: HashSet<PathBuf>,
 
     /// Latest git status snapshot + flattened per-path status lookup.
     working_tree_status: Option<WorkingTreeStatus>,
@@ -150,6 +154,7 @@ impl FileExplorer {
             loaded_children: HashMap::new(),
             expanded_paths: HashSet::new(),
             loading_paths: HashSet::new(),
+            stale_paths: HashSet::new(),
             working_tree_status: None,
             git_status_by_relpath: HashMap::new(),
             dir_rollups: HashMap::new(),
@@ -206,17 +211,22 @@ impl FileExplorer {
             return;
         }
         self.show_hidden = show_hidden;
-        // Re-list the root so the user sees the new entries without having
-        // to collapse/expand. Children will lazy-load on next expand.
-        self.loaded_children.remove(&self.project_path);
-        self.load_directory(self.project_path.clone(), cx);
+        // Re-list every directory the tree already shows so the change is
+        // visible immediately, not only after a collapse/expand. The cached
+        // entries stay in place until the new listing lands — dropping them
+        // first would blank the tree for a frame.
+        for path in self.loaded_children.keys().cloned().collect::<Vec<_>>() {
+            self.load_directory(path, cx);
+        }
     }
 
     /// Reload the root directory listing and refresh git status.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        let paths: Vec<PathBuf> = self.expanded_paths.iter().cloned().collect();
-        self.loaded_children.clear();
+        // Re-list in place: clearing the cache first would render the tree
+        // empty until the async listings land, which reads as a flicker and
+        // loses the scroll position on every watcher event.
         self.load_directory(self.project_path.clone(), cx);
+        let paths: Vec<PathBuf> = self.expanded_paths.iter().cloned().collect();
         for p in paths {
             if p != self.project_path {
                 self.load_directory(p, cx);
@@ -248,6 +258,9 @@ impl FileExplorer {
 
     fn load_directory(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if self.loading_paths.contains(&path) {
+            // The in-flight listing was started before this change, so its
+            // result is already stale — re-list once it lands.
+            self.stale_paths.insert(path);
             return;
         }
         self.loading_paths.insert(path.clone());
@@ -256,9 +269,17 @@ impl FileExplorer {
         cx.spawn(async move |this, cx| {
             let entries = smol::unblock(move || list_directory(&owned, show_hidden)).await;
             let _ = this.update(cx, |this, cx| {
-                this.loaded_children.insert(path.clone(), entries);
                 this.loading_paths.remove(&path);
-                cx.notify();
+                // Swap and repaint only on a real change. The watcher fires
+                // on every write inside the project, and repainting the tree
+                // for an identical listing is what makes it flicker.
+                if this.loaded_children.get(&path) != Some(&entries) {
+                    this.loaded_children.insert(path.clone(), entries);
+                    cx.notify();
+                }
+                if this.stale_paths.remove(&path) {
+                    this.load_directory(path, cx);
+                }
             });
         })
         .detach();
@@ -270,14 +291,18 @@ impl FileExplorer {
             let status =
                 smol::unblock(move || notmux_git::get_working_tree_status(&project_path)).await;
             let _ = this.update(cx, |this, cx| {
-                this.apply_status(status);
-                cx.notify();
+                if this.apply_status(status) {
+                    cx.notify();
+                }
             });
         })
         .detach();
     }
 
-    fn apply_status(&mut self, status: WorkingTreeStatus) {
+    /// Rebuild the per-path status caches. Returns whether any of the state
+    /// the tree actually renders changed, so an unchanged `git status` (the
+    /// common case while typing in an editor) causes no repaint.
+    fn apply_status(&mut self, status: WorkingTreeStatus) -> bool {
         let mut map: HashMap<String, FileStatus> = HashMap::new();
         let mut untracked: HashSet<String> = HashSet::new();
         let mut staged: HashSet<String> = HashSet::new();
@@ -303,12 +328,20 @@ impl FileExplorer {
             conflicts.insert(f.path.clone());
         }
 
+        // The rollups derive from `map`, so comparing the four caches covers
+        // them too.
+        let changed = map != self.git_status_by_relpath
+            || untracked != self.untracked_relpaths
+            || staged != self.staged_relpaths
+            || conflicts != self.conflict_relpaths;
+
         self.dir_rollups = compute_dir_rollups(&map);
         self.git_status_by_relpath = map;
         self.untracked_relpaths = untracked;
         self.staged_relpaths = staged;
         self.conflict_relpaths = conflicts;
         self.working_tree_status = Some(status);
+        changed
     }
 
     fn toggle_expand(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -1001,6 +1034,7 @@ impl FileExplorer {
                                             loaded_children: HashMap::from([(project_root, Vec::new())]),
                                         expanded_paths: HashSet::new(),
                                         loading_paths: HashSet::new(),
+                                        stale_paths: HashSet::new(),
                                         working_tree_status: None,
                                         git_status_by_relpath: HashMap::new(),
                                         dir_rollups: HashMap::new(),
