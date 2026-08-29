@@ -792,10 +792,14 @@ impl Terminal {
             data.to_vec()
         };
         if record_replay && !suppress_replies && let Some(notif) = extract_osc_notifications(&data).into_iter().last() {
-             *self.last_notification.lock() = Some(notif);
-             *self.has_bell.lock() = true;
-             self.notification_unposted.store(true, Ordering::Relaxed);
-            }
+            // Same lifecycle effect as a hook-sent badge (idle → done), so it
+            // goes through the transition report like every other path.
+            let before = self.agent_state();
+            *self.last_notification.lock() = Some(notif);
+            *self.has_bell.lock() = true;
+            self.notification_unposted.store(true, Ordering::Relaxed);
+            self.report_transition(before, "notification", None);
+        }
         if suppress_replies {
             self.suppress_pty_responses.store(true, Ordering::Relaxed);
         }
@@ -2547,13 +2551,22 @@ pub fn child_process_commands(pid: u32) -> Option<Vec<String>> {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub fn child_process_commands(pid: u32) -> Option<Vec<String>> {
+    // `.` as the pattern matches every child; BSD pgrep accepts `-P` without
+    // one, but a pattern keeps the call unambiguous across versions.
     let output = std::process::Command::new("pgrep")
-        .args(["-lfP", &pid.to_string()])
+        .args(["-lfP", &pid.to_string(), "."])
         .stderr(std::process::Stdio::null())
         .output()
         .ok()?;
-    // `pgrep -lf` prints "<pid> <full command line>" per child; exit status 1
-    // means "no matches", which is a valid empty answer.
+    // `pgrep -lf` prints "<pid> <full command line>" per child. Exit status 1
+    // is "no matches" — a valid empty answer; anything else (usage error,
+    // missing binary semantics) means we could not look, which callers must
+    // not mistake for "no agent".
+    match output.status.code() {
+        Some(0) => {}
+        Some(1) => return Some(Vec::new()),
+        _ => return None,
+    }
     let text = String::from_utf8_lossy(&output.stdout);
     Some(
         text.lines()

@@ -111,13 +111,15 @@ fn post_browser(token: &str, body: &str, timeout_secs: u64) -> Result<serde_json
 /// Parses the `notmux browser` grammar into a request. Returns the request
 /// plus whether `--json` output was asked for.
 fn parse_browser_args(args: &[String]) -> Result<(BrowserRequest, bool), String> {
-    let mut req = BrowserRequest::default();
     // Inside a NotMux terminal the request is scoped to that terminal's
     // project (see `BrowserRequest::terminal_id`); explicit --pane/--project
     // still win on the server.
-    req.terminal_id = std::env::var("NOTMUX_TERMINAL_ID")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let mut req = BrowserRequest {
+        terminal_id: std::env::var("NOTMUX_TERMINAL_ID")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        ..BrowserRequest::default()
+    };
     let mut json_mode = false;
     let mut positional: Vec<String> = Vec::new();
 

@@ -210,6 +210,9 @@ impl HeadlessApp {
         // Start PTY event loop
         app.start_pty_event_loop(pty_events, cx);
 
+        // Agent detection + lifecycle event drain (shared with the GUI)
+        super::agent_detection::spawn_agent_detection(terminals.clone(), workspace.clone(), cx);
+
         // Start remote command bridge loop (shared with GUI)
         let local_backend: Arc<dyn TerminalBackend> = Arc::new(LocalBackend::new(pty_manager));
         cx.spawn({
