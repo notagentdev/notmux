@@ -771,12 +771,14 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
             body,
             keep_working,
             sticky,
+            state,
         } => ActionRequest::Notify {
             terminal_id: terminal_id.as_ref().map(|t| s(t)),
             title,
             body,
             keep_working,
             sticky,
+            state,
         },
         ActionRequest::ClearNotification { terminal_id } => ActionRequest::ClearNotification {
             terminal_id: terminal_id.as_ref().map(|t| s(t)),
@@ -784,9 +786,14 @@ fn strip_remote_ids(action: ActionRequest, connection_id: &str) -> ActionRequest
         ActionRequest::SetAgentActivity {
             terminal_id,
             working,
+            state,
         } => ActionRequest::SetAgentActivity {
             terminal_id: terminal_id.as_ref().map(|t| s(t)),
             working,
+            state,
+        },
+        ActionRequest::AgentExplain { terminal_id } => ActionRequest::AgentExplain {
+            terminal_id: s(&terminal_id),
         },
         ActionRequest::OpenBrowser { project_id, url } => ActionRequest::OpenBrowser {
             project_id: s(&project_id),

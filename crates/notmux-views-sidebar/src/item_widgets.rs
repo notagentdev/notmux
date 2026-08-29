@@ -194,6 +194,58 @@ pub fn sidebar_idle_dot(t: &ThemeColors) -> Div {
         .bg(rgb(t.border_idle))
 }
 
+/// Rolled-up agent lifecycle indicator for a container row (project, folder,
+/// pinned list): a spinner while an agent works, the bell color while one
+/// waits on a decision, the success color for a finished-but-unseen turn, a
+/// muted dot when an agent is present but unclassifiable. Idle draws nothing.
+/// `anim_id` must be unique per row so the spinner animation does not fight
+/// another row's.
+pub fn sidebar_agent_state_indicator(
+    state: notmux_core::agent_state::AgentState,
+    anim_id: String,
+    t: &ThemeColors,
+) -> Option<AnyElement> {
+    use notmux_core::agent_state::AgentState;
+    let dot = |color: u32| {
+        div()
+            .flex_shrink_0()
+            .w(px(7.0))
+            .h(px(7.0))
+            .rounded(px(3.5))
+            .bg(rgb(color))
+            .into_any_element()
+    };
+    match state {
+        AgentState::Working => Some(
+            div()
+                .flex_shrink_0()
+                .w(px(14.0))
+                .h(px(14.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path("icons/spinner.svg")
+                        .size(px(12.0))
+                        .text_color(rgb(t.text_primary))
+                        .with_animation(
+                            ElementId::Name(anim_id.into()),
+                            Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                            |svg, delta| {
+                                svg.with_transformation(Transformation::rotate(percentage(delta)))
+                            },
+                        ),
+                )
+                .into_any_element(),
+        ),
+        AgentState::Blocked => Some(dot(t.border_bell)),
+        AgentState::Done => Some(dot(t.success)),
+        AgentState::Unknown => Some(dot(t.text_muted)),
+        AgentState::Idle => None,
+    }
+}
+
 /// Worktree count badge (git-branch icon + number).
 /// Shown on parent projects that have active worktrees.
 pub fn sidebar_worktree_badge(count: usize, t: &ThemeColors, cx: &App) -> impl IntoElement {

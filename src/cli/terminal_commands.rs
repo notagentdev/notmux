@@ -258,25 +258,33 @@ pub fn cli_terminals(args: &[String]) -> i32 {
         }
         for id in ids {
             let name = p.terminal_names.get(&id).cloned().unwrap_or_default();
-            rows.push((id, name, p.id.clone(), p.name.clone()));
+            let runtime = p.terminal_states.get(&id).cloned().unwrap_or_default();
+            rows.push((id, name, p.id.clone(), p.name.clone(), runtime));
         }
     }
     if parsed.json {
         let json_rows: Vec<_> = rows
             .iter()
-            .map(|(id, name, pid, pname)| {
+            .map(|(id, name, pid, pname, rt)| {
                 serde_json::json!({
                     "terminal_id": id,
                     "name": name,
                     "project_id": pid,
                     "project_name": pname,
+                    "agent_state": rt.agent_state,
+                    "agent_kind": rt.agent_kind,
+                    "notification": rt.notification,
                 })
             })
             .collect();
         println!("{}", serde_json::json!(json_rows));
     } else {
-        for (id, name, _pid, pname) in rows {
-            println!("{}\t{}\t{}", id, name, pname);
+        for (id, name, _pid, pname, rt) in rows {
+            let state = rt
+                .agent_state
+                .map(|s| s.as_str())
+                .unwrap_or("-");
+            println!("{}\t{}\t{}\t{}", id, name, pname, state);
         }
     }
     0
@@ -515,6 +523,319 @@ pub fn cli_read(args: &[String]) -> i32 {
     }
 }
 
+// ── Wait primitives ─────────────────────────────────────────────────────────
+
+/// Parsed `notmux wait` options.
+#[derive(Debug, PartialEq)]
+struct WaitOpts {
+    terminal: Option<String>,
+    /// Accepted lifecycle states; `None` entries mean "no agent" (`--until
+    /// exited`).
+    until: Vec<Option<notmux_core::agent_state::AgentState>>,
+    timeout_ms: Option<u64>,
+    interval_ms: u64,
+}
+
+const WAIT_USAGE: &str = "Usage: notmux wait [--terminal <id>] [--until <state>[,<state>…]]… [--timeout <ms>] [--interval <ms>]\n  Block until the terminal's agent reaches one of the states.\n  States: working, blocked, done, idle, unknown, exited (no agent).\n  Default --until: blocked, done, idle. No timeout by default; interval 500 ms.\n  Prints a JSON line on success; exit 1 on timeout or when the terminal is gone.";
+
+fn parse_wait_args(args: &[String]) -> Result<WaitOpts, String> {
+    use notmux_core::agent_state::AgentState;
+    let mut opts = WaitOpts {
+        terminal: None,
+        until: Vec::new(),
+        timeout_ms: None,
+        interval_ms: 500,
+    };
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--terminal" | "--terminal-id" | "-t" => {
+                i += 1;
+                opts.terminal = args.get(i).cloned();
+            }
+            "--until" | "-u" => {
+                i += 1;
+                let Some(spec) = args.get(i) else {
+                    return Err(WAIT_USAGE.to_string());
+                };
+                for part in spec.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                    match part {
+                        "exited" | "none" | "gone" => opts.until.push(None),
+                        other => match AgentState::parse(other) {
+                            Some(s) => opts.until.push(Some(s)),
+                            None => return Err(format!("unknown state '{other}'\n{WAIT_USAGE}")),
+                        },
+                    }
+                }
+            }
+            "--timeout" => {
+                i += 1;
+                opts.timeout_ms = Some(
+                    args.get(i)
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .ok_or_else(|| format!("--timeout needs milliseconds\n{WAIT_USAGE}"))?,
+                );
+            }
+            "--interval" => {
+                i += 1;
+                opts.interval_ms = args
+                    .get(i)
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|ms| *ms > 0)
+                    .ok_or_else(|| format!("--interval needs milliseconds > 0\n{WAIT_USAGE}"))?;
+            }
+            "--help" | "-h" => return Err(WAIT_USAGE.to_string()),
+            other if !other.starts_with('-') && opts.terminal.is_none() => {
+                opts.terminal = Some(other.to_string());
+            }
+            other => return Err(format!("unknown option '{other}'\n{WAIT_USAGE}")),
+        }
+        i += 1;
+    }
+    if opts.until.is_empty() {
+        opts.until = vec![
+            Some(AgentState::Blocked),
+            Some(AgentState::Done),
+            Some(AgentState::Idle),
+        ];
+    }
+    Ok(opts)
+}
+
+fn json_error_exit(value: serde_json::Value) -> i32 {
+    eprintln!("{value}");
+    1
+}
+
+/// `notmux wait` — poll `/v1/state` until the target terminal's agent state
+/// is one of the accepted ones. Returns immediately when it already matches.
+pub fn cli_wait(args: &[String]) -> i32 {
+    let opts = match parse_wait_args(args) {
+        Ok(o) => o,
+        Err(usage) => {
+            eprintln!("{usage}");
+            return 2;
+        }
+    };
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => return fail(e),
+    };
+    let tid = match resolve_terminal_id(opts.terminal.clone()) {
+        Ok(t) => t,
+        Err(e) => return fail(e),
+    };
+    let start = std::time::Instant::now();
+    loop {
+        let state = match fetch_state(&token) {
+            Ok(s) => s,
+            Err(e) => return fail(e),
+        };
+        let Some(project) = find_project_for_terminal(&state, &tid) else {
+            return json_error_exit(serde_json::json!({
+                "error": "terminal_not_found",
+                "terminal": tid,
+                "elapsed_ms": start.elapsed().as_millis() as u64,
+            }));
+        };
+        let runtime = project.terminal_states.get(&tid).cloned().unwrap_or_default();
+        let last_state = runtime.agent_state;
+        if opts.until.iter().any(|u| *u == runtime.agent_state) {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "terminal": tid,
+                    "project_id": project.id,
+                    "state": runtime.agent_state,
+                    "agent_kind": runtime.agent_kind,
+                    "notification": runtime.notification,
+                    "elapsed_ms": start.elapsed().as_millis() as u64,
+                })
+            );
+            return 0;
+        }
+        if let Some(timeout) = opts.timeout_ms
+            && start.elapsed().as_millis() as u64 >= timeout
+        {
+            return json_error_exit(serde_json::json!({
+                "error": "timeout",
+                "terminal": tid,
+                "state": last_state,
+                "elapsed_ms": start.elapsed().as_millis() as u64,
+            }));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(opts.interval_ms));
+    }
+}
+
+/// What `wait-output` looks for on the screen.
+#[derive(Debug)]
+enum OutputMatcher {
+    Literal(String),
+    Regex(regex::Regex),
+}
+
+impl OutputMatcher {
+    fn matches(&self, line: &str) -> bool {
+        match self {
+            OutputMatcher::Literal(s) => line.contains(s.as_str()),
+            OutputMatcher::Regex(re) => re.is_match(line),
+        }
+    }
+}
+
+/// First matching line among the last `last_n` screen rows (all rows when
+/// `None`), searched bottom-up so the newest occurrence wins. Returns the
+/// zero-based row index within the screen and the row text.
+fn find_screen_match(
+    content: &str,
+    matcher: &OutputMatcher,
+    last_n: Option<usize>,
+) -> Option<(usize, String)> {
+    let lines: Vec<&str> = content.lines().collect();
+    let start = last_n
+        .map(|n| lines.len().saturating_sub(n))
+        .unwrap_or(0);
+    lines
+        .iter()
+        .enumerate()
+        .skip(start)
+        .rev()
+        .find(|(_, l)| matcher.matches(l))
+        .map(|(i, l)| (i, l.to_string()))
+}
+
+const WAIT_OUTPUT_USAGE: &str = "Usage: notmux wait-output [--terminal <id>] (<text> | --regex <pattern>) [--lines <n>] [--timeout <ms>] [--interval <ms>]\n  Block until the terminal's visible screen (not scrollback) contains the text or\n  matches the pattern on one line. Prints the matched line as JSON; exit 1 on timeout.";
+
+#[derive(Debug)]
+struct WaitOutputOpts {
+    terminal: Option<String>,
+    matcher: OutputMatcher,
+    lines: Option<usize>,
+    timeout_ms: Option<u64>,
+    interval_ms: u64,
+}
+
+fn parse_wait_output_args(args: &[String]) -> Result<WaitOutputOpts, String> {
+    let mut terminal = None;
+    let mut literal: Option<String> = None;
+    let mut pattern: Option<String> = None;
+    let mut lines = None;
+    let mut timeout_ms = None;
+    let mut interval_ms = 500;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--terminal" | "--terminal-id" | "-t" => {
+                i += 1;
+                terminal = args.get(i).cloned();
+            }
+            "--regex" | "-r" => {
+                i += 1;
+                pattern = args.get(i).cloned();
+            }
+            "--lines" | "-n" => {
+                i += 1;
+                lines = Some(
+                    args.get(i)
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| format!("--lines needs a number > 0\n{WAIT_OUTPUT_USAGE}"))?,
+                );
+            }
+            "--timeout" => {
+                i += 1;
+                timeout_ms = Some(
+                    args.get(i)
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .ok_or_else(|| format!("--timeout needs milliseconds\n{WAIT_OUTPUT_USAGE}"))?,
+                );
+            }
+            "--interval" => {
+                i += 1;
+                interval_ms = args
+                    .get(i)
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|ms| *ms > 0)
+                    .ok_or_else(|| format!("--interval needs milliseconds > 0\n{WAIT_OUTPUT_USAGE}"))?;
+            }
+            "--help" | "-h" => return Err(WAIT_OUTPUT_USAGE.to_string()),
+            other if !other.starts_with('-') && literal.is_none() => {
+                literal = Some(other.to_string());
+            }
+            other => return Err(format!("unknown option '{other}'\n{WAIT_OUTPUT_USAGE}")),
+        }
+        i += 1;
+    }
+    let matcher = match (pattern, literal) {
+        (Some(p), _) => OutputMatcher::Regex(
+            regex::Regex::new(&p).map_err(|e| format!("invalid --regex: {e}"))?,
+        ),
+        (None, Some(l)) => OutputMatcher::Literal(l),
+        (None, None) => return Err(WAIT_OUTPUT_USAGE.to_string()),
+    };
+    Ok(WaitOutputOpts {
+        terminal,
+        matcher,
+        lines,
+        timeout_ms,
+        interval_ms,
+    })
+}
+
+/// `notmux wait-output` — poll the terminal's visible screen until a line
+/// matches. Text already on screen matches immediately.
+pub fn cli_wait_output(args: &[String]) -> i32 {
+    let opts = match parse_wait_output_args(args) {
+        Ok(o) => o,
+        Err(usage) => {
+            eprintln!("{usage}");
+            return 2;
+        }
+    };
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => return fail(e),
+    };
+    let tid = match resolve_terminal_id(opts.terminal.clone()) {
+        Ok(t) => t,
+        Err(e) => return fail(e),
+    };
+    let payload = serde_json::json!({ "action": "read_content", "terminal_id": tid });
+    let start = std::time::Instant::now();
+    loop {
+        let content = match post_action(&token, &payload) {
+            Ok(resp) => serde_json::from_str::<serde_json::Value>(&resp)
+                .ok()
+                .and_then(|v| v.get("content").and_then(|c| c.as_str()).map(str::to_string))
+                .unwrap_or(resp),
+            Err(e) => return fail(e),
+        };
+        if let Some((row, line)) = find_screen_match(&content, &opts.matcher, opts.lines) {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "terminal": tid,
+                    "matched_line": line,
+                    "row": row,
+                    "elapsed_ms": start.elapsed().as_millis() as u64,
+                })
+            );
+            return 0;
+        }
+        if let Some(timeout) = opts.timeout_ms
+            && start.elapsed().as_millis() as u64 >= timeout
+        {
+            return json_error_exit(serde_json::json!({
+                "error": "timeout",
+                "terminal": tid,
+                "elapsed_ms": start.elapsed().as_millis() as u64,
+            }));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(opts.interval_ms));
+    }
+}
+
 pub fn cli_add_project(args: &[String]) -> i32 {
     let parsed = parse_args(args);
     let Some(path) = parsed.positional.first() else {
@@ -721,5 +1042,75 @@ mod tests {
         assert_eq!(parsed.terminal.as_deref(), Some("t1"));
         assert!(parsed.enter);
         assert!(parsed.json);
+    }
+
+    #[test]
+    fn wait_args_default_to_settled_states() {
+        use notmux_core::agent_state::AgentState;
+        let opts = parse_wait_args(&[]).unwrap();
+        assert_eq!(
+            opts.until,
+            vec![
+                Some(AgentState::Blocked),
+                Some(AgentState::Done),
+                Some(AgentState::Idle)
+            ]
+        );
+        assert_eq!(opts.timeout_ms, None);
+        assert_eq!(opts.interval_ms, 500);
+    }
+
+    #[test]
+    fn wait_args_accept_lists_repeats_and_exited() {
+        use notmux_core::agent_state::AgentState;
+        let args: Vec<String> = ["-t", "t9", "--until", "blocked,done", "--until", "exited", "--timeout", "1500", "--interval", "50"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let opts = parse_wait_args(&args).unwrap();
+        assert_eq!(opts.terminal.as_deref(), Some("t9"));
+        assert_eq!(
+            opts.until,
+            vec![Some(AgentState::Blocked), Some(AgentState::Done), None]
+        );
+        assert_eq!(opts.timeout_ms, Some(1500));
+        assert_eq!(opts.interval_ms, 50);
+    }
+
+    #[test]
+    fn wait_args_reject_bad_state_and_options() {
+        let args = vec!["--until".to_string(), "flying".to_string()];
+        assert!(parse_wait_args(&args).unwrap_err().contains("unknown state"));
+        let args = vec!["--bogus".to_string()];
+        assert!(parse_wait_args(&args).unwrap_err().contains("unknown option"));
+        let args = vec!["--timeout".to_string(), "soon".to_string()];
+        assert!(parse_wait_args(&args).unwrap_err().contains("--timeout"));
+    }
+
+    #[test]
+    fn wait_output_args_need_text_or_regex() {
+        assert!(parse_wait_output_args(&[]).is_err());
+        let args = vec!["--regex".to_string(), "[".to_string()];
+        assert!(parse_wait_output_args(&args).unwrap_err().contains("invalid --regex"));
+        let args: Vec<String> = ["passed", "-n", "5", "--timeout", "10"].iter().map(|s| s.to_string()).collect();
+        let opts = parse_wait_output_args(&args).unwrap();
+        assert!(matches!(opts.matcher, OutputMatcher::Literal(ref s) if s == "passed"));
+        assert_eq!(opts.lines, Some(5));
+        assert_eq!(opts.timeout_ms, Some(10));
+    }
+
+    #[test]
+    fn screen_match_prefers_newest_row_within_window() {
+        let content = "old: test result: ok\nbuilding\n\ntest result: FAILED\n\n";
+        let lit = OutputMatcher::Literal("test result".into());
+        assert_eq!(
+            find_screen_match(content, &lit, None),
+            Some((3, "test result: FAILED".to_string()))
+        );
+        // Only the last row (blank) → no match.
+        assert_eq!(find_screen_match(content, &lit, Some(1)), None);
+        let re = OutputMatcher::Regex(regex::Regex::new("passed|FAILED").unwrap());
+        assert_eq!(find_screen_match(content, &re, Some(3)).map(|m| m.0), Some(3));
+        assert_eq!(find_screen_match("nothing here", &re, None), None);
     }
 }

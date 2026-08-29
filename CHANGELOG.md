@@ -4,6 +4,38 @@ All notable changes to NotMux are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Agent state
+
+- Every terminal that hosts a coding agent now carries a lifecycle state —
+  `working`, `blocked`, `done`, `idle`, or `unknown` — instead of a bare
+  working flag. `done` is derived: the agent finished and nobody has looked at
+  the pane since; clicking or typing into it moves it to `idle`, typing also
+  answers a `blocked` prompt.
+- Sidebar project rows roll the state of their terminals up (blocked before
+  working before done), so an agent that needs a decision in a project that
+  is collapsed or scrolled out of view is still visible.
+- Agent hooks report `blocked` for approval and question prompts; reinstall
+  with `notmux hooks setup` to pick the change up. Hook reports stay
+  authoritative while the agent runs.
+- Agents without hooks are read from the visible screen with a small rule
+  table per agent (Claude Code, Codex, Gemini CLI, OpenCode, Cursor). A known
+  agent whose screen matches no rule shows `unknown` rather than a guess. A
+  background pass covers every terminal, including ones in projects that are
+  not on screen, and clears the state once the agent process is gone.
+- `/v1/state` exposes a per-terminal `terminal_states` map (state, source,
+  agent kind, pending notification, waiting-for-input, OSC title).
+  `set_agent_activity` and `notify` accept an optional `state`; old payloads
+  keep working.
+- New CLI commands: `notmux wait --until <states>` blocks until a terminal's
+  agent reaches one of the states, `notmux wait-output <text>|--regex` blocks
+  until the visible screen matches, `notmux agent-explain` shows how the
+  state was determined. `notmux terminals` gained a state column and
+  `notmux agent-status` accepts `blocked`.
+- Every lifecycle transition is appended to `events.jsonl` as an
+  `agent_state` event.
+
 ## [0.1.0] - 2026-08-12
 
 First public release.

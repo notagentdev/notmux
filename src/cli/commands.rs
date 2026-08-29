@@ -405,6 +405,8 @@ pub fn cli_notify(args: &[String]) -> i32 {
     let mut terminal_id: Option<String> = None;
     let mut keep_working = false;
     let mut sticky = false;
+    let mut state: Option<notmux_core::agent_state::AgentState> = None;
+    let mut bad_state = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -426,6 +428,11 @@ pub fn cli_notify(args: &[String]) -> i32 {
             "--sticky" => {
                 sticky = true;
             }
+            "--state" => {
+                i += 1;
+                state = args.get(i).and_then(|s| notmux_core::agent_state::AgentState::parse(s));
+                bad_state = state.is_none();
+            }
             _ if !args[i].starts_with("--") => {
                 if title.is_empty() { title = args[i].clone(); }
                 else if body.is_empty() { body = args[i].clone(); }
@@ -434,13 +441,14 @@ pub fn cli_notify(args: &[String]) -> i32 {
         }
         i += 1;
     }
-    if title.is_empty() && body.is_empty() {
+    if (title.is_empty() && body.is_empty()) || bad_state {
         eprintln!("Usage: notmux notify [--title <text>] [--body <text>] [--terminal-id <id>]");
         eprintln!("  --title, -t     Notification title (or first positional arg)");
         eprintln!("  --body, -b      Notification body (or second positional arg)");
         eprintln!("  --terminal-id   Target specific terminal (default: current terminal from NOTMUX_TERMINAL_ID)");
         eprintln!("  --keep-working  Don't clear the agent-working spinner (mid-turn attention ping)");
         eprintln!("  --sticky        Survive later non-sticky notifications (needs-input badges)");
+        eprintln!("  --state <s>     Also report the agent lifecycle state (blocked for approval/question prompts)");
         return 1;
     }
     if terminal_id.as_ref().is_some_and(|s| s.is_empty()) {
@@ -463,6 +471,7 @@ pub fn cli_notify(args: &[String]) -> i32 {
         "body": body,
         "keep_working": keep_working,
         "sticky": sticky,
+        "state": state,
     });
     match api_post("/v1/actions", &token, &payload.to_string()) {
         Ok(resp) => {
@@ -496,25 +505,36 @@ pub fn cli_clear_notification(_args: &[String]) -> i32 {
         }
     }
 }
-/// `notmux agent-status <working|idle>` — set the current terminal's agent
-/// activity (drives the sidebar working spinner). Called by agent lifecycle hooks.
+/// `notmux agent-status <working|blocked|idle|done|unknown> [-t <id>]` — report
+/// the current terminal's agent lifecycle state (drives the sidebar spinner /
+/// ring, the project rollup, and `notmux wait`). Called by agent lifecycle
+/// hooks. `done` is stored as idle and reads as done while the turn-complete
+/// badge is unseen.
 pub fn cli_agent_status(args: &[String]) -> i32 {
-    let state = args
-        .iter()
-        .find(|a| !a.starts_with("--"))
-        .map(|s| s.as_str())
-        .unwrap_or("");
-    let working = match state {
-        "working" | "busy" | "running" | "start" => true,
-        "idle" | "done" | "complete" | "stop" => false,
-        _ => {
-            eprintln!("Usage: notmux agent-status <working|idle>");
-            return 1;
+    use notmux_core::agent_state::AgentState;
+    let mut terminal_id: Option<String> = None;
+    let mut state_arg: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--terminal" | "-t" | "--terminal-id" => {
+                i += 1;
+                if i < args.len() {
+                    terminal_id = Some(args[i].clone());
+                }
+            }
+            a if !a.starts_with('-') && state_arg.is_none() => state_arg = Some(a),
+            _ => {}
         }
+        i += 1;
+    }
+    let Some(state) = state_arg.and_then(AgentState::parse) else {
+        eprintln!("Usage: notmux agent-status <working|blocked|idle|done|unknown> [-t <terminal-id>]");
+        return 1;
     };
-    let terminal_id = std::env::var("NOTMUX_TERMINAL_ID")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let terminal_id = terminal_id
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty()));
     let token = match ensure_token() {
         Ok(t) => t,
         Err(e) => {
@@ -525,7 +545,9 @@ pub fn cli_agent_status(args: &[String]) -> i32 {
     let payload = serde_json::json!({
         "action": "set_agent_activity",
         "terminal_id": terminal_id,
-        "working": working,
+        // `working` keeps older app builds happy; `state` is what counts.
+        "working": state == AgentState::Working,
+        "state": state,
     });
     match api_post("/v1/actions", &token, &payload.to_string()) {
         Ok(_) => 0,
@@ -535,6 +557,49 @@ pub fn cli_agent_status(args: &[String]) -> i32 {
         }
     }
 }
+/// `notmux agent-explain [--terminal <id>]` — print how the terminal's agent
+/// state was determined (stored state, source, kind, badge, screen rule).
+pub fn cli_agent_explain(args: &[String]) -> i32 {
+    let mut terminal_id: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--terminal" | "--terminal-id" | "-t" => {
+                i += 1;
+                terminal_id = args.get(i).cloned();
+            }
+            a if !a.starts_with('-') && terminal_id.is_none() => terminal_id = Some(a.to_string()),
+            _ => {}
+        }
+        i += 1;
+    }
+    let terminal_id = terminal_id
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("NOTMUX_TERMINAL_ID").ok().filter(|s| !s.is_empty()));
+    let Some(terminal_id) = terminal_id else {
+        eprintln!("Usage: notmux agent-explain [--terminal <id>]");
+        return 1;
+    };
+    let token = match ensure_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let payload = serde_json::json!({ "action": "agent_explain", "terminal_id": terminal_id });
+    match api_post("/v1/actions", &token, &payload.to_string()) {
+        Ok(resp) => {
+            println!("{resp}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+
 pub fn cli_whoami(args: &[String]) -> i32 {
     let json_mode = has_json_flag(args);
 

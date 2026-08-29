@@ -111,6 +111,7 @@ pub fn is_unlogged_action(action: &notmux_core::api::ActionRequest) -> bool {
         A::UpdateSplitSizes { .. }
             | A::Resize { .. }
             | A::ReadContent { .. }
+            | A::AgentExplain { .. }
             | A::GitStatus { .. }
             | A::GitDiffSummary { .. }
             | A::GitDiff { .. }

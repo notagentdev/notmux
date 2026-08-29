@@ -112,6 +112,12 @@ The install script includes built-in auto-update support. On macOS and Linux, No
 - **Auto-start & restart** - Services can auto-start on project open and auto-restart on crash
 - **Service panel** - Monitor service status (Stopped, Starting, Running, Crashed) and ports
 
+### Agent State
+- **Lifecycle state per terminal** - Every terminal that hosts a coding agent carries a state: `working`, `blocked` (needs a decision), `done` (finished, not yet looked at), `idle`, or `unknown`
+- **Sidebar rollup** - Project rows show the most urgent state of their terminals, so a blocked agent in a project that is scrolled or collapsed out of view is still visible
+- **Hooks first, screen second** - Agent hooks (`notmux hooks setup`) report state authoritatively; for agents without hooks a rule-based reading of the visible screen fills in (Claude Code, Codex, Gemini CLI, OpenCode, Cursor)
+- **Scriptable** - `notmux wait --until blocked` blocks until an agent needs you, `notmux wait-output --regex` waits for screen text, `notmux agent-explain` shows how a state was determined, and every transition lands in the event log
+
 ### Notifications
 - **Notification rings & labels** - Panes get a ring and the sidebar shows the latest message when an agent needs attention
 - **Terminal escape sequences** - Picks up OSC 9, OSC 99, and OSC 777 notifications from any program
@@ -137,6 +143,11 @@ notmux split down                    # split the current pane
 notmux focus <terminal-id>           # focus a terminal
 notmux new-terminal [project]        # create a terminal
 notmux read -t <id>                  # print a terminal's visible content
+notmux terminals                     # …now with an agent-state column (working/blocked/done/idle)
+notmux wait -t <id> --until blocked  # block until the agent needs a decision (default: blocked,done,idle)
+notmux wait-output -t <id> --regex "passed|failed" --timeout 120000   # wait for screen text
+notmux agent-status blocked          # report a lifecycle state (used by hooks; also working/idle/done)
+notmux agent-explain -t <id>         # how the state was determined (hook vs. screen rule)
 notmux add-project <path>            # add a project to the workspace
 notmux notify --title "Done"         # send a notification (ring + badge + OS toast)
 notmux state                         # full workspace state as JSON

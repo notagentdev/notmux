@@ -117,9 +117,14 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
         if let Some(ref terminal) = self.terminal {
             // Typing into the pane dismisses its pending notification /
-            // needs-input badge — the user is now interacting with this agent
-            // (matches the click path in `handle_mouse_down`).
-            terminal.clear_notification();
+            // needs-input badge and answers a blocked prompt — the user is
+            // now interacting with this agent (the click path in
+            // `handle_mouse_down` only dismisses the badge). A real state
+            // change is pushed to the workspace so the sidebar rollup and
+            // remote clients see done/blocked → idle.
+            if terminal.mark_interacted() {
+                self.workspace.update(cx, |_ws, cx| cx.notify());
+            }
 
             if is_paste_shortcut(event) {
                 terminal.claim_resize_local();

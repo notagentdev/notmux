@@ -156,6 +156,7 @@ mod tests {
             services: vec![],
             worktree_info: None,
             worktree_ids: vec![],
+            terminal_states: Default::default(),
         }
     }
 

@@ -15,6 +15,46 @@ use notmux_core::api::ApiGitStatus;
 
 use super::NotMux;
 
+/// Live runtime state of every terminal in a project's layout and pinned
+/// arrangement, for `/v1/state`. Terminals that are not (yet) in the registry
+/// are skipped — a remote client treats a missing entry as "plain shell".
+fn terminal_states_for_project(
+    p: &crate::workspace::state::ProjectData,
+    terminals: &TerminalsRegistry,
+) -> HashMap<String, notmux_core::api::ApiTerminalState> {
+    use notmux_core::api::{ApiNotification, ApiTerminalState};
+    let mut ids: Vec<String> = Vec::new();
+    for layout in [p.layout.as_ref(), p.pinned_layout.as_ref()].into_iter().flatten() {
+        ids.extend(layout.collect_terminal_ids());
+    }
+    let registry = terminals.lock();
+    let mut out = HashMap::new();
+    for id in ids {
+        if out.contains_key(&id) {
+            continue;
+        }
+        let Some(term) = registry.get(&id) else {
+            continue;
+        };
+        let runtime = term.agent_runtime();
+        out.insert(
+            id,
+            ApiTerminalState {
+                agent_state: term.agent_state(),
+                agent_source: runtime.source,
+                agent_kind: runtime.kind,
+                notification: term.last_notification().map(|n| ApiNotification {
+                    title: n.title,
+                    body: n.body,
+                }),
+                waiting_for_input: term.is_waiting_for_input(),
+                title: term.title(),
+            },
+        );
+    }
+    out
+}
+
 /// Shared remote command loop used by both GUI (`NotMux`) and headless (`HeadlessApp`).
 ///
 /// Processes commands from the remote API bridge on the GPUI main thread.
@@ -206,6 +246,7 @@ pub(crate) async fn remote_command_loop(
                                     }
                                 }),
                                 worktree_ids: p.worktree_ids.clone(),
+                                terminal_states: terminal_states_for_project(p, &terminals),
                             }
                         };
 

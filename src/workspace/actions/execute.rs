@@ -67,6 +67,34 @@ pub fn execute_action(
     result
 }
 
+/// Append an `agent_state` event when a hook-driven action actually moved a
+/// terminal's lifecycle state, so `notmux events --follow` shows the same
+/// transitions the sidebar does.
+fn emit_agent_transition(
+    ws: &Workspace,
+    terminal_id: &str,
+    from: Option<notmux_core::agent_state::AgentState>,
+    to: Option<notmux_core::agent_state::AgentState>,
+) {
+    if from == to {
+        return;
+    }
+    let project_id = ws
+        .find_project_for_terminal(terminal_id)
+        .map(|p| p.id.clone());
+    crate::event_log::emit(
+        "agent_state",
+        serde_json::json!({
+            "terminal_id": terminal_id,
+            "project_id": project_id,
+            "from": from,
+            "to": to,
+            "source": "hook",
+            "rule": serde_json::Value::Null,
+        }),
+    );
+}
+
 fn execute_action_inner(
     action: ActionRequest,
     ws: &mut Workspace,
@@ -909,6 +937,7 @@ fn execute_action_inner(
             body,
             keep_working,
             sticky,
+            state,
         } => {
             let title = if title.is_empty() { "Notification".to_string() } else { title };
             // Repaint every window so the pane ring + tab/sidebar badges update
@@ -922,23 +951,36 @@ fn execute_action_inner(
             if settings(cx).native_notifications && cx.active_window().is_none() {
                 crate::native_notify::post(&title, &body);
             }
-            // Sticky text survives later non-sticky notifications, but the
-            // working-spinner effect of those still applies (a turn-complete
-            // after a sticky needs-input ping keeps the badge yet stops the
-            // spinner).
+            // A lifecycle hint (`blocked` for approval/question prompts) is
+            // stored as reported. Without one, a notification that actually
+            // lands ends the turn: an active state lowers to idle, which reads
+            // as `done` while the badge is unseen. A notification dropped by
+            // a sticky needs-input badge changes nothing — the agent is still
+            // waiting on the user, so it stays blocked.
             let apply = |term: &Arc<Terminal>| {
-                if !keep_working {
-                    term.set_agent_working(false);
-                }
-                if sticky {
-                    term.set_notification_sticky(title.clone(), body.clone());
+                let applied = if sticky {
+                    term.set_notification_sticky(title.clone(), body.clone())
                 } else {
-                    term.set_notification(title.clone(), body.clone());
+                    term.set_notification(title.clone(), body.clone())
+                };
+                match state {
+                    Some(hint) => {
+                        term.set_agent_state(
+                            Some(hint),
+                            notmux_core::agent_state::AgentStateSource::Hook,
+                        );
+                    }
+                    None if applied && !keep_working => {
+                        term.set_agent_working(false);
+                    }
+                    None => {}
                 }
             };
             if let Some(tid) = terminal_id {
                 if let Some(term) = terminals.lock().get(&tid).cloned() {
+                    let before = term.agent_state();
                     apply(&term);
+                    emit_agent_transition(ws, &tid, before, term.agent_state());
                     return ActionResult::Ok(Some(serde_json::json!({ "notified": tid, "title": title })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
@@ -966,27 +1008,99 @@ fn execute_action_inner(
             ActionRequest::SetAgentActivity {
             terminal_id,
             working,
+            state,
         } => {
+            use notmux_core::agent_state::{AgentState, AgentStateSource};
             cx.notify();
             cx.refresh_windows();
-            // Starting a turn clears any stale turn-complete notification.
+            // An explicit state is a hook report and is stored as-is (`done`
+            // normalises to idle). The legacy boolean keeps its old meaning:
+            // `true` starts a turn, `false` only lowers an active state.
             let apply = |term: &Arc<Terminal>| {
-                term.set_agent_working(working);
-                if working {
-                    term.clear_notification();
+                match state {
+                    Some(AgentState::Working) => {
+                        term.set_agent_state(Some(AgentState::Working), AgentStateSource::Hook);
+                        // Starting a turn clears any stale turn-complete badge.
+                        term.clear_notification();
+                    }
+                    Some(other) => {
+                        term.set_agent_state(Some(other), AgentStateSource::Hook);
+                    }
+                    None if working => {
+                        term.set_agent_working(true);
+                        term.clear_notification();
+                    }
+                    None => {
+                        term.set_agent_working(false);
+                    }
                 }
             };
+            let reported = state.unwrap_or(if working {
+                AgentState::Working
+            } else {
+                AgentState::Idle
+            });
             if let Some(tid) = terminal_id {
-                if let Some(term) = terminals.lock().get(&tid) {
-                    apply(term);
-                    return ActionResult::Ok(Some(serde_json::json!({ "agent_working": working, "terminal": tid })));
+                if let Some(term) = terminals.lock().get(&tid).cloned() {
+                    let before = term.agent_state();
+                    apply(&term);
+                    emit_agent_transition(ws, &tid, before, term.agent_state());
+                    return ActionResult::Ok(Some(serde_json::json!({
+                        "agent_working": term.agent_working(),
+                        "agent_state": term.agent_state(),
+                        "reported": reported,
+                        "terminal": tid,
+                    })));
                 }
                 return ActionResult::Err(format!("terminal not found: {}", tid));
             }
             for (_, term) in terminals.lock().iter() {
                 apply(term);
             }
-            ActionResult::Ok(Some(serde_json::json!({ "agent_working": working, "terminal": "all" })))
+            ActionResult::Ok(Some(serde_json::json!({ "reported": reported, "terminal": "all" })))
+            }
+            ActionRequest::AgentExplain { terminal_id } => {
+            let Some(term) = terminals.lock().get(&terminal_id).cloned() else {
+                return ActionResult::Err(format!("terminal not found: {}", terminal_id));
+            };
+            let runtime = term.agent_runtime();
+            let notification = term.last_notification().map(|n| {
+                serde_json::json!({ "title": n.title, "body": n.body })
+            });
+            // What the screen rules would say right now, regardless of who
+            // owns the state — the point of explain is to debug drift.
+            let title = term.title();
+            let screen = runtime.kind.as_deref().and_then(|kind| {
+                let lines = term.screen_text_lines();
+                notmux_terminal::agent_detect::detect(
+                    kind,
+                    notmux_terminal::agent_detect::ScreenSnapshot {
+                        lines: &lines,
+                        title: title.as_deref(),
+                    },
+                )
+                .map(|d| {
+                    serde_json::json!({
+                        "state": d.state,
+                        "rule": d.rule,
+                        "region_text": d.region_text,
+                    })
+                })
+            });
+            let hook_owned = runtime.source == Some(notmux_core::agent_state::AgentStateSource::Hook);
+            ActionResult::Ok(Some(serde_json::json!({
+                "terminal": terminal_id,
+                "agent_state": term.agent_state(),
+                "stored_state": runtime.state,
+                "source": runtime.source,
+                "hook_authoritative": hook_owned,
+                "agent_kind": runtime.kind,
+                "known_kinds": notmux_terminal::agent_detect::known_kinds(),
+                "notification": notification,
+                "waiting_for_input": term.is_waiting_for_input(),
+                "title": title,
+                "screen": screen,
+            })))
             }
         ActionRequest::OpenBrowser { project_id, url } => {
             if ws.project(&project_id).is_none() {

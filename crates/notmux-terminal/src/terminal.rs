@@ -6,6 +6,7 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
+use notmux_core::agent_state::{AgentState, AgentStateSource};
 use parking_lot::Mutex;
 use regex::Regex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -95,6 +96,19 @@ pub struct TerminalNotification {
     pub body: String,
     pub timestamp: Instant,
 }
+
+/// Runtime bookkeeping for the agent occupying a terminal.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AgentRuntime {
+    /// Stored lifecycle state. Never `Done` (derived) and `None` for a plain
+    /// shell with no agent.
+    pub state: Option<AgentState>,
+    /// Who set `state`. Hook reports are authoritative while the agent
+    /// lives; screen detection only fills in when no hook has spoken.
+    pub source: Option<AgentStateSource>,
+    /// Identified agent kind (`claude`, `codex`, …) when known.
+    pub kind: Option<String>,
+}
 fn extract_osc_notifications(data: &[u8]) -> Vec<TerminalNotification> {
     let mut out = Vec::new();
     let bytes = data;
@@ -148,6 +162,11 @@ fn extract_osc_notifications(data: &[u8]) -> Vec<TerminalNotification> {
         let raw = &bytes[content_start..end];
         let payload = String::from_utf8_lossy(raw).to_string();
         match code {
+            // `OSC 9 ; 4 ; <state> ; <progress>` is the ConEmu/Windows
+            // Terminal progress-bar report (Claude Code emits it around every
+            // turn), not a notification — it must not raise a badge, or every
+            // idle agent would read as `done`.
+            9 if payload.starts_with("4;") || payload == "4" => {}
             9 if !payload.trim().is_empty() => {
              out.push(TerminalNotification {
                 title: "Notification".to_string(),
@@ -422,9 +441,11 @@ pub struct Terminal {
     /// True while the current notification is sticky (survives later
     /// non-sticky `set_notification` calls until explicitly cleared).
     notification_sticky: AtomicBool,
-    /// True while an agent (claude/codex/…) is actively working a turn, driven
-    /// by its hooks. Surfaces as a spinner in the sidebar list.
-    agent_working: Arc<Mutex<bool>>,
+    /// Lifecycle state of the agent occupying this terminal, if any, plus who
+    /// last set it and which agent it is. `Done` is never stored — it is
+    /// derived from `Idle` plus an unseen notification in
+    /// [`Terminal::agent_state`].
+    agent: Mutex<AgentRuntime>,
     pending_output: Mutex<Vec<u8>>,
     /// Rolling PTY byte stream used for persistent scrollback snapshots.
     ///
@@ -491,7 +512,6 @@ impl Terminal {
         let title = Arc::new(Mutex::new(None));
         let has_bell = Arc::new(Mutex::new(false));
         let last_notification = Arc::new(Mutex::new(None));
-        let agent_working = Arc::new(Mutex::new(false));
         let suppress_pty_responses = Arc::new(AtomicBool::new(false));
         let event_listener = ZedEventListener::new(
             title.clone(),
@@ -524,7 +544,7 @@ impl Terminal {
             last_notification,
             notification_unposted: AtomicBool::new(false),
             notification_sticky: AtomicBool::new(false),
-            agent_working,
+            agent: Mutex::new(AgentRuntime::default()),
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
             restored_replay_buffer: Mutex::new(Vec::new()),
@@ -1319,8 +1339,10 @@ impl Terminal {
         // dirty flag set by real PTY output in `process_output_inner`).
         self.dirty.store(true, Ordering::Relaxed);
     }
-    pub fn set_notification(&self, title: String, body: String) {
-        self.set_notification_inner(title, body, false);
+    /// Returns `false` when a sticky notification is protecting the badge and
+    /// this one was dropped.
+    pub fn set_notification(&self, title: String, body: String) -> bool {
+        self.set_notification_inner(title, body, false)
     }
     /// Sticky notifications survive later plain [`set_notification`] calls:
     /// only [`clear_notification`] or another sticky one replaces the text.
@@ -1328,15 +1350,15 @@ impl Terminal {
     /// turn-complete notification (e.g. Antigravity asking a question as the
     /// turn's final act) — without stickiness the badge would flip to "Turn
     /// complete" while the agent is actually blocked on the user.
-    pub fn set_notification_sticky(&self, title: String, body: String) {
-        self.set_notification_inner(title, body, true);
+    pub fn set_notification_sticky(&self, title: String, body: String) -> bool {
+        self.set_notification_inner(title, body, true)
     }
-    fn set_notification_inner(&self, title: String, body: String, sticky: bool) {
+    fn set_notification_inner(&self, title: String, body: String, sticky: bool) -> bool {
         if !sticky
             && self.notification_sticky.load(Ordering::Relaxed)
             && self.last_notification.lock().is_some()
         {
-            return;
+            return false;
         }
         self.notification_sticky.store(sticky, Ordering::Relaxed);
         *self.last_notification.lock() = Some(TerminalNotification {
@@ -1348,16 +1370,115 @@ impl Terminal {
         // Mark dirty so the pane's dirty-check loop repaints the notification
         // ring/overlay even without further PTY output.
         self.dirty.store(true, Ordering::Relaxed);
+        true
     }
 
     /// Whether an agent is actively working a turn in this terminal.
     pub fn agent_working(&self) -> bool {
-        *self.agent_working.lock()
+        self.agent.lock().state == Some(AgentState::Working)
     }
-    /// Set the agent working state (driven by agent lifecycle hooks).
-    pub fn set_agent_working(&self, working: bool) {
-        *self.agent_working.lock() = working;
-        self.dirty.store(true, Ordering::Relaxed);
+    /// Legacy boolean setter kept for the hook payloads that only carry
+    /// `working`. `true` stores `Working`; `false` lowers an active state
+    /// (`Working`/`Blocked`) to `Idle` and leaves a terminal without an agent
+    /// untouched, so a plain-shell notification never invents an agent.
+    /// Returns whether the effective state changed.
+    pub fn set_agent_working(&self, working: bool) -> bool {
+        if working {
+            return self.set_agent_state(Some(AgentState::Working), AgentStateSource::Hook);
+        }
+        let current = self.agent.lock().state;
+        match current {
+            Some(AgentState::Working) | Some(AgentState::Blocked) | Some(AgentState::Unknown) => {
+                self.set_agent_state(Some(AgentState::Idle), AgentStateSource::Hook)
+            }
+            _ => false,
+        }
+    }
+    /// Store an agent lifecycle state and its source. `Done` is normalised to
+    /// `Idle` (it is derived, see [`Terminal::agent_state`]). `None` means the
+    /// terminal has no agent any more and also drops the source and kind.
+    /// Returns whether the stored value changed; callers use that to decide
+    /// whether to notify the workspace.
+    pub fn set_agent_state(&self, state: Option<AgentState>, source: AgentStateSource) -> bool {
+        let state = match state {
+            Some(AgentState::Done) => Some(AgentState::Idle),
+            other => other,
+        };
+        let mut agent = self.agent.lock();
+        let changed = agent.state != state || (state.is_some() && agent.source != Some(source));
+        agent.state = state;
+        if state.is_some() {
+            agent.source = Some(source);
+        } else {
+            agent.source = None;
+            agent.kind = None;
+        }
+        drop(agent);
+        if changed {
+            self.dirty.store(true, Ordering::Relaxed);
+        }
+        changed
+    }
+    /// Effective lifecycle state: the stored value, except that `Idle` with a
+    /// notification nobody has dismissed yet reads as `Done` — the agent
+    /// finished and the user has not looked at the pane since.
+    pub fn agent_state(&self) -> Option<AgentState> {
+        let stored = self.agent.lock().state;
+        match stored {
+            Some(AgentState::Idle) if self.last_notification.lock().is_some() => {
+                Some(AgentState::Done)
+            }
+            other => other,
+        }
+    }
+    /// Who last set the agent state.
+    pub fn agent_state_source(&self) -> Option<AgentStateSource> {
+        self.agent.lock().source
+    }
+    /// Identified agent kind (`claude`, `codex`, …), when known.
+    pub fn agent_kind(&self) -> Option<String> {
+        self.agent.lock().kind.clone()
+    }
+    pub fn set_agent_kind(&self, kind: Option<String>) -> bool {
+        let mut agent = self.agent.lock();
+        let changed = agent.kind != kind;
+        agent.kind = kind;
+        changed
+    }
+    /// Snapshot of the full agent bookkeeping (for explain output).
+    pub fn agent_runtime(&self) -> AgentRuntime {
+        self.agent.lock().clone()
+    }
+    /// The visible screen rows (not scrollback), top to bottom, trailing
+    /// whitespace trimmed — the same text `read_content` returns and the
+    /// input `agent_detect` classifies.
+    pub fn screen_text_lines(&self) -> Vec<String> {
+        let term = self.term.lock();
+        let grid = term.grid();
+        let screen_lines = grid.screen_lines();
+        let cols = grid.columns();
+        let mut lines = Vec::with_capacity(screen_lines);
+        for row in 0..screen_lines as i32 {
+            let mut line = String::with_capacity(cols);
+            for col in 0..cols {
+                line.push(grid[Point::new(Line(row), Column(col))].c);
+            }
+            lines.push(line.trim_end().to_string());
+        }
+        lines
+    }
+    /// The user typed into the pane: dismiss the badge and, if the agent was
+    /// waiting on a decision, treat the keystroke as that decision — the
+    /// agent's next hook event (or screen detection) settles the real state.
+    /// Returns whether the effective state changed.
+    pub fn mark_interacted(&self) -> bool {
+        let before = self.agent_state();
+        self.clear_notification();
+        if self.agent.lock().state == Some(AgentState::Blocked) {
+            let source = self.agent.lock().source.unwrap_or(AgentStateSource::Hook);
+            self.set_agent_state(Some(AgentState::Idle), source);
+        }
+        before != self.agent_state()
     }
 
     /// Get the initial working directory for this terminal
@@ -2320,6 +2441,64 @@ pub fn has_child_processes(_pid: u32) -> bool {
     false
 }
 
+/// Command lines of the shell's direct child processes, for agent
+/// identification (`agent_detect::kind_from_command_line`). Linux reads
+/// `/proc`; other Unix runs `pgrep -lfP` (one fork+exec); non-Unix has no
+/// portable probe and returns `None` so callers can tell "no children" from
+/// "cannot look".
+#[cfg(target_os = "linux")]
+pub fn child_process_commands(pid: u32) -> Option<Vec<String>> {
+    let task_dir = format!("/proc/{}/task", pid);
+    let entries = std::fs::read_dir(&task_dir).ok()?;
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let Some(tid) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(children) = std::fs::read_to_string(format!("/proc/{}/task/{}/children", pid, tid))
+        else {
+            continue;
+        };
+        for child in children.split_whitespace() {
+            if let Ok(raw) = std::fs::read(format!("/proc/{}/cmdline", child)) {
+                let cmd = raw
+                    .split(|b| *b == 0)
+                    .filter(|part| !part.is_empty())
+                    .map(|part| String::from_utf8_lossy(part).into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !cmd.is_empty() {
+                    out.push(cmd);
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn child_process_commands(pid: u32) -> Option<Vec<String>> {
+    let output = std::process::Command::new("pgrep")
+        .args(["-lfP", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    // `pgrep -lf` prints "<pid> <full command line>" per child; exit status 1
+    // means "no matches", which is a valid empty answer.
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(
+        text.lines()
+            .filter_map(|l| l.split_once(' ').map(|(_, cmd)| cmd.trim().to_string()))
+            .filter(|cmd| !cmd.is_empty())
+            .collect(),
+    )
+}
+
+#[cfg(not(unix))]
+pub fn child_process_commands(_pid: u32) -> Option<Vec<String>> {
+    None
+}
+
 // ── ANSI snapshot serialization ────────────────────────────────────────────
 
 /// Tracked SGR state to minimize escape sequences in snapshot output.
@@ -2631,6 +2810,19 @@ mod tests {
         // PTY drain must not report it again.
         terminal.set_notification("Codex".to_string(), "Turn complete".to_string());
         assert!(terminal.take_unposted_notification().is_none());
+    }
+
+    #[test]
+    fn osc9_progress_reports_are_not_notifications() {
+        // ConEmu / Windows Terminal progress: OSC 9;4;<state>;<pct>
+        assert!(extract_osc_notifications(b"\x1b]9;4;0;\x07").is_empty());
+        assert!(extract_osc_notifications(b"\x1b]9;4;3;50\x1b\\").is_empty());
+        assert!(extract_osc_notifications(b"\x1b]9;4\x07").is_empty());
+        // A real OSC 9 notification still comes through, even one whose
+        // body merely starts with a digit.
+        let got = extract_osc_notifications(b"\x1b]9;42 tests passed\x07");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].body, "42 tests passed");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+mod agent_detection;
 mod detached_terminals;
 pub mod headless;
 mod remote_commands;
@@ -370,6 +371,7 @@ impl NotMux {
             crate::terminal::backend::LocalBackend::new(manager.pty_manager.clone()),
         );
         manager.start_remote_command_loop(bridge_rx, local_backend, cx);
+        manager.start_agent_detection_loop(cx);
 
         // Set up observer for detached terminals
         cx.observe(&workspace, move |this, workspace, cx| {

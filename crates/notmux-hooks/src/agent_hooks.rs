@@ -289,7 +289,7 @@ pub fn install_claude() -> Result<(), String> {
     // interrupted with Esc — Claude fires no `Stop` hook for those, so the
     // spinner would otherwise rotate until the next prompt.
     let notification_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ nm_payload=$(cat); if printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission'; then \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\"; elif printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"idle_prompt\"'; then \"{exe}\" agent-status idle; fi; }} >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ nm_payload=$(cat); if printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"permission_prompt\"|needs your permission'; then \"{exe}\" notify --title \"Claude Code\" --body \"Approval needed\" --state blocked; elif printf '%s' \"$nm_payload\" | grep -qE '\"notification_type\"[[:space:]]*:[[:space:]]*\"idle_prompt\"'; then \"{exe}\" agent-status idle; fi; }} >/dev/null 2>&1 || true"
     );
     hooks_obj.insert(
         "Notification".to_string(),
@@ -416,7 +416,7 @@ pub fn install_codex() -> Result<(), String> {
     // Fires right before codex shows an interactive approval prompt. The
     // trailing `echo {}` returns "no decision" so the prompt still appears.
     let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Approval needed\" >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && ( nohup \"{exe}\" notify --title Codex --body \"Approval needed\" --state blocked >/dev/null 2>&1 & ) 2>/dev/null; echo {{}}"
     );
     // Session restore: capture the stdin payload synchronously (codex may
     // close the pipe before a backgrounded child reads it), then hand it to
@@ -646,7 +646,7 @@ pub fn install_notagent() -> Result<(), String> {
     // Stdout is suppressed so nothing is mistaken for an allow/deny decision —
     // the prompt still appears; we only ring the bell.
     let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Approval needed\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Approval needed\" --state blocked >/dev/null 2>&1 || true"
     );
     hooks_obj.insert(
         "PermissionRequest".to_string(),
@@ -658,7 +658,7 @@ pub fn install_notagent() -> Result<(), String> {
     // PostToolUse right after the user answered (spinner + badge cleared) —
     // both matched exactly on the tool name.
     let followup_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Input needed\" >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title notagent --body \"Input needed\" --state blocked >/dev/null 2>&1 || true"
     );
     hooks_obj.insert(
         "PreToolUse".to_string(),
@@ -780,6 +780,12 @@ pub fn install_kimi() -> Result<(), String> {
             "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Kimi Code\" --body \"{body}\" >/dev/null 2>&1 || true"
         )
     };
+    // Needs-input badges also report the agent as blocked.
+    let notify_blocked = |body: &str| {
+        format!(
+            "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title \"Kimi Code\" --body \"{body}\" --state blocked >/dev/null 2>&1 || true"
+        )
+    };
     let working_cmd = format!(
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" agent-status working >/dev/null 2>&1 || true"
     );
@@ -796,13 +802,13 @@ pub fn install_kimi() -> Result<(), String> {
         // fire on interrupts).
         ("Interrupt", None, idle_cmd),
         // Fires only for real interactive prompts, never auto-approvals.
-        ("PermissionRequest", None, notify("Approval needed")),
+        ("PermissionRequest", None, notify_blocked("Approval needed")),
         // Fires right after the approve/deny decision — the immediate badge
         // clear Claude has no event for.
         ("PermissionResult", None, working_cmd.clone()),
         // Follow-up questions: badge on when the question appears, off the
         // moment it is answered.
-        ("PreToolUse", Some("AskUserQuestion"), notify("Input needed")),
+        ("PreToolUse", Some("AskUserQuestion"), notify_blocked("Input needed")),
         ("PostToolUse", Some("AskUserQuestion"), working_cmd),
     ];
 
@@ -953,7 +959,7 @@ export const NotmuxBridge = async () => ({{
       return;
     }}
     if (type === "permission.updated" || type === "permission.asked") {{
-      send(["notify", "--title", "OpenCode", "--body", "Approval needed"]);
+      send(["notify", "--title", "OpenCode", "--body", "Approval needed", "--state", "blocked"]);
     }}
   }},
 }});
@@ -1154,7 +1160,7 @@ pub fn install_cursor() -> Result<(), String> {
         "[ -n \"$NOTMUX_SURFACE_ID\" ] && {{ \"{exe}\" agent-session confirm --kind cursor --pid \"$PPID\"; \"{exe}\" notify --title Cursor --body \"Turn complete\"; }} >/dev/null 2>&1 || true"
     );
     let approval_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && \"{exe}\" notify --title Cursor --body \"Approval needed\" --keep-working --state blocked >/dev/null 2>&1 || true"
     );
 
     let hooks_path = cursor_dir.join("hooks.json");
@@ -1248,7 +1254,7 @@ pub fn install_antigravity() -> Result<(), String> {
     // starting rings the bell
     // (filtered on the hook's stdin payload); read-only tools stay quiet.
     let tool_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"(run_command|write_to_file|replace_file_content|multi_replace_file_content|Bash|Write|Edit|shell)\"' && \"{exe}\" notify --title Antigravity --body \"Approval needed\" --keep-working --state blocked >/dev/null 2>&1 || true"
     );
     // Follow-up questions: `suggested_responses` is non-blocking — agy asks
     // as the turn's final act, the turn ends, and the answer arrives as the
@@ -1256,7 +1262,7 @@ pub fn install_antigravity() -> Result<(), String> {
     // complete" (fired right after the question) can't overwrite it; the
     // answer's PreInvocation → agent-status working clears it.
     let followup_cmd = format!(
-        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"suggested_responses\"' && \"{exe}\" notify --title Antigravity --body \"Input needed\" --sticky >/dev/null 2>&1 || true"
+        "[ -n \"$NOTMUX_SURFACE_ID\" ] && grep -qE '\"tool_name\"[[:space:]]*:[[:space:]]*\"suggested_responses\"' && \"{exe}\" notify --title Antigravity --body \"Input needed\" --sticky --state blocked >/dev/null 2>&1 || true"
     );
     // Session restore: the hook payload carries the conversation id
     // (resumable via `agy --conversation <id>`).

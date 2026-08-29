@@ -65,6 +65,21 @@ impl Sidebar {
         } else {
             0
         };
+        // Agent rollup: a blocked or working agent is shown even while the
+        // project is expanded (its row may be the only thing on screen when
+        // the list is scrolled); done/unknown only stand in for the hidden
+        // terminal rows of a collapsed project.
+        let agent_rollup = self
+            .rollup_agent_state(&project.terminal_ids)
+            .filter(|s| {
+                !is_expanded
+                    || matches!(
+                        s,
+                        notmux_core::agent_state::AgentState::Blocked
+                            | notmux_core::agent_state::AgentState::Working
+                    )
+            });
+        let rollup_anim_id = format!("{id_prefix}-agent-rollup-{}", project.id);
 
         row
             // 1. Expand arrow
@@ -229,6 +244,11 @@ impl Sidebar {
             .when(idle_count > 0 && !is_busy, |d| {
                 d.child(sidebar_idle_dot(&t))
             })
+            // 4b. Agent rollup (blocked / working / done / unknown)
+            .when_some(
+                agent_rollup.and_then(|s| sidebar_agent_state_indicator(s, rollup_anim_id, &t)),
+                |d, indicator| d.child(indicator),
+            )
             // 5. Worktree badge (Project style only)
             .when(
                 matches!(style, ProjectRowStyle::Project) && project.worktree_count > 0,
@@ -1224,6 +1244,25 @@ let (terminal_name, has_bell, idle_label, agent_working) = {
             .into_any_element()
         })
         .when(idle_count > 0, |d| d.child(sidebar_idle_dot(&t)))
+        .when_some(
+            self.rollup_agent_state(&project.terminal_ids)
+                .filter(|s| {
+                    !is_expanded
+                        || matches!(
+                            s,
+                            notmux_core::agent_state::AgentState::Blocked
+                                | notmux_core::agent_state::AgentState::Working
+                        )
+                })
+                .and_then(|s| {
+                    sidebar_agent_state_indicator(
+                        s,
+                        format!("{id_prefix}-agent-rollup-{}", project.id),
+                        &t,
+                    )
+                }),
+            |d, indicator| d.child(indicator),
+        )
     }
 
     /// Render main project as a child row under a group header.

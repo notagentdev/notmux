@@ -343,7 +343,14 @@ impl TerminalContent {
         // render-time focus can't do this: it would clear the badge in the same
         // frame the agent sets it.)
         if let Some(ref terminal) = self.terminal {
+            let before = terminal.agent_state();
             terminal.clear_notification();
+            // `done` → `idle` is a lifecycle change the sidebar rollup and
+            // remote clients need to hear about (blocked stays: looking at a
+            // prompt does not answer it — typing does, see `handle_key_down`).
+            if before != terminal.agent_state() {
+                self.workspace.update(cx, |_ws, cx| cx.notify());
+            }
         }
 
         if let Some(ref terminal) = self.terminal

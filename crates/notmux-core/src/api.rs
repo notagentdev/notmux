@@ -1,3 +1,4 @@
+use crate::agent_state::{AgentState, AgentStateSource};
 use crate::keys::SpecialKey;
 use crate::theme::FolderColor;
 use crate::types::{DiffMode, SplitDirection};
@@ -52,6 +53,44 @@ pub struct ApiProject {
     pub worktree_info: Option<ApiWorktreeMetadata>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worktree_ids: Vec<String>,
+    /// Live per-terminal runtime state (agent lifecycle, notification, OSC
+    /// title), keyed by terminal id. Only terminals of this project's layout
+    /// and pinned arrangement appear; absent entries mean "plain shell".
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub terminal_states: std::collections::HashMap<String, ApiTerminalState>,
+}
+
+/// Runtime state of one terminal as seen by `/v1/state`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApiTerminalState {
+    /// Effective agent lifecycle state; `None` when no agent occupies the
+    /// terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_state: Option<AgentState>,
+    /// Who last set the state (hook report or screen detection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_source: Option<AgentStateSource>,
+    /// Identified agent kind (`claude`, `codex`, …) when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_kind: Option<String>,
+    /// The pending badge text, if the terminal has an undismissed
+    /// notification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification: Option<ApiNotification>,
+    /// The shell sits at its prompt with unseen output (existing
+    /// waiting-for-input heuristic).
+    #[serde(default)]
+    pub waiting_for_input: bool,
+    /// Latest OSC 0/2 title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApiNotification {
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -435,6 +474,12 @@ pub enum ActionRequest {
         /// question, where the turn ends immediately after asking).
         #[serde(default)]
         sticky: bool,
+        /// Lifecycle hint delivered with the badge: `blocked` for
+        /// approval/question prompts so one hook process can raise the badge
+        /// and mark the agent blocked. Absent for plain turn-complete
+        /// notifications, which derive to `done`.
+        #[serde(default)]
+        state: Option<AgentState>,
     },
     ClearNotification {
         #[serde(default)]
@@ -443,7 +488,16 @@ pub enum ActionRequest {
     SetAgentActivity {
         #[serde(default)]
         terminal_id: Option<String>,
+        /// Legacy boolean (`working`/`idle`). Ignored when `state` is set.
+        #[serde(default)]
         working: bool,
+        /// Full lifecycle state; takes precedence over `working`.
+        #[serde(default)]
+        state: Option<AgentState>,
+    },
+    /// Read-only: how a terminal's agent state was determined.
+    AgentExplain {
+        terminal_id: String,
     },
     OpenBrowser {
         project_id: String,
@@ -587,6 +641,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_agent_payloads_still_parse() {
+        // Hooks installed by older binaries send only `working` / no `state`.
+        let legacy: ActionRequest =
+            serde_json::from_str(r#"{"action":"set_agent_activity","terminal_id":"t1","working":true}"#)
+                .unwrap();
+        assert!(matches!(
+            legacy,
+            ActionRequest::SetAgentActivity { working: true, state: None, .. }
+        ));
+        let legacy: ActionRequest = serde_json::from_str(
+            r#"{"action":"notify","terminal_id":"t1","title":"Codex","body":"Approval needed"}"#,
+        )
+        .unwrap();
+        assert!(matches!(legacy, ActionRequest::Notify { state: None, .. }));
+        let hinted: ActionRequest = serde_json::from_str(
+            r#"{"action":"notify","title":"Codex","body":"Approval needed","state":"blocked"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            hinted,
+            ActionRequest::Notify { state: Some(AgentState::Blocked), .. }
+        ));
+    }
+
+    #[test]
+    fn terminal_states_are_optional_on_the_wire() {
+        let json = r#"{"id":"p","name":"p","path":"/tmp","show_in_overview":true,"layout":null,"terminal_names":{}}"#;
+        let p: ApiProject = serde_json::from_str(json).unwrap();
+        assert!(p.terminal_states.is_empty());
+        let back = serde_json::to_value(&p).unwrap();
+        assert!(back.get("terminal_states").is_none());
+
+        let json = r#"{"id":"p","name":"p","path":"/tmp","show_in_overview":true,"layout":null,"terminal_names":{},"terminal_states":{"t1":{"agent_state":"blocked","agent_kind":"claude","notification":{"title":"Claude Code","body":"Approval needed"}}}}"#;
+        let p: ApiProject = serde_json::from_str(json).unwrap();
+        let t1 = &p.terminal_states["t1"];
+        assert_eq!(t1.agent_state, Some(AgentState::Blocked));
+        assert_eq!(t1.agent_kind.as_deref(), Some("claude"));
+        assert!(!t1.waiting_for_input);
+    }
+
+    #[test]
     fn state_response_round_trip() {
         let resp = StateResponse {
             state_version: 42,
@@ -595,6 +690,7 @@ mod tests {
                 name: "Test".into(),
                 path: "/tmp".into(),
                 show_in_overview: true,
+                terminal_states: Default::default(),
                 layout: Some(ApiLayoutNode::Split {
                     direction: SplitDirection::Horizontal,
                     sizes: vec![50.0, 50.0],
@@ -871,6 +967,23 @@ mod tests {
                 body: "Done".into(),
                 keep_working: false,
                 sticky: false,
+                state: None,
+            },
+            ActionRequest::Notify {
+                terminal_id: Some("t1".into()),
+                title: "Claude Code".into(),
+                body: "Approval needed".into(),
+                keep_working: false,
+                sticky: true,
+                state: Some(AgentState::Blocked),
+            },
+            ActionRequest::SetAgentActivity {
+                terminal_id: None,
+                working: false,
+                state: Some(AgentState::Blocked),
+            },
+            ActionRequest::AgentExplain {
+                terminal_id: "t1".into(),
             },
             ];
         for action in actions {

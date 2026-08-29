@@ -2034,6 +2034,20 @@ impl Sidebar {
     }
 
     /// Count how many terminals from the given IDs are currently waiting for input
+    /// The most urgent agent state among the given terminals, for a container
+    /// row's indicator. `None` when none of them hosts an agent.
+    pub fn rollup_agent_state(
+        &self,
+        terminal_ids: &[String],
+    ) -> Option<notmux_core::agent_state::AgentState> {
+        let terminals = self.terminals.lock();
+        notmux_core::agent_state::AgentState::rollup(
+            terminal_ids
+                .iter()
+                .map(|id| terminals.get(id.as_str()).and_then(|t| t.agent_state())),
+        )
+    }
+
     pub fn count_waiting_terminals(&self, terminal_ids: &[String]) -> usize {
         let terminals = self.terminals.lock();
         terminal_ids

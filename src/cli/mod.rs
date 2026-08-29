@@ -44,6 +44,9 @@ pub fn try_handle_cli() -> Option<i32> {
         "focus" => terminal_commands::cli_focus(rest),
         "new-terminal" => terminal_commands::cli_new_terminal(rest),
         "read" => terminal_commands::cli_read(rest),
+        "wait" => terminal_commands::cli_wait(rest),
+        "wait-output" => terminal_commands::cli_wait_output(rest),
+        "agent-explain" => commands::cli_agent_explain(rest),
         "add-project" => terminal_commands::cli_add_project(rest),
         "events" => terminal_commands::cli_events(rest),
         "notify" => commands::cli_notify(rest),
@@ -78,6 +81,10 @@ fn print_help() {
     eprintln!("  focus <terminal-id>                Focus a terminal");
     eprintln!("  new-terminal [project]             Create a terminal in a project");
     eprintln!("  read [--terminal <id>] [--json]    Print a terminal's visible content");
+    eprintln!("  wait [--terminal <id>] [--until <states>] [--timeout <ms>]  Block until the agent reaches a state");
+    eprintln!("  wait-output [--terminal <id>] <text>|--regex <re> [--timeout <ms>]  Block until the screen shows text");
+    eprintln!("  agent-status <working|blocked|idle|done> [-t <id>]  Report the agent lifecycle state (called by hooks)");
+    eprintln!("  agent-explain [--terminal <id>]    Show how a terminal's agent state was determined");
     eprintln!("  add-project <path> [--name <n>]    Add a project to the workspace");
     eprintln!("  events [-n <count>] [--follow]     Print the event log (events.jsonl)");
     eprintln!("  browser <command> [--pane <id>]    Automate a browser pane (open, snapshot, click, …);");
