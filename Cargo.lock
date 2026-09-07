@@ -5103,6 +5103,7 @@ dependencies = [
  "log",
  "notmux-core",
  "notmux-markdown",
+ "notmux-theme",
  "notmux-ui",
  "nucleo-matcher",
  "serde",

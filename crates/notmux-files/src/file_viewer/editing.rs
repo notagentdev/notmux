@@ -4,9 +4,35 @@ use gpui::*;
 use std::path::PathBuf;
 use notmux_markdown::MarkdownDocument;
 
-use super::{DisplayMode, FileViewer};
+use super::{Cursor, DisplayMode, FileViewer};
+use crate::selection::Selection2DNonEmpty;
 
 impl FileViewer {
+    fn replace_active_selection(&mut self, text: &str, cx: &mut Context<Self>) -> bool {
+        if !self.can_edit_source() { return false; }
+        let Some(((start_line, start_column), (end_line, end_column))) = self.active_tab().selection.normalized_non_empty() else { return false; };
+        let tab = self.active_tab_mut();
+        tab.cursor = tab.buffer.replace_range(
+            Cursor { line: start_line, column: start_column },
+            Cursor { line: end_line, column: end_column },
+            text,
+        );
+        tab.selection.clear();
+        self.refresh_active_tab_after_edit(cx);
+        true
+    }
+    pub(super) fn cut_selection(&mut self, cx: &mut Context<Self>) {
+        if self.can_edit_source() {
+            self.copy_selection(cx);
+            self.replace_active_selection("", cx);
+        }
+    }
+    pub(super) fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.insert_text_at_cursor(&text, cx);
+        }
+    }
+
     pub(super) fn active_relative_path(&self) -> String {
         let file_path = self.active_tab().file_path.clone();
         if let Some(relative) = self.relative_path_for(&file_path) {
@@ -78,7 +104,7 @@ impl FileViewer {
     }
 
     pub(super) fn insert_text_at_cursor(&mut self, text: &str, cx: &mut Context<Self>) {
-        if text.is_empty() || !self.can_edit_source() {
+        if text.is_empty() || !self.can_edit_source() || self.replace_active_selection(text, cx) {
             return;
         }
         {
@@ -90,9 +116,7 @@ impl FileViewer {
     }
 
     pub(super) fn delete_backward_at_cursor(&mut self, cx: &mut Context<Self>) {
-        if !self.can_edit_source() {
-            return;
-        }
+        if !self.can_edit_source() || self.replace_active_selection("", cx) { return; }
         {
             let tab = self.active_tab_mut();
             tab.cursor = tab.buffer.delete_backward(tab.cursor);
@@ -102,9 +126,7 @@ impl FileViewer {
     }
 
     pub(super) fn delete_forward_at_cursor(&mut self, cx: &mut Context<Self>) {
-        if !self.can_edit_source() {
-            return;
-        }
+        if !self.can_edit_source() || self.replace_active_selection("", cx) { return; }
         {
             let tab = self.active_tab_mut();
             tab.cursor = tab.buffer.delete_forward(tab.cursor);
@@ -200,7 +222,7 @@ impl FileViewer {
         cx.notify();
     }
 
-    fn can_edit_source(&self) -> bool {
+    pub(super) fn can_edit_source(&self) -> bool {
         let tab = self.active_tab();
         !tab.loading
             && tab.error_message.is_none()

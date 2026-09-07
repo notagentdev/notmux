@@ -23,6 +23,20 @@ pub(crate) struct EditorBuffer {
 }
 
 impl EditorBuffer {
+    pub fn text_in_range(&self, start: Cursor, end: Cursor) -> &str {
+        let start = self.byte_offset(start);
+        let end = self.byte_offset(end);
+        &self.text[start.min(end)..start.max(end)]
+    }
+    pub fn replace_range(&mut self, start: Cursor, end: Cursor, text: &str) -> Cursor {
+        let start = self.byte_offset(start);
+        let end = self.byte_offset(end);
+        let offset = start.min(end);
+        self.text.replace_range(offset..start.max(end), text);
+        self.rebuild_lines();
+        self.cursor_at_byte_offset(offset + text.len())
+    }
+
     pub fn new(text: String, modified_at: Option<SystemTime>) -> Self {
         let mut this = Self {
             saved_text: text.clone(),

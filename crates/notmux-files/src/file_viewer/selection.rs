@@ -1,10 +1,10 @@
 //! Selection, clipboard, scrollbar, and navigation for the file viewer.
 
 use crate::code_view::{
-    apply_vertical_selection_autoscroll, get_selected_text, start_scrollbar_drag,
+    apply_vertical_selection_autoscroll, start_scrollbar_drag,
     update_scrollbar_drag, vertical_selection_autoscroll_delta,
 };
-use crate::selection::{Selection1DExtension, copy_to_clipboard};
+use crate::selection::{Selection1DExtension, Selection2DNonEmpty, copy_to_clipboard};
 use gpui::*;
 
 use super::{DisplayMode, FileViewer, FileViewerEvent};
@@ -31,7 +31,7 @@ impl FileViewer {
     /// Get selected text using the shared utility.
     pub(super) fn get_selected_text(&self) -> Option<String> {
         let tab = self.active_tab();
-        get_selected_text(&tab.highlighted_lines, &tab.selection)
+        tab.selection.normalized_non_empty().map(|((line, column), (end_line, end_column))| tab.buffer.text_in_range(super::Cursor { line, column }, super::Cursor { line: end_line, column: end_column }).to_string())
     }
 
     /// Copy selected text to clipboard.
@@ -45,8 +45,8 @@ impl FileViewer {
         if tab.highlighted_lines.is_empty() {
             return;
         }
-        let last_line = tab.highlighted_lines.len() - 1;
-        let last_col = tab.highlighted_lines[last_line].plain_text.len();
+        let last_line = tab.buffer.line_count() - 1;
+        let last_col = tab.buffer.line_char_len(last_line);
         tab.selection.start = Some((0, 0));
         tab.selection.end = Some((last_line, last_col));
         cx.notify();

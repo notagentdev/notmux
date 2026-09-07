@@ -11,6 +11,8 @@ mod loading;
 mod render;
 mod search;
 mod selection;
+#[cfg(test)]
+mod ui_tests;
 
 use crate::code_view::ScrollbarDrag;
 use crate::file_search::FileEntry;
@@ -245,6 +247,7 @@ impl NavigationHistory {
 
 /// File viewer overlay for displaying file contents.
 pub struct FileViewer {
+    editor_context_menu: Option<Point<Pixels>>,
     focus_handle: FocusHandle,
     project_fs: std::sync::Arc<dyn crate::project_fs::ProjectFs>,
     /// Syntax set for highlighting
@@ -435,7 +438,7 @@ impl FileViewer {
             filter_button_bounds: None,
             source_content_bounds: None,
             context_menu: None,
-            tab_context_menu: None,
+            tab_context_menu: None, editor_context_menu: None,
             rename_state: None,
             delete_confirm: None,
             search_state: None,
@@ -507,7 +510,7 @@ impl FileViewer {
             filter_button_bounds: None,
             source_content_bounds: None,
             context_menu: None,
-            tab_context_menu: None,
+            tab_context_menu: None, editor_context_menu: None,
             rename_state: None,
             delete_confirm: None,
             search_state: None,

@@ -86,6 +86,60 @@ pub(crate) struct DeleteConfirmState {
 // ============================================================================
 
 impl FileViewer {
+    pub(super) fn show_editor_context_menu(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.context_menu = None;
+        self.tab_context_menu = None;
+        self.editor_context_menu = Some(event.position);
+        window.focus(&self.focus_handle, cx);
+        if let Some(on_click) = &self.on_click_embedded { on_click(window, cx); }
+        cx.stop_propagation();
+        cx.notify();
+    }
+    pub(super) fn render_editor_context_menu(&self, t: &notmux_core::theme::ThemeColors, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let position = self.editor_context_menu?;
+        let preview = self.active_tab().display_mode == super::DisplayMode::Preview;
+        let has_selection = if preview { self.get_selected_markdown_text().is_some() } else { self.get_selected_text().is_some() };
+        let editable = self.can_edit_source();
+        let mut panel = context_menu_panel("fv-editor-context-menu", t).debug_selector(|| "fv-editor-context-menu".into());
+        for (id, icon, label, enabled) in [
+            ("cut", "icons/edit.svg", "Cut", editable && has_selection),
+            ("copy", "icons/copy.svg", "Copy", has_selection),
+            ("paste", "icons/copy.svg", "Paste", editable),
+            ("select-all", "icons/file.svg", "Select All", !self.active_tab().loading),
+        ] {
+            panel = panel.child(notmux_ui::menu::menu_item_conditional(format!("fv-editor-{id}"), icon, label, enabled, t)
+                .debug_selector(move || format!("fv-editor-{id}"))
+                .when(enabled, |item| item.on_click(cx.listener(move |this, _, window, cx| {
+                    this.editor_context_menu = None;
+                    match id {
+                        "cut" => this.cut_selection(cx),
+                        "copy" if preview => this.copy_markdown_selection(cx),
+                        "copy" => this.copy_selection(cx),
+                        "paste" => this.paste_clipboard(cx),
+                        "select-all" if preview => this.select_all_markdown(cx),
+                        "select-all" => this.select_all(cx),
+                        _ => unreachable!(),
+                    }
+                    window.focus(&this.focus_handle, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }))));
+        }
+        Some(div().id("fv-editor-menu-backdrop").absolute().inset_0().occlude()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                this.editor_context_menu = None;
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _, cx| {
+                this.editor_context_menu = None;
+                cx.stop_propagation();
+                cx.notify();
+            }))
+            .child(deferred(anchored().position(position).snap_to_window().child(panel)))
+            .into_any_element())
+    }
+
     pub(super) fn open_context_menu(
         &mut self,
         position: Point<Pixels>,

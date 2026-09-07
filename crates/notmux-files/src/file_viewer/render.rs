@@ -15,6 +15,7 @@ use notmux_ui::theme::git_theme as theme;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{h_flex, v_flex};
+use gpui_component::scroll::{Scrollbar, ScrollbarShow};
 use std::path::PathBuf;
 use std::sync::Arc;
 use notmux_core::theme::ThemeColors;
@@ -30,6 +31,17 @@ use super::{DisplayMode, FileViewer, SIDEBAR_WIDTH};
 
 const SOURCE_TEXT_PADDING_LEFT: f32 = 10.0;
 
+#[cfg(test)]
+#[::core::prelude::v1::test]
+fn source_columns_preserve_tabs_and_unicode() {
+    let text = "\téa";
+    assert_eq!(byte_index_for_char_column(text, 1), 4);
+    assert_eq!(byte_index_for_char_column(text, 2), 6);
+    assert_eq!(char_column_for_byte_index(text, 3), 0);
+    assert_eq!(char_column_for_byte_index(text, 4), 1);
+    assert_eq!(char_column_for_byte_index(text, 6), 2);
+}
+
 /// Helper to create rgba from u32 color and alpha.
 fn rgba(color: u32, alpha: f32) -> Rgba {
     let r = ((color >> 16) & 0xFF) as f32 / 255.0;
@@ -38,19 +50,25 @@ fn rgba(color: u32, alpha: f32) -> Rgba {
     Rgba { r, g, b, a: alpha }
 }
 
+fn selection_for_display(tab: &super::FileViewerTab) -> super::Selection {
+    let mut selection = tab.selection.clone();
+    for endpoint in [&mut selection.start, &mut selection.end].into_iter().flatten() {
+        endpoint.1 = byte_index_for_char_column(tab.buffer.line_str(endpoint.0), endpoint.1);
+    }
+    selection
+}
+
 fn byte_index_for_char_column(text: &str, column: usize) -> usize {
-    text.char_indices()
-        .nth(column)
-        .map(|(idx, _)| idx)
-        .unwrap_or(text.len())
+    text.chars().take(column).map(|ch| if ch == '\t' { 4 } else { ch.len_utf8() }).sum()
 }
 
 fn char_column_for_byte_index(text: &str, byte_index: usize) -> usize {
-    let mut byte_index = byte_index.min(text.len());
-    while byte_index > 0 && !text.is_char_boundary(byte_index) {
-        byte_index -= 1;
+    let mut offset = 0;
+    for (column, ch) in text.chars().enumerate() {
+        offset += if ch == '\t' { 4 } else { ch.len_utf8() };
+        if byte_index < offset { return column; }
     }
-    text[..byte_index].chars().count()
+    text.chars().count()
 }
 
 fn source_cursor_canvas(
@@ -81,6 +99,17 @@ fn source_cursor_canvas(
 }
 
 impl FileViewer {
+    fn render_display_mode_toggle(&self, t: &ThemeColors, cx: &mut Context<Self>) -> impl IntoElement {
+        let preview = self.active_tab().display_mode == DisplayMode::Preview;
+        div().id("display-mode-toggle").debug_selector(|| "display-mode-toggle".into())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_display_mode(cx);
+                window.focus(&this.focus_handle, cx);
+            }))
+            .child(segmented_toggle(&[("Preview", preview), ("Raw", !preview)], t, cx))
+    }
+
     /// Whether buffer `line` is an addition vs the baseline (diff editor).
     fn line_is_added(&self, line: usize) -> bool {
         self.active_tab()
@@ -105,12 +134,12 @@ impl FileViewer {
         let char_width = self.measured_char_width;
         let gutter_width = (tab.line_num_width as f32) * char_width + 16.0;
 
-        let mut bg_ranges = selection_bg_ranges(&tab.selection, line_number, line.plain_text.len());
+        let mut bg_ranges = selection_bg_ranges(&selection_for_display(tab), line_number, line.plain_text.len());
         bg_ranges.extend(self.search_bg_ranges_for_line(line_number));
 
-        let plain_text = line.plain_text.clone();
-        let line_len = line.plain_text.len();
-        let line_char_len = line.plain_text.chars().count();
+        let plain_text = tab.buffer.line_str(line_number).to_string();
+        let line_len = tab.buffer.line_char_len(line_number);
+        let line_char_len = line_len;
         let cursor = tab.cursor;
         let show_cursor = !tab.loading
             && tab.error_message.is_none()
@@ -928,7 +957,7 @@ impl Render for FileViewer {
             )
             .on_action(cx.listener(|this, _: &Cancel, window, cx| {
                 // Dismiss overlays in priority order before default close behavior
-                if this.tab_context_menu.is_some() {
+                if this.editor_context_menu.take().is_some() { cx.notify(); return; } if this.tab_context_menu.is_some() {
                     this.tab_context_menu = None;
                     cx.notify();
                     return;
@@ -995,10 +1024,10 @@ impl Render for FileViewer {
                     "tab" if modifiers.control => {
                         this.next_tab(cx);
                     }
-                    "b" if !embedded && !modifiers.platform && !modifiers.control => {
+                    "b" if !is_source_editing && !embedded && !modifiers.platform && !modifiers.control => {
                         this.toggle_sidebar(cx);
                     }
-                    "c" if modifiers.platform || modifiers.control => {
+                    "x" if modifiers.platform || modifiers.control => { this.cut_selection(cx); } "v" if modifiers.platform || modifiers.control => { this.paste_clipboard(cx); } "c" if modifiers.platform || modifiers.control => {
                         if is_preview {
                             this.copy_markdown_selection(cx);
                         } else {
@@ -1015,7 +1044,7 @@ impl Render for FileViewer {
                     "w" if modifiers.platform || modifiers.control => {
                         this.close_active_tab(cx);
                     }
-                    "r" if !modifiers.platform && !modifiers.control => {
+                    "r" if !is_source_editing && !modifiers.platform && !modifiers.control => {
                         this.refresh_file_tree_async(cx);
                     }
                     "left" if modifiers.alt => {
@@ -1099,9 +1128,7 @@ impl Render for FileViewer {
             )
             // Header — only in the fullscreen overlay. The embedded editor
             // pane already shows the file name in its layout tab bar.
-            .child(if embedded {
-                div().into_any_element()
-            } else {
+            .child(if embedded { h_flex().when(is_markdown, |d| d.h(px(32.0)).flex_shrink_0().px(px(8.0)).child(self.render_display_mode_toggle(&t, cx))).into_any_element() } else {
                 div()
                     .px(px(16.0))
                     .py(px(12.0))
@@ -1166,19 +1193,7 @@ impl Render for FileViewer {
                             .gap(px(12.0))
                             .when(is_markdown, |d| {
                                 d.child(
-                                    div()
-                                        .id("display-mode-toggle")
-                                        .on_click(cx.listener(|this, _, _window, cx| {
-                                            this.toggle_display_mode(cx);
-                                        }))
-                                        .child(segmented_toggle(
-                                            &[
-                                                ("Preview", is_preview_mode),
-                                                ("Source", !is_preview_mode),
-                                            ],
-                                            &t,
-                                            cx,
-                                        )),
+                                    self.render_display_mode_toggle(&t, cx),
                                 )
                             })
                             .child(
@@ -1267,7 +1282,7 @@ impl Render for FileViewer {
                                 let view_clone = view.clone();
                                 d.child(
                                     div()
-                                        .id("file-content")
+                                        .id("file-content").on_mouse_down(MouseButton::Right, cx.listener(Self::show_editor_context_menu))
                                         .flex_1()
                                         .min_h_0()
                                         .relative()
@@ -1580,9 +1595,9 @@ impl Render for FileViewer {
                                     .children(content_children);
 
                                 d.child(
-                                    div()
-                                        .id("markdown-preview")
-                                        .flex_1()
+                                    div().flex_1().min_h_0().relative().child(div()
+                                        .id("markdown-preview").on_mouse_down(MouseButton::Right, cx.listener(Self::show_editor_context_menu))
+                                        .size_full()
                                         .overflow_y_scroll()
                                         .overflow_x_scroll()
                                         .track_scroll(
@@ -1601,7 +1616,7 @@ impl Render for FileViewer {
                                                 },
                                             ),
                                         )
-                                        .child(content_div),
+                                        .child(content_div)).child(div().absolute().inset_0().child(Scrollbar::vertical(&self.active_tab().markdown_scroll_handle).scrollbar_show(ScrollbarShow::Always))),
                                 )
                             }),
                     ),
@@ -1631,7 +1646,7 @@ impl Render for FileViewer {
                     },
                 ))
             })
-            .when_some(self.render_context_menu(&t, cx), |d, menu| d.child(menu))
+            .children(self.render_editor_context_menu(&t, cx)).when_some(self.render_context_menu(&t, cx), |d, menu| d.child(menu))
             .when_some(self.render_tab_context_menu(&t, cx), |d, menu| d.child(menu))
             .when_some(self.render_delete_confirm(&t, cx), |d, dialog| d.child(dialog))
     }
