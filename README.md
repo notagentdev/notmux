@@ -27,6 +27,8 @@ curl -fsSL https://raw.githubusercontent.com/notagentdev/notmux/main/install.sh 
 irm https://raw.githubusercontent.com/notagentdev/notmux/main/install.ps1 | iex
 ```
 
+**Windows builds are currently unsigned.** Windows may show an unknown-publisher or SmartScreen warning. Download only from the official [GitHub Releases](https://github.com/notagentdev/notmux/releases); the installer verifies SHA256 checksums, but these do not replace an Authenticode signature.
+
 Installers download the latest published GitHub Release and require a matching SHA256 checksum. On macOS, the signed and notarized app is installed to `/Applications/NotMux.app`; Linux uses `~/.local/bin/notmux`. On Windows, it installs to `%LOCALAPPDATA%\Programs\NotMux` with a Start Menu shortcut.
 
 Release targets are macOS Apple Silicon/Intel (when the corresponding ZIP is attached), Linux x86_64, and Windows x86_64. Mobile builds are experimental and are not currently released. Installation requires a published release; drafts are not available through these commands.
