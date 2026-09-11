@@ -30,6 +30,7 @@ pub enum UpdateStatus {
     },
     ReadyToRestart {
         version: String,
+        executable: std::path::PathBuf,
     },
     BrewUpdate {
         version: String,
@@ -267,9 +268,10 @@ impl Render for UpdateStatusWidget {
                                             })
                                             .await;
                                             match result {
-                                                Ok(_) => {
+                                                Ok(executable) => {
                                                     info.set_status(UpdateStatus::ReadyToRestart {
                                                         version,
+                                                        executable,
                                                     });
                                                 }
                                                 Err(e) => {
@@ -306,7 +308,7 @@ impl Render for UpdateStatusWidget {
                 .text_size(ui_text_sm(cx))
                 .child(format!("Installing v{}...", version))
                 .into_any_element(),
-            UpdateStatus::ReadyToRestart { .. } => div()
+            UpdateStatus::ReadyToRestart { executable, .. } => div()
                 .id("update-restart")
                 .cursor_pointer()
                 .px(px(6.0))
@@ -315,7 +317,7 @@ impl Render for UpdateStatusWidget {
                 .text_size(ui_text_sm(cx))
                 .child("Restart to update")
                 .on_click(move |_, _, cx| {
-                    crate::installer::restart_app(cx);
+                    crate::installer::restart_app(&executable, cx);
                 })
                 .into_any_element(),
             UpdateStatus::Downloading { version, progress } => h_flex()

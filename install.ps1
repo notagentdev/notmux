@@ -24,6 +24,11 @@ if (-not $Version) {
     }
 }
 
+$Version = $Version -replace '^v', ''
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Invalid release version: $Version"
+}
+
 Write-Host "Installing NotMux v$Version..."
 
 # Download
@@ -34,6 +39,20 @@ $ZipPath = Join-Path $TempDir "notmux.zip"
 
 Write-Host "Downloading from $DownloadUrl..."
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
+
+# Verify before extracting or touching an existing installation.
+$Checksums = (Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/v$Version/SHA256SUMS" -UseBasicParsing).Content
+$ChecksumLines = @($Checksums -split "`n" | Where-Object {
+    $_ -match ('^[a-fA-F0-9]{64}\s+' + [regex]::Escape("$Artifact.zip") + '\s*$')
+})
+if ($ChecksumLines.Count -ne 1) {
+    throw "Missing or ambiguous checksum for $Artifact.zip"
+}
+$ExpectedHash = ($ChecksumLines[0] -split '\s+')[0]
+if ((Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash -ne $ExpectedHash) {
+    Remove-Item -Recurse -Force $TempDir
+    throw "Checksum verification failed. Installation aborted."
+}
 
 # Extract
 Write-Host "Extracting..."

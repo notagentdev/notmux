@@ -61,11 +61,14 @@ else
   sed -i -E '0,/^version = ".*"$/s/^version = ".*"$/version = "'"$version"'"/' "$REPO_ROOT/Cargo.toml"
 fi
 
-# Update Cargo.lock
-cargo generate-lockfile --manifest-path "$REPO_ROOT/Cargo.toml"
+# Update only the package version resolution; preserve locked dependency versions.
+cargo metadata --format-version 1 --manifest-path "$REPO_ROOT/Cargo.toml" > /dev/null
 
-git add .
-git commit -m "v$version"
+# The initial release may already have the desired version and need only a tag.
+if ! git diff --quiet -- "$REPO_ROOT/Cargo.toml" "$REPO_ROOT/Cargo.lock"; then
+    git add "$REPO_ROOT/Cargo.toml" "$REPO_ROOT/Cargo.lock"
+    git commit -m "v$version"
+fi
 git tag "v$version"
 git push origin "$current_branch"
 git push origin "v$version"

@@ -14,9 +14,11 @@ pub async fn download_asset(
     checksum_url: Option<String>,
 ) -> Result<PathBuf> {
     smol::unblock(move || {
+        let checksum_url = checksum_url.context("release has no SHA256SUMS; refusing unverified update")?;
         let path = download_blocking(&url, &asset_name, &version, &update_info, cancel_token)?;
-        if let Some(cs_url) = checksum_url {
-            verify_checksum(&path, &asset_name, &cs_url)?;
+        if let Err(error) = verify_checksum(&path, &asset_name, &checksum_url) {
+            let _ = std::fs::remove_file(&path);
+            return Err(error);
         }
         Ok(path)
     })
@@ -132,17 +134,7 @@ fn verify_checksum(file_path: &Path, asset_name: &str, checksum_url: &str) -> Re
         .text()
         .context("failed to read checksum file")?;
 
-    let expected_hash = body
-        .lines()
-        .find_map(|line| {
-            let parts: Vec<&str> = line.splitn(2, |c: char| c.is_whitespace()).collect();
-            if parts.len() == 2 && parts[1].trim() == asset_name {
-                Some(parts[0].to_lowercase())
-            } else {
-                None
-            }
-        })
-        .with_context(|| format!("no checksum found for '{}' in SHA256SUMS", asset_name))?;
+    let expected_hash = expected_checksum(&body, asset_name)?;
 
     let mut file =
         std::fs::File::open(file_path).context("failed to open downloaded file for checksum")?;
@@ -168,6 +160,44 @@ fn verify_checksum(file_path: &Path, asset_name: &str, checksum_url: &str) -> Re
 
     log::info!("Checksum verified for {}", asset_name);
     Ok(())
+}
+
+fn expected_checksum(body: &str, asset_name: &str) -> Result<String> {
+    let mut found = None;
+    for line in body.lines() {
+        let parts: Vec<_> = line.split_whitespace().collect();
+        if parts.get(1).copied() == Some(asset_name) {
+            anyhow::ensure!(parts.len() == 2 && parts[0].len() == 64
+                && parts[0].bytes().all(|b| b.is_ascii_hexdigit()), "invalid SHA256SUMS entry");
+            anyhow::ensure!(found.is_none(), "duplicate SHA256SUMS entry");
+            found = Some(parts[0].to_lowercase());
+        }
+    }
+    found.with_context(|| format!("no checksum found for '{}' in SHA256SUMS", asset_name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checksum_manifest_requires_one_valid_matching_entry() {
+        let hash = "a".repeat(64);
+        let line = format!("{hash}  notmux-macos-arm64.zip\n");
+        assert_eq!(expected_checksum(&line, "notmux-macos-arm64.zip").unwrap(), hash);
+        assert!(expected_checksum(&line, "notmux-windows-x64.zip").is_err());
+        assert!(expected_checksum(&(line.clone() + &line), "notmux-macos-arm64.zip").is_err());
+        assert!(expected_checksum("invalid  notmux-macos-arm64.zip", "notmux-macos-arm64.zip").is_err());
+    }
+
+    #[test]
+    fn missing_checksums_fail_before_downloading() {
+        let info = UpdateInfo::new("0.1.0".into());
+        let result = smol::block_on(download_asset(
+            "invalid-url".into(), "notmux.zip".into(), "0.1.1".into(), info, 0, None,
+        ));
+        assert!(result.unwrap_err().to_string().contains("no SHA256SUMS"));
+    }
 }
 
 pub fn cleanup_updates_dir() {

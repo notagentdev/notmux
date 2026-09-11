@@ -27,7 +27,11 @@ curl -fsSL https://raw.githubusercontent.com/notagentdev/notmux/main/install.sh 
 irm https://raw.githubusercontent.com/notagentdev/notmux/main/install.ps1 | iex
 ```
 
-The install script includes built-in auto-update support. On macOS and Linux, NotMux is installed to `~/.local/bin/notmux`. On Windows, it installs to `%LOCALAPPDATA%\Programs\NotMux` with a Start Menu shortcut.
+Installers download the latest published GitHub Release and require a matching SHA256 checksum. On macOS, the signed and notarized app is installed to `/Applications/NotMux.app`; Linux uses `~/.local/bin/notmux`. On Windows, it installs to `%LOCALAPPDATA%\Programs\NotMux` with a Start Menu shortcut.
+
+Release targets are macOS Apple Silicon/Intel (when the corresponding ZIP is attached), Linux x86_64, and Windows x86_64. Mobile builds are experimental and are not currently released. Installation requires a published release; drafts are not available through these commands.
+
+For maintainers: see [Desktop releases](docs/releasing.md).
 
 ## Features
 
@@ -163,13 +167,14 @@ Inside a NotMux terminal, commands target that terminal automatically (`NOTMUX_T
 
 ### Remote Control & Companion Apps
 - **Remote API** - Local HTTP/WebSocket server for remote terminal control (see `docs/remote.md`)
-- **Mobile app** - Flutter + Rust FFI companion app for Android/iOS (see `docs/mobile-status.md`)
+- **Experimental mobile app** - Flutter + Rust FFI source for Android/iOS; not currently built or released (see `docs/mobile-status.md`)
 - **Web client** - Browser-based terminal access via built-in web UI
 - **Secure pairing** - HMAC-SHA256 token auth with rate-limited pairing codes
 
 ### Auto-Update
 - **Built-in updater** - Background update checks via GitHub Releases
-- **SHA256 verification** - Downloaded updates are cryptographically verified
+- **SHA256 verification** - Updates without a valid published checksum are rejected
+- **Signed macOS updates** - Replaces the complete app bundle after signature, signing-team and Gatekeeper verification; install and restart are user-triggered
 - **Homebrew-aware** - Skips self-update when installed via Homebrew
 
 ### Platform Support
@@ -182,11 +187,14 @@ Inside a NotMux terminal, commands target that terminal automatically (`NOTMUX_T
 
 ## Building
 
-Requires Rust toolchain (edition 2021).
+Requires the Rust toolchain in `rust-toolchain.toml` (edition 2024), Bun, and the platform build dependencies. macOS requires Xcode command-line tools; Linux dependencies are listed in `.github/workflows/build.yml`.
 
 ```bash
-cargo build --release
+(cd web && bun install --frozen-lockfile && bun run build)
+cargo build --locked --release
 ```
+
+For signed macOS release ZIPs, follow [Desktop releases](docs/releasing.md).
 
 ## Running
 

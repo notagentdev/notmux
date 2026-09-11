@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 REPO="notagentdev/notmux"
 BOLD="\033[1m"
@@ -11,7 +11,7 @@ RESET="\033[0m"
 
 info() { printf "  ${DIM}%s${RESET}\n" "$1"; }
 step() { printf "  ${CYAN}>::${RESET} %s\n" "$1"; }
-done_msg() { printf "\n  ${GREEN}✓${RESET} ${BOLD}%s${RESET}\n" "$1"; }
+done_msg() { printf "\n  ${GREEN}${BOLD}%s${RESET}\n" "$1"; }
 err() { printf "  ${RED}error:${RESET} %s\n" "$1" >&2; exit 1; }
 
 # Detect OS and architecture
@@ -30,14 +30,17 @@ case "$OS" in
 esac
 
 # Get version (from argument or latest release)
-if [ -n "$1" ]; then
-  VERSION="$1"
+if [ -n "${1:-}" ]; then
+  VERSION="${1#v}"
 else
   step "Fetching latest version"
-  VERSION=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+  VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/') || err "No published release found. Check https://github.com/${REPO}/releases"
 fi
 
-[ -z "$VERSION" ] && err "Failed to determine version. Usage: install.sh [version]"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || err "Invalid release version. Usage: install.sh [0.1.0]"
+if [[ "$OS" == linux && "$ARCH" != x64 ]]; then
+  err "Linux installers currently support x86_64 only."
+fi
 
 echo ""
 printf "  ${BOLD}NotMux${RESET} ${DIM}v%s${RESET}  ${DIM}%s/%s${RESET}\n" "$VERSION" "$OS" "$ARCH"
@@ -45,29 +48,64 @@ echo ""
 
 # Create temp directory
 TMP_DIR=$(mktemp -d)
-trap "rm -rf $TMP_DIR" EXIT
+STAGING=""
+cleanup() {
+  rm -rf "$TMP_DIR"
+  if [[ -n "$STAGING" ]]; then
+    if [[ -d "$STAGING/previous.app" && ! -e /Applications/NotMux.app ]]; then
+      mv "$STAGING/previous.app" /Applications/NotMux.app || true
+    fi
+    if [[ -d "$STAGING/previous.app" ]]; then
+      printf 'Previous app retained at %s/previous.app\n' "$STAGING" >&2
+    else
+      rm -rf "$STAGING"
+    fi
+  fi
+}
+trap cleanup EXIT
+
+verified_download() {
+  local asset="$1"
+  local base="https://github.com/${REPO}/releases/download/v${VERSION}"
+  curl -fsSL "$base/$asset" -o "$TMP_DIR/$asset" || err "No installer for $OS/$ARCH in v$VERSION."
+  curl -fsSL "$base/SHA256SUMS" -o "$TMP_DIR/SHA256SUMS" || err "Missing release checksums."
+  local expected
+  expected=$(awk -v asset="$asset" '$2 == asset { print $1 }' "$TMP_DIR/SHA256SUMS")
+  [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || err "Missing or invalid checksum for $asset."
+  (
+    cd "$TMP_DIR"
+    if command -v sha256sum >/dev/null; then
+      printf '%s  %s\n' "$expected" "$asset" | sha256sum -c -
+    else
+      printf '%s  %s\n' "$expected" "$asset" | shasum -a 256 -c -
+    fi
+  ) || err "Checksum verification failed. Installation aborted."
+}
 
 if [ "$OS" = "darwin" ]; then
   ARTIFACT="notmux-macos-${ARCH}"
-  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARTIFACT}.zip"
-
-  step "Downloading"
-  curl -sL "$DOWNLOAD_URL" -o "$TMP_DIR/notmux.zip"
+  step "Downloading and verifying"
+  verified_download "$ARTIFACT.zip"
 
   step "Extracting"
-  unzip -q "$TMP_DIR/notmux.zip" -d "$TMP_DIR"
-
-  if [ -d "/Applications/NotMux.app" ]; then
-    step "Removing previous installation"
-    rm -rf "/Applications/NotMux.app"
+  ditto -x -k "$TMP_DIR/$ARTIFACT.zip" "$TMP_DIR"
+  [[ -x "$TMP_DIR/NotMux.app/Contents/MacOS/notmux" ]] || err "Archive does not contain NotMux.app."
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$TMP_DIR/NotMux.app/Contents/Info.plist")" == dev.notmux.app ]] || err "Unexpected app identifier."
+  codesign --verify --deep --strict "$TMP_DIR/NotMux.app" || err "Invalid app signature."
+  spctl --assess --type execute "$TMP_DIR/NotMux.app" || err "App is not approved by Gatekeeper."
+  if pgrep -f '^/Applications/NotMux.app/Contents/MacOS/notmux([[:space:]]|$)' >/dev/null; then
+    err "Quit NotMux before installing the update."
   fi
 
-  step "Installing to /Applications"
-  mv "$TMP_DIR/NotMux.app" "/Applications/"
-
-  step "Clearing quarantine"
-  chmod +x "/Applications/NotMux.app/Contents/MacOS/notmux"
-  xattr -cr "/Applications/NotMux.app" 2>/dev/null || true
+  step "Installing complete signed app to /Applications"
+  STAGING=$(mktemp -d /Applications/.notmux-install.XXXXXX) || err "Cannot write to /Applications."
+  ditto "$TMP_DIR/NotMux.app" "$STAGING/NotMux.app"
+  codesign --verify --deep --strict "$STAGING/NotMux.app" || err "Staged app signature is invalid."
+  if [[ -e /Applications/NotMux.app ]]; then
+    mv /Applications/NotMux.app "$STAGING/previous.app"
+  fi
+  mv "$STAGING/NotMux.app" /Applications/NotMux.app || err "Installation failed; restoring previous app."
+  rm -rf "$STAGING/previous.app"
 
   done_msg "Installed to /Applications/NotMux.app"
   echo ""
@@ -77,10 +115,9 @@ if [ "$OS" = "darwin" ]; then
 
 else
   ARTIFACT="notmux-linux-x64"
-  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARTIFACT}.tar.gz"
-
-  step "Downloading"
-  curl -sL "$DOWNLOAD_URL" | tar xz -C "$TMP_DIR"
+  step "Downloading and verifying"
+  verified_download "$ARTIFACT.tar.gz"
+  tar xzf "$TMP_DIR/$ARTIFACT.tar.gz" -C "$TMP_DIR"
 
   INSTALL_DIR="${HOME}/.local/bin"
   mkdir -p "$INSTALL_DIR"

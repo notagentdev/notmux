@@ -35,6 +35,8 @@ allowed-tools: Bash(git:*), Bash(cargo check), Read, Edit
 
 ## Notes
 
-- CI pipeline automatically builds for Linux, macOS (ARM64/Intel), and Windows
-- GitHub Release is created with auto-generated release notes
-- Homebrew cask is automatically updated with new SHA256 hashes
+- CI builds Linux and Windows and creates a draft release; Mobile is disabled.
+- Build, sign and notarize macOS locally using `scripts/bundle-macos.sh --release`.
+- Follow `docs/releasing.md` to combine artifacts, regenerate SHA256SUMS, and publish explicitly.
+- Do not publish the draft before adding and verifying the signed macOS ZIPs.
+- Homebrew tap updates are manual and do not block the release.

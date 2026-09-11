@@ -14,6 +14,7 @@ TARGET=""
 SKIP_BUILD=false
 CREATE_DMG=false
 CREATE_PKG=false
+RELEASE=false
 APP_NAME="NotMux"
 BUNDLE_ID="dev.notmux.app"
 BIN_NAME="notmux"
@@ -36,6 +37,16 @@ while [[ $# -gt 0 ]]; do
         --pkg)
             CREATE_PKG=true
             shift
+            ;;
+        --release)
+            RELEASE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--target <target>] [--skip-build] [--dmg] [--pkg] [--release]"
+            echo "--release requires SIGNING_IDENTITY and NOTARY_PROFILE from the local keychain."
+            echo "Release mode builds from the matching clean Git tag; it does not upload or publish."
+            exit 0
             ;;
         *)
             echo "Unknown option: $1"
@@ -63,15 +74,48 @@ cd "$PROJECT_ROOT"
 VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
 echo "    Version: $VERSION"
 
+case "$TARGET" in
+    aarch64-apple-darwin) ASSET_ARCH=arm64 ;;
+    x86_64-apple-darwin) ASSET_ARCH=x64 ;;
+    *) echo "Unsupported macOS target: $TARGET" >&2; exit 1 ;;
+esac
+
+if [[ "$RELEASE" == true ]]; then
+    : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application identity}"
+    : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to your notarytool keychain profile}"
+    if [[ "$SIGNING_IDENTITY" == "-" || "$SKIP_BUILD" == true || "$CREATE_PKG" == true || "$CREATE_DMG" == true ]]; then
+        echo "Release mode requires Developer ID signing and a fresh build; it produces ZIP only (no --pkg/--dmg)." >&2
+        exit 1
+    fi
+    if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Release mode requires a stable version, e.g. 0.1.0." >&2
+        exit 1
+    fi
+    if [[ -n "$(git status --porcelain)" ]] ||
+       [[ "$(git rev-parse "v$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]]; then
+        echo "Release mode requires a clean checkout at tag v$VERSION." >&2
+        exit 1
+    fi
+    command -v bun >/dev/null
+    xcrun --find notarytool >/dev/null
+    xcrun --find stapler >/dev/null
+    echo "==> Building embedded web client..."
+    (cd web && bun install --frozen-lockfile && bun run build)
+fi
+
 # Build if not skipping
 if [[ "$SKIP_BUILD" == false ]]; then
     echo "==> Building release binary..."
-    cargo build --release --target "$TARGET"
+    cargo build --locked --release --target "$TARGET"
 fi
 
 # Verify binary exists (check target-specific path first, then default)
 BINARY_PATH="target/$TARGET/release/$BIN_NAME"
 if [[ ! -f "$BINARY_PATH" ]]; then
+    if [[ "$RELEASE" == true ]]; then
+        echo "Missing release binary for $TARGET: $BINARY_PATH" >&2
+        exit 1
+    fi
     # Try default release path (when built without --target)
     BINARY_PATH="target/release/$BIN_NAME"
     if [[ ! -f "$BINARY_PATH" ]]; then
@@ -90,6 +134,13 @@ APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+ARTIFACT_DIR="$DIST_DIR"
+if [[ "$RELEASE" == true ]]; then
+    ARTIFACT_DIR="$DIST_DIR/releases/$VERSION"
+    mkdir -p "$ARTIFACT_DIR"
+    # Do not leave a previous build's ZIP or manifest looking deployable on failure.
+    rm -f "$ARTIFACT_DIR/notmux-macos-$ASSET_ARCH.zip" "$ARTIFACT_DIR/SHA256SUMS"
+fi
 
 # Clean and create bundle structure
 echo "==> Creating app bundle structure..."
@@ -160,11 +211,38 @@ fi
 # Create PkgInfo
 echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-echo "==> Ad-hoc code signing..."
-codesign --force --sign - "$MACOS_DIR/$BIN_NAME"
-codesign --force --sign - "$APP_BUNDLE"
+cp "$PROJECT_ROOT/LICENSE" "$RESOURCES_DIR/LICENSE"
+mkdir -p "$RESOURCES_DIR/licenses"
+cp "$PROJECT_ROOT/vendor/sum_tree/LICENSE-APACHE" "$RESOURCES_DIR/licenses/sum_tree.txt"
 xattr -cr "$APP_BUNDLE" 2>/dev/null || true
 find "$APP_BUNDLE" -name '._*' -delete
+
+if [[ "$RELEASE" == true ]]; then
+    echo "==> Developer ID signing with hardened runtime..."
+    codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+    codesign --verify --deep --strict "$APP_BUNDLE"
+    NOTARY_ZIP="$DIST_DIR/notmux-notary-$ASSET_ARCH.zip"
+    NOTARY_RESULT="$DIST_DIR/notmux-notary-$ASSET_ARCH.plist"
+    ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$NOTARY_ZIP"
+    xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$NOTARY_PROFILE" \
+        --wait --output-format plist > "$NOTARY_RESULT"
+    if [[ "$(/usr/libexec/PlistBuddy -c 'Print :status' "$NOTARY_RESULT")" != Accepted ]]; then
+        echo "Notarization was not accepted. See $NOTARY_RESULT" >&2
+        exit 1
+    fi
+    xcrun stapler staple "$APP_BUNDLE"
+    xcrun stapler validate "$APP_BUNDLE"
+    codesign --verify --deep --strict "$APP_BUNDLE"
+    spctl --assess --type execute --verbose "$APP_BUNDLE"
+    # Recreate the distribution ZIP after stapling, preserving the complete bundle.
+    ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" \
+        "$ARTIFACT_DIR/notmux-macos-$ASSET_ARCH.zip"
+    rm -f "$NOTARY_ZIP" "$NOTARY_RESULT"
+else
+    echo "==> Ad-hoc code signing (development only)..."
+    codesign --force --sign - "$MACOS_DIR/$BIN_NAME"
+    codesign --force --sign - "$APP_BUNDLE"
+fi
 
 echo "==> App bundle created at: $APP_BUNDLE"
 
@@ -233,6 +311,16 @@ if [[ "$CREATE_PKG" == true ]]; then
     rm -rf "$PKG_ROOT"
 
     echo "==> Installer package created at: $PKG_PATH"
+fi
+
+if [[ "$RELEASE" == true ]]; then
+    (
+        cd "$ARTIFACT_DIR"
+        shopt -s nullglob
+        ASSETS=(notmux-*.zip notmux-*.tar.gz)
+        shasum -a 256 "${ASSETS[@]}" > SHA256SUMS
+    )
+    echo "==> Release files prepared in $ARTIFACT_DIR (not uploaded or published)."
 fi
 
 echo "==> Done!"

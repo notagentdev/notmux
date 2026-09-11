@@ -1594,9 +1594,9 @@ impl Render for RootView {
                             })
                             .await;
                             match result {
-                                Ok(_) => {
+                                Ok(executable) => {
                                     info.set_status(
-                                        notmux_ext_updater::UpdateStatus::ReadyToRestart { version },
+                                        notmux_ext_updater::UpdateStatus::ReadyToRestart { version, executable },
                                     );
                                 }
                                 Err(e) => {

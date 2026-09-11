@@ -8,6 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -15,150 +18,35 @@ env:
   RUSTUP_MAX_RETRIES: 10
 
 jobs:
-  # Runs on every push: Linux check + tests
   check:
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.93"
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: x86_64-unknown-linux-gnu
-
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libvulkan-dev \
-            libegl1-mesa-dev \
-            libssl-dev \
-            libfontconfig-dev \
-            pkg-config \
-            cmake
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libegl1-mesa-dev libssl-dev libfontconfig-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev pkg-config cmake
+      - uses: oven-sh/setup-bun@v2
       - name: Build web client
         run: cd web && bun install --frozen-lockfile && bun run build
-
+      - name: Test installer guardrails (offline)
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Check compilation
-        run: cargo check --release
-
+        run: cargo check --locked --release
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
-  # Mobile builds: Android APK + iOS
-  build-mobile:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: android
-            artifact: notmux-android
-          - os: macos-latest
-            platform: ios
-            artifact: notmux-ios
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93"
-
-      - name: Add Android Rust targets
-        if: matrix.platform == 'android'
-        run: |
-          rustup target add armv7-linux-androideabi
-          rustup target add aarch64-linux-android
-          rustup target add x86_64-linux-android
-          rustup target add i686-linux-android
-
-      - name: Add iOS Rust targets
-        if: matrix.platform == 'ios'
-        run: |
-          rustup target add aarch64-apple-ios
-          rustup target add x86_64-apple-ios
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: mobile-${{ matrix.platform }}
-          workspaces: mobile/native
-
-      - name: Setup Java (Android)
-        if: matrix.platform == 'android'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Flutter pub get
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: Build Android APKs
-        if: matrix.platform == 'android'
-        working-directory: mobile
-        run: |
-          flutter build apk --release --split-per-abi
-          flutter build apk --release
-
-      - name: Prepare Android artifact
-        if: matrix.platform == 'android'
-        run: |
-          mkdir -p dist
-          cp mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/notmux-arm64-v8a.apk
-          cp mobile/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/notmux-armeabi-v7a.apk
-          cp mobile/build/app/outputs/flutter-apk/app-x86_64-release.apk dist/notmux-x86_64.apk
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/notmux-universal.apk
-
-      - name: Build iOS (no codesign)
-        if: matrix.platform == 'ios'
-        working-directory: mobile
-        run: flutter build ios --release --no-codesign
-
-      - name: Prepare iOS artifact
-        if: matrix.platform == 'ios'
-        run: |
-          mkdir -p dist
-          cd mobile/build/ios/iphoneos
-          zip -r ../../../../dist/notmux-ios.zip Runner.app
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: dist/
-          retention-days: 7
-
-  # Full multi-platform build: tags + manual trigger
+  # macOS is signed and notarized on the release Mac, not on hosted runners.
+  # Mobile releases are disabled until the companion app is ready.
   build:
     if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     strategy:
@@ -168,198 +56,98 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: notmux-linux-x64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: notmux-macos-arm64
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact: notmux-macos-x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: notmux-windows-x64
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          test "${GITHUB_REF#refs/tags/v}" = "$VERSION"
+      - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.93"
+          toolchain: "1.95"
           targets: ${{ matrix.target }}
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.target }}
-          save-if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libvulkan-dev \
-            libegl1-mesa-dev \
-            libssl-dev \
-            libfontconfig-dev \
-            pkg-config \
-            cmake
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libegl1-mesa-dev libssl-dev libfontconfig-dev libwebkit2gtk-4.1-dev \
+            libxdo-dev pkg-config cmake
+      - uses: oven-sh/setup-bun@v2
       - name: Build web client
         run: cd web && bun install --frozen-lockfile && bun run build
-
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-
+        run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Prepare artifact (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist/icons
           cp target/${{ matrix.target }}/release/notmux dist/
           chmod +x dist/notmux
-          # Bundle icons for Linux installation
           cp assets/app-icon-16.png assets/app-icon-32.png assets/app-icon-48.png \
              assets/app-icon-64.png assets/app-icon-128.png assets/app-icon-256.png \
              assets/app-icon-512.png dist/icons/
-          cp notmux.desktop dist/
-
-      - name: Create macOS app bundle
-        if: runner.os == 'macOS'
-        run: |
-          chmod +x scripts/bundle-macos.sh
-          ./scripts/bundle-macos.sh --target ${{ matrix.target }} --skip-build --dmg
-
+          cp notmux.desktop LICENSE dist/
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
-          mkdir dist
-          copy target\${{ matrix.target }}\release\notmux.exe dist\
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/notmux.exe LICENSE dist/
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/
           retention-days: 7
 
-  # Create release when a tag is pushed.
-  # Mobile is best-effort: the job still waits for build-mobile so its APKs and
-  # the iOS zip can be attached when they exist, but a broken Flutter build must
-  # not block the desktop release. Only build must succeed.
+  # Never publish automatically: add locally notarized macOS assets first.
   release:
-    needs: [build, build-mobile]
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' }}
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Prepare release assets
-        env:
-          MOBILE_RESULT: ${{ needs.build-mobile.result }}
         run: |
-          if [[ "$MOBILE_RESULT" != "success" ]]; then
-            echo "::warning::build-mobile was '$MOBILE_RESULT' — releasing desktop artifacts only, no APK/iOS assets"
-          fi
-          cd artifacts
-          for dir in */; do
-            name="${dir%/}"
-            if [[ "$name" == *android* ]]; then
-              # Move APKs to release root
-              mv "$dir"/*.apk ../
-            elif [[ "$name" == *ios* ]]; then
-              # Move iOS zip to release root
-              mv "$dir"/*.zip ../
-            elif [[ "$name" == *windows* ]]; then
-              zip -r "../${name}.zip" "$dir"
-            elif [[ "$name" == *macos* ]]; then
-              # macOS: DMG is already created, just move it
-              mv "$dir"/*.dmg "../" 2>/dev/null || true
-              # Also create a zip of the .app for those who prefer it
-              cd "$dir" && zip -r "../../${name}.zip" "NotMux.app" && cd ..
-            else
-              tar -czvf "../${name}.tar.gz" -C "$dir" .
-            fi
-          done
-
-      - name: Generate notagent bot token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.NOTAGENT_BOT_APP_ID }}
-          private-key: ${{ secrets.NOTAGENT_BOT_APP_PRIVATE_KEY }}
-          owner: notagentdev
-          repositories: homebrew-notmux
-
-      - name: Update Homebrew tap
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-
-          # Calculate SHA256 from local zip files
-          ARM64_SHA=$(sha256sum notmux-macos-arm64.zip | cut -d' ' -f1)
-          X64_SHA=$(sha256sum notmux-macos-x64.zip | cut -d' ' -f1)
-
-          # Clone the tap repo
-          git clone https://x-access-token:${GH_TOKEN}@github.com/notagentdev/homebrew-notmux.git /tmp/homebrew-notmux
-
-          # Update cask
-          sed -i "s/version \".*\"/version \"${VERSION}\"/" /tmp/homebrew-notmux/Casks/notmux.rb
-          sed -i "s/sha256 arm:   \".*\",/sha256 arm:   \"${ARM64_SHA}\",/" /tmp/homebrew-notmux/Casks/notmux.rb
-          sed -i "s/         intel: \".*\"/         intel: \"${X64_SHA}\"/" /tmp/homebrew-notmux/Casks/notmux.rb
-
-          cat /tmp/homebrew-notmux/Casks/notmux.rb
-
-          # Commit and push
-          cd /tmp/homebrew-notmux
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/notmux.rb
-          git commit -m "chore: update cask to v${VERSION}"
-          git push origin main
-
+          tar -czf notmux-linux-x64.tar.gz -C artifacts/notmux-linux-x64 .
+          (cd artifacts/notmux-windows-x64 && zip -r ../../notmux-windows-x64.zip .)
+          sha256sum notmux-linux-x64.tar.gz notmux-windows-x64.zip > SHA256SUMS
       - name: Extract release notes
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           awk -v v="$VERSION" '
-            $0 ~ "^## \\[" v "\\]" { grab = 1; next }
+            $0 == "## [" v "]" { grab = 1; next }
             grab && /^## \[/ { exit }
             grab { print }
           ' CHANGELOG.md > RELEASE_BODY.md
           if [[ ! -s RELEASE_BODY.md ]]; then
-            echo "::warning::CHANGELOG.md has no section for v$VERSION - falling back to a minimal body"
             printf 'Release v%s.\n' "$VERSION" > RELEASE_BODY.md
           fi
-          cat RELEASE_BODY.md
-
-      - name: Create Release
+      - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          overwrite_files: false
+          fail_on_unmatched_files: true
           files: |
-            *.tar.gz
-            *.zip
-            *.dmg
-            *.apk
+            notmux-linux-x64.tar.gz
+            notmux-windows-x64.zip
+            SHA256SUMS
           body_path: RELEASE_BODY.md
           generate_release_notes: false
