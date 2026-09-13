@@ -41,7 +41,9 @@ Write-Host "Downloading from $DownloadUrl..."
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath -UseBasicParsing
 
 # Verify before extracting or touching an existing installation.
-$Checksums = (Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/v$Version/SHA256SUMS" -UseBasicParsing).Content
+$ChecksumPath = Join-Path $TempDir "SHA256SUMS"
+Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/v$Version/SHA256SUMS" -OutFile $ChecksumPath -UseBasicParsing
+$Checksums = Get-Content -LiteralPath $ChecksumPath -Raw -Encoding UTF8
 $ChecksumLines = @($Checksums -split "`n" | Where-Object {
     $_ -match ('^[a-fA-F0-9]{64}\s+' + [regex]::Escape("$Artifact.zip") + '\s*$')
 })
