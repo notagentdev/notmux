@@ -733,9 +733,7 @@ impl GitHeader {
                 }
             }
         }
-        status.tracked.sort_by_key(|f| f.path.to_lowercase());
-        status.untracked.sort_by_key(|f| f.path.to_lowercase());
-        status.conflicts.sort_by_key(|f| f.path.to_lowercase());
+
     }
 
     /// Refresh only the working tree status (after stage/unstage/commit).
@@ -1507,6 +1505,11 @@ impl GitHeader {
             return;
         }
 
+        if let Some(status) = self.working_tree_status.as_mut() {
+            status.tracked.sort_by(|a, b| a.path.cmp(&b.path));
+            status.untracked.sort_by(|a, b| a.path.cmp(&b.path));
+            status.conflicts.sort_by(|a, b| a.path.cmp(&b.path));
+        }
         let status = self.working_tree_status.as_ref();
         let conflicts: Vec<WorkingFile> = status.map(|s| s.conflicts.clone()).unwrap_or_default();
         let tracked: Vec<WorkingFile> = status.map(|s| s.tracked.clone()).unwrap_or_default();

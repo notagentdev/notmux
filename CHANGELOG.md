@@ -52,6 +52,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that project only, without pulling focus or pinning it. The CLI sends the
   calling terminal's id; explicit `--pane`/`--project` still win.
 
+## [0.1.1]
+
+### Fixed
+
+- Keep Git file lists in a consistent path order across full refreshes and
+  individual file updates, preventing files from jumping between positions.
+- Read the Windows installer's checksum manifest as UTF-8 text, including when
+  GitHub serves it as a binary response.
+
+### Distribution
+
+- macOS Apple Silicon builds are Developer ID signed and notarized.
+- Linux x86_64 and Windows x86_64 builds are available. Windows builds remain
+  unsigned.
+
 ## [0.1.0] - 2026-08-12
 
 First public release.
