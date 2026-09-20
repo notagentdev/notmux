@@ -266,7 +266,15 @@ impl AuthStore {
         Ok(token)
     }
 
-    /// Validate a bearer token. Returns true if valid and not expired.
+    /// Validate the owner's local CLI proof, independent of remote-token TTL
+    /// and eviction. The HTTP middleware must also require a loopback peer.
+    pub fn validate_local_cli_token(&self, token: &str) -> bool {
+        let inner = self.inner.lock();
+        let expected = local_cli_token(&inner.app_secret);
+        constant_time_eq(expected.as_bytes(), token.as_bytes())
+    }
+
+    /// Validate a remote bearer token. Returns true if valid and not expired.
     pub fn validate_token(&self, token: &str) -> bool {
         let inner = self.inner.lock();
         let candidate_hmac = compute_hmac(&inner.app_secret, token.as_bytes());
@@ -274,7 +282,7 @@ impl AuthStore {
 
         for record in &inner.tokens {
             if constant_time_eq(&record.token_hmac, &candidate_hmac) {
-                // Check token expiration (24 hours)
+                // Remote credentials still expire; local CLI proof is separate.
                 let age = now
                     .duration_since(record.created_at)
                     .unwrap_or(Duration::MAX);
@@ -344,7 +352,7 @@ impl AuthStore {
     }
 
     /// Reload tokens from disk, replacing the in-memory token list.
-    /// Called after external tools (e.g. CLI) write new tokens to `remote_tokens.json`.
+    /// Local CLI authentication does not use or modify this registry.
     pub fn reload_tokens(&self) {
         let tokens = load_tokens_from(&self.tokens_path);
         let mut inner = self.inner.lock();
@@ -448,6 +456,13 @@ fn check_file_pair_code(code: &str, path: &std::path::Path) -> bool {
     };
 
     constant_time_eq(file_code.trim().as_bytes(), code.as_bytes())
+}
+
+/// Domain-separated proof of access to the owner's protected app secret.
+/// Never persist this as a remote token or send it off the loopback interface.
+pub fn local_cli_token(secret: &[u8]) -> String {
+    let proof = compute_hmac(secret, b"notmux/local-cli/v1");
+    format!("local-{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(proof))
 }
 
 /// Compute HMAC-SHA256.
@@ -648,7 +663,48 @@ fn load_tokens_from(path: &std::path::Path) -> Vec<TokenRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote::{bridge, pty_broadcaster::PtyBroadcaster, routes};
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::{Arc, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}};
+
+    fn test_router(store: Arc<AuthStore>, bridge_tx: bridge::BridgeSender) -> axum::Router {
+        routes::build_router(
+            bridge_tx,
+            store,
+            Arc::new(PtyBroadcaster::new()),
+            Arc::new(tokio::sync::watch::channel(0).0),
+            Instant::now(),
+            Arc::new(tokio::sync::watch::channel(HashMap::new()).0),
+            Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(AtomicU64::new(0)),
+        )
+    }
+
+    async fn run_hook(directory: PathBuf, command: &'static str, expect_failure: bool) {
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "cli::tests::isolated_hook_command", "--nocapture"])
+                .env("NOTMUX_CONFIG_DIR", directory)
+                .env("NOTMUX_TEST_HOOK_COMMAND", command)
+                .env("NOTMUX_TEST_EXPECT_FAILURE", if expect_failure { "1" } else { "0" })
+                .env("HTTP_PROXY", "http://127.0.0.1:1")
+                .env("http_proxy", "http://127.0.0.1:1")
+                .env("ALL_PROXY", "http://127.0.0.1:1")
+                .env("all_proxy", "http://127.0.0.1:1")
+                .env_remove("NO_PROXY")
+                .env_remove("no_proxy")
+                .output()
+                .unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "{command} hook failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
 
     fn test_store() -> AuthStore {
         AuthStore::with_secret(vec![42u8; 32])
@@ -656,6 +712,204 @@ mod tests {
 
     fn test_ip() -> IpAddr {
         IpAddr::V4(Ipv4Addr::LOCALHOST)
+    }
+
+    #[tokio::test]
+    async fn local_cli_hooks_do_not_register_or_replace_expired_credentials() {
+        let store = Arc::new(test_store());
+        let directory = store.tokens_path.parent().unwrap().to_path_buf();
+        std::fs::write(directory.join("remote_secret"), [42u8; 32]).unwrap();
+        let old_cli = r#"{"token":"expired-cli-token","token_id":"expired","registered_at":1}"#;
+        let old_tokens = serde_json::to_string(&vec![PersistedToken {
+            id: "expired".into(),
+            token_hmac: base64::engine::general_purpose::STANDARD
+                .encode(compute_hmac(&[42u8; 32], b"expired-cli-token")),
+            created_at: 1,
+        }]).unwrap();
+        std::fs::write(directory.join("cli.json"), old_cli).unwrap();
+        std::fs::write(&store.tokens_path, &old_tokens).unwrap();
+
+        let (bridge_tx, bridge_rx) = bridge::bridge_channel();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let captured = received.clone();
+        let bridge_task = tokio::spawn(async move {
+            while let Ok(message) = bridge_rx.recv().await {
+                if let bridge::RemoteCommand::Action(action) = message.command {
+                    captured.lock().push(serde_json::to_value(action).unwrap());
+                }
+                if let Some(reply) = message.reply {
+                    let _ = reply.send(bridge::CommandResult::Ok(None));
+                }
+            }
+        });
+        let fail_next = Arc::new(AtomicBool::new(false));
+        let failures = fail_next.clone();
+        let router = test_router(store.clone(), bridge_tx).layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let failures = failures.clone();
+                async move {
+                    if failures.swap(false, Ordering::SeqCst) {
+                        return axum::response::IntoResponse::into_response(
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        );
+                    }
+                    next.run(request).await
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        std::fs::write(directory.join("remote.json"), serde_json::json!({
+            "port": address.port(), "pid": std::process::id(),
+        }).to_string()).unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>())
+                .await.unwrap();
+        });
+
+        for command in ["working", "stop"] {
+            run_hook(directory.clone(), command, false).await;
+        }
+        assert_eq!(received.lock().len(), 2);
+        assert_eq!(received.lock()[0]["action"], "set_agent_activity");
+        assert_eq!(received.lock()[1]["action"], "notify");
+        assert_eq!(std::fs::read_to_string(directory.join("cli.json")).unwrap(), old_cli);
+        assert_eq!(std::fs::read_to_string(&store.tokens_path).unwrap(), old_tokens);
+        assert!(store.list_tokens().is_empty());
+
+        // A temporary server error must not poison later hooks or change credentials.
+        fail_next.store(true, Ordering::SeqCst);
+        run_hook(directory.clone(), "working", true).await;
+        run_hook(directory.clone(), "stop", false).await;
+        assert_eq!(received.lock().len(), 3);
+        assert_eq!(std::fs::read_to_string(directory.join("cli.json")).unwrap(), old_cli);
+        assert_eq!(std::fs::read_to_string(&store.tokens_path).unwrap(), old_tokens);
+
+        // First-use and concurrent hooks must not create a shared CLI-token file.
+        std::fs::remove_file(directory.join("cli.json")).unwrap();
+        let mut hooks = Vec::new();
+        for _ in 0..8 {
+            hooks.push(tokio::spawn(run_hook(directory.clone(), "stop", false)));
+        }
+        for hook in hooks {
+            hook.await.unwrap();
+        }
+        assert_eq!(received.lock().len(), 11);
+        assert!(!directory.join("cli.json").exists());
+        assert_eq!(std::fs::read_to_string(&store.tokens_path).unwrap(), old_tokens);
+        assert!(store.list_tokens().is_empty());
+        server.abort();
+        bridge_task.abort();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn local_cli_proof_survives_remote_expiry_eviction_and_restart() {
+        let store = test_store();
+        let local = local_cli_token(&[42u8; 32]);
+        assert!(store.validate_local_cli_token(&local));
+        assert!(!store.validate_token(&local), "not a remote/WebSocket credential");
+        assert!(store.refresh_token(&local).is_err());
+        assert!(!store.validate_local_cli_token(&local_cli_token(&[43u8; 32])));
+        assert!(!store.validate_local_cli_token(""));
+
+        let original = pair_token(&store);
+        let mut remote = original.clone();
+        for _ in 0..70 {
+            remote = store.refresh_token(&remote).unwrap();
+        }
+        assert!(!store.validate_token(&original), "old remote token was evicted");
+        assert!(store.validate_local_cli_token(&local));
+        for record in &mut store.inner.lock().tokens {
+            record.created_at = SystemTime::now() - Duration::from_secs(TOKEN_TTL_SECS + 1);
+        }
+        assert!(!store.validate_token(&remote), "remote TTL is still enforced");
+        assert!(store.validate_local_cli_token(&local));
+        let ids: Vec<_> = store.inner.lock().tokens.iter().map(|r| r.id.clone()).collect();
+        for token in ids {
+            assert!(store.revoke_token(&token));
+        }
+        assert!(store.validate_local_cli_token(&local));
+        let restarted = test_store();
+        assert!(restarted.validate_local_cli_token(&local));
+        assert!(restarted.list_tokens().is_empty());
+        assert!(!restarted.validate_token(&local));
+        std::fs::remove_dir_all(store.tokens_path.parent().unwrap()).unwrap();
+        std::fs::remove_dir_all(restarted.tokens_path.parent().unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_cli_http_auth_requires_proof_and_a_transport_loopback_peer() {
+        use axum::http::StatusCode;
+        use std::net::SocketAddr;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let local = local_cli_token(&[42u8; 32]);
+        for peer in [
+            Some("127.0.0.1:1"), Some("[::1]:1"),
+            Some("192.0.2.1:1"), Some("[2001:db8::1]:1"), None,
+        ] {
+            let store = Arc::new(test_store());
+            let remote = pair_token(&store);
+            let (bridge_tx, _) = bridge::bridge_channel();
+            let mut router = test_router(store.clone(), bridge_tx);
+            // Inject transport metadata, not headers. Omitting it must fail closed.
+            if let Some(peer) = peer {
+                router = router.layer(axum::Extension(axum::extract::ConnectInfo(
+                    peer.parse::<SocketAddr>().unwrap(),
+                )));
+            }
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router.into_make_service()).await.unwrap();
+            });
+            let expected = if matches!(peer, Some("127.0.0.1:1" | "[::1]:1")) {
+                StatusCode::OK
+            } else {
+                StatusCode::UNAUTHORIZED
+            };
+            let response = client.get(format!("{base}/v1/tokens"))
+                .bearer_auth(&local)
+                .header("X-Forwarded-For", "127.0.0.1")
+                .header("Forwarded", "for=127.0.0.1")
+                .header("Host", "localhost")
+                .send().await.unwrap();
+            assert_eq!(response.status(), expected, "transport peer {peer:?}");
+            for token in ["not-a-token".to_string(), local_cli_token(&[43u8; 32])] {
+                assert_eq!(
+                    client.get(format!("{base}/v1/tokens")).bearer_auth(token)
+                        .send().await.unwrap().status(),
+                    StatusCode::UNAUTHORIZED,
+                );
+            }
+            for path in [
+                "/v1/state", "/v1/actions", "/v1/browser", "/v1/tokens",
+                "/v1/auth/reload", "/v1/refresh",
+            ] {
+                assert_eq!(
+                    client.get(format!("{base}{path}"))
+                        .header("Upgrade", "websocket")
+                        .send().await.unwrap().status(),
+                    StatusCode::UNAUTHORIZED,
+                    "unauthenticated request must not bypass {path}",
+                );
+            }
+            assert_eq!(
+                client.get(format!("{base}/v1/tokens")).bearer_auth(&remote)
+                    .send().await.unwrap().status(),
+                StatusCode::OK,
+                "remote pairing still works",
+            );
+            let id = store.list_tokens()[0].id.clone();
+            assert!(store.revoke_token(&id));
+            assert_eq!(
+                client.get(format!("{base}/v1/tokens")).bearer_auth(&remote)
+                    .send().await.unwrap().status(),
+                StatusCode::UNAUTHORIZED,
+            );
+            server.abort();
+            std::fs::remove_dir_all(store.tokens_path.parent().unwrap()).unwrap();
+        }
     }
 
     /// Helper: pair and return a valid token.

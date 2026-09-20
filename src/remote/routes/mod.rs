@@ -138,9 +138,11 @@ fn serve_embedded_file(path: &str, file: rust_embed::EmbeddedFile) -> axum::resp
     ([(axum::http::header::CONTENT_TYPE, mime)], file.data).into_response()
 }
 
-/// Auth middleware: validates Bearer token on protected routes.
-/// The WebSocket stream endpoint authenticates itself and is the only route
-/// allowed through without a Bearer token.
+/// Auth middleware: validates Bearer credentials on protected routes.
+/// Local CLI proof additionally requires the TCP peer to be loopback; Host
+/// and forwarded-IP headers never establish local access. Remote credentials
+/// retain their normal expiry and revocation checks.
+/// The WebSocket stream authenticates itself using remote tokens.
 async fn auth_middleware(
     axum::extract::State(state): axum::extract::State<AppState>,
     req: Request,
@@ -164,7 +166,12 @@ async fn auth_middleware(
         _ => return Err(StatusCode::UNAUTHORIZED),
     };
 
-    if !state.auth_store.validate_token(token) {
+    let local_peer = req.extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .is_some_and(|peer| peer.0.ip().is_loopback());
+    if !(local_peer && state.auth_store.validate_local_cli_token(token))
+        && !state.auth_store.validate_token(token)
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
 

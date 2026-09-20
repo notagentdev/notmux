@@ -70,7 +70,7 @@ pub fn cli_browser(args: &[String]) -> i32 {
 fn post_browser(token: &str, body: &str, timeout_secs: u64) -> Result<serde_json::Value, String> {
     let (host, port) = discover_server()?;
     let url = format!("http://{}:{}/v1/browser", host, port);
-    let client = reqwest::blocking::Client::new();
+    let client = super::local_http_client()?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -81,9 +81,7 @@ fn post_browser(token: &str, body: &str, timeout_secs: u64) -> Result<serde_json
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(
-            "Token expired or revoked. Delete ~/.config/notmux/cli.json and retry.".into(),
-        );
+        return Err(super::LOCAL_AUTH_ERROR.into());
     }
     let status = resp.status();
     let text = resp

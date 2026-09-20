@@ -52,6 +52,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that project only, without pulling focus or pinning it. The CLI sends the
   calling terminal's id; explicit `--pane`/`--project` still win.
 
+## [0.1.2]
+
+### Fixed
+
+- Local agent hooks no longer lose authentication when remote tokens expire or
+  a temporary request fails. Local CLI access no longer registers or rewrites
+  shared token files; remote authentication remains protected.
+- Preserve user-defined Claude Code and Codex hooks, settings, and Codex trust
+  records during installation and removal. Repeated installation is idempotent;
+  invalid, read-only, or concurrently modified configurations are not overwritten.
+- Shorten Git-panel directory paths only at the beginning, using the available
+  display width. The path tail stays visible in both Changes and Stash lists.
+
+### Updating
+
+- Update the app and CLI together and restart NotMux to activate the new local
+  authentication. Existing token files do not need to be deleted.
+
 ## [0.1.1]
 
 ### Fixed

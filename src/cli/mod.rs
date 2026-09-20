@@ -2,20 +2,13 @@ mod agent_session;
 mod browser_commands;
 mod commands;
 mod hooks;
-mod register;
 mod terminal_commands;
+#[cfg(test)]
+mod tests;
 
 use crate::workspace::persistence::config_dir;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
-/// CLI config stored in `~/.config/notmux/cli.json`.
-#[derive(Serialize, Deserialize)]
-pub struct CliConfig {
-    pub token: String,
-    pub token_id: String,
-    pub registered_at: u64,
-}
+const LOCAL_AUTH_ERROR: &str = "Local CLI authentication failed. Restart NotMux with the same build and configuration directory.";
 
 /// Try to handle a CLI subcommand. Returns `Some(exit_code)` if a subcommand
 /// was matched (caller should exit), or `None` to continue with GUI startup.
@@ -103,38 +96,10 @@ fn print_help() {
     eprintln!();
     eprintln!("Default output is tab-separated (grep/awk friendly).");
     eprintln!("Use --json for structured JSON output.");
-    eprintln!("Authentication is automatic on first use.");
+    eprintln!("Local authentication is automatic; no registration or expiring token is needed.");
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-fn cli_config_path() -> PathBuf {
-    config_dir().join("cli.json")
-}
-
-fn load_cli_config() -> Option<CliConfig> {
-    let data = std::fs::read_to_string(cli_config_path()).ok()?;
-    serde_json::from_str(&data).ok()
-}
-
-fn save_cli_config(config: &CliConfig) -> Result<(), String> {
-    let path = cli_config_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    }
-    let json =
-        serde_json::to_string_pretty(config).map_err(|e| format!("Failed to serialize: {e}"))?;
-    std::fs::write(&path, json.as_bytes()).map_err(|e| format!("Failed to write cli.json: {e}"))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o600);
-        let _ = std::fs::set_permissions(&path, perms);
-    }
-
-    Ok(())
-}
 
 /// Discover a running NotMux instance by reading `remote.json`.
 /// Returns `(host, port)`.
@@ -170,35 +135,30 @@ fn is_process_alive(pid: u32) -> bool {
     }
 }
 
-/// Ensure we have a valid token, auto-registering if needed.
-/// Returns the bearer token string.
+/// Derive a local-only credential without network probes or token-store writes.
+/// A transient request failure must never replace a working credential.
 fn ensure_token() -> Result<String, String> {
-    // Try existing token
-    if let Some(config) = load_cli_config() {
-        // Quick validation: try an authenticated request
-        if let Ok((host, port)) = discover_server() {
-            let url = format!("http://{}:{}/v1/tokens", host, port);
-            let client = reqwest::blocking::Client::new();
-            if let Ok(resp) = client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", config.token))
-                .timeout(std::time::Duration::from_secs(5))
-                .send()
-                && resp.status().is_success()
-            {
-                return Ok(config.token);
-            }
-        }
+    let secret = std::fs::read(crate::remote::auth::secret_path())
+        .map_err(|_| "No NotMux config found. Has NotMux been started at least once?".to_string())?;
+    if secret.len() != 32 {
+        return Err("Invalid remote_secret (wrong size).".into());
     }
+    Ok(crate::remote::auth::local_cli_token(&secret))
+}
 
-    // Token missing or invalid — register
-    register::register()
+/// Credentials stay on loopback, even with system proxies or HTTP redirects.
+fn local_http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Failed to create local HTTP client: {e}"))
 }
 
 fn api_get(path: &str, token: &str) -> Result<String, String> {
     let (host, port) = discover_server()?;
     let url = format!("http://{}:{}{}", host, port, path);
-    let client = reqwest::blocking::Client::new();
+    let client = local_http_client()?;
     let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -207,9 +167,7 @@ fn api_get(path: &str, token: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(
-            "Token expired or revoked. Delete ~/.config/notmux/cli.json and retry.".into(),
-        );
+        return Err(LOCAL_AUTH_ERROR.into());
     }
     if !resp.status().is_success() {
         return Err(format!("Server returned {}", resp.status()));
@@ -221,7 +179,7 @@ fn api_get(path: &str, token: &str) -> Result<String, String> {
 fn api_post(path: &str, token: &str, body: &str) -> Result<String, String> {
     let (host, port) = discover_server()?;
     let url = format!("http://{}:{}{}", host, port, path);
-    let client = reqwest::blocking::Client::new();
+    let client = local_http_client()?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -232,9 +190,7 @@ fn api_post(path: &str, token: &str, body: &str) -> Result<String, String> {
         .map_err(|e| format!("Request failed: {e}"))?;
 
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(
-            "Token expired or revoked. Delete ~/.config/notmux/cli.json and retry.".into(),
-        );
+        return Err(LOCAL_AUTH_ERROR.into());
     }
     if !resp.status().is_success() {
         let status = resp.status();

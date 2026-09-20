@@ -23,6 +23,21 @@ NotMux includes a local HTTP/WebSocket server for remote control — useful for 
 - Rate limiting: 5 attempts per IP per minute, 30 globally per minute
 - 300ms delay on every failed pairing attempt
 
+### Local CLI and agent hooks
+
+Local CLI commands (including agent hooks) derive a domain-separated HMAC proof
+from the protected app secret in `~/.notmux/remote_secret` (`~/.notmux-dev` for
+debug builds, or `NOTMUX_CONFIG_DIR` when set). This proof is accepted only from
+a loopback TCP peer and is independent of remote-token expiry, revocation and
+rotation. Loopback alone is not sufficient: the proof must also be valid.
+
+The CLI no longer reads or writes `cli.json`, registers tokens in
+`remote_tokens.json`, or calls `/v1/auth/reload`. Existing files can remain in
+place. Temporary HTTP failures cannot replace or invalidate CLI credentials.
+Authenticated local requests bypass proxies and do not follow redirects.
+Remote clients still use paired, expiring tokens; the local proof is not a
+remote/WebSocket token. Update the app and CLI together, then restart the app.
+
 ## Configuration
 
 In `~/.config/notmux/settings.json`:

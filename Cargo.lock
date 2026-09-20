@@ -4950,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "notmux"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -5140,6 +5140,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]

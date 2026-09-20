@@ -36,18 +36,30 @@ use notmux_ui::vscode_icon::vscode_file_icon_with_options;
 /// Delay before showing diff summary popover (ms)
 const HOVER_DELAY_MS: u64 = 400;
 
-/// Front-elide a directory string to `max_chars`, keeping the tail (the deepest
-/// folders, which are the most informative) and prefixing an ellipsis. Returns
-/// the input unchanged when it already fits. GPUI's built-in `text_ellipsis`
-/// only truncates at the end, so path tails have to be preserved manually.
-fn elide_dir_front(dir: &str, max_chars: usize) -> String {
-    let count = dir.chars().count();
-    if count <= max_chars || max_chars == 0 {
-        return dir.to_string();
+/// Preserve the directory tail using the actual layout width, not a character estimate.
+fn directory_label(path: String, color: Rgba) -> Div {
+    div()
+        .min_w_0()
+        .text_color(color)
+        .whitespace_nowrap()
+        .text_ellipsis_start()
+        .overflow_hidden()
+        .child(path)
+}
+
+#[cfg(test)]
+mod directory_label_tests {
+    use super::directory_label;
+    use gpui::{Styled, TextOverflow, WhiteSpace, rgb};
+
+    #[test]
+    fn directory_overflow_is_only_at_the_start() {
+        let mut label = directory_label("website/src/content/docs/en/".into(), rgb(0));
+        let style = label.style();
+        assert!(matches!(&style.text.text_overflow,
+            Some(TextOverflow::TruncateStart(marker)) if marker.as_ref() == "…"));
+        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
     }
-    let keep = max_chars.saturating_sub(1).max(1); // leave room for the ellipsis
-    let tail: String = dir.chars().skip(count - keep).collect();
-    format!("…{tail}")
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1755,16 +1767,10 @@ impl GitHeader {
                     .gap(px(4.0))
                     .text_size(ui_text_md(cx))
                     .overflow_hidden()
-                    .text_ellipsis()
+                    .whitespace_nowrap()
                     .child(div().flex_shrink_0().text_color(rgb(t.text_primary)).child(file_name))
                     .when(!dir_part.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_color(rgb(t.text_muted))
-                                .text_ellipsis()
-                                .overflow_hidden()
-                                .child(dir_part),
-                        )
+                        d.child(directory_label(dir_part, rgb(t.text_muted)))
                     }),
             )
             .when(added > 0 || removed > 0, |d| {
@@ -1933,24 +1939,7 @@ impl GitHeader {
             None => ("", file.path.as_str()),
         };
         let file_name = file_name.to_string();
-        // Front-elide the directory so its meaningful tail (deepest folders)
-        // stays visible — e.g. "crates/notmux-views-terminal/src/layout/tabs/"
-        // → "…-terminal/src/layout/tabs/". Budget is derived from the captured
-        // panel width minus the row's fixed chrome and the filename, so the
-        // diff stats, status letter and stage checkbox stay pinned to the right.
-        let dir_part = {
-            let panel_w = if self.diff_viewport_width > 1.0 {
-                self.diff_viewport_width
-            } else {
-                320.0
-            };
-            // Fixed chrome: margins/padding, file icon, gaps, diff stats,
-            // status letter, chevron, checkbox.
-            let reserved_px = 170.0 + file_name.chars().count() as f32 * 7.0;
-            let dir_px = (panel_w - reserved_px).max(48.0);
-            let max_chars = (dir_px / 6.5) as usize;
-            elide_dir_front(dir_part, max_chars.max(10))
-        };
+        let dir_part = dir_part.to_string();
 
         let request_broker_ctx = self.request_broker.clone();
         let project_id_ctx = self.project_id.clone();
@@ -2042,20 +2031,9 @@ impl GitHeader {
                     .overflow_hidden()
                     .child(div().flex_shrink_0().text_color(rgb(name_color)).child(file_name))
                     .when(!dir_part.is_empty(), |d| {
-                        // The directory is the shrinking element: `min_w_0` lets
-                        // it clip below its content width (the string is already
-                        // front-elided above) while staying next to the filename,
-                        // so the diff stats / status letter / checkbox stay pinned
-                        // to the right and the chevron hugs the name cluster.
-                        d.child(
-                            div()
-                                .min_w_0()
-                                .text_color(rgb(t.text_muted))
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .overflow_hidden()
-                                .child(dir_part),
-                        )
+                        // The directory shrinks from the front; the deepest folders
+                        // stay visible beside the filename and fixed right-hand controls.
+                        d.child(directory_label(dir_part, rgb(t.text_muted)))
                     }),
             )
             // Diff stats — always show BOTH +N and -M together (or nothing if 0/0)
@@ -3501,32 +3479,6 @@ fn commit_button_label(
         (false, true, _) => "Commit",
         (false, false, true) => "Commit Tracked",
         (false, false, false) => "Commit",
-    }
-}
-
-#[cfg(test)]
-mod elide_tests {
-    use super::elide_dir_front;
-
-    #[test]
-    fn keeps_short_paths_unchanged() {
-        assert_eq!(elide_dir_front("src/", 10), "src/");
-        assert_eq!(elide_dir_front("src/foo/", 8), "src/foo/");
-    }
-
-    #[test]
-    fn front_elides_long_paths_keeping_the_tail() {
-        let dir = "crates/notmux-views-terminal/src/layout/tabs/";
-        let out = elide_dir_front(dir, 20);
-        assert!(out.starts_with('…'), "expected leading ellipsis: {out}");
-        assert!(out.ends_with("layout/tabs/"), "tail must survive: {out}");
-        // Budget respected: ellipsis + (max-1) tail chars.
-        assert_eq!(out.chars().count(), 20);
-    }
-
-    #[test]
-    fn zero_budget_is_noop() {
-        assert_eq!(elide_dir_front("a/b/c/", 0), "a/b/c/");
     }
 }
 
