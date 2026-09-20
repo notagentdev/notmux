@@ -52,6 +52,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that project only, without pulling focus or pinning it. The CLI sends the
   calling terminal's id; explicit `--pane`/`--project` still win.
 
+## [0.1.3]
+
+### Fixed
+
+- Keep History commit subjects on one line and shorten them at the end, while
+  Changes and Stash directory paths continue to shorten only at the beginning.
+- Includes the local hook authentication and non-destructive hook configuration
+  fixes prepared for v0.1.2, which was not published.
+
+### Updating
+
+- Update the app and CLI together and restart NotMux. Existing token files do
+  not need to be deleted.
+
 ## [0.1.2]
 
 ### Fixed

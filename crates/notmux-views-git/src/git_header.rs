@@ -47,10 +47,30 @@ fn directory_label(path: String, color: Rgba) -> Div {
         .child(path)
 }
 
+/// Keep commit subjects on one line, eliding their end before refs and author.
+fn history_message_label(message: String) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .child(message)
+}
+
 #[cfg(test)]
-mod directory_label_tests {
-    use super::directory_label;
+mod label_tests {
+    use super::{directory_label, history_message_label};
     use gpui::{Styled, TextOverflow, WhiteSpace, rgb};
+
+    #[test]
+    fn history_messages_use_remaining_width_and_elide_at_the_end() {
+        let mut label = history_message_label("A long commit subject that must stay on one line".into());
+        let style = label.style();
+        assert!(matches!(&style.text.text_overflow,
+            Some(TextOverflow::Truncate(marker)) if marker.as_ref() == "…"));
+        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
+        assert_eq!(style.flex_grow, Some(1.0));
+        assert_eq!(style.flex_shrink, Some(1.0));
+    }
 
     #[test]
     fn directory_overflow_is_only_at_the_start() {
@@ -2988,14 +3008,9 @@ impl GitHeader {
                 this.open_commit_diff(ix, cx);
             }))
             .child(
-                div()
+                history_message_label(entry.message.clone())
                     .text_size(ui_text_md(cx))
-                    .text_color(rgb(t.text_primary))
-                    .text_ellipsis()
-                    .overflow_hidden()
-                    .flex_shrink_1()
-                    .min_w_0()
-                    .child(entry.message.clone()),
+                    .text_color(rgb(t.text_primary)),
             )
             .children(
                 entry

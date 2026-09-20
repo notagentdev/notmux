@@ -9,7 +9,7 @@ sum_tree = { path = "vendor/sum_tree" }
 
 [package]
 name = "notmux"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 
