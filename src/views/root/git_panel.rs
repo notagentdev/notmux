@@ -2,14 +2,44 @@ use crate::settings::settings_entity;
 use crate::theme::right_panel_theme as theme;
 use crate::ui::tokens::ui_text_md;
 use crate::views::layout::split_pane::render_git_panel_divider;
+use crate::views::chrome::title_bar::right_overlay_reserve;
 use crate::views::sidebar_controller::{AnimationTarget, FRAME_TIME_MS, SidebarController};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use gpui_component::tooltip::Tooltip;
 
 use super::RootView;
 
-/// A right-panel header action, styled exactly like the Git/Files tabs
-/// (icon + label pill) but dispatching an action instead of switching views.
+/// One icon-only pill in the right-panel tab bar (view tabs and actions
+/// alike). No label: the strip is short and shares its top-right corner with
+/// the panel toggle and, on Windows / Linux CSD, our caption buttons — words
+/// ran under them. The label is the tooltip instead.
+fn render_header_pill(
+    id: &'static str,
+    icon: &'static str,
+    label: &'static str,
+    active: bool,
+    t: &notmux_ui::theme::ThemeColors,
+) -> Stateful<Div> {
+    let fg = if active { t.text_primary } else { t.text_muted };
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(30.0))
+        .h(px(26.0))
+        .rounded_md()
+        .cursor_pointer()
+        .when(active, |d| d.bg(rgb(t.bg_hover)))
+        .when(!active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
+        .child(svg().path(icon).size(px(14.0)).text_color(rgb(fg)))
+        .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+}
+
+/// A right-panel header action, styled like the Git/Files tabs but
+/// dispatching an action instead of switching views.
 fn render_action_pill(
     id: &'static str,
     icon: &'static str,
@@ -18,34 +48,12 @@ fn render_action_pill(
     cx: &mut Context<RootView>,
     on_click: impl Fn(&mut RootView, &mut Context<RootView>) + 'static,
 ) -> impl IntoElement {
-    div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(6.0))
-        .px(px(10.0))
-        .h(px(26.0))
-        .rounded_md()
-        .cursor_pointer()
-        .hover(|s| s.bg(rgb(t.bg_hover)))
-        .child(
-            svg()
-                .path(icon)
-                .size(px(13.0))
-                .text_color(rgb(t.text_muted)),
-        )
-        .child(
-            div()
-                .text_size(ui_text_md(cx))
-                .text_color(rgb(t.text_muted))
-                .child(label),
-        )
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(cx.listener(move |this, _, _window, cx| {
+    render_header_pill(id, icon, label, false, t).on_click(cx.listener(
+        move |this, _, _window, cx| {
             cx.stop_propagation();
             on_click(this, cx);
-        }))
+        },
+    ))
 }
 
 impl RootView {
@@ -174,7 +182,11 @@ impl RootView {
     }
 
     /// Render the git panel content.
-    pub(super) fn render_git_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_git_panel(
+        &mut self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let show_panel = self.git_panel_ctrl.should_render();
 
         // The bound project may have been deleted — drop the binding so the
@@ -287,42 +299,24 @@ impl RootView {
             super::RightView::Files => self.render_right_files_tab(cx),
         };
 
-        // One tab (icon + label) in the right-panel tab bar.
+        // One icon-only tab in the right-panel tab bar.
         let render_tab = |this: &Self,
                           view: super::RightView,
                           icon: &'static str,
                           label: &'static str,
                           cx: &mut Context<Self>| {
-            let is_active = this.right_view == view;
-            let fg = if is_active { t.text_primary } else { t.text_muted };
-            div()
-                .id(label)
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(6.0))
-                .px(px(10.0))
-                .h(px(26.0))
-                .rounded_md()
-                .cursor_pointer()
-                .when(is_active, |d| d.bg(rgb(t.bg_hover)))
-                .when(!is_active, |d| d.hover(|s| s.bg(rgb(t.bg_hover))))
-                .child(svg().path(icon).size(px(13.0)).text_color(rgb(fg)))
-                .child(
-                    div()
-                        .text_size(ui_text_md(cx))
-                        .text_color(rgb(fg))
-                        .child(label),
-                )
-                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(move |this, _, _, cx| {
+            render_header_pill(label, icon, label, this.right_view == view, &t).on_click(
+                cx.listener(move |this, _, _, cx| {
                     this.right_view = view;
                     cx.notify();
-                }))
+                }),
+            )
         };
 
         // Tab bar at the top (42px, aligned with the title-bar overlay). Right
-        // pad clears the git/settings controls floating over the top-right.
+        // pad clears the panel toggle floating over the top-right and, where
+        // we draw them, the caption buttons next to it.
+        let right_reserve = right_overlay_reserve(76.0, window);
         let tab_bar = div()
             .flex()
             .flex_row()
@@ -331,7 +325,7 @@ impl RootView {
             .h(px(42.0))
             .flex_shrink_0()
             .pl(px(8.0))
-            .pr(px(76.0))
+            .pr(px(right_reserve))
             .border_b_1()
             .border_color(rgb(t.border))
             .child(render_tab(
@@ -418,8 +412,8 @@ impl RootView {
                 div()
                     .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
                     .pl(px(12.0))
-                    // Clear the git/settings controls floating over the top-right
-                    .pr(px(76.0))
+                    // Clear the top-right overlay (toggle + caption buttons)
+                    .pr(px(right_reserve))
                     .flex_shrink_0()
                     .flex()
                     .items_center()

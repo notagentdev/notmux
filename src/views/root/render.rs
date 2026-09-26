@@ -1309,9 +1309,8 @@ impl Render for RootView {
         if !git_open {
             chrome_right += 64.0; // git-panel toggle + settings + gaps/pad
         }
-        if cfg!(target_os = "windows") {
-            chrome_right += 138.0; // three 46px caption buttons
-        }
+        // Client-drawn caption buttons (Windows, Linux CSD) plus their gap.
+        chrome_right += crate::views::chrome::title_bar::caption_cluster_width(window);
         notmux_views_terminal::set_tab_action_right_reserve(0.0, cx);
         crate::views::panels::project_column::set_column_title_reserves(
             chrome_left,
@@ -2023,7 +2022,7 @@ impl Render for RootView {
                             ),
                     )
                     // Git panel (right side)
-                    .child(self.render_git_panel(cx)),
+                    .child(self.render_git_panel(window, cx)),
             )
             // Title-bar controls as two *corner* overlays (top-left + top-right),
             // NOT a full-width bar. The middle over the tab bars is left

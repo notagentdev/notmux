@@ -76,6 +76,30 @@ pub fn needs_client_window_controls(window: &Window) -> bool {
     }
 }
 
+/// Width of one client-drawn caption button (Windows standard).
+pub const CAPTION_BUTTON_W: f32 = 46.0;
+
+/// Gap between the panel toggle and the caption buttons, so the toggle sits
+/// clearly left of them instead of touching the close/maximize cluster.
+pub const CAPTION_CLUSTER_GAP: f32 = 12.0;
+
+/// Width of the client-drawn caption cluster plus its gap, or 0 where the OS
+/// draws the window buttons itself (macOS, Linux with server decorations).
+pub fn caption_cluster_width(window: &Window) -> f32 {
+    if needs_client_window_controls(window) {
+        CAPTION_CLUSTER_GAP + 3.0 * CAPTION_BUTTON_W
+    } else {
+        0.0
+    }
+}
+
+/// Right padding a top strip needs so its content stays clear of the
+/// top-right overlay (panel toggle, and the caption buttons where we draw
+/// them). `base` is the reserve for the toggle alone.
+pub fn right_overlay_reserve(base: f32, window: &Window) -> f32 {
+    base + caption_cluster_width(window)
+}
+
 /// The minimize / maximize-or-restore / close cluster. Shared by the title
 /// bar and by full-window overlays (settings) that visually replace it —
 /// anything covering the title bar must re-render these or the window
@@ -126,7 +150,7 @@ fn window_control_button(control_type: WindowControlType, cx: &App) -> impl Into
             format!("window-control-{:?}", control_type).into(),
         ))
         .cursor_pointer()
-        .w(px(46.0)) // Windows standard caption button width
+        .w(px(CAPTION_BUTTON_W))
         .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H)) // Match titlebar height
         .flex()
         .items_center()
@@ -892,8 +916,12 @@ impl TitleBar {
             })
     }
 
-    /// Right cluster overlay (top-right): git-panel toggle + settings + native
-    /// window controls.
+    /// Right cluster overlay (top-right): git-panel toggle, then — on Windows
+    /// and Linux with client-side decorations — our own caption buttons,
+    /// indented by `CAPTION_CLUSTER_GAP` so the toggle never sits under them.
+    /// GPUI draws no window buttons there: on Windows it hides the native
+    /// title bar (`titlebar: None`) and only maps our `WindowControlArea`
+    /// hitboxes to the OS hit-test codes.
     pub fn render_right_cluster(
         &mut self,
         window: &mut Window,
@@ -915,7 +943,11 @@ impl TitleBar {
                 cx,
             ))
             .when(needs_controls, |d| {
-                d.child(div().ml(px(4.0)).child(window_controls_cluster(window, cx)))
+                d.child(
+                    div()
+                        .ml(px(CAPTION_CLUSTER_GAP))
+                        .child(window_controls_cluster(window, cx)),
+                )
             })
     }
 }
