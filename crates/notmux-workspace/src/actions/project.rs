@@ -6,6 +6,7 @@ use crate::hooks;
 use crate::persistence::HooksConfig;
 use crate::state::{LayoutNode, ProjectData, Workspace};
 use gpui::*;
+use notmux_layout::GRID_MAX_COLS;
 use std::collections::HashMap;
 use notmux_core::theme::FolderColor;
 
@@ -90,19 +91,15 @@ impl Workspace {
         id
     }
 
-    /// Add a new terminal to a project by splitting the root layout
+    /// Add a new terminal to a project as the next grid cell: to the right of
+    /// the last pane until a row holds `GRID_MAX_COLS`, then in a new row
+    /// below.
     pub fn add_terminal(&mut self, project_id: &str, cx: &mut Context<Self>) {
         if let Some(project) = self.project_mut(project_id) {
-            if let Some(ref old_layout) = project.layout {
-                let old_layout = old_layout.clone();
-                project.layout = Some(LayoutNode::Split {
-                    direction: crate::state::SplitDirection::Vertical,
-                    sizes: vec![50.0, 50.0],
-                    children: vec![old_layout, LayoutNode::new_terminal()],
-                });
-            } else {
+            match project.layout.as_mut() {
+                Some(layout) => layout.append_leaf_grid(LayoutNode::new_terminal(), GRID_MAX_COLS),
                 // Project has no layout - create one with a terminal
-                project.layout = Some(LayoutNode::new_terminal());
+                None => project.layout = Some(LayoutNode::new_terminal()),
             }
             self.notify_data(cx);
         }
@@ -127,15 +124,9 @@ impl Workspace {
     ) {
         if let Some(project) = self.project_mut(project_id) {
             let new_node = LayoutNode::new_terminal_with_command(command, env_vars);
-            if let Some(ref old_layout) = project.layout {
-                let old_layout = old_layout.clone();
-                project.layout = Some(LayoutNode::Split {
-                    direction: crate::state::SplitDirection::Vertical,
-                    sizes: vec![50.0, 50.0],
-                    children: vec![old_layout, new_node],
-                });
-            } else {
-                project.layout = Some(new_node);
+            match project.layout.as_mut() {
+                Some(layout) => layout.append_leaf_grid(new_node, GRID_MAX_COLS),
+                None => project.layout = Some(new_node),
             }
             self.notify_data(cx);
         }

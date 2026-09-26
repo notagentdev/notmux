@@ -4,6 +4,7 @@
 
 use crate::state::{DropZone, LayoutNode, SplitDirection, Workspace};
 use gpui::*;
+use notmux_layout::GRID_MAX_COLS;
 
 /// Build an editor leaf: a plain editor, or an editable diff-vs-HEAD editor.
 fn editor_node(file_path: &str, diff: bool) -> LayoutNode {
@@ -293,11 +294,10 @@ impl Workspace {
         }
     }
 
-    /// Open a file as a new editor tab next to the node at `path` (mirrors
-    /// Open a file in the project's editor area: a split docked at the right
-    /// edge of the project layout. The first file creates the split; further
-    /// files join the editor group as tabs. A file that is already open in an
-    /// editor is focused instead of opened twice.
+    /// Open a file in the project's editor area: the last cell of the project
+    /// grid (see `LayoutNode::append_leaf_grid`). The first file opens a new
+    /// grid cell; further files join the editor group as tabs. A file that is
+    /// already open in an editor is focused instead of opened twice.
     pub fn add_editor_right(
         &mut self,
         project_id: &str,
@@ -318,46 +318,38 @@ impl Workspace {
             return;
         }
 
-        // Existing editor area at the right edge of the root split → join it.
-        if let LayoutNode::Split {
-            direction: SplitDirection::Horizontal,
-            children,
-            ..
-        } = &layout
-            && !children.is_empty()
+        // The last grid cell is an editor area → join it.
+        let last_cell = layout.grid_last_cell_path();
+        if let Some(area) = layout.get_at_path(&last_cell)
+            && area.is_editor_area()
         {
-            let last = children.len() - 1;
-            if let Some(area) = children.last()
-                && area.is_editor_area()
-            {
-                match area {
-                    LayoutNode::Tabs { .. } => {
-                        self.add_editor_to_group(project_id, &[last], file_path, diff, cx);
-                    }
-                    // Single editor leaf → add_editor wraps it into a Tabs group.
-                    _ => self.add_editor(project_id, &[last], file_path, diff, cx),
+            match area {
+                LayoutNode::Tabs { .. } => {
+                    self.add_editor_to_group(project_id, &last_cell, file_path, diff, cx);
                 }
-                return;
+                // Single editor leaf → add_editor wraps it into a Tabs group.
+                _ => self.add_editor(project_id, &last_cell, file_path, diff, cx),
             }
+            return;
         }
 
-        // No editor area yet → dock one at the right edge of the whole layout.
+        // No editor area yet → open one as the next grid cell.
         let file_path_owned = file_path.to_string();
         self.with_layout_node(project_id, &[], cx, |node| {
-            let old_node = node.clone();
-            *node = LayoutNode::Split {
-                direction: SplitDirection::Horizontal,
-                sizes: vec![62.0, 38.0],
-                children: vec![old_node, editor_node(&file_path_owned, diff)],
-            };
+            node.append_leaf_grid(editor_node(&file_path_owned, diff), GRID_MAX_COLS);
             true
         });
-        self.focus_new_pane(project_id, vec![1], cx);
+        let new_path = self
+            .project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .map(|l| l.grid_last_cell_path())
+            .unwrap_or_default();
+        self.focus_new_pane(project_id, new_path, cx);
     }
 
     /// Open the embedded browser in the project's editor area: focuses an
-    /// existing browser pane, joins the right-docked editor/browser tab group,
-    /// or docks a new pane at the right edge — mirroring `add_editor_right`.
+    /// existing browser pane, joins the editor/browser tab group in the last
+    /// grid cell, or opens a new grid cell — mirroring `add_editor_right`.
     /// User action: the new pane is focused (and pinned while the pinned
     /// view is active). For a request made by a pane — an agent's terminal
     /// — use [`Self::add_browser_right_for`].
@@ -381,72 +373,61 @@ impl Workspace {
 
         // Every call opens a fresh browser pane (multiple browsers per
         // project are expected).
-        // Existing editor/browser area at the right edge → join it as a tab.
-        if let LayoutNode::Split {
-            direction: SplitDirection::Horizontal,
-            children,
-            ..
-        } = &layout
-            && !children.is_empty()
+        // The last grid cell is an editor/browser area → join it as a tab.
+        let last_cell = layout.grid_last_cell_path();
+        if let Some(area) = layout.get_at_path(&last_cell)
+            && area.is_editor_area()
         {
-            let last = children.len() - 1;
-            if let Some(area) = children.last()
-                && area.is_editor_area()
-            {
-                let url_owned = url.to_string();
-                let mut new_path = vec![last];
-                match area {
-                    LayoutNode::Tabs { .. } => {
-                        let mut new_tab_index = 0;
-                        self.with_layout_node(project_id, &[last], cx, |node| {
-                            if let LayoutNode::Tabs {
-                                children,
-                                active_tab,
-                            } = node
-                            {
-                                children.push(LayoutNode::new_browser(url_owned.clone()));
-                                *active_tab = children.len() - 1;
-                                new_tab_index = *active_tab;
-                                true
-                            } else {
-                                false
-                            }
-                        });
-                        new_path.push(new_tab_index);
-                    }
-                    // Single editor/browser leaf → wrap it into a Tabs group.
-                    _ => {
-                        self.with_layout_node(project_id, &[last], cx, |node| {
-                            let old_node = node.clone();
-                            *node = LayoutNode::Tabs {
-                                children: vec![
-                                    old_node,
-                                    LayoutNode::new_browser(url_owned.clone()),
-                                ],
-                                active_tab: 1,
-                            };
+            let url_owned = url.to_string();
+            let mut new_path = last_cell.clone();
+            match area {
+                LayoutNode::Tabs { .. } => {
+                    let mut new_tab_index = 0;
+                    self.with_layout_node(project_id, &last_cell, cx, |node| {
+                        if let LayoutNode::Tabs {
+                            children,
+                            active_tab,
+                        } = node
+                        {
+                            children.push(LayoutNode::new_browser(url_owned.clone()));
+                            *active_tab = children.len() - 1;
+                            new_tab_index = *active_tab;
                             true
-                        });
-                        new_path.push(1);
-                    }
+                        } else {
+                            false
+                        }
+                    });
+                    new_path.push(new_tab_index);
                 }
-                self.place_new_browser(project_id, new_path, caller_slot, cx);
-                return;
+                // Single editor/browser leaf → wrap it into a Tabs group.
+                _ => {
+                    self.with_layout_node(project_id, &last_cell, cx, |node| {
+                        let old_node = node.clone();
+                        *node = LayoutNode::Tabs {
+                            children: vec![old_node, LayoutNode::new_browser(url_owned.clone())],
+                            active_tab: 1,
+                        };
+                        true
+                    });
+                    new_path.push(1);
+                }
             }
+            self.place_new_browser(project_id, new_path, caller_slot, cx);
+            return;
         }
 
-        // No editor area yet → dock the browser at the right edge.
+        // No editor area yet → open the browser as the next grid cell.
         let url_owned = url.to_string();
         self.with_layout_node(project_id, &[], cx, |node| {
-            let old_node = node.clone();
-            *node = LayoutNode::Split {
-                direction: SplitDirection::Horizontal,
-                sizes: vec![62.0, 38.0],
-                children: vec![old_node, LayoutNode::new_browser(url_owned.clone())],
-            };
+            node.append_leaf_grid(LayoutNode::new_browser(url_owned.clone()), GRID_MAX_COLS);
             true
         });
-        self.place_new_browser(project_id, vec![1], caller_slot, cx);
+        let new_path = self
+            .project(project_id)
+            .and_then(|p| p.layout.as_ref())
+            .map(|l| l.grid_last_cell_path())
+            .unwrap_or_default();
+        self.place_new_browser(project_id, new_path, caller_slot, cx);
     }
 
     /// Where a browser pane just inserted at `path` goes from here, depending
@@ -1877,7 +1858,7 @@ mod gpui_tests {
         let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
-        // First file docks an editor split at the right edge.
+        // First file opens an editor as the next grid cell, right of the terminal.
         workspace.update(cx, |ws: &mut Workspace, cx| {
             ws.add_editor_right("p1", "/tmp/a.rs", false, cx);
         });
@@ -1889,14 +1870,14 @@ mod gpui_tests {
                     children,
                     ..
                 } => {
-                    assert_eq!(*direction, SplitDirection::Horizontal);
+                    assert_eq!(*direction, SplitDirection::Vertical);
                     assert_eq!(children.len(), 2);
                     assert!(matches!(&children[0], LayoutNode::Terminal { .. }));
                     assert!(
                         matches!(&children[1], LayoutNode::Editor { file_path, .. } if file_path == "/tmp/a.rs")
                     );
                 }
-                _ => panic!("expected horizontal split with editor at the right"),
+                _ => panic!("expected side-by-side split with editor at the right"),
             }
             // The new editor pane is focused.
             let focused = ws.focus_manager.focused_terminal_state().unwrap();
@@ -1947,7 +1928,7 @@ mod gpui_tests {
         let data = make_workspace_data(vec![make_project("p1")], vec!["p1"]);
         let workspace = cx.new(|_cx| Workspace::new(data));
 
-        // An editor first, so the browser joins the existing right dock area.
+        // An editor first, so the browser joins the editor area in the last grid cell.
         workspace.update(cx, |ws: &mut Workspace, cx| {
             ws.add_editor_right("p1", "/tmp/a.rs", false, cx);
         });
@@ -2025,11 +2006,11 @@ mod gpui_tests {
                     children,
                     ..
                 } => {
-                    assert_eq!(*direction, SplitDirection::Horizontal);
+                    assert_eq!(*direction, SplitDirection::Vertical);
                     assert!(matches!(&children[0], LayoutNode::Terminal { .. }));
                     assert!(matches!(&children[1], LayoutNode::Browser { .. }));
                 }
-                _ => panic!("expected horizontal split with browser at the right"),
+                _ => panic!("expected side-by-side split with browser at the right"),
             }
         });
     }

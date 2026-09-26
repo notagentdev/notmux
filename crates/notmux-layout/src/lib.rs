@@ -22,6 +22,24 @@ fn default_slot_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Cells per row for panes appended with [`LayoutNode::append_leaf_grid`]:
+/// new panes open to the right until a row holds this many, then a new row
+/// starts below.
+pub const GRID_MAX_COLS: usize = 4;
+
+/// Push `leaf` into a split, sized as the average of the existing children so
+/// their ratios stay intact.
+fn push_with_average_size(sizes: &mut Vec<f32>, children: &mut Vec<LayoutNode>, leaf: LayoutNode) {
+    let total: f32 = sizes.iter().sum();
+    let avg = if children.is_empty() {
+        100.0
+    } else {
+        total / children.len() as f32
+    };
+    sizes.push(avg);
+    children.push(leaf);
+}
+
 /// Recursive layout tree node
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -256,6 +274,93 @@ impl LayoutNode {
                 children: vec![old, leaf],
             };
         }
+    }
+
+    /// Append `leaf` as the next cell of the project grid: panes fill a row
+    /// from left to right up to `max_cols`, then a new row starts below.
+    ///
+    /// A row is a `Split { Vertical }` (children side by side); the stack of
+    /// rows is a `Split { Horizontal }` (children top to bottom). A leaf or
+    /// `Tabs` root becomes a two-cell row. In a stack of rows the new cell
+    /// joins the last row while it has room, wraps a single-cell last row
+    /// (leaf or `Tabs`) into a row of two, and otherwise starts a new row.
+    /// A new cell gets the average share of its siblings so existing ratios
+    /// survive.
+    pub fn append_leaf_grid(&mut self, leaf: LayoutNode, max_cols: usize) {
+        let max_cols = max_cols.max(1);
+        match self {
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                sizes,
+                children,
+            } if children.len() < max_cols => {
+                push_with_average_size(sizes, children, leaf);
+            }
+            LayoutNode::Split {
+                direction: SplitDirection::Horizontal,
+                sizes,
+                children,
+            } => match children.last_mut() {
+                Some(LayoutNode::Split {
+                    direction: SplitDirection::Vertical,
+                    sizes: row_sizes,
+                    children: row,
+                }) if row.len() < max_cols => {
+                    push_with_average_size(row_sizes, row, leaf);
+                }
+                Some(LayoutNode::Split { .. }) | None => {
+                    push_with_average_size(sizes, children, leaf);
+                }
+                Some(single) => {
+                    let old = std::mem::replace(single, LayoutNode::new_terminal());
+                    *single = LayoutNode::Split {
+                        direction: SplitDirection::Vertical,
+                        sizes: vec![50.0, 50.0],
+                        children: vec![old, leaf],
+                    };
+                }
+            },
+            // A full single row: it becomes the first row of a stack.
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                ..
+            } => {
+                let old = std::mem::replace(self, LayoutNode::new_terminal());
+                *self = LayoutNode::Split {
+                    direction: SplitDirection::Horizontal,
+                    sizes: vec![50.0, 50.0],
+                    children: vec![old, leaf],
+                };
+            }
+            _ => {
+                let old = std::mem::replace(self, LayoutNode::new_terminal());
+                *self = LayoutNode::Split {
+                    direction: SplitDirection::Vertical,
+                    sizes: vec![50.0, 50.0],
+                    children: vec![old, leaf],
+                };
+            }
+        }
+    }
+
+    /// Path of the cell `append_leaf_grid` appended last: the last child of a
+    /// row, the last cell of the last row in a stack of rows, or the root
+    /// itself when the layout is a single leaf or `Tabs` group.
+    pub fn grid_last_cell_path(&self) -> Vec<usize> {
+        let mut path = Vec::new();
+        let mut node = self;
+        // At most two levels: the row stack, then the row.
+        for _ in 0..2 {
+            let LayoutNode::Split { children, .. } = node else {
+                break;
+            };
+            let Some(last) = children.last() else {
+                break;
+            };
+            path.push(children.len() - 1);
+            node = last;
+        }
+        path
     }
 
     /// Insert `leaf` as a 50/50 split sibling of the leaf with `anchor_slot`.
@@ -2558,5 +2663,111 @@ mod tests {
         assert_eq!(tree.find_path_by_slot_id("x"), None);
         // Leaf root resolves to the empty path
         assert_eq!(browser_slot("c").find_path_by_slot_id("c"), Some(vec![]));
+    }
+
+    /// Terminal ids of a row's cells, in order.
+    fn row_ids(node: &LayoutNode) -> Vec<&str> {
+        match node {
+            LayoutNode::Split {
+                direction: SplitDirection::Vertical,
+                children,
+                ..
+            } => children.iter().filter_map(|c| c.terminal_id()).collect(),
+            other => other.terminal_id().into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn append_leaf_grid_fills_a_row_then_wraps() {
+        let mut tree = terminal("a");
+        for id in ["b", "c", "d"] {
+            tree.append_leaf_grid(terminal(id), 4);
+        }
+        assert_eq!(row_ids(&tree), vec!["a", "b", "c", "d"]);
+        assert_eq!(tree.grid_last_cell_path(), vec![3]);
+
+        // The fifth cell starts a second row below the full first row.
+        tree.append_leaf_grid(terminal("e"), 4);
+        let LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            children: rows,
+            sizes,
+        } = &tree
+        else {
+            panic!("expected a stack of rows, got {tree:?}");
+        };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(sizes, &vec![50.0, 50.0]);
+        assert_eq!(row_ids(&rows[0]), vec!["a", "b", "c", "d"]);
+        assert_eq!(row_ids(&rows[1]), vec!["e"]);
+        assert_eq!(tree.grid_last_cell_path(), vec![1]);
+
+        // Further cells fill the second row to the right …
+        tree.append_leaf_grid(terminal("f"), 4);
+        let LayoutNode::Split { children: rows, .. } = &tree else {
+            unreachable!()
+        };
+        assert_eq!(row_ids(&rows[1]), vec!["e", "f"]);
+        assert_eq!(tree.grid_last_cell_path(), vec![1, 1]);
+
+        // … and once it is full, a third row starts.
+        for id in ["g", "h", "i"] {
+            tree.append_leaf_grid(terminal(id), 4);
+        }
+        let LayoutNode::Split { children: rows, .. } = &tree else {
+            unreachable!()
+        };
+        assert_eq!(rows.len(), 3);
+        assert_eq!(row_ids(&rows[1]), vec!["e", "f", "g", "h"]);
+        assert_eq!(row_ids(&rows[2]), vec!["i"]);
+        assert_eq!(tree.grid_last_cell_path(), vec![2]);
+    }
+
+    #[test]
+    fn append_leaf_grid_keeps_row_ratios() {
+        let mut tree = LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            sizes: vec![70.0, 30.0],
+            children: vec![terminal("a"), terminal("b")],
+        };
+        tree.append_leaf_grid(terminal("c"), 4);
+        let LayoutNode::Split { sizes, .. } = &tree else {
+            unreachable!()
+        };
+        assert_eq!(sizes, &vec![70.0, 30.0, 50.0]);
+    }
+
+    #[test]
+    fn append_leaf_grid_joins_a_manual_top_bottom_split() {
+        // A user-made top/bottom split: the new cell goes right of the bottom pane.
+        let mut tree = hsplit(vec![terminal("top"), terminal("bottom")]);
+        tree.append_leaf_grid(terminal("new"), 4);
+        let LayoutNode::Split { children: rows, .. } = &tree else {
+            unreachable!()
+        };
+        assert_eq!(rows.len(), 2);
+        assert!(matches!(rows[0], LayoutNode::Terminal { .. }));
+        assert_eq!(row_ids(&rows[1]), vec!["bottom", "new"]);
+        assert_eq!(tree.grid_last_cell_path(), vec![1, 1]);
+    }
+
+    #[test]
+    fn append_leaf_grid_wraps_tabs_root_into_a_row() {
+        let mut tree = LayoutNode::Tabs {
+            children: vec![terminal("a"), terminal("b")],
+            active_tab: 0,
+        };
+        assert_eq!(tree.grid_last_cell_path(), Vec::<usize>::new());
+        tree.append_leaf_grid(terminal("c"), 4);
+        let LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            children,
+            ..
+        } = &tree
+        else {
+            panic!("expected a row, got {tree:?}");
+        };
+        assert!(matches!(children[0], LayoutNode::Tabs { .. }));
+        assert_eq!(children[1].terminal_id(), Some("c"));
     }
 }
