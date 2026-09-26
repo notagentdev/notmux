@@ -16,3 +16,4 @@ pub mod pane_drag;
 pub mod split_pane;
 mod tabs;
 pub mod terminal_pane;
+pub mod webview_host;

@@ -14,9 +14,8 @@ notmux-files = { path = "../notmux-files" }
 
 gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component" }
-# Embedded browser pane: gpui-wry hosts a Wry webview as a GPUI element. Both
-# come from the gpui-component workspace so the gpui/wry types unify.
-gpui-wry = { git = "https://github.com/longbridge/gpui-component", package = "gpui-wry", rev = "dbf57ad99453cfe50f78ba4ed9ccd98f70cd79ac" }
+# Embedded browser pane: a Wry webview hosted as a GPUI element (see
+# src/layout/webview_host.rs). lb-wry is gpui-component's wry fork.
 wry = { version = "0.53.3", package = "lb-wry" }
 futures = "0.3"
 

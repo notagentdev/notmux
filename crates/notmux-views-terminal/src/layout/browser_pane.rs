@@ -1,16 +1,18 @@
-//! Embedded browser pane: a Wry webview hosted as a GPUI element (gpui-wry)
-//! behind a URL toolbar, rendered as a `LayoutNode::Browser` leaf that drags
-//! and splits exactly like terminal and editor panes.
+//! Embedded browser pane: a Wry webview hosted as a GPUI element (see
+//! `webview_host`) behind a URL toolbar, rendered as a `LayoutNode::Browser`
+//! leaf that drags and splits exactly like terminal and editor panes.
 //!
 //! The webview is a *native* child view floating above all GPUI content, so
 //! visibility must be managed explicitly: the pane recomputes whether its
 //! layout slot is actually visible (active tabs, project focus, fullscreen
-//! panes, overlay gate) and hides/shows the native view accordingly.
+//! panes, overlay gate) and hides/shows the native view accordingly. The
+//! host additionally clips the native view to the pane's visible area.
 //!
 //! The annotation overlay (element picker + comment input, ported from
 //! notagent) is injected into every page; captured annotations are collected
 //! here — wiring them into chats is a follow-up.
 
+use crate::layout::webview_host::WebViewHost;
 use crate::simple_input::{SimpleInput, SimpleInputState};
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedSender;
@@ -371,7 +373,7 @@ pub struct BrowserPane {
     /// Current URL (kept in sync with navigation, persisted to the layout).
     url: String,
     url_input: Entity<SimpleInputState>,
-    webview: Option<Entity<gpui_wry::WebView>>,
+    webview: Option<Entity<WebViewHost>>,
     annotation_mode: bool,
     annotations: Vec<PageAnnotation>,
     /// `@eN` element refs handed out by automation `snapshot`s (remote API).
@@ -468,7 +470,7 @@ impl BrowserPane {
         let url = self.url.clone();
         match build_webview(window, &url, tx) {
             Ok(webview) => {
-                self.webview = Some(cx.new(|cx| gpui_wry::WebView::new(webview, window, cx)));
+                self.webview = Some(cx.new(|cx| WebViewHost::new(webview, window, cx)));
                 cx.spawn(async move |this: WeakEntity<Self>, cx| {
                     while let Some(msg) = rx.next().await {
                         if this
