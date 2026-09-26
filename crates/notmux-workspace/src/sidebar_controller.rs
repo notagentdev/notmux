@@ -212,7 +212,8 @@ mod tests {
 
     #[test]
     fn test_toggle() {
-        let settings = test_settings();
+        let mut settings = test_settings();
+        settings.sidebar.is_open = false;
         let mut ctrl = SidebarController::new(&settings);
 
         assert!(!ctrl.is_open());
@@ -243,6 +244,7 @@ mod tests {
     #[test]
     fn test_hover_show_hide() {
         let mut settings = test_settings();
+        settings.sidebar.is_open = false;
         settings.sidebar.auto_hide = true;
         let mut ctrl = SidebarController::new(&settings);
 

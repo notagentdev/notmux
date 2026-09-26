@@ -8,7 +8,7 @@ use crate::keybindings::{
 };
 use crate::settings::{open_settings_file, settings_entity};
 use crate::theme::{theme, with_alpha};
-use crate::ui::tokens::{ui_text_md, ui_text_ms, ui_text_xl};
+use crate::ui::tokens::{ui_text, ui_text_md, ui_text_ms, ui_text_xl};
 use crate::views::layout::navigation::{get_pane_map, prune_pane_map};
 use crate::views::layout::split_pane::{
     DragState, compute_resize, render_project_divider, render_sidebar_divider,
@@ -202,6 +202,106 @@ impl RootView {
             .set_offset(point(px(clamped), px(0.0)));
     }
 
+    /// Welcome screen for a workspace without projects (first start): the
+    /// bare "[N]" glyph (no icon background) with the app name beneath, plus
+    /// an "Add project" link. The top strip stays a window-drag handle, since
+    /// no column title bar exists to grab the window by.
+    fn render_welcome(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let g = cx.global::<crate::theme::GpuiTheme>();
+        let accent = g.fg(crate::theme::ThemeColor::Accent);
+        let logo_fg = g.fg(crate::theme::ThemeColor::Text);
+        let badge_fg = g.bg_base();
+        div()
+            .id("projects-grid-welcome")
+            .relative()
+            .flex_1()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(16.0))
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .w_full()
+                    .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.title_should_move = true),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(20.0))
+                    .child(
+                        svg()
+                            .path("icons/notmux-logo.svg")
+                            .w(px(174.0))
+                            .h(px(144.0))
+                            .text_color(logo_fg),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text(28.0, cx))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(logo_fg)
+                            .child("notmux"),
+                    ),
+            )
+            .child(
+                        div()
+                            .id("welcome-add-project")
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .text_size(ui_text_md(cx))
+                            .text_color(accent)
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            // Folder icon with a round "+" badge bottom-right.
+                            .child(
+                                div()
+                                    .relative()
+                                    .size(px(18.0))
+                                    .flex_shrink_0()
+                                    .child(
+                                        svg()
+                                            .path("icons/folder.svg")
+                                            .size(px(16.0))
+                                            .text_color(accent),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .right_0()
+                                            .bottom_0()
+                                            .size(px(9.0))
+                                            .rounded_full()
+                                            .bg(accent)
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                svg()
+                                                    .path("icons/plus.svg")
+                                                    .size(px(7.0))
+                                                    .text_color(badge_fg),
+                                            ),
+                                    ),
+                            )
+                            .child("New Project…")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(NewProject), cx);
+                            }),
+            )
+    }
+
     pub(super) fn render_projects_grid(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         // Execute pending center-scroll (deferred from unfocus to let layout update first).
         // We wait until the scroll handle reports overflow (max_offset > 0), which means
@@ -301,6 +401,7 @@ impl RootView {
                     )
                     .into_any_element();
             }
+            return self.render_welcome(cx).into_any_element();
         }
 
         // Get widths for each project

@@ -111,7 +111,7 @@ fn default_sidebar_width() -> f32 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SidebarSettings {
     /// Whether the sidebar is open
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub is_open: bool,
     /// Whether auto-hide mode is enabled
     #[serde(default)]
@@ -124,7 +124,7 @@ pub struct SidebarSettings {
 impl Default for SidebarSettings {
     fn default() -> Self {
         Self {
-            is_open: false,
+            is_open: true,
             auto_hide: false,
             width: DEFAULT_SIDEBAR_WIDTH,
         }
