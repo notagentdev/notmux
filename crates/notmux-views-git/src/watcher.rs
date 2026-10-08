@@ -39,8 +39,9 @@ const FS_DEBOUNCE_MS: u64 = 300;
 ///
 /// - Filesystem changes for **local** projects are driven by per-project
 ///   `notify` debouncers (300 ms) that batch events and forward them to
-///   the GPUI thread. Each batch triggers an immediate git status refresh
-///   plus a `FsChangeEvent` so UI consumers can patch incrementally.
+///   the GPUI thread. Each batch triggers a git status refresh (at most one
+///   running per project, extra batches coalesce into one follow-up) plus a
+///   `FsChangeEvent` so UI consumers can patch incrementally.
 /// - A slower polling loop continues to run for PR/CI status (network) and
 ///   as a fallback git-status refresh for remote-subscribed projects.
 /// - Pushes changes to:
@@ -60,6 +61,12 @@ pub struct GitStatusWatcher {
     /// Channel used by the watcher callbacks to push batches into GPUI.
     fs_tx: async_channel::Sender<FsBatch>,
     fs_rx: Option<async_channel::Receiver<FsBatch>>,
+
+    /// Projects with an FS-triggered status refresh currently running.
+    status_refresh_in_flight: HashSet<String>,
+    /// Projects that received more FS batches while their refresh was
+    /// running; each gets exactly one follow-up refresh when it finishes.
+    status_refresh_pending: HashSet<String>,
 }
 
 /// Opaque handle owning the notify debouncer for a single project.
@@ -93,6 +100,8 @@ impl GitStatusWatcher {
             fs_watchers: HashMap::new(),
             fs_tx,
             fs_rx: Some(fs_rx),
+            status_refresh_in_flight: HashSet::new(),
+            status_refresh_pending: HashSet::new(),
         };
         watcher.spawn_fs_event_pump(cx);
         watcher.sync_fs_watchers(cx);
@@ -161,11 +170,6 @@ impl GitStatusWatcher {
     fn handle_fs_batch(&mut self, batch: FsBatch, cx: &mut Context<Self>) {
         let project_id = batch.project_id.clone();
         let is_git_internal = batch.is_git_internal;
-        let path = self
-            .workspace
-            .read(cx)
-            .project(&project_id)
-            .map(|p| p.path.clone());
         cx.emit(FsChangeEvent {
             project_id: project_id.clone(),
             files: batch.files,
@@ -173,16 +177,39 @@ impl GitStatusWatcher {
         });
         // Kick a git status refresh for this project right away so the
         // summary (branch/lines/ahead/behind) stays fresh too.
-        if let Some(path) = path {
-            let id = project_id.clone();
-            cx.spawn(async move |this: WeakEntity<Self>, cx| {
-                let status = smol::unblock(move || git::refresh_git_status(Path::new(&path))).await;
-                let _ = this.update(cx, |this, cx| {
-                    this.apply_status_update(id, status, cx);
-                });
-            })
-            .detach();
+        self.request_status_refresh(project_id, cx);
+    }
+
+    /// Single-flight status refresh per project: while one runs, further
+    /// requests collapse into one follow-up run. A busy project (e.g. an
+    /// agent rendering into the repo) otherwise piles up a concurrent
+    /// refresh per 300 ms FS batch.
+    fn request_status_refresh(&mut self, project_id: String, cx: &mut Context<Self>) {
+        if self.status_refresh_in_flight.contains(&project_id) {
+            self.status_refresh_pending.insert(project_id);
+            return;
         }
+        let Some(path) = self
+            .workspace
+            .read(cx)
+            .project(&project_id)
+            .map(|p| p.path.clone())
+        else {
+            return;
+        };
+        self.status_refresh_in_flight.insert(project_id.clone());
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let status = smol::unblock(move || git::refresh_git_status(Path::new(&path))).await;
+            let _ = this.update(cx, |this, cx| {
+                this.status_refresh_in_flight.remove(&project_id);
+                let rerun = this.status_refresh_pending.remove(&project_id);
+                this.apply_status_update(project_id.clone(), status, cx);
+                if rerun {
+                    this.request_status_refresh(project_id, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn apply_status_update(

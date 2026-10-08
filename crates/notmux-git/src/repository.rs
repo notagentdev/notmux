@@ -509,11 +509,8 @@ fn get_diff_stats(path: &Path) -> (usize, usize) {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for file in stdout.lines() {
             if !file.is_empty() {
-                // Count lines in untracked file
-                let file_path = path.join(file);
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    added += content.lines().count();
-                }
+                // Size-capped, streamed and cached — never read whole files.
+                added += count_untracked_lines(&path.join(file));
             }
         }
     }

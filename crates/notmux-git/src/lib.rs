@@ -408,11 +408,8 @@ pub fn get_diff_file_summary(path: &Path) -> Vec<FileDiffSummary> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for file in stdout.lines() {
             if !file.is_empty() {
-                // Count lines in untracked file
-                let file_path = path.join(file);
-                let added = std::fs::read_to_string(&file_path)
-                    .map(|c| c.lines().count())
-                    .unwrap_or(0);
+                // Size-capped, streamed and cached — never read whole files.
+                let added = repository::count_untracked_lines(&path.join(file));
                 summaries.push(FileDiffSummary {
                     path: file.to_string(),
                     added,
