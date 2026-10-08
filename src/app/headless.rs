@@ -213,6 +213,19 @@ impl HeadlessApp {
         // Agent detection + lifecycle event drain (shared with the GUI)
         super::agent_detection::spawn_agent_detection(terminals.clone(), workspace.clone(), cx);
 
+        // Agent orchestration store; launched processes die with the app.
+        match crate::orchestration::install() {
+            Ok(runtime) => {
+                let pty = pty_manager.clone();
+                runtime.set_process_killer(Arc::new(move |terminal_id: &str| pty.kill(terminal_id)));
+                crate::orchestration::install_background_parts(crate::orchestration::BackgroundParts {
+                    backend: Arc::new(LocalBackend::new(pty_manager.clone())),
+                    terminals: terminals.clone(),
+                });
+            }
+            Err(e) => log::error!("agent orchestration unavailable: {e}"),
+        }
+
         // Start remote command bridge loop (shared with GUI)
         let local_backend: Arc<dyn TerminalBackend> = Arc::new(LocalBackend::new(pty_manager));
         cx.spawn({
@@ -336,6 +349,9 @@ impl HeadlessApp {
 
                 if !exit_events.is_empty() {
                     cx.update(|cx| {
+                        // Managed agent runs record their exit off this thread.
+                        crate::orchestration::record_exits_in_background(exit_events.clone());
+
                         // Let service manager handle service terminals
                         let service_tids: HashSet<String> = service_manager.update(cx, |sm, cx| {
                             let mut handled = HashSet::new();

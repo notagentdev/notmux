@@ -229,6 +229,12 @@ pub struct ProjectData {
     /// mirrored from `layout` by slot_id. None until a pane is pinned.
     #[serde(default)]
     pub pinned_layout: Option<LayoutNode>,
+    /// Panes the agent orchestration runtime started: layout slot ID to
+    /// run ID. Such a pane runs an executable directly and is never
+    /// respawned as a shell; every entry is dropped on load because the
+    /// process cannot survive a restart.
+    #[serde(default)]
+    pub managed_runs: HashMap<String, String>,
 }
 
 impl ProjectData {
@@ -310,6 +316,7 @@ mod tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: HashMap::new(),
         }
     }
 

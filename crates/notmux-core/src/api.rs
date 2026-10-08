@@ -84,6 +84,29 @@ pub struct ApiTerminalState {
     /// Latest OSC 0/2 title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// The orchestration run behind a managed pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed_run: Option<ApiManagedRun>,
+}
+
+/// A managed agent run as the API reports it beside a terminal.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ApiManagedRun {
+    pub run_id: String,
+    /// `root` or `worker`.
+    pub role: String,
+    pub harness: String,
+    pub name: String,
+    /// `busy`, `waiting`, `idle`, `stopped`, `starting` (workers).
+    pub worker_state: String,
+    /// `starting`, `running`, `exited`, `lost`.
+    pub process_state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining_starts: Option<u32>,
+    /// State of the newest assignment (`running`, `succeeded`, `failed`,
+    /// `cancelled`, `interrupted`, `queued`), workers only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_state: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

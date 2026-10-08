@@ -180,6 +180,74 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             None
         };
 
+        // A managed agent pane names its run in one compact line: role,
+        // name, harness, availability, and whether the process is still
+        // there. Nothing here is interactive; `notmux agent` is the control.
+        let managed_header = self
+            .terminal
+            .as_ref()
+            .and_then(|term| term.managed_run())
+            .or_else(|| {
+                // The run may be gone from the model (process exited and the
+                // registry dropped it); the slot still says it was managed.
+                let ws = self.workspace.read(cx);
+                // Only an interrupted run from a previous session gets here
+                // (a run of this session keeps its terminal model): its
+                // process is lost; the run id is the name to look it up by.
+                ws.managed_run_for_slot(&self.slot_id).map(|run_id| {
+                    notmux_terminal::terminal::ManagedRunInfo {
+                        name: format!("run {run_id}"),
+                        run_id,
+                        role: "agent".to_string(),
+                        harness: String::new(),
+                        worker_state: "interrupted".to_string(),
+                        process_state: "lost".to_string(),
+                        remaining_starts: None,
+                        task_state: None,
+                    }
+                })
+            })
+            .map(|info| {
+                let live = info.process_state == "running" || info.process_state == "starting";
+                let mut label = format!("{} · {}", info.role, info.name);
+                if !info.harness.is_empty() {
+                    label.push_str(&format!(" · {}", info.harness));
+                }
+                label.push_str(&format!(" · {}", info.worker_state));
+                if let Some(task) = &info.task_state {
+                    label.push_str(&format!(" · task {task}"));
+                }
+                if let Some(left) = info.remaining_starts {
+                    label.push_str(&format!(" · {left} starts left"));
+                }
+                if !live {
+                    label.push_str(&format!(" · process {}", info.process_state));
+                }
+                div()
+                    .h(px(22.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .border_b_1()
+                    .border_color(rgb(t.border))
+                    .bg(rgb(t.bg_header))
+                    .child(
+                        div()
+                            .size(px(7.0))
+                            .rounded_full()
+                            .bg(if live { rgb(t.success) } else { rgb(t.text_muted) }),
+                    )
+                    .child(
+                        div()
+                            .text_size(ui_text_sm(cx))
+                            .text_color(rgb(t.text_muted))
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(label),
+                    )
+            });
+
         div()
             .id(format!("terminal-pane-main-{}", id_suffix))
             .track_focus(&focus_handle)
@@ -381,6 +449,7 @@ impl<D: ActionDispatch + Send + Sync> Render for TerminalPane<D> {
             .group("terminal-pane")
             .relative()
             .children(zoom_header)
+            .children(managed_header)
             .when(!self.minimized && !self.detached, |el| {
                 el.child(
                     div()

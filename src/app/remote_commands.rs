@@ -1,4 +1,6 @@
-use crate::remote::bridge::{BridgeMessage, BridgeReceiver, CommandResult, RemoteCommand};
+use crate::remote::bridge::{
+    AgentCommand, AgentReply, BridgeMessage, BridgeReceiver, CommandResult, RemoteCommand,
+};
 use crate::remote::types::{
     ActionRequest, ApiFolder, ApiFullscreen, ApiProject, ApiServiceInfo, StateResponse,
 };
@@ -49,6 +51,16 @@ fn terminal_states_for_project(
                 }),
                 waiting_for_input: term.is_waiting_for_input(),
                 title: term.title(),
+                managed_run: term.managed_run().map(|m| notmux_core::api::ApiManagedRun {
+                    run_id: m.run_id,
+                    role: m.role,
+                    harness: m.harness,
+                    name: m.name,
+                    worker_state: m.worker_state,
+                    process_state: m.process_state,
+                    remaining_starts: m.remaining_starts,
+                    task_state: m.task_state,
+                }),
             },
         );
     }
@@ -102,12 +114,61 @@ pub(crate) async fn remote_command_loop(
                 });
                 continue;
             }
+            BridgeMessage {
+                command: RemoteCommand::Agent(cmd),
+                reply,
+            } => {
+                let ws = workspace.clone();
+                let backend = backend.clone();
+                let terminals = terminals.clone();
+                let answer = cx.update(|cx| {
+                    let Some(runtime) = crate::orchestration::runtime() else {
+                        const UNAVAILABLE: &str = "agent orchestration is not available in this NotMux instance";
+                        return match cmd {
+                            AgentCommand::Plan { .. } => AgentReply::Plan(Err(notmux_core::orchestration::AgentError::new(
+                                notmux_core::orchestration::AgentErrorCode::StorageFailed,
+                                UNAVAILABLE,
+                            ))),
+                            AgentCommand::Start { .. } => AgentReply::Started(Err(UNAVAILABLE.to_string())),
+                            AgentCommand::RemovePane { .. } => AgentReply::Done,
+                            AgentCommand::ProjectForTerminal { .. } => AgentReply::Project(None),
+                        };
+                    };
+                    let mut host = crate::orchestration::app_host::AppHost {
+                        workspace: &ws,
+                        backend: &backend,
+                        terminals: &terminals,
+                        cx,
+                    };
+                    match cmd {
+                        AgentCommand::Plan { caller, request } => {
+                            AgentReply::Plan(runtime.plan(&caller, &request, &mut host))
+                        }
+                        AgentCommand::Start { intent } => {
+                            AgentReply::Started(runtime.start_process(&intent, &mut host))
+                        }
+                        AgentCommand::RemovePane { project_id, slot_id } => {
+                            use crate::orchestration::runtime::Host as _;
+                            host.remove_pane(&project_id, &slot_id);
+                            AgentReply::Done
+                        }
+                        AgentCommand::ProjectForTerminal { terminal_id } => {
+                            use crate::orchestration::runtime::Host as _;
+                            AgentReply::Project(host.project_for_terminal(&terminal_id))
+                        }
+                    }
+                });
+                if let Some(reply) = reply {
+                    let _ = reply.send(CommandResult::Agent(answer));
+                }
+                continue;
+            }
             other => other,
         };
 
         let result = match msg.command {
             // Answered asynchronously above — never reaches this match.
-            RemoteCommand::Browser(_) => continue,
+            RemoteCommand::Browser(_) | RemoteCommand::Agent(_) => continue,
             RemoteCommand::Action(action) => match action {
                 ActionRequest::StartService {
                     project_id,

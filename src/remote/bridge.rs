@@ -1,5 +1,29 @@
+use crate::orchestration::runtime::{Intent, Plan};
 use crate::remote::types::{ActionRequest, BrowserRequest};
+use notmux_core::orchestration::{AgentError, AgentRequest, Caller};
 use tokio::sync::oneshot;
+
+/// One step of the agent orchestration API, executed on the GPUI thread.
+#[derive(Debug)]
+pub enum AgentCommand {
+    /// Phase 1 of a launch: validate and allocate.
+    Plan { caller: Caller, request: AgentRequest },
+    /// Launch step on the UI thread: start the process, insert the pane.
+    /// No store access.
+    Start { intent: Box<Intent> },
+    /// Remove the pane of a start that could not be recorded.
+    RemovePane { project_id: String, slot_id: String },
+    /// `(project id, path)` of a terminal, for `register`.
+    ProjectForTerminal { terminal_id: String },
+}
+
+#[derive(Debug)]
+pub enum AgentReply {
+    Plan(Result<Plan, AgentError>),
+    Started(Result<(), String>),
+    Project(Option<(String, String)>),
+    Done,
+}
 
 /// Commands sent from the axum server to the GPUI main thread.
 /// Fire-and-forget commands (SendText, Resize, etc.) set `reply` to `None`
@@ -23,6 +47,8 @@ pub enum RemoteCommand {
     /// One automation command against a browser pane.
     /// Answered asynchronously (page JavaScript), not by the sync match.
     Browser(BrowserRequest),
+    /// Agent orchestration (`/v1/agents`).
+    Agent(AgentCommand),
 }
 
 /// Result of processing a RemoteCommand.
@@ -34,6 +60,8 @@ pub enum CommandResult {
     OkBytes(Vec<u8>),
     /// Error with a human-readable message.
     Err(String),
+    /// Typed answer of an agent command.
+    Agent(AgentReply),
 }
 
 /// Channel types for the bridge.

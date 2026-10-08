@@ -109,6 +109,26 @@ pub struct AgentRuntime {
     /// Identified agent kind (`claude`, `codex`, …) when known.
     pub kind: Option<String>,
 }
+
+/// What the orchestration runtime published about the managed run behind
+/// this terminal: shown in the pane header and reported through the API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedRunInfo {
+    pub run_id: String,
+    /// `root` or `worker`.
+    pub role: String,
+    pub harness: String,
+    pub name: String,
+    /// `busy`, `waiting`, `idle`, `stopped`, `starting` (workers).
+    pub worker_state: String,
+    /// `starting`, `running`, `exited`, `lost`.
+    pub process_state: String,
+    /// The root's remaining worker starts, roots only.
+    pub remaining_starts: Option<u32>,
+    /// State of the newest assignment (`running`, `succeeded`, `failed`,
+    /// `cancelled`, `interrupted`, `queued`), workers only.
+    pub task_state: Option<String>,
+}
 fn extract_osc_notifications(data: &[u8]) -> Vec<TerminalNotification> {
     let mut out = Vec::new();
     let bytes = data;
@@ -446,6 +466,8 @@ pub struct Terminal {
     /// derived from `Idle` plus an unseen notification in
     /// [`Terminal::agent_state`].
     agent: Mutex<AgentRuntime>,
+    /// Set by the orchestration runtime for managed panes.
+    managed_run: Mutex<Option<ManagedRunInfo>>,
     pending_output: Mutex<Vec<u8>>,
     /// Rolling PTY byte stream used for persistent scrollback snapshots.
     ///
@@ -545,6 +567,7 @@ impl Terminal {
             notification_unposted: AtomicBool::new(false),
             notification_sticky: AtomicBool::new(false),
             agent: Mutex::new(AgentRuntime::default()),
+            managed_run: Mutex::new(None),
             pending_output: Mutex::new(Vec::new()),
             replay_buffer: Mutex::new(Vec::new()),
             restored_replay_buffer: Mutex::new(Vec::new()),
@@ -1517,6 +1540,18 @@ impl Terminal {
     /// Snapshot of the full agent bookkeeping (for explain output).
     pub fn agent_runtime(&self) -> AgentRuntime {
         self.agent.lock().clone()
+    }
+    /// The managed run behind this pane, if the orchestration runtime
+    /// published one.
+    pub fn managed_run(&self) -> Option<ManagedRunInfo> {
+        self.managed_run.lock().clone()
+    }
+    /// Publish (or clear) the managed run. Returns whether it changed.
+    pub fn set_managed_run(&self, info: Option<ManagedRunInfo>) -> bool {
+        let mut slot = self.managed_run.lock();
+        let changed = *slot != info;
+        *slot = info;
+        changed
     }
     /// The visible screen rows (not scrollback), top to bottom, trailing
     /// whitespace trimmed — the same text `read_content` returns and the

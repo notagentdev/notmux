@@ -1,6 +1,6 @@
-use crate::state::{HookTerminalStatus, WorkspaceData};
+use crate::state::{HookTerminalStatus, LayoutNode, ProjectData, WorkspaceData};
 #[cfg(test)]
-use crate::state::{LayoutNode, ProjectData, WorktreeMetadata};
+use crate::state::WorktreeMetadata;
 #[cfg(test)]
 use notmux_core::theme::FolderColor;
 use notmux_terminal::session_backend::SessionBackend;
@@ -142,6 +142,38 @@ fn is_process_alive(pid: u32) -> bool {
     }
 }
 
+/// Managed agent panes survive a restart as inert panes: their process is
+/// gone, so their terminal id is dropped (managed launches never use a
+/// session backend, nothing can be reattached), but the leaf and its run
+/// stay, so the pane shows which run was interrupted until the user
+/// closes it. The pane view never spawns a shell into a managed slot.
+/// Map entries whose slot is no longer in the layout are dropped.
+pub(crate) fn make_managed_panes_inert(project: &mut ProjectData) {
+    if project.managed_runs.is_empty() {
+        return;
+    }
+    let mut present: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let slots: Vec<String> = project.managed_runs.keys().cloned().collect();
+    for slot in &slots {
+        for layout in [project.layout.as_mut(), project.pinned_layout.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(path) = layout.find_path_by_slot_id(slot) else {
+                continue;
+            };
+            present.insert(slot.clone());
+            if let Some(LayoutNode::Terminal { terminal_id, .. }) = layout.get_at_path_mut(&path)
+                && let Some(old) = terminal_id.take()
+            {
+                project.terminal_names.remove(&old);
+                project.hidden_terminals.remove(&old);
+            }
+        }
+    }
+    project.managed_runs.retain(|slot, _| present.contains(slot));
+}
+
 /// Validate and fix workspace data consistency.
 /// Called after deserialization in all load paths.
 pub(crate) fn validate_workspace_data(
@@ -162,6 +194,12 @@ pub(crate) fn validate_workspace_data(
                 });
             }
         }
+    }
+
+    // Managed agent panes survive a restart only as inert panes: the
+    // process is gone and the slot must never respawn as a shell.
+    for project in &mut data.projects {
+        make_managed_panes_inert(project);
     }
 
     // Optionally clear terminal IDs (on app restart without session persistence).
@@ -567,6 +605,7 @@ mod tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: HashMap::new(),
         }
     }
 
@@ -635,6 +674,62 @@ mod tests {
                 .contains(&"nonexistent_folder".to_string())
         );
         assert!(data.project_order.contains(&"p1".to_string()));
+    }
+
+    #[test]
+    fn validate_keeps_managed_panes_inert_on_load() {
+        let mut project = make_project("p1");
+        project.layout = Some(LayoutNode::Split {
+            direction: SplitDirection::Vertical,
+            sizes: vec![50.0, 50.0],
+            children: vec![
+                LayoutNode::new_terminal_with_ids("slot-root", "term-root"),
+                LayoutNode::new_terminal_with_ids("slot-worker", "term-worker"),
+            ],
+        });
+        project
+            .managed_runs
+            .insert("slot-worker".to_string(), "run-1".to_string());
+        // A stale entry whose pane is gone is dropped.
+        project
+            .managed_runs
+            .insert("slot-gone".to_string(), "run-9".to_string());
+        project
+            .terminal_names
+            .insert("term-worker".to_string(), "Worker A".to_string());
+        project.pinned_slots.push("slot-worker".to_string());
+        let mut data = make_workspace(vec![project], vec!["p1"], vec![]);
+        validate_workspace_data(&mut data, true, SessionBackend::None);
+
+        let p = &data.projects[0];
+        // The pane and its run stay, so the interrupted run is visible.
+        assert_eq!(p.managed_runs.get("slot-worker").map(String::as_str), Some("run-1"));
+        assert!(!p.managed_runs.contains_key("slot-gone"));
+        assert_eq!(p.pinned_slots, vec!["slot-worker".to_string()]);
+        let layout = p.layout.as_ref().unwrap();
+        assert_eq!(
+            layout.collect_slot_ids(),
+            vec!["slot-root".to_string(), "slot-worker".to_string()]
+        );
+        // Its process is gone: no terminal id, no stale name.
+        let path = layout.find_path_by_slot_id("slot-worker").unwrap();
+        assert!(matches!(layout.get_at_path(&path), Some(LayoutNode::Terminal { terminal_id: None, .. })));
+        assert!(!p.terminal_names.contains_key("term-worker"));
+
+        // Even with a session backend that keeps ordinary terminal ids, a
+        // managed pane loses its id (nothing to reattach), and a managed pane
+        // that is the whole layout stays that pane instead of a new shell.
+        let mut project = make_project("p2");
+        project.layout = Some(LayoutNode::new_terminal_with_ids("slot-lead", "term-lead"));
+        project
+            .managed_runs
+            .insert("slot-lead".to_string(), "run-2".to_string());
+        let mut data = make_workspace(vec![project], vec!["p2"], vec![]);
+        validate_workspace_data(&mut data, false, SessionBackend::None);
+        let layout = data.projects[0].layout.as_ref().unwrap();
+        assert!(matches!(layout, LayoutNode::Terminal { terminal_id: None, .. }));
+        assert_eq!(layout.slot_id(), Some("slot-lead"));
+        assert_eq!(data.projects[0].managed_runs.get("slot-lead").map(String::as_str), Some("run-2"));
     }
 
     #[test]

@@ -135,6 +135,7 @@ For maintainers: see [Desktop releases](docs/releasing.md).
 - **Claude Code usage** - OAuth-based usage tracking (5-hour, 7-day rate limits, credits)
 - **Codex status & usage** - OpenAI Codex status monitoring with OAuth token refresh
 - Both integrations are opt-in via settings toggles
+- **Agent orchestration** - `notmux agent lead --harness notagent|claude|codex` opens an orchestrator pane that directs up to four worker panes; workers never spawn workers, agents start unattended with per-folder trust, and every task, result and message goes through `notmux agent`. See [docs/agent-orchestration.md](docs/agent-orchestration.md)
 
 ### Command-Line Interface
 The `notmux` binary doubles as a CLI for scripting the running app (authentication is automatic on first use):
@@ -148,6 +149,9 @@ notmux key ctrl-c                    # send a special key
 notmux split down                    # split the current pane
 notmux focus <terminal-id>           # focus a terminal
 notmux new-terminal [project]        # create a terminal
+notmux agent lead --harness claude   # open an orchestrator pane (see `notmux agent help`)
+notmux agent spawn --name w1 --harness codex --task "…"   # root: start a worker
+notmux agent list                    # runs of my group with states and budget
 notmux read -t <id>                  # print a terminal's visible content
 notmux terminals                     # …now with an agent-state column (working/blocked/done/idle)
 notmux wait -t <id> --until blocked  # block until the agent needs a decision (default: blocked,done,idle)

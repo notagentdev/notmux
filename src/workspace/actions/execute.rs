@@ -1152,6 +1152,12 @@ pub fn ensure_terminal(
         return Some(term);
     }
 
+    // Managed agent panes are never respawned: their PTY exists only while
+    // the orchestration runtime keeps it alive.
+    if ws.is_managed_terminal(terminal_id) {
+        return None;
+    }
+
     // Find which project owns this terminal_id and get its path
     let mut cwd = None;
     for project in &ws.data().projects {
@@ -1220,6 +1226,14 @@ pub fn spawn_uninitialized_terminals(
     let mut uninitialized = Vec::new();
     if let Some(layout) = &project.layout {
         collect_uninitialized_terminals_with_shell(layout, vec![], &mut uninitialized);
+        // A managed agent pane is never given a shell, whatever its state.
+        let managed = &project.managed_runs;
+        uninitialized.retain(|(path, _)| {
+            !layout
+                .get_at_path(path)
+                .and_then(|leaf| leaf.slot_id())
+                .is_some_and(|slot| managed.contains_key(slot))
+        });
     }
     log::info!(
         "spawn_uninitialized_terminals: project={}, uninitialized_count={}",

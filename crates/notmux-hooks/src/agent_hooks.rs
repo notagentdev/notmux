@@ -5,7 +5,10 @@
 
 mod config;
 #[cfg(test)]
+mod notagent_install_tests;
+#[cfg(test)]
 mod tests;
+pub mod trust;
 
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -305,7 +308,7 @@ pub fn uninstall_shell() -> Result<(), String> {
 /// Resolve the notagent agent dir — where notagent (v2) reads its user-level
 /// `hooks.json` from (`crates/notagent/src/config.rs::get_agent_dir`):
 /// `$NOTAGENT_CODING_AGENT_DIR` (tilde-expanded) or `~/.notagent/agent`.
-fn notagent_agent_dir() -> Option<PathBuf> {
+pub fn notagent_agent_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("NOTAGENT_CODING_AGENT_DIR")
         && !dir.is_empty()
     {
@@ -321,7 +324,7 @@ fn notagent_agent_dir() -> Option<PathBuf> {
 /// gates on `$NOTMUX_SURFACE_ID`, whatever binary path it was installed with,
 /// so a build from another target dir still replaces its predecessor.
 fn is_notmux_hook_command(command: &str) -> bool {
-    command.contains("$NOTMUX_SURFACE_ID")
+    command.contains("$NOTMUX_SURFACE_ID") || command.contains("$NOTMUX_RUN_ID")
 }
 
 /// A notagent `hooks.json`, split into what we rewrite and what we keep.
@@ -398,10 +401,15 @@ pub fn install_notagent() -> Result<(), String> {
         );
         return Ok(());
     }
-    std::fs::create_dir_all(&agent_dir)
+    install_notagent_at(&agent_dir, &notmux_binary())
+}
+
+/// The installer body, parameterized for tests: writes `hooks.json`, the
+/// orchestration skill and the two NotMux modes under `agent_dir`.
+pub fn install_notagent_at(agent_dir: &std::path::Path, exe: &str) -> Result<(), String> {
+    std::fs::create_dir_all(agent_dir)
         .map_err(|e| format!("Failed to create {}: {e}", agent_dir.display()))?;
 
-    let exe = notmux_binary();
     let gated = |body: &str| format!("[ -n \"$NOTMUX_SURFACE_ID\" ] && {body} >/dev/null 2>&1 || true");
     let group = |parts: &[String]| format!("{{ {}; }}", parts.join("; "));
     let notify = |body: &str| format!("\"{exe}\" notify --title notagent --body \"{body}\"");
@@ -472,6 +480,19 @@ pub fn install_notagent() -> Result<(), String> {
             "timeout_ms": 10_000,
         }));
     }
+    // Orchestration inbox drain, only inside a managed run (`NOTMUX_RUN_ID`),
+    // appended after the status entries so those are unchanged. stdout must
+    // reach notagent here: a prompt hook's plain stdout becomes context.
+    // Fail-open (`|| true`) so a blocking event never refuses the prompt.
+    // No Stop entry: notagent's Stop hook is a notification and cannot
+    // continue the agent; managed notagent workers wait cooperatively.
+    doc.entries.push(serde_json::json!({
+        "event": "UserPromptSubmit",
+        "command": format!(
+            "[ -n \"$NOTMUX_RUN_ID\" ] && \"{exe}\" agent hook --event prompt 2>/dev/null || true"
+        ),
+        "timeout_ms": 15_000,
+    }));
     write_notagent_hooks(&hooks_path, doc)?;
     log::info!("Installed notagent hooks -> {}", hooks_path.display());
     Ok(())

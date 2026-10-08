@@ -339,6 +339,20 @@ impl NotMux {
         // Create bridge channel and start command loop
         let (bridge_tx, bridge_rx) = bridge::bridge_channel();
 
+        // Agent orchestration: one store per instance, launched processes
+        // are killed on quit.
+        match crate::orchestration::install() {
+            Ok(runtime) => {
+                let pty = pty_manager.clone();
+                runtime.set_process_killer(Arc::new(move |terminal_id: &str| pty.kill(terminal_id)));
+                crate::orchestration::install_background_parts(crate::orchestration::BackgroundParts {
+                    backend: Arc::new(crate::terminal::backend::LocalBackend::new(pty_manager.clone())),
+                    terminals: terminals.clone(),
+                });
+            }
+            Err(e) => log::error!("agent orchestration unavailable: {e}"),
+        }
+
         let mut manager = Self {
             root_view,
             workspace: workspace.clone(),
@@ -662,6 +676,12 @@ impl NotMux {
                 }
                 let _ = this.update(cx, |this, cx| {
                     if !exit_events.is_empty() {
+                        // Managed agent runs record their exit off the UI
+                        // thread (a store write); the record is keyed by
+                        // terminal id, so the generic cleanup below does not
+                        // have to wait for it.
+                        crate::orchestration::record_exits_in_background(exit_events.clone());
+
                         // Two-phase hook exit handling:
                         // Phase 1 (here): notify_exit unblocks any sync hook threads
                         // waiting on a PTY terminal via mpsc::Receiver. This MUST happen

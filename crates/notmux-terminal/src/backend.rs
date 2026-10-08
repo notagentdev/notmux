@@ -36,6 +36,26 @@ pub trait TerminalBackend: Send + Sync {
         let _ = env;
         self.reconnect_terminal(terminal_id, cwd, shell)
     }
+    /// Start an executable directly in a new PTY for a managed agent run
+    /// (see `PtyManager::create_managed_terminal`). Remote backends do not
+    /// support it.
+    fn create_managed_terminal(
+        &self,
+        terminal_id: &str,
+        executable: &std::path::Path,
+        args: &[String],
+        cwd: &str,
+        env: &HashMap<String, String>,
+        reserved_env: &[(String, String)],
+    ) -> Result<()> {
+        let _ = (terminal_id, executable, args, cwd, env, reserved_env);
+        anyhow::bail!("managed launches are only supported on the local backend")
+    }
+    /// Whether the terminal was started through `create_managed_terminal`.
+    fn is_managed(&self, terminal_id: &str) -> bool {
+        let _ = terminal_id;
+        false
+    }
     fn kill(&self, terminal_id: &str);
     fn capture_buffer(&self, terminal_id: &str) -> Option<PathBuf>;
     fn supports_buffer_capture(&self) -> bool;
@@ -110,6 +130,23 @@ impl TerminalBackend for LocalBackend {
     ) -> Result<String> {
         self.pty_manager
             .create_or_reconnect_terminal_with_shell_and_env(Some(terminal_id), cwd, shell, env)
+    }
+
+    fn create_managed_terminal(
+        &self,
+        terminal_id: &str,
+        executable: &std::path::Path,
+        args: &[String],
+        cwd: &str,
+        env: &HashMap<String, String>,
+        reserved_env: &[(String, String)],
+    ) -> Result<()> {
+        self.pty_manager
+            .create_managed_terminal(terminal_id, executable, args, cwd, env, reserved_env)
+    }
+
+    fn is_managed(&self, terminal_id: &str) -> bool {
+        self.pty_manager.is_managed(terminal_id)
     }
 
     fn kill(&self, terminal_id: &str) {

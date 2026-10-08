@@ -849,6 +849,7 @@ impl RootView {
                                 hook_terminals: std::collections::HashMap::new(),
                                 pinned_slots: Vec::new(),
                                 pinned_layout: None,
+                                managed_runs: Default::default(),
                             });
                         }
                         // Update the transient remote snapshot regardless of create/update path.

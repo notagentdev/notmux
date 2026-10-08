@@ -465,6 +465,19 @@ impl LayoutNode {
         }
     }
 
+    /// A terminal leaf whose slot and terminal IDs were allocated by the
+    /// caller, for panes whose PTY already exists (managed agent runs).
+    pub fn new_terminal_with_ids(slot_id: impl Into<String>, terminal_id: impl Into<String>) -> Self {
+        LayoutNode::Terminal {
+            slot_id: slot_id.into(),
+            terminal_id: Some(terminal_id.into()),
+            minimized: false,
+            detached: false,
+            shell_type: ShellType::Default,
+            zoom_level: 1.0,
+        }
+    }
+
     /// Create a new editor node for a file path.
     pub fn new_editor(file_path: impl Into<String>) -> Self {
         LayoutNode::Editor {

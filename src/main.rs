@@ -11,6 +11,7 @@ mod event_log;
 mod git;
 mod keybindings;
 mod native_notify;
+mod orchestration;
 mod process;
 mod remote;
 mod remote_client;
@@ -136,6 +137,11 @@ fn quit(_: &Quit, cx: &mut App) {
         {
             log::error!("Failed to flush workspace on quit: {}", e);
         }
+    }
+
+    // Managed agent processes must not outlive the app that started them.
+    if let Some(runtime) = orchestration::runtime() {
+        runtime.shutdown();
     }
 
     cx.quit();
@@ -799,6 +805,12 @@ window_background: if app_settings.transparent_background { WindowBackgroundAppe
         // The Quit action handler only runs for Ctrl+Q / menu quit, not for
         // QuitMode::LastWindowClosed. on_app_quit fires for every exit path.
         cx.on_app_quit(|cx| {
+            // Managed agent processes die with the app on every exit path,
+            // including the window close button.
+            if let Some(runtime) = orchestration::runtime() {
+                runtime.shutdown();
+            }
+
             // Flush pending settings save
             if let Some(gs) = cx.try_global::<GlobalSettings>() {
                 gs.0.read(cx).flush_pending_save();

@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod agents;
 pub mod auth_reload;
 pub mod browser;
 pub mod health;
@@ -70,6 +71,7 @@ pub fn build_router(
     let protected = Router::new()
         .route("/v1/state", axum::routing::get(state::get_state))
         .route("/v1/actions", axum::routing::post(actions::post_actions))
+        .route("/v1/agents", axum::routing::post(agents::post_agents))
         .route("/v1/browser", axum::routing::post(browser::post_browser))
         .route("/v1/stream", axum::routing::get(stream::ws_handler))
         .route("/v1/refresh", axum::routing::post(refresh::post_refresh))

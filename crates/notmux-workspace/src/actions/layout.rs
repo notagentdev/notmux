@@ -48,6 +48,10 @@ impl Workspace {
             .map(|l| l.collect_slot_ids().into_iter().collect())
             .unwrap_or_default();
         project.pinned_slots.retain(|s| layout_slots.contains(s));
+        // A managed pane the user closed is no longer managed.
+        project
+            .managed_runs
+            .retain(|slot, _| layout_slots.contains(slot));
 
         orphaned
     }
@@ -1758,6 +1762,7 @@ mod gpui_tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: Default::default(),
         }
     }
 
@@ -2297,6 +2302,7 @@ mod gpui_tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: Default::default(),
         }
     }
 

@@ -34,6 +34,11 @@ pub async fn post_browser(
         Ok(CommandResult::OkBytes(_)) => {
             (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
         }
+        Ok(CommandResult::Agent(_)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "unexpected agent reply"})),
+        )
+            .into_response(),
         Ok(CommandResult::Err(e)) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": e})),

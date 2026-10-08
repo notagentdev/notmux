@@ -353,6 +353,18 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
             return;
         }
 
+        // A managed agent pane adopts the PTY the orchestration runtime
+        // created. Once that process is gone the pane stays as it is: it is
+        // never respawned as a shell and never fed a resume command.
+        if self.workspace.read(cx).is_managed_slot(&self.slot_id) {
+            log::info!(
+                "managed pane {} has no live terminal {}; not respawning",
+                self.slot_id,
+                terminal_id
+            );
+            return;
+        }
+
         let settings = terminal_view_settings(cx);
         let ws = self.workspace.read(cx);
         let shell = self.shell_type.clone().resolve_default(
@@ -427,6 +439,10 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
 
     fn create_new_terminal(&mut self, cx: &mut Context<Self>) {
         if self.backend.is_remote() {
+            return;
+        }
+        if self.workspace.read(cx).is_managed_slot(&self.slot_id) {
+            log::info!("managed pane {} never spawns a shell", self.slot_id);
             return;
         }
 
@@ -749,3 +765,162 @@ fn history_restored_banner(_previous_bytes: &[u8]) -> &'static [u8] {
 
 const HISTORY_RESTORED_BANNER: &[u8] =
     b"\r\n\x1b[0m\x1b[7m *  History restored \x1b[0m\r\n\r\n";
+
+#[cfg(test)]
+mod managed_pane_tests {
+    use super::TerminalPane;
+    use gpui::AppContext as _;
+    use notmux_core::api::ActionRequest;
+    use notmux_terminal::backend::TerminalBackend;
+    use notmux_terminal::shell_config::ShellType;
+    use notmux_terminal::terminal::TerminalTransport;
+    use notmux_workspace::request_broker::RequestBroker;
+    use notmux_workspace::settings::HooksConfig;
+    use notmux_workspace::state::{LayoutNode, ProjectData, SplitDirection, Workspace, WorkspaceData};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A backend that only counts: any shell start or reattach is a failure.
+    #[derive(Default)]
+    struct CountingBackend {
+        creates: AtomicUsize,
+        reconnects: AtomicUsize,
+    }
+
+    struct NullTransport;
+    impl TerminalTransport for NullTransport {
+        fn send_input(&self, _terminal_id: &str, _data: &[u8]) {}
+        fn resize(&self, _terminal_id: &str, _cols: u16, _rows: u16) {}
+        fn uses_mouse_backend(&self) -> bool {
+            false
+        }
+    }
+
+    impl TerminalBackend for CountingBackend {
+        fn transport(&self) -> Arc<dyn TerminalTransport> {
+            Arc::new(NullTransport)
+        }
+        fn create_terminal(&self, _cwd: &str, _shell: Option<&ShellType>) -> anyhow::Result<String> {
+            self.creates.fetch_add(1, Ordering::SeqCst);
+            Ok("spawned".into())
+        }
+        fn reconnect_terminal(&self, id: &str, _cwd: &str, _shell: Option<&ShellType>) -> anyhow::Result<String> {
+            self.reconnects.fetch_add(1, Ordering::SeqCst);
+            Ok(id.into())
+        }
+        fn kill(&self, _terminal_id: &str) {}
+        fn capture_buffer(&self, _terminal_id: &str) -> Option<PathBuf> {
+            None
+        }
+        fn supports_buffer_capture(&self) -> bool {
+            false
+        }
+        fn is_remote(&self) -> bool {
+            false
+        }
+        fn get_shell_pid(&self, _terminal_id: &str) -> Option<u32> {
+            None
+        }
+        fn get_service_pids(&self, _terminal_id: &str) -> Vec<u32> {
+            vec![]
+        }
+    }
+
+    #[derive(Clone)]
+    struct NoDispatch;
+    impl crate::ActionDispatch for NoDispatch {
+        fn dispatch(&self, _action: ActionRequest, _cx: &mut gpui::App) {}
+        fn is_remote(&self) -> bool {
+            false
+        }
+        fn split_terminal(&self, _p: &str, _l: &[usize], _d: SplitDirection, _cx: &mut gpui::App) {}
+        fn add_tab(&self, _p: &str, _l: &[usize], _g: bool, _cx: &mut gpui::App) {}
+    }
+
+    fn workspace_with_managed_slot(terminal_id: Option<&str>) -> WorkspaceData {
+        let mut managed_runs = HashMap::new();
+        managed_runs.insert("slot-agent".to_string(), "run-1".to_string());
+        let project = ProjectData {
+            id: "p1".into(),
+            name: "P".into(),
+            path: "/tmp".into(),
+            layout: Some(LayoutNode::Terminal {
+                slot_id: "slot-agent".into(),
+                terminal_id: terminal_id.map(str::to_string),
+                minimized: false,
+                detached: false,
+                shell_type: ShellType::Default,
+                zoom_level: 1.0,
+            }),
+            terminal_names: HashMap::new(),
+            hidden_terminals: HashMap::new(),
+            worktree_info: None,
+            worktree_ids: Vec::new(),
+            folder_color: Default::default(),
+            hooks: HooksConfig::default(),
+            is_remote: false,
+            connection_id: None,
+            service_terminals: HashMap::new(),
+            default_shell: None,
+            hook_terminals: HashMap::new(),
+            pinned_slots: Vec::new(),
+            pinned_layout: None,
+            managed_runs,
+        };
+        WorkspaceData {
+            version: 1,
+            projects: vec![project],
+            project_order: vec!["p1".into()],
+            project_widths: HashMap::new(),
+            service_panel_heights: HashMap::new(),
+            hook_panel_heights: HashMap::new(),
+            folders: vec![],
+            focused_project_id: None,
+            focus_project_individual: false,
+            focused_terminal: None,
+            pinned_view_active: false,
+            pinned_arrangement: None,
+        }
+    }
+
+    /// Building the pane of an interrupted managed run (no terminal id after
+    /// a restart, or a stale one) starts no shell and reattaches nothing.
+    #[gpui::test]
+    fn an_inert_managed_pane_never_spawns_or_reconnects(cx: &mut gpui::TestAppContext) {
+        // The settings the spawn path reads, so that without the guard the
+        // pane really spawns and the counters (not a missing global) fail.
+        cx.update(|cx| {
+            cx.set_global(notmux_extensions::ExtensionSettingsStore::new(|_, _| None, |_, _, _| {}));
+        });
+        for terminal_id in [None, Some("stale-terminal")] {
+            let backend = Arc::new(CountingBackend::default());
+            let workspace = cx.new(|_cx| Workspace::new(workspace_with_managed_slot(terminal_id)));
+            let broker = cx.new(|_cx| RequestBroker::new());
+            let terminals: notmux_terminal::TerminalsRegistry = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+            let dyn_backend: Arc<dyn TerminalBackend> = backend.clone();
+            let pane = cx.new(|cx| {
+                TerminalPane::<NoDispatch>::new(
+                    workspace.clone(),
+                    broker.clone(),
+                    "p1".into(),
+                    "/tmp".into(),
+                    vec![],
+                    "slot-agent".into(),
+                    terminal_id.map(str::to_string),
+                    false,
+                    false,
+                    dyn_backend,
+                    terminals.clone(),
+                    None,
+                    cx,
+                )
+            });
+            assert_eq!(backend.creates.load(Ordering::SeqCst), 0, "no shell for {terminal_id:?}");
+            assert_eq!(backend.reconnects.load(Ordering::SeqCst), 0, "no reattach for {terminal_id:?}");
+            assert!(terminals.lock().is_empty());
+            pane.read_with(cx, |pane, _| assert!(pane.terminal.is_none()));
+        }
+    }
+}

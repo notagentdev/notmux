@@ -734,6 +734,7 @@ mod workspace_tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: HashMap::new(),
         }
     }
 
@@ -1464,6 +1465,7 @@ mod gpui_tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: HashMap::new(),
         }
     }
 

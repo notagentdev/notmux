@@ -706,6 +706,7 @@ mod tests {
             hook_terminals: HashMap::new(),
             pinned_slots: Vec::new(),
             pinned_layout: None,
+            managed_runs: Default::default(),
         }
     }
 

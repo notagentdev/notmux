@@ -5,7 +5,7 @@ use crate::shell_config::ShellType;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
 use parking_lot::Mutex;
-use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::panic::AssertUnwindSafe;
@@ -142,6 +142,12 @@ pub enum PtyEvent {
 struct PtyShutdownState {
     broken: AtomicBool,
     terminal_id: String,
+    /// Managed terminals only: the exit code the waiter thread observed
+    /// through `Child::wait` (`Some(None)` for a signal death).
+    exit_status: Mutex<Option<Option<u32>>>,
+    /// Managed terminals only: whether `PtyEvent::Exit` was already sent,
+    /// by the reader (after EOF) or by the waiter (when the PTY stays open).
+    exit_reported: AtomicBool,
 }
 
 impl PtyShutdownState {
@@ -149,6 +155,8 @@ impl PtyShutdownState {
         Self {
             broken: AtomicBool::new(false),
             terminal_id,
+            exit_status: Mutex::new(None),
+            exit_reported: AtomicBool::new(false),
         }
     }
 
@@ -159,7 +167,68 @@ impl PtyShutdownState {
     fn mark_broken(&self) {
         self.broken.store(true, Ordering::Relaxed);
     }
+
+    /// Managed terminals: claim the right to send the single exit event.
+    fn claim_exit_report(&self) -> bool {
+        !self.exit_reported.swap(true, Ordering::SeqCst)
+    }
+
+    /// Managed terminals: block up to `limit` for the waiter's exit status.
+    fn wait_exit_status(&self, limit: std::time::Duration) -> Option<Option<u32>> {
+        let start = std::time::Instant::now();
+        loop {
+            if let Some(status) = *self.exit_status.lock() {
+                return Some(status);
+            }
+            if start.elapsed() >= limit {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 }
+
+/// The process behind a handle. Shells keep the child itself; managed
+/// launches hand the child to a waiter thread and keep only a killer.
+enum ChildSlot {
+    Owned(Box<dyn Child + Send + Sync>),
+    Waited(Box<dyn ChildKiller + Send + Sync>),
+}
+
+impl ChildSlot {
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            ChildSlot::Owned(child) => child.kill(),
+            ChildSlot::Waited(killer) => killer.kill(),
+        }
+    }
+}
+
+/// Reserved orchestration variables. A managed launch sets them; every
+/// other terminal has them cleared so a shell opened from a worker pane
+/// cannot impersonate the worker.
+pub const MANAGED_ENV: [&str; 5] = notmux_core::orchestration::RESERVED_ENV;
+
+/// Session variables Claude Code exports into its subprocesses. Inherited
+/// by a nested NotMux, they would make a managed Claude worker believe it
+/// is a child session of whatever launched NotMux.
+const INHERITED_AGENT_SESSION_ENV: [&str; 8] = [
+    "CLAUDECODE",
+    "CLAUDE_CODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_PARENT_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_SSE_PORT",
+];
+
+/// How long the reader waits after EOF for the waiter's exit status
+/// before it reports the exit without a code.
+const MANAGED_EOF_STATUS_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long the waiter gives the reader to drain output and report the
+/// exit before it reports itself (a grandchild may keep the PTY open).
+const MANAGED_EXIT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Extract a human-readable message from a panic payload
 fn format_panic(payload: &dyn std::any::Any) -> String {
@@ -175,11 +244,18 @@ fn format_panic(payload: &dyn std::any::Any) -> String {
 /// Handle to a single PTY process
 struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
-    child: Box<dyn Child + Send + Sync>,
+    child: ChildSlot,
+    /// The spawned process ID, captured at spawn time.
+    pid: Option<u32>,
+    /// Managed launches run an executable directly: no shell, no session
+    /// backend, exit observed through `Child::wait`.
+    managed: bool,
     /// Channel to send input to the writer thread
     input_tx: mpsc::Sender<Vec<u8>>,
     reader_handle: Option<JoinHandle<()>>,
     writer_handle: Option<JoinHandle<()>>,
+    /// Managed launches only: the thread blocked in `Child::wait`.
+    waiter_handle: Option<JoinHandle<()>>,
     shutdown: Arc<PtyShutdownState>,
     /// WSL distro name if this terminal runs inside WSL (Windows only)
     #[cfg(windows)]
@@ -362,7 +438,7 @@ impl PtyManager {
                 let shutdown_panic = Arc::clone(&reader_shutdown);
                 let id_panic = id.clone();
                 if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| {
-                    Self::read_loop(id, reader, tx, reader_shutdown, child_pid, output_sink);
+                    Self::read_loop(id, reader, tx, reader_shutdown, child_pid, output_sink, false);
                 })) {
                     log::error!("PTY reader thread panicked: {}", format_panic(&*panic));
                     shutdown_panic.mark_broken();
@@ -410,10 +486,13 @@ impl PtyManager {
             terminal_id.to_string(),
             PtyHandle {
                 master: pair.master,
-                child,
+                pid: child_pid,
+                child: ChildSlot::Owned(child),
+                managed: false,
                 input_tx,
                 reader_handle: Some(reader_handle),
                 writer_handle: Some(writer_handle),
+                waiter_handle: None,
                 shutdown,
                 #[cfg(windows)]
                 wsl_distro,
@@ -423,6 +502,188 @@ impl PtyManager {
         );
 
         Ok(())
+    }
+
+    /// Start an executable directly in a new PTY: no shell, no session
+    /// backend, argv passed as given. The terminal is registered before any
+    /// thread can emit, so an immediately exiting process still produces a
+    /// `PtyEvent::Exit` for a known terminal. The exit code comes from
+    /// `Child::wait` on a dedicated thread; the reader reports it after
+    /// EOF, or the waiter does when a grandchild keeps the PTY open.
+    pub fn create_managed_terminal(
+        &self,
+        terminal_id: &str,
+        executable: &std::path::Path,
+        args: &[String],
+        cwd: &str,
+        env: &HashMap<String, String>,
+        reserved_env: &[(String, String)],
+    ) -> Result<()> {
+        if self.terminals.lock().contains_key(terminal_id) {
+            anyhow::bail!("terminal {terminal_id} already exists");
+        }
+        if !std::path::Path::new(cwd).is_dir() {
+            anyhow::bail!("working directory {cwd} does not exist");
+        }
+        if !executable.is_file() {
+            anyhow::bail!("executable {} does not exist", executable.display());
+        }
+        for (key, _) in reserved_env {
+            if !MANAGED_ENV.contains(&key.as_str()) {
+                anyhow::bail!("{key} is not a reserved orchestration variable");
+            }
+        }
+
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+
+        let mut cmd = CommandBuilder::new(executable);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.cwd(cwd);
+        Self::set_terminal_env(&mut cmd, terminal_id, env);
+        for key in INHERITED_AGENT_SESSION_ENV {
+            cmd.env_remove(key);
+        }
+        for (key, value) in reserved_env {
+            cmd.env(key, value);
+        }
+
+        let mut child = pair.slave.spawn_command(cmd)?;
+        let reader = pair.master.try_clone_reader()?;
+        let writer = pair.master.take_writer()?;
+        let shutdown = Arc::new(PtyShutdownState::new(terminal_id.to_string()));
+        let child_pid = child.process_id();
+        let (input_tx, input_rx) = mpsc::channel::<Vec<u8>>();
+
+        // Register first: nothing below may run before the map knows the id.
+        self.terminals.lock().insert(
+            terminal_id.to_string(),
+            PtyHandle {
+                master: pair.master,
+                pid: child_pid,
+                child: ChildSlot::Waited(child.clone_killer()),
+                managed: true,
+                input_tx,
+                reader_handle: None,
+                writer_handle: None,
+                waiter_handle: None,
+                shutdown: Arc::clone(&shutdown),
+                #[cfg(windows)]
+                wsl_distro: None,
+                #[cfg(windows)]
+                wsl_backend: None,
+            },
+        );
+
+        let short = terminal_id[..8.min(terminal_id.len())].to_string();
+        let spawn_all = || -> Result<(JoinHandle<()>, JoinHandle<()>, JoinHandle<()>)> {
+            let tx = self.event_tx.clone();
+            let id = terminal_id.to_string();
+            let waiter_shutdown = Arc::clone(&shutdown);
+            let waiter_handle = std::thread::Builder::new()
+                .name(format!("pty-waiter-{short}"))
+                .spawn(move || {
+                    let status = match child.wait() {
+                        Ok(status) if status.signal().is_some() => None,
+                        Ok(status) => Some(status.exit_code()),
+                        Err(e) => {
+                            log::warn!("PTY {} wait failed: {e}", id);
+                            None
+                        }
+                    };
+                    *waiter_shutdown.exit_status.lock() = Some(status);
+                    // Give the reader time to drain and report; otherwise
+                    // report here so a lingering PTY cannot hide the exit.
+                    let start = std::time::Instant::now();
+                    while start.elapsed() < MANAGED_EXIT_DRAIN_GRACE {
+                        if waiter_shutdown.exit_reported.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    if waiter_shutdown.claim_exit_report() {
+                        let _ = tx.send_blocking(PtyEvent::Exit {
+                            terminal_id: id,
+                            exit_code: status,
+                        });
+                    }
+                })?;
+
+            let tx = self.event_tx.clone();
+            let id = terminal_id.to_string();
+            let reader_shutdown = Arc::clone(&shutdown);
+            let output_sink = self.output_sink.lock().clone();
+            let reader_handle = std::thread::Builder::new()
+                .name(format!("pty-reader-{short}"))
+                .spawn(move || {
+                    let tx_panic = tx.clone();
+                    let shutdown_panic = Arc::clone(&reader_shutdown);
+                    let id_panic = id.clone();
+                    if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        Self::read_loop(id, reader, tx, reader_shutdown, child_pid, output_sink, true);
+                    })) {
+                        log::error!("PTY reader thread panicked: {}", format_panic(&*panic));
+                        shutdown_panic.mark_broken();
+                        if shutdown_panic.claim_exit_report() {
+                            let _ = tx_panic.send_blocking(PtyEvent::Exit {
+                                terminal_id: id_panic,
+                                exit_code: None,
+                            });
+                        }
+                    }
+                })?;
+
+            let writer_shutdown = Arc::clone(&shutdown);
+            let writer_event_tx = self.event_tx.clone();
+            let writer_id = terminal_id.to_string();
+            let writer_handle = std::thread::Builder::new()
+                .name(format!("pty-writer-{short}"))
+                .spawn(move || {
+                    let shutdown_panic = Arc::clone(&writer_shutdown);
+                    if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        Self::write_loop(writer, input_rx, writer_shutdown, writer_event_tx, writer_id);
+                    })) {
+                        log::error!("PTY writer thread panicked: {}", format_panic(&*panic));
+                        shutdown_panic.mark_broken();
+                    }
+                })?;
+            Ok((waiter_handle, reader_handle, writer_handle))
+        };
+
+        match spawn_all() {
+            Ok((waiter_handle, reader_handle, writer_handle)) => {
+                // The process may already have exited and been cleaned up;
+                // then the threads simply finish on their own.
+                if let Some(handle) = self.terminals.lock().get_mut(terminal_id) {
+                    handle.waiter_handle = Some(waiter_handle);
+                    handle.reader_handle = Some(reader_handle);
+                    handle.writer_handle = Some(writer_handle);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // Roll back: the process must not outlive a failed setup.
+                if let Some(handle) = self.terminals.lock().remove(terminal_id) {
+                    Self::shutdown_handle(handle);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Whether a terminal was started through `create_managed_terminal`.
+    pub fn is_managed(&self, terminal_id: &str) -> bool {
+        self.terminals
+            .lock()
+            .get(terminal_id)
+            .is_some_and(|h| h.managed)
     }
 
     /// Build the command to run in the terminal.
@@ -547,6 +808,10 @@ impl PtyManager {
         terminal_id: &str,
         user_env: &HashMap<String, String>,
     ) {
+        // Never inherit another run's identity from the NotMux process env.
+        for key in MANAGED_ENV {
+            cmd.env_remove(key);
+        }
         for (key, value) in build_terminal_env(terminal_id, user_env) {
             cmd.env(key, value);
         }
@@ -560,6 +825,9 @@ pub fn build_terminal_env(
     let mut env = HashMap::new();
     for (key, value) in user_env {
         if matches!(key.as_str(), "NOTMUX_TERMINAL_ID" | "TERM" | "COLORTERM" | "LANG") {
+            continue;
+        }
+        if MANAGED_ENV.contains(&key.as_str()) {
             continue;
         }
         if key == "PATH" {
@@ -663,7 +931,27 @@ impl PtyManager {
         shutdown: Arc<PtyShutdownState>,
         child_pid: Option<u32>,
         output_sink: Option<Arc<dyn PtyOutputSink>>,
+        managed: bool,
     ) {
+        // Managed terminals: the waiter thread owns the exit status. After
+        // EOF, wait briefly for it and send the single exit event.
+        let report_exit = |tx: &Sender<PtyEvent>, terminal_id: String| {
+            if managed {
+                let exit_code = shutdown.wait_exit_status(MANAGED_EOF_STATUS_GRACE).flatten();
+                if shutdown.claim_exit_report() {
+                    let _ = tx.send_blocking(PtyEvent::Exit {
+                        terminal_id,
+                        exit_code,
+                    });
+                }
+            } else {
+                let exit_code = child_pid.and_then(wait_for_exit_code);
+                let _ = tx.send_blocking(PtyEvent::Exit {
+                    terminal_id,
+                    exit_code,
+                });
+            }
+        };
         // Use larger buffer like alacritty (they use 1MB, we use 64KB)
         let mut buf = [0u8; 65536];
         loop {
@@ -674,11 +962,7 @@ impl PtyManager {
             match reader.read(&mut buf) {
                 Ok(0) => {
                     // EOF - process exited, try to get exit code
-                    let exit_code = child_pid.and_then(wait_for_exit_code);
-                    let _ = tx.send_blocking(PtyEvent::Exit {
-                        terminal_id,
-                        exit_code,
-                    });
+                    report_exit(&tx, terminal_id);
                     break;
                 }
                 Ok(n) => {
@@ -714,11 +998,7 @@ impl PtyManager {
                     if !shutdown.is_broken() {
                         log::error!("PTY read error: {}", e);
                     }
-                    let exit_code = child_pid.and_then(wait_for_exit_code);
-                    let _ = tx.send_blocking(PtyEvent::Exit {
-                        terminal_id,
-                        exit_code,
-                    });
+                    report_exit(&tx, terminal_id);
                     break;
                 }
             }
@@ -788,6 +1068,9 @@ impl PtyManager {
         let session_backend = self.session_backend;
         let session_name = session_backend.session_name(terminal_id);
         let short_id = terminal_id[..8.min(terminal_id.len())].to_string();
+        // Managed launches never had a session; tmux/screen/dtach must not
+        // be asked to kill one.
+        let managed = handle.as_ref().is_some_and(|h| h.managed);
 
         // Read WSL info before moving the handle
         #[cfg(windows)]
@@ -801,6 +1084,9 @@ impl PtyManager {
             .spawn(move || {
                 if let Some(handle) = handle {
                     Self::shutdown_handle(handle);
+                }
+                if managed {
+                    return;
                 }
                 // On Windows, if this was a WSL terminal with a session backend,
                 // kill the session inside WSL instead of on the host
@@ -853,6 +1139,14 @@ impl PtyManager {
         {
             log::warn!("PTY reader thread panicked on join: {}", format_panic(&*e));
         }
+
+        // 7. Managed launches: the waiter returns once the killed child is
+        // reaped.
+        if let Some(h) = handle.waiter_handle.take()
+            && let Err(e) = h.join()
+        {
+            log::warn!("PTY waiter thread panicked on join: {}", format_panic(&*e));
+        }
     }
 
     /// Detach from all terminals without killing sessions
@@ -867,10 +1161,7 @@ impl PtyManager {
 
     /// Get the shell process PID for a terminal
     pub fn get_shell_pid(&self, terminal_id: &str) -> Option<u32> {
-        self.terminals
-            .lock()
-            .get(terminal_id)
-            .and_then(|h| h.child.process_id())
+        self.terminals.lock().get(terminal_id).and_then(|h| h.pid)
     }
 
     /// Get the real foreground shell pid for this terminal, resolving through
@@ -880,6 +1171,9 @@ impl PtyManager {
     /// the shell pid. Callers get a pid they can pgrep / `/proc`-inspect for
     /// running children.
     pub fn get_foreground_shell_pid(&self, terminal_id: &str) -> Option<u32> {
+        if self.is_managed(terminal_id) {
+            return self.get_shell_pid(terminal_id);
+        }
         #[cfg(unix)]
         {
             match self.session_backend {
@@ -905,6 +1199,9 @@ impl PtyManager {
     /// With session backends (dtach/tmux), the PTY child is the attach process,
     /// not the actual service. This method finds the real service root PID.
     pub fn get_service_pids(&self, terminal_id: &str) -> Vec<u32> {
+        if self.is_managed(terminal_id) {
+            return self.get_shell_pid(terminal_id).into_iter().collect();
+        }
         #[cfg(unix)]
         {
             match self.session_backend {
@@ -1071,6 +1368,9 @@ impl PtyManager {
     /// Capture the terminal buffer to a file (only works with tmux backend)
     /// Returns the path to the captured file, or None if not using tmux
     pub fn capture_buffer(&self, terminal_id: &str) -> Option<std::path::PathBuf> {
+        if self.is_managed(terminal_id) {
+            return None;
+        }
         // Check for WSL tmux first (Windows only)
         #[cfg(windows)]
         {
@@ -1507,5 +1807,160 @@ mod tests {
             "PATH {path:?} should start with {expected_prefix:?}"
         );
         assert!(!path.contains("$PATH"));
+    }
+
+    #[test]
+    fn terminal_env_drops_reserved_orchestration_keys() {
+        let mut user = HashMap::new();
+        user.insert("NOTMUX_RUN_ID".to_string(), "leak".to_string());
+        user.insert("NOTMUX_AGENT_ROLE".to_string(), "worker".to_string());
+        user.insert("KEEP".to_string(), "1".to_string());
+        let env = build_terminal_env("t", &user);
+        assert!(!env.contains_key("NOTMUX_RUN_ID"));
+        assert!(!env.contains_key("NOTMUX_AGENT_ROLE"));
+        assert_eq!(env.get("KEEP").map(String::as_str), Some("1"));
+    }
+
+    #[cfg(unix)]
+    mod managed {
+        use super::super::{PtyEvent, PtyManager};
+        use crate::session_backend::SessionBackend;
+        use std::collections::HashMap;
+        use std::time::{Duration, Instant};
+
+        /// Collect output and the exit event of one terminal.
+        fn drain(rx: &async_channel::Receiver<PtyEvent>, id: &str) -> (String, Option<u32>) {
+            let mut out = Vec::new();
+            let start = Instant::now();
+            let mut exit = None;
+            while start.elapsed() < Duration::from_secs(15) {
+                match rx.recv_blocking() {
+                    Ok(PtyEvent::Data { terminal_id, data }) if terminal_id == id => out.extend(data),
+                    Ok(PtyEvent::Exit { terminal_id, exit_code }) if terminal_id == id => {
+                        exit = Some(exit_code);
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+            let exit = exit.expect("exit event arrives");
+            (String::from_utf8_lossy(&out).replace("\r\n", "\n"), exit)
+        }
+
+        #[test]
+        fn argv_boundaries_survive_verbatim() {
+            let _guard = crate::test_env_lock();
+            let (manager, rx) = PtyManager::new(SessionBackend::None);
+            let args: Vec<String> = ["-c", "printf '%s\\n' \"$@\"", "sh", "with space", "\"quoted\"", "it's", "ünïcödé ✓", "--flag=x y"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let reserved = vec![("NOTMUX_RUN_ID".to_string(), "run-1".to_string())];
+            manager
+                .create_managed_terminal("managed-argv", std::path::Path::new("/bin/sh"), &args, "/", &HashMap::new(), &reserved)
+                .unwrap();
+            assert!(manager.is_managed("managed-argv"));
+            assert!(manager.get_shell_pid("managed-argv").is_some());
+            let (out, code) = drain(&rx, "managed-argv");
+            assert_eq!(out, "with space\n\"quoted\"\nit's\nünïcödé ✓\n--flag=x y\n");
+            assert_eq!(code, Some(0));
+            manager.cleanup_exited("managed-argv");
+        }
+
+        #[test]
+        fn reserved_env_reaches_the_process_and_exit_code_is_reported() {
+            let _guard = crate::test_env_lock();
+            let (manager, rx) = PtyManager::new(SessionBackend::None);
+            let args: Vec<String> = ["-c", "echo \"$NOTMUX_RUN_ID/$NOTMUX_AGENT_ROLE/$NOTMUX_TERMINAL_ID\"; exit 7"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let reserved = vec![
+                ("NOTMUX_RUN_ID".to_string(), "run-2".to_string()),
+                ("NOTMUX_AGENT_ROLE".to_string(), "worker".to_string()),
+            ];
+            manager
+                .create_managed_terminal("managed-env", std::path::Path::new("/bin/sh"), &args, "/", &HashMap::new(), &reserved)
+                .unwrap();
+            let (out, code) = drain(&rx, "managed-env");
+            assert_eq!(out.trim(), "run-2/worker/managed-env");
+            assert_eq!(code, Some(7));
+            manager.cleanup_exited("managed-env");
+        }
+
+        #[test]
+        fn immediately_exiting_process_is_not_lost() {
+            let _guard = crate::test_env_lock();
+            let (manager, rx) = PtyManager::new(SessionBackend::None);
+            let args: Vec<String> = vec!["-c".into(), "exit 3".into()];
+            manager
+                .create_managed_terminal("managed-fast", std::path::Path::new("/bin/sh"), &args, "/", &HashMap::new(), &[])
+                .unwrap();
+            let (_, code) = drain(&rx, "managed-fast");
+            assert_eq!(code, Some(3));
+            manager.cleanup_exited("managed-fast");
+        }
+
+        #[test]
+        fn lingering_grandchild_does_not_hide_the_exit() {
+            let _guard = crate::test_env_lock();
+            let (manager, rx) = PtyManager::new(SessionBackend::None);
+            // The shell exits while a background sleep keeps the PTY open.
+            let args: Vec<String> = vec!["-c".into(), "sleep 30 & exit 5".into()];
+            let started = Instant::now();
+            manager
+                .create_managed_terminal("managed-linger", std::path::Path::new("/bin/sh"), &args, "/", &HashMap::new(), &[])
+                .unwrap();
+            let (_, code) = drain(&rx, "managed-linger");
+            assert_eq!(code, Some(5));
+            assert!(started.elapsed() < Duration::from_secs(10), "exit reported without waiting for the grandchild");
+            manager.kill("managed-linger");
+        }
+
+        #[test]
+        fn setup_errors_leave_no_terminal_behind() {
+            let _guard = crate::test_env_lock();
+            let (manager, _rx) = PtyManager::new(SessionBackend::None);
+            let none: Vec<String> = vec![];
+            let e = manager
+                .create_managed_terminal("m-missing", std::path::Path::new("/nonexistent/agent"), &none, "/", &HashMap::new(), &[])
+                .unwrap_err();
+            assert!(e.to_string().contains("does not exist"), "{e}");
+            let e = manager
+                .create_managed_terminal("m-cwd", std::path::Path::new("/bin/sh"), &none, "/nonexistent/dir", &HashMap::new(), &[])
+                .unwrap_err();
+            assert!(e.to_string().contains("working directory"), "{e}");
+            let bad = vec![("PATH".to_string(), "x".to_string())];
+            let e = manager
+                .create_managed_terminal("m-env", std::path::Path::new("/bin/sh"), &none, "/", &HashMap::new(), &bad)
+                .unwrap_err();
+            assert!(e.to_string().contains("not a reserved"), "{e}");
+            assert!(!manager.is_managed("m-missing"));
+            assert!(manager.get_shell_pid("m-cwd").is_none());
+            assert!(manager.get_shell_pid("m-env").is_none());
+        }
+
+        #[test]
+        fn kill_stops_a_running_managed_process() {
+            let _guard = crate::test_env_lock();
+            let (manager, rx) = PtyManager::new(SessionBackend::None);
+            let args: Vec<String> = vec!["-c".into(), "sleep 60".into()];
+            manager
+                .create_managed_terminal("managed-kill", std::path::Path::new("/bin/sh"), &args, "/", &HashMap::new(), &[])
+                .unwrap();
+            let pid = manager.get_shell_pid("managed-kill").unwrap();
+            manager.kill("managed-kill");
+            let (_, code) = drain(&rx, "managed-kill");
+            assert_eq!(code, None, "killed by signal: no exit code");
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(5) {
+                if unsafe { libc::kill(pid as i32, 0) } != 0 {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            panic!("process {pid} still alive after kill");
+        }
     }
 }

@@ -4995,6 +4995,7 @@ dependencies = [
  "subtle",
  "syntect",
  "sysinfo 0.33.1",
+ "tempfile",
  "thiserror 2.0.18",
  "time",
  "tokio",
@@ -5325,6 +5326,7 @@ name = "notmux-views-terminal"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "anyhow",
  "block2 0.6.2",
  "futures",
  "gpui",

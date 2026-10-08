@@ -160,7 +160,7 @@ fn is_intentional_end_reason(reason: &str) -> bool {
 /// Read stdin to EOF and parse as JSON. Hooks pipe the payload; callers that
 /// pass flags instead close stdin immediately, so this returns quickly. A
 /// TTY stdin (manual CLI invocation) is skipped so the call never blocks.
-fn read_stdin_json() -> Option<serde_json::Value> {
+pub(super) fn read_stdin_json() -> Option<serde_json::Value> {
     use std::io::IsTerminal;
     if std::io::stdin().is_terminal() {
         return None;

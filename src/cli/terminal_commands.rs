@@ -274,6 +274,7 @@ pub fn cli_terminals(args: &[String]) -> i32 {
                     "agent_state": rt.agent_state,
                     "agent_kind": rt.agent_kind,
                     "notification": rt.notification,
+                    "managed_run": rt.managed_run,
                 })
             })
             .collect();
@@ -284,7 +285,22 @@ pub fn cli_terminals(args: &[String]) -> i32 {
                 .agent_state
                 .map(|s| s.as_str())
                 .unwrap_or("-");
-            println!("{}\t{}\t{}\t{}", id, name, pname, state);
+            match rt.managed_run {
+                Some(run) => println!(
+                    "{}\t{}\t{}\t{}\t{} {} {} {}/{}/{}",
+                    id,
+                    name,
+                    pname,
+                    state,
+                    run.role,
+                    run.run_id,
+                    run.harness,
+                    run.worker_state,
+                    run.process_state,
+                    run.task_state.as_deref().unwrap_or("-")
+                ),
+                None => println!("{}\t{}\t{}\t{}", id, name, pname, state),
+            }
         }
     }
     0

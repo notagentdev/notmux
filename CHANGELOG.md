@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Agent orchestration
+
+- `notmux agent`: one pane can orchestrate up to four worker panes running
+  notagent, Claude Code, Codex or any executable. `lead` opens an
+  orchestrator, `spawn`/`assign` hand out work, `next`/`wait` block for it,
+  `message`/`inbox` carry questions, `finish` reports; workers never spawn
+  workers, a root has a start budget, and results are immutable. Managed
+  agents start unattended (`--yolo`, `--dangerously-skip-permissions`,
+  `--dangerously-bypass-approvals-and-sandbox`) with the vendor's folder
+  trust written first; every such write is recorded on the run.
+- Managed panes join the project's grid, show a run header line, roll up
+  into the sidebar like any agent, report through `notmux terminals` and
+  `/v1/state`, and are never respawned as shells. Everything they started is
+  killed when NotMux quits; unfinished runs are marked interrupted on the
+  next start.
+- No agent is modified: notagent runs with its own `--yolo --approve` and
+  the skill as appended system prompt, waiting cooperatively; `notmux hooks
+  setup notagent` adds one `UserPromptSubmit` entry that drains a managed
+  run's inbox into the prompt. See `docs/agent-orchestration.md`.
+
 ### Agent state
 
 - Every terminal that hosts a coding agent now carries a lifecycle state —
