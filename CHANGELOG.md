@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Agent orchestration
 
 - `notmux agent`: one pane can orchestrate up to four worker panes running
@@ -26,51 +28,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   setup notagent` adds one `UserPromptSubmit` entry that drains a managed
   run's inbox into the prompt. See `docs/agent-orchestration.md`.
 
-### Agent state
+### Added
 
-- Every terminal that hosts a coding agent now carries a lifecycle state —
-  `working`, `blocked`, `done`, `idle`, or `unknown` — instead of a bare
-  working flag. `done` is derived: the agent finished and nobody has looked at
-  the pane since; clicking or typing into it moves it to `idle`, typing also
-  answers a `blocked` prompt.
-- Sidebar project rows roll the state of their terminals up (blocked before
-  working before done), so an agent that needs a decision in a project that
-  is collapsed or scrolled out of view is still visible.
-- Agent hooks report `blocked` for approval and question prompts; reinstall
-  with `notmux hooks setup` to pick the change up. Hook reports stay
-  authoritative while the agent runs.
-- Agents without hooks are read from the visible screen with a small rule
-  table per agent (Claude Code, Codex, Gemini CLI, OpenCode, Cursor). A known
-  agent whose screen matches no rule shows `unknown` rather than a guess. A
-  background pass covers every terminal, including ones in projects that are
-  not on screen, and clears the state once the agent process is gone.
-- `/v1/state` exposes a per-terminal `terminal_states` map (state, source,
-  agent kind, pending notification, waiting-for-input, OSC title).
-  `set_agent_activity` and `notify` accept an optional `state`; old payloads
-  keep working.
-- New CLI commands: `notmux wait --until <states>` blocks until a terminal's
-  agent reaches one of the states, `notmux wait-output <text>|--regex` blocks
-  until the visible screen matches, `notmux agent-explain` shows how the
-  state was determined. `notmux terminals` gained a state column and
-  `notmux agent-status` accepts `blocked`.
-- Every effective lifecycle transition is appended to `events.jsonl` as an
-  `agent_state` event with its cause — `hook`, `screen` (plus the rule that
-  fired), `exit`, `notification` (a badge arrived), `seen` (the user
-  dismissed it or answered), or `interrupt` (Esc / Ctrl+C in the pane).
-- On platforms without a child-process probe the agent kind comes from the
-  session store the agents' own hooks write, and a session end recorded
-  there clears the terminal's agent state.
+- A welcome screen on the first start, when the workspace has no projects,
+  with an "Add project" link; the sidebar now opens by default.
+- New terminals, editors and browsers fill a row to the right up to four
+  panes, then start a new row below, instead of docking beneath the layout.
 
 ### Fixed
 
-- A browser pane opened by an agent (`notmux browser open` from inside a
-  NotMux terminal) now lands in the agent's own project instead of the one
-  the user is looking at: pane lookup and creation are scoped to the calling
-  terminal's project. With the pinned view active, a pinned caller gets the
-  browser pinned right next to it (and it stays in the project layout); an
-  unpinned caller or a project that is not on screen gets the browser in
-  that project only, without pulling focus or pinning it. The CLI sends the
-  calling terminal's id; explicit `--pane`/`--project` still win.
+- Memory and CPU blow-up in repositories that receive many untracked files
+  (e.g. a render writing thousands of frames): every file-system batch
+  started another concurrent git status refresh, and each one read every
+  untracked file whole. Refreshes are now single-flight per project, and
+  untracked files are counted streamed, capped at 5 MB and cached. The diff
+  viewer shows a placeholder for untracked files over 5 MB instead of loading
+  them.
+- A browser pane that is partly scrolled out of view or overlapped no longer
+  draws over other terminals.
+- The right panel header keeps clear of the window controls on Windows and
+  Linux.
 
 ## [0.1.3]
 
@@ -242,6 +219,41 @@ action, notification, and terminal exit is appended to
 - **Linux** x86_64 — Wayland maximize workaround, auto-detected shells.
 - **Windows** x86_64 — custom titlebar, cmd/PowerShell/WSL with distro
   detection.
+
+### Agent state
+
+- Every terminal that hosts a coding agent carries a lifecycle state —
+  `working`, `blocked`, `done`, `idle`, or `unknown`. `done` is derived: the
+  agent finished and nobody has looked at the pane since; clicking or typing
+  into it moves it to `idle`, typing also answers a `blocked` prompt.
+- Sidebar project rows roll the state of their terminals up (blocked before
+  working before done), so an agent that needs a decision in a project that
+  is collapsed or scrolled out of view is still visible.
+- Agent hooks report `blocked` for approval and question prompts. Hook
+  reports stay authoritative while the agent runs.
+- Agents without hooks are read from the visible screen with a small rule
+  table per agent (Claude Code, Codex, Gemini CLI, OpenCode, Cursor). A known
+  agent whose screen matches no rule shows `unknown` rather than a guess. A
+  background pass covers every terminal, including ones in projects that are
+  not on screen, and clears the state once the agent process is gone.
+- `/v1/state` exposes a per-terminal `terminal_states` map (state, source,
+  agent kind, pending notification, waiting-for-input, OSC title).
+  `set_agent_activity` and `notify` accept an optional `state`.
+- CLI: `notmux wait --until <states>` blocks until a terminal's agent reaches
+  one of the states, `notmux wait-output <text>|--regex` blocks until the
+  visible screen matches, `notmux agent-explain` shows how the state was
+  determined. `notmux terminals` has a state column and `notmux agent-status`
+  accepts `blocked`.
+- Every effective lifecycle transition is appended to `events.jsonl` as an
+  `agent_state` event with its cause — `hook`, `screen` (plus the rule that
+  fired), `exit`, `notification` (a badge arrived), `seen` (the user
+  dismissed it or answered), or `interrupt` (Esc / Ctrl+C in the pane).
+- On platforms without a child-process probe the agent kind comes from the
+  session store the agents' own hooks write, and a session end recorded
+  there clears the terminal's agent state.
+- A browser pane opened by an agent (`notmux browser open` from inside a
+  NotMux terminal) lands in the agent's own project instead of the one the
+  user is looking at; explicit `--pane`/`--project` still win.
 
 ### Known limitations
 

@@ -39,6 +39,7 @@ For maintainers: see [Desktop releases](docs/releasing.md).
 
 ### Layout & Window Management
 - **Split panes** - Horizontal and vertical splits with drag-to-resize dividers
+- **Grid placement** - New terminals, editors and browsers fill a row up to four panes, then start a new row
 - **Tabs** - Organize terminals in tabbed containers with reordering support
 - **Detachable windows** - Pop out any terminal into a separate floating window and reattach later
 - **Fullscreen mode** - Focus on a single terminal with next/previous cycling
@@ -82,7 +83,7 @@ For maintainers: see [Desktop releases](docs/releasing.md).
 - **Worktree path templates** - Configure worktree paths with `{repo}` and `{branch}` variables
 - **Merge/stash on close** - Options to merge, stash, fetch, push, or delete branch when closing a worktree
 - **Branch detection** - Displays current branch, handles detached HEAD
-- **Diff stats** - Tracks lines added/removed with cached git status
+- **Diff stats** - Tracks lines added/removed with cached git status; at most one status refresh runs per project, and untracked files over 5 MB are skipped, so repos that receive thousands of generated files stay cheap
 
 ### Themes & Appearance
 - **Built-in themes** - 11 themes from the notagent theme engine: dark, light, one-dark, one-light, tokyo-night, dracula, alucard, anysphere, nord-midnight, poimandres-dark, poimandres-light
