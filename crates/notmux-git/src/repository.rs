@@ -7,7 +7,8 @@ use notmux_core::process::{command, safe_output};
 
 /// Skip line-counting untracked files bigger than this (they'd be rejected
 /// by the viewers anyway and reading them on every poll is wasted I/O).
-const UNTRACKED_COUNT_MAX_SIZE: u64 = 5 * 1024 * 1024;
+/// The diff viewer uses the same cap for untracked files.
+pub(crate) const UNTRACKED_COUNT_MAX_SIZE: u64 = 5 * 1024 * 1024;
 
 /// Untracked-file line counts, keyed by absolute path and validated by
 /// `(mtime, size)`; the cached value is `(mtime, size, line_count)`.
@@ -17,9 +18,10 @@ type UntrackedLineCache = std::collections::HashMap<PathBuf, (SystemTime, u64, u
 /// from several places; without this every poll re-reads every untracked file.
 static UNTRACKED_LINE_CACHE: Mutex<Option<UntrackedLineCache>> = Mutex::new(None);
 
-/// Upper bound on cache entries; the cache is dropped wholesale when it
-/// grows past this (untracked sets are usually small — this is a backstop).
-const UNTRACKED_CACHE_MAX_ENTRIES: usize = 4096;
+/// Upper bound on cache entries (~200 B each, so ~13 MB worst case). Sized
+/// above realistic untracked sets — a render dumping thousands of frames
+/// must still hit the cache on every refresh.
+const UNTRACKED_CACHE_MAX_ENTRIES: usize = 65_536;
 
 /// Count the lines of an untracked file (as `str::lines` would), cached by
 /// (mtime, size). Binary files (NUL byte in the first chunk) and files over
@@ -49,11 +51,21 @@ pub(crate) fn count_untracked_lines(path: &Path) -> usize {
 
     let mut guard = UNTRACKED_LINE_CACHE.lock().expect("cache lock");
     let cache = guard.get_or_insert_with(Default::default);
-    if cache.len() >= UNTRACKED_CACHE_MAX_ENTRIES {
-        cache.clear();
-    }
-    cache.insert(path.to_path_buf(), (mtime, size, lines));
+    insert_bounded(cache, path.to_path_buf(), (mtime, size, lines));
     lines
+}
+
+/// Insert into the line cache, evicting one arbitrary entry when full.
+/// Clearing wholesale instead would make every refresh of a repo with more
+/// untracked files than the cap re-read all of them.
+fn insert_bounded(cache: &mut UntrackedLineCache, path: PathBuf, value: (SystemTime, u64, usize)) {
+    if cache.len() >= UNTRACKED_CACHE_MAX_ENTRIES
+        && !cache.contains_key(&path)
+        && let Some(victim) = cache.keys().next().cloned()
+    {
+        cache.remove(&victim);
+    }
+    cache.insert(path, value);
 }
 
 /// Stream the file and count newlines (plus an unterminated last line),
@@ -1692,6 +1704,26 @@ pub fn pull(repo_path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn line_cache_evicts_one_entry_when_full() {
+        let mut cache = UntrackedLineCache::new();
+        let value = (SystemTime::UNIX_EPOCH, 1, 1);
+        for i in 0..UNTRACKED_CACHE_MAX_ENTRIES {
+            insert_bounded(&mut cache, PathBuf::from(format!("/f{i}")), value);
+        }
+        assert_eq!(cache.len(), UNTRACKED_CACHE_MAX_ENTRIES);
+
+        // Overflow evicts a single entry instead of dropping the whole cache.
+        insert_bounded(&mut cache, PathBuf::from("/new"), value);
+        assert_eq!(cache.len(), UNTRACKED_CACHE_MAX_ENTRIES);
+        assert!(cache.contains_key(Path::new("/new")));
+
+        // Re-inserting an existing key at capacity evicts nothing.
+        insert_bounded(&mut cache, PathBuf::from("/new"), (SystemTime::UNIX_EPOCH, 2, 2));
+        assert_eq!(cache.len(), UNTRACKED_CACHE_MAX_ENTRIES);
+        assert_eq!(cache[Path::new("/new")].2, 2);
+    }
 
     const TWO_HUNK_DIFF: &str = "diff --git a/f.rs b/f.rs\n\
 index 111..222 100644\n\

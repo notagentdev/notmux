@@ -470,6 +470,34 @@ fn get_untracked_files(path: &Path, file_path: Option<&str>) -> Vec<String> {
 fn create_untracked_file_diff(repo_path: &Path, file_path: &str) -> Option<FileDiff> {
     let full_path = safe_repo_path(repo_path, file_path)?;
 
+    // Never materialize huge untracked files (renders, logs, models): every
+    // line would become its own DiffLine. Show a placeholder hunk instead.
+    let size = std::fs::metadata(&full_path).ok()?.len();
+    if size > crate::repository::UNTRACKED_COUNT_MAX_SIZE {
+        let header = format!(
+            "@@ new file, {:.1} MB — too large to display (max 5 MB) @@",
+            size as f64 / (1024.0 * 1024.0)
+        );
+        return Some(FileDiff {
+            old_path: None,
+            new_path: Some(file_path.to_string()),
+            hunks: vec![DiffHunk {
+                header: header.clone(),
+                old_start: 0,
+                new_start: 1,
+                lines: vec![DiffLine {
+                    line_type: DiffLineType::Header,
+                    content: header,
+                    old_line_num: None,
+                    new_line_num: None,
+                }],
+            }],
+            is_binary: false,
+            lines_added: 0,
+            lines_removed: 0,
+        });
+    }
+
     // Check if it's a binary file (simple heuristic)
     let content = match std::fs::read(&full_path) {
         Ok(bytes) => {
@@ -676,6 +704,24 @@ pub fn get_file_contents_for_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn untracked_diff_skips_files_over_size_cap() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let big = vec![b'x'; crate::repository::UNTRACKED_COUNT_MAX_SIZE as usize + 1];
+        std::fs::write(dir.path().join("big.log"), big).expect("write big");
+        std::fs::write(dir.path().join("small.txt"), "a\nb\n").expect("write small");
+
+        let diff = create_untracked_file_diff(dir.path(), "big.log").expect("big diff");
+        assert!(!diff.is_binary);
+        assert_eq!(diff.lines_added, 0);
+        assert_eq!(diff.hunks.len(), 1);
+        assert_eq!(diff.hunks[0].lines.len(), 1, "placeholder header only");
+        assert!(diff.hunks[0].header.contains("too large"));
+
+        let diff = create_untracked_file_diff(dir.path(), "small.txt").expect("small diff");
+        assert_eq!(diff.lines_added, 2);
+    }
 
     #[test]
     fn test_parse_hunk_header() {
