@@ -1038,6 +1038,9 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
         let bar_at_window_top = self.container_bounds_ref.borrow().origin.y < px(6.0);
         if bar_at_window_top {
             end_drop_zone = end_drop_zone
+                // Windows: the OS drags via this hit-test area
+                // (start_window_move is a no-op there).
+                .window_control_area(WindowControlArea::Drag)
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, _| this.title_should_move = true),

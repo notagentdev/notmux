@@ -100,6 +100,24 @@ pub fn right_overlay_reserve(base: f32, window: &Window) -> f32 {
     base + caption_cluster_width(window)
 }
 
+/// Window-drag area for a strip filler that only moves the window while it
+/// sits at the window's top edge — known after layout, so the hitbox is
+/// registered at paint. Windows drags through this OS hit-test area because
+/// `start_window_move` is a no-op there; macOS and Linux ignore it and keep
+/// using the mouse-down/move latch.
+pub fn top_edge_drag_area() -> impl IntoElement {
+    canvas(
+        |bounds, window, _cx| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        |bounds, hitbox, window, _cx| {
+            if bounds.origin.y < px(6.0) {
+                window.insert_window_control_hitbox(WindowControlArea::Drag, hitbox);
+            }
+        },
+    )
+    .absolute()
+    .size_full()
+}
+
 /// The minimize / maximize-or-restore / close cluster. Shared by the title
 /// bar and by full-window overlays (settings) that visually replace it —
 /// anything covering the title bar must re-render these or the window

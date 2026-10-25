@@ -984,6 +984,7 @@ impl Render for ProjectColumn {
                             ))
                             .flex_1()
                             .h_full()
+                            .child(crate::views::chrome::title_bar::top_edge_drag_area())
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener({
@@ -1052,6 +1053,9 @@ impl Render for ProjectColumn {
                                 .bg(rgb(t.bg_header))
                                 .border_b_1()
                                 .border_color(rgb(t.border))
+                                // Windows: the OS drags via this hit-test area
+                                // (start_window_move is a no-op there).
+                                .window_control_area(WindowControlArea::Drag)
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _, _, _| this.title_should_move = true),

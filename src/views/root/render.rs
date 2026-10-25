@@ -228,6 +228,9 @@ impl RootView {
                     .left_0()
                     .w_full()
                     .h(px(notmux_ui::tokens::TITLE_BAR_STRIP_H))
+                    // Windows: start_window_move is a no-op there; the OS drags
+                    // the window via this hit-test area (ignored elsewhere).
+                    .window_control_area(WindowControlArea::Drag)
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, _| this.title_should_move = true),
@@ -1135,6 +1138,7 @@ impl RootView {
             .flex_1()
             .h_full()
             .min_w(px(20.0))
+            .child(crate::views::chrome::title_bar::top_edge_drag_area())
             .drag_over::<PinnedColumnDrag>(move |style, _: &PinnedColumnDrag, _, _| {
                 if active_drag_for_end_hover.borrow().is_some() {
                     return style;
