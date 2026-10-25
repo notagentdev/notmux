@@ -21,14 +21,15 @@ impl<D: ActionDispatch + Send + Sync> TerminalPane<D> {
     }
 
     pub(super) fn handle_close(&mut self, cx: &mut Context<Self>) {
-        if let Some(terminal_id) = self.terminal_id.clone() {
-            let action = ActionRequest::CloseTerminal {
-                project_id: self.project_id.clone(),
-                terminal_id,
-            };
-            if let Some(ref dispatcher) = self.action_dispatcher {
-                dispatcher.dispatch(action, cx);
-            }
+        // A pane without terminal (an interrupted managed pane) closes by
+        // its slot id.
+        let pane_id = self.terminal_id.clone().unwrap_or_else(|| self.slot_id.clone());
+        let action = ActionRequest::CloseTerminal {
+            project_id: self.project_id.clone(),
+            terminal_id: pane_id,
+        };
+        if let Some(ref dispatcher) = self.action_dispatcher {
+            dispatcher.dispatch(action, cx);
         }
     }
 

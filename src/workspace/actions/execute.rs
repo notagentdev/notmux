@@ -105,17 +105,21 @@ fn execute_action_inner(
                     ActionResult::Ok(None)
                 }
                 None => {
-                    // Editor/browser panes close through the same action,
-                    // addressed by their slot id — no PTY/snapshot to clean up.
+                    // Editor/browser panes, and terminals that have no
+                    // terminal id (an interrupted managed pane), close through
+                    // the same action addressed by their slot id — no PTY.
                     let pane_path = ws
                         .project(&project_id)
                         .and_then(|p| p.layout.as_ref())
-                        .and_then(|l| {
-                            l.find_editor_path_by_slot(&terminal_id)
-                                .or_else(|| l.find_browser_path_by_slot(&terminal_id))
-                        });
+                        .and_then(|l| l.find_pane_path(&terminal_id));
                     match pane_path {
                         Some(path) => {
+                            // A terminal leaf may still have a persisted scrollback.
+                            if let Some((project_path, slot_id)) =
+                                terminal_snapshot_target(ws, &project_id, &path)
+                            {
+                                clear_slot_snapshot_before_close(&project_path, &slot_id);
+                            }
                             ws.close_terminal_and_focus_sibling(&project_id, &path, cx);
                             ActionResult::Ok(None)
                         }

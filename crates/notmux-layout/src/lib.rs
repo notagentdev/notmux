@@ -781,11 +781,21 @@ impl LayoutNode {
     /// Layout path of a pane by its shared pane id: terminals are addressed by
     /// terminal id, editors and browsers by slot id. This is the addressing
     /// used by tab drag/close so editor/browser panes move through the same
-    /// pipeline as terminals.
+    /// pipeline as terminals. A terminal leaf without a terminal id (an
+    /// interrupted managed pane, which never gets one again) goes by its slot
+    /// id too.
     pub fn find_pane_path(&self, pane_id: &str) -> Option<Vec<usize>> {
         self.find_terminal_path(pane_id)
             .or_else(|| self.find_editor_path_by_slot(pane_id))
             .or_else(|| self.find_browser_path_by_slot(pane_id))
+            .or_else(|| {
+                let path = self.find_path_by_slot_id(pane_id)?;
+                matches!(
+                    self.get_at_path(&path),
+                    Some(LayoutNode::Terminal { terminal_id: None, .. })
+                )
+                .then_some(path)
+            })
     }
 
     /// All pane ids in this subtree: terminal ids plus editor/browser slot ids.
@@ -2531,6 +2541,25 @@ mod tests {
             }
             _ => panic!("Expected split"),
         }
+    }
+
+    #[test]
+    fn terminal_without_id_is_addressed_by_slot() {
+        let mut inert = LayoutNode::new_terminal_with_ids("slot-inert", "t-old");
+        if let LayoutNode::Terminal { terminal_id, .. } = &mut inert {
+            *terminal_id = None;
+        }
+        let layout = LayoutNode::Split {
+            direction: SplitDirection::Horizontal,
+            sizes: vec![50.0, 50.0],
+            children: vec![terminal("t1"), inert],
+        };
+        assert_eq!(layout.find_pane_path("slot-inert"), Some(vec![1]));
+        // A terminal that has an id is only found by that id.
+        let t1_slot = layout.terminal_slot_id_at_path(&[0]);
+        assert!(t1_slot.is_some());
+        assert_eq!(t1_slot.and_then(|slot| layout.find_pane_path(&slot)), None);
+        assert_eq!(layout.find_pane_path("t1"), Some(vec![0]));
     }
 
     #[test]

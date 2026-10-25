@@ -508,10 +508,12 @@ impl<D: ActionDispatch + Send + Sync> LayoutContainer<D> {
                 };
                 // The shared pane id: terminals are addressed by terminal id,
                 // editors/browsers by slot id — drag/close dispatch the same
-                // actions.
+                // actions. A terminal without an id (an interrupted managed
+                // pane) goes by its slot id, or it could never be closed.
                 let pane_id = match child {
                     LayoutNode::Editor { slot_id, .. }
-                    | LayoutNode::Browser { slot_id, .. } => Some(slot_id.clone()),
+                    | LayoutNode::Browser { slot_id, .. }
+                    | LayoutNode::Terminal { slot_id, terminal_id: None, .. } => Some(slot_id.clone()),
                     _ => terminal_id.clone(),
                 };
 

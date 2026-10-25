@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# notmux codex wrapper - runs interactive codex without the shared app-server
+# daemon inside notmux terminals.
+#
+# codex >= 0.159 runs its hooks in a shared background daemon. That daemon
+# keeps the environment of the terminal that started it, so the session-restore
+# hooks (`notmux agent-session record`, see notmux-hooks `install_codex`) record
+# every codex session under that one pane. With `--no-daemon` codex runs its
+# own server in-process and the hooks see this pane's NOTMUX_SLOT_ID.
+#
+# Only the interactive entry points get the flag: plain `codex [PROMPT]`,
+# `codex resume` and `codex fork`. Other subcommands, `--remote` (which cannot
+# be combined with it) and an explicit `--no-daemon` pass through unchanged.
+# Outside notmux the wrapper changes nothing.
+
+notmux_codex_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */notmux-shims/*/codex|*/notmux-shims/codex) return 0 ;;
+        */Resources/bin/codex|*/Contents/Resources/bin/codex) return 0 ;;
+    esac
+    return 1
+}
+
+find_real_codex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/codex"
+        notmux_codex_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+REAL_CODEX="$(find_real_codex)"
+if [[ -z "$REAL_CODEX" ]]; then
+    echo "notmux: codex not found on PATH" >&2
+    exit 127
+fi
+
+# Outside a notmux terminal: unchanged.
+if [[ -z "${NOTMUX_SLOT_ID:-}${NOTMUX_SURFACE_ID:-}" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+# Already chosen, or not combinable with --no-daemon: unchanged.
+for arg in "$@"; do
+    case "$arg" in
+        --no-daemon|--remote|--remote=*) exec "$REAL_CODEX" "$@" ;;
+    esac
+done
+
+# Skip global options (and their values) to find the subcommand, if any.
+subcommand=""
+skip_value=false
+for arg in "$@"; do
+    if [[ "$skip_value" == true ]]; then
+        skip_value=false
+        continue
+    fi
+    case "$arg" in
+        -c|--config|-m|--model|-p|--profile|-s|--sandbox|-a|--ask-for-approval|-C|--cd|-i|--image|--add-dir|--enable|--disable|--local-provider|--remote-auth-token-env)
+            skip_value=true ;;
+        --) break ;;
+        -*) ;;
+        *) subcommand="$arg"; break ;;
+    esac
+done
+
+case "$subcommand" in
+    ""|resume|fork) exec "$REAL_CODEX" --no-daemon "$@" ;;
+    agents|exec|e|review|login|logout|mcp|mcp-server|plugin|app|app-server|completion|update|doctor|sandbox|debug|apply|a|queue|archive|delete|unarchive|cloud|features|help)
+        exec "$REAL_CODEX" "$@" ;;
+    # Anything else is the initial prompt of an interactive session.
+    *) exec "$REAL_CODEX" --no-daemon "$@" ;;
+esac

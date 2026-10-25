@@ -28,7 +28,12 @@ impl Harness for Codex {
         };
         // codex 0.155 refuses `-a never` next to the bypass flag ("cannot be
         // used with"); the bypass alone already means no approvals.
+        // `--no-daemon`: the shared app-server daemon runs hooks in the
+        // environment of whichever terminal started it, so the session-restore
+        // hook would record this worker under another pane (see the codex
+        // shim, resources/bin/notmux-codex-wrapper).
         let mut args = vec![
+            "--no-daemon".to_string(),
             "-C".to_string(),
             req.cwd.to_string_lossy().into_owned(),
             "--dangerously-bypass-approvals-and-sandbox".to_string(),
@@ -97,8 +102,8 @@ mod tests {
         let launch = Codex.prepare(&req).unwrap();
         assert_eq!(launch.executable, exe);
         assert_eq!(
-            &launch.args[..3],
-            &["-C", cwd.to_str().unwrap(), "--dangerously-bypass-approvals-and-sandbox"]
+            &launch.args[..4],
+            &["--no-daemon", "-C", &*cwd.to_string_lossy(), "--dangerously-bypass-approvals-and-sandbox"]
         );
         assert!(!launch.args.iter().any(|a| a == "-a"), "codex refuses -a beside the bypass flag");
         let doc = std::fs::read_to_string(run_dir.join(TASK_FILE)).unwrap();
