@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
+### Fixed
+
+- Windows: the window can be dragged by the title-bar areas again (empty
+  strip above the sidebar, column headers, free space next to the top tabs).
+- Codex workers record their sessions under their own pane: a codex shim
+  adds `--no-daemon`, because the shared app-server daemon ran every hook in
+  the environment of the terminal that started it.
+- Agent panes still running when NotMux quit come back as ordinary panes
+  that resume their session; panes interrupted by an earlier restart can be
+  closed again.
+
 ## [0.2.0] - 2026-10-09
 
 ### Agent orchestration
